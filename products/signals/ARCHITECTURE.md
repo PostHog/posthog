@@ -981,6 +981,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
+- `signals_autostart_steering_attached` — an implementation task was created (+ `report_id`, `task_id`, `notes_attached`, `scratchpad_available`). Fires on every auto-start, so the share carrying fleet steering is readable. See Auto-Start Flow
 
 **Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
 
@@ -1138,6 +1139,16 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 1. `Task.create_and_run(origin_product=SIGNAL_REPORT, ...)`
 2. `record_implementation_task` writes the legacy `SignalReportTask` implementation gate row (in the same transaction) and appends an `implementation` `task_run` artefact
 3. Errors are caught and logged but do not fail the report workflow
+
+**Fleet steering in the task description** (`load_report_steering` in `backend/auto_start.py`).
+
+Scouts read the team's steering notes at the start of every run, and the implementation run that acts on their report did not, so guidance like "this area is frozen" reached the agent that filed the report but never the agent that wrote the code. The description now carries it: the `HUMAN`-origin notes addressed to the whole fleet plus those addressed to the report's authoring scout (`scout_authorship.resolve_report_scout_skill`, the same emit-time resolution the dismissal path uses), newest first, capped at 10 notes and 1,000 characters each.
+
+The derived origins (`report_dismissal` / `report_discussion` / `report_feedback`) are excluded. They quote report content, which is built from raw product data, so forwarding them would put text nobody on the team wrote in front of a run that holds full-scope MCP access and can open a PR. The section frames what it does carry as context rather than instructions, on the same footing as the PR-template rules above it.
+
+A report on a child environment gets no steering at all. Notes live on the canonical project, while the implementation task is created on the report's own team, where its description is readable with `task:read`. Canonicalizing the read would therefore show parent notes to people who cannot reach the parent project, which is the audience rule the dismissal path already applies. One gap stays open: `edit_report` calls autostart before it records the edit on the run, so a scout that edits a pipeline-authored report into eligibility resolves as no authoring scout and gets the fleet-wide notes only.
+
+A pointer at `scout-scratchpad-search` rides along only where the team's scratchpad holds at least one live entry, so a team with no fleet memory pays nothing for it. The whole read is best effort: a failure costs steering, never the run. `signals_autostart_steering_attached` fires for every implementation task with `notes_attached` and `scratchpad_available`, so the share of runs that carried steering is readable against the share that carried none.
 
 ### Priority Rank
 
