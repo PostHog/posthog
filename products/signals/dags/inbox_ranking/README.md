@@ -80,11 +80,11 @@ s3://<bucket>/<prefix>/
 
 The training job is S3-only, so it can run on a laptop against copies of the prod snapshots. The dataset job cannot: it needs the dogfood project's ClickHouse and cross-region Postgres.
 
-1. Sync the two prefixes the job reads into the local object-storage bucket (needs an SSO session with the `secrets-editor` role on `prod-us-secrets`, granted through Access Elevator):
+1. Sync the two prefixes the job reads into the local object-storage bucket. This needs an SSO session with the `secrets-editor` role on `prod-us-secrets`, and the Secrets Manager id of the dataset reader credential (provisioned with the bucket; ask the owning team):
 
    ```bash
    aws sso login --profile prod-us-secrets
-   products/signals/dags/inbox_ranking/bin/sync_snapshots_local.sh
+   INBOX_RANKING_READER_SECRET_ID=<secret id> products/signals/dags/inbox_ranking/bin/sync_snapshots_local.sh
    ```
 
    This copies `inbox_report_state/v1/dt=*` and `inbox_report_labels/v1/dt=*` to `~/.cache/posthog/inbox_ranking/` and from there into `s3://posthog/inbox_ranking/` on SeaweedFS (`localhost:19000`). It prints the partition days present in both tables; pick one of those as the partition to run. Re-runs only move new days.
