@@ -2181,13 +2181,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     current: candidates.queries[candidates.initialIndex],
                 }
 
-                // Views cannot contain variables, so tell the user here instead of letting the
-                // request reach the backend and come back as a validation error.
-                if (queryUsesVariablesPlaceholder(selectedRef.current ?? values.queryInput ?? '')) {
-                    lemonToast.error('Variables are not allowed in views. Remove them from your query before saving.')
-                    return
-                }
-
                 // Checked once as the dialog opens rather than on every keystroke: it only depends
                 // on the SQL being saved, which cannot change while the dialog is up. A failure
                 // leaves the incremental fields hidden, so the view saves as a normal full refresh.
@@ -2395,6 +2388,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         incrementalUniqueKey,
                         incrementalLookbackSeconds,
                     }) => {
+                        // Views cannot contain variables. Check the query the user actually selected
+                        // via SaveTargetCycler, and tell them here instead of letting the backend
+                        // reject it with a validation error.
+                        if (queryUsesVariablesPlaceholder(selectedRef.current ?? values.queryInput ?? '')) {
+                            lemonToast.error(
+                                'Variables are not allowed in views. Remove them from your query before saving.'
+                            )
+                            return
+                        }
                         const incremental =
                             shouldMaterialize && incrementalEnabled && incrementalKey && incrementalUniqueKey?.length
                                 ? {

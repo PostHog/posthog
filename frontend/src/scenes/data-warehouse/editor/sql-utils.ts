@@ -35,9 +35,19 @@ const queryUsesPlaceholder = (query: string | null, name: string): boolean => {
             continue
         }
 
-        if (ch === '-' && query[i + 1] === '-') {
+        // Single-line comments the HogQL lexer skips: SQL `--`, C-style `//`, and MySQL-style `#`.
+        // A `#` right before a digit is a positional reference (`#1`), not a comment.
+        if ((ch === '-' && query[i + 1] === '-') || (ch === '/' && query[i + 1] === '/')) {
             i += 2
-            while (i < query.length && query[i] !== '\n') {
+            while (i < query.length && query[i] !== '\n' && query[i] !== '\r') {
+                i++
+            }
+            continue
+        }
+
+        if (ch === '#' && !/[0-9]/.test(query[i + 1] ?? '')) {
+            i++
+            while (i < query.length && query[i] !== '\n' && query[i] !== '\r') {
                 i++
             }
             continue
