@@ -254,6 +254,17 @@ def load_report_steering(team_id: int, report_id: str) -> ReportSteering:
     itself built from raw product data, so they would carry text nobody on the team wrote into a
     run that can push code.
 
+    A report on a child environment gets no steering at all. Notes live on the canonical project,
+    the implementation task is created on the report's own team, and its description is readable
+    with `task:read` there, so canonicalizing the read would show parent notes to people who
+    cannot reach the parent project. `dismissal_notes` withholds derived notes from a child
+    environment for the same reason.
+
+    One gap this cannot close: a scout that edits a pipeline-authored report into autostart
+    eligibility is not yet in `edited_report_ids` when this runs, because `edit_report` calls
+    autostart before it records the edit on the run. That report resolves no authoring scout, so
+    it gets the fleet-wide notes and not the ones addressed to that scout.
+
     A failure here costs steering, never the run, which is why every read is caught: the same
     posture as `_fetch_source_references`.
     """
@@ -263,14 +274,16 @@ def load_report_steering(team_id: int, report_id: str) -> ReportSteering:
     from products.signals.backend.scout_harness.tools.scratchpad import search_scratchpad  # noqa: PLC0415
 
     try:
-        # Notes, scratchpad entries, and scout runs all live on the canonical project, and every
-        # one of those models is fail-closed. Auto-start runs in a Temporal activity, which has no
-        # ambient team scope, so resolve the canonical id once and read under it.
-        canonical_team_id = resolve_effective_team_id(team_id)
-        with team_scope(canonical_team_id, canonical=True):
-            skill_name = resolve_report_scout_skill(canonical_team_id, report_id)
+        # A child environment reads nothing: the task lands on this team, where `task:read` would
+        # expose the canonical project's notes to people who cannot reach that project.
+        if resolve_effective_team_id(team_id) != team_id:
+            return NO_STEERING
+        # Notes, scratchpad entries, and scout runs are all fail-closed models, and auto-start runs
+        # in a Temporal activity, which has no ambient team scope. Set it for the reads below.
+        with team_scope(team_id, canonical=True):
+            skill_name = resolve_report_scout_skill(team_id, report_id)
             notes = list_notes(
-                team_id=canonical_team_id,
+                team_id=team_id,
                 skill_name=skill_name,
                 limit=_MAX_STEERING_NOTES,
                 content_max_chars=_MAX_STEERING_NOTE_CHARS,
@@ -282,7 +295,7 @@ def load_report_steering(team_id: int, report_id: str) -> ReportSteering:
             )
             # Render the scratchpad pointer only when the fleet wrote at least one live entry, so
             # a team with no fleet memory does not pay for an instruction that can find nothing.
-            scratchpad_available = bool(search_scratchpad(team_id=canonical_team_id, limit=1, keys_only=True))
+            scratchpad_available = bool(search_scratchpad(team_id=team_id, limit=1, keys_only=True))
     except Exception:
         logger.exception("signals auto-start steering fetch failed", report_id=report_id, team_id=team_id)
         return NO_STEERING
@@ -425,11 +438,15 @@ def _capture_billing_exempted(*, team: Team, report_id: str, reason: str, task_i
 
 def _capture_steering_attached(*, team: Team, report_id: str, task_id: str, steering: ReportSteering) -> None:
     """`signals_autostart_steering_attached` — fired for every self-driving implementation task, so
-    the share that carried steering is readable against the share that carried none."""
+    the share that carried steering is readable against the share that carried none.
+
+    Keyed on `team.uuid` like the rest of the signal lifecycle events, so it joins the same
+    person-level funnels. The organization identity the billing events use would collapse every
+    project in a multi-project org onto one person."""
     try:
         posthoganalytics.capture(
             event="signals_autostart_steering_attached",
-            distinct_id=str(team.organization.id),
+            distinct_id=str(team.uuid),
             properties={
                 "team_id": team.id,
                 "organization_id": str(team.organization.id),

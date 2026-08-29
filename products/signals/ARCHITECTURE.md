@@ -1146,6 +1146,8 @@ Scouts read the team's steering notes at the start of every run, and the impleme
 
 The derived origins (`report_dismissal` / `report_discussion` / `report_feedback`) are excluded. They quote report content, which is built from raw product data, so forwarding them would put text nobody on the team wrote in front of a run that holds full-scope MCP access and can open a PR. The section frames what it does carry as context rather than instructions, on the same footing as the PR-template rules above it.
 
+A report on a child environment gets no steering at all. Notes live on the canonical project, while the implementation task is created on the report's own team, where its description is readable with `task:read`. Canonicalizing the read would therefore show parent notes to people who cannot reach the parent project, which is the audience rule the dismissal path already applies. One gap stays open: `edit_report` calls autostart before it records the edit on the run, so a scout that edits a pipeline-authored report into eligibility resolves as no authoring scout and gets the fleet-wide notes only.
+
 A pointer at `scout-scratchpad-search` rides along only where the team's scratchpad holds at least one live entry, so a team with no fleet memory pays nothing for it. The whole read is best effort: a failure costs steering, never the run. `signals_autostart_steering_attached` fires for every implementation task with `notes_attached` and `scratchpad_available`, so the share of runs that carried steering is readable against the share that carried none.
 
 ### Priority Rank

@@ -16,6 +16,7 @@ from posthog.models.scoping import team_scope
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.auto_start import (
+    NO_STEERING,
     ReportSteering,
     ReviewerContent,
     _build_autostart_task_description,
@@ -732,6 +733,14 @@ def test_steering_reaches_the_run_without_the_report_derived_notes(organization,
     with_memory = load_report_steering(team.id, str(report.id))
     assert with_memory.scratchpad_available is True
     assert "scout-scratchpad-search" in with_memory.section
+
+    # A child environment gets nothing. Notes live on the canonical project, but the task lands on
+    # the report's own team, where `task:read` would show them to someone who cannot reach the parent.
+    child = Team.objects.create(organization=organization, name="child-env", parent_team=team)
+    child_report = SignalReport.objects.create(
+        team=child, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    assert load_report_steering(child.id, str(child_report.id)) == NO_STEERING
 
 
 @pytest.mark.asyncio
