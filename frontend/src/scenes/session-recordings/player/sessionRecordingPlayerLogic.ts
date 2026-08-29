@@ -295,6 +295,11 @@ export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: even
 // so a gap past this exists only in recordings with corrupted timestamps.
 export const INSTANT_SKIP_INACTIVITY_THRESHOLD_MS = 60 * 60 * 1000
 
+// A single instant skip must not chain into more than this many follow-on seeks. The re-entry
+// guard already stops the synchronous ping-pong; this cap is a backstop so a rebuilt segment
+// cannot reopen the loop on a future edge.
+export const MAX_INSTANT_SKIP_HOPS = 20
+
 /** Find the segment containing this timestamp, falling back to the nearest valid one if out of range. */
 export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?: number): RecordingSegment | null {
     if (timestamp === undefined) {
@@ -2346,8 +2351,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     segment.kind === 'gap' &&
                     remainingMs > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS
                 ) {
-                    actions.seekToTimestamp(segment.endTimestamp)
-                    return
+                    // setCurrentSegment → seekToTimestamp → setCurrentSegment can ping-pong on one
+                    // call stack until it overflows: the seek clamps back into the same gap, or a
+                    // selector rebuilds the gap, so objectsEqual never bails. Guard re-entry the way
+                    // updateAnimation does, and cap the chain so a future edge cannot reopen it.
+                    if (!cache._inInstantSkipSeek && (cache._instantSkipHops ?? 0) < MAX_INSTANT_SKIP_HOPS) {
+                        cache._inInstantSkipSeek = true
+                        cache._instantSkipHops = (cache._instantSkipHops ?? 0) + 1
+                        try {
+                            actions.seekToTimestamp(segment.endTimestamp)
+                        } finally {
+                            cache._inInstantSkipSeek = false
+                        }
+                        return
+                    }
+                    // Re-entered or hop cap hit: fall back to fast-forward instead of seeking again.
                 }
                 actions.setSkippingInactivity(true)
             } else {
@@ -2968,6 +2986,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentTimestamp(newTimestamp)
+
+                // Playback advanced, so any prior instant-skip chain has ended: reset the hop count.
+                cache._instantSkipHops = 0
 
                 // Throttled position update for loading scheduler (every 5s)
                 if (shouldUpdatePlaybackPosition(newTimestamp, cache.lastPlaybackPositionUpdate)) {

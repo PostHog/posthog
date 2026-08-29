@@ -32,6 +32,7 @@ import {
     findNewEvents,
     findSegmentForTimestamp,
     INSTANT_SKIP_INACTIVITY_THRESHOLD_MS,
+    MAX_INSTANT_SKIP_HOPS,
     stripRrwebScriptShims,
 } from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
@@ -320,6 +321,23 @@ describe('sessionRecordingPlayerLogic', () => {
                     .toDispatchActions([logic.actionCreators.setSkippingInactivity(true)])
                     .toNotHaveDispatchedActions(['seekToTimestamp'])
             }
+        })
+
+        // The instant skip dispatches seekToTimestamp, which dispatches setCurrentSegment back.
+        // When the seek clamps into the same gap, the pair ping-pongs until the stack overflows.
+        // The re-entry guard and the hop cap must both break that loop by falling back to
+        // fast-forward instead of seeking again.
+        it.each([
+            ['re-entry while a seek is in progress', (): void => void (logic.cache._inInstantSkipSeek = true)],
+            ['the hop cap is reached', (): void => void (logic.cache._instantSkipHops = MAX_INSTANT_SKIP_HOPS)],
+        ])('falls back to fast-forward when %s', async (_name, primeGuard) => {
+            logic.actions.setCurrentTimestamp(START)
+            const gap = inactiveSegment('gap', INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1)
+            primeGuard()
+
+            await expectLogic(logic, () => logic.actions.setCurrentSegment(gap))
+                .toDispatchActions([logic.actionCreators.setSkippingInactivity(true)])
+                .toNotHaveDispatchedActions(['seekToTimestamp'])
         })
     })
 
