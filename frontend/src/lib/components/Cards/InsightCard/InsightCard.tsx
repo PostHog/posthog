@@ -439,6 +439,8 @@ function InsightCardInternal(
                 className
             )}
             data-attr="insight-card"
+            // Scopes a browser-side image capture to this one tile among the many on a dashboard.
+            data-insight-short-id={insight.short_id}
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...divProps?.style, ...theme?.boxStyle }}

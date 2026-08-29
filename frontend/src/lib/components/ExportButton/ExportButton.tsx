@@ -16,6 +16,9 @@ export interface ExportButtonItem {
     export_context?: TriggerExportProps['export_context']
     dashboard?: number
     insight?: number
+    /** Produce the file in the browser instead of asking the server to render an export. */
+    onClick?: () => void
+    disabledReason?: string
 }
 
 export interface ExportButtonProps extends Pick<
@@ -56,7 +59,7 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                         <>
                             <h5>File type</h5>
                             <LemonDivider />
-                            {items.map(({ title, ...triggerExportProps }, i) => {
+                            {items.map(({ title, onClick, disabledReason, ...triggerExportProps }, i) => {
                                 const exportFormatExtension = (
                                     Object.keys(ExporterFormat).find(
                                         (key) =>
@@ -64,6 +67,9 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                                             triggerExportProps.export_format
                                     ) ?? triggerExportProps.export_format
                                 ).toLowerCase()
+                                // A browser-rendered format rasterizes what the person already sees, so it reports
+                                // no server export target.
+                                const rendersInBrowser = !!onClick
 
                                 let target: string
                                 let exportBody: string = ''
@@ -84,11 +90,12 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                                     <LemonButton
                                         key={i}
                                         fullWidth
-                                        onClick={() => void onExportClick(triggerExportProps)}
+                                        disabledReason={disabledReason}
+                                        onClick={() => (onClick ? onClick() : void onExportClick(triggerExportProps))}
                                         data-attr={`export-button-${exportFormatExtension}`}
-                                        data-ph-capture-attribute-export-target={target}
+                                        data-ph-capture-attribute-export-target={rendersInBrowser ? null : target}
                                         data-ph-capture-attribute-export-body={
-                                            exportBody.length ? JSON.stringify(exportBody) : null
+                                            !rendersInBrowser && exportBody.length ? JSON.stringify(exportBody) : null
                                         }
                                     >
                                         {title ? title : `.${exportFormatExtension}`}

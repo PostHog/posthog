@@ -20,6 +20,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
+import { DASHBOARD_CONTENT_DATA_ATTR } from 'scenes/dashboard/dashboardImageCapture'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     BREAKPOINTS,
@@ -481,7 +482,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
     return (
-        <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
+        <div
+            className="dashboard-items-wrapper"
+            data-attr={DASHBOARD_CONTENT_DATA_ATTR}
+            ref={containerRef as RefObject<HTMLDivElement>}
+        >
             {layoutEditMode && isMobileView && (
                 <LemonBanner type="warning" className="mb-4">
                     Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
