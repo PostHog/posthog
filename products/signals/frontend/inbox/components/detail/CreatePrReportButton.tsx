@@ -77,6 +77,7 @@ export function CreatePrReportButton({
                         value={feedback}
                         onChange={setFeedback}
                         onPressCmdEnter={submit}
+                        aria-label="Optional direction for the agent"
                         placeholder="e.g. put this behind a feature flag, or skip the migration (optional)"
                         maxLength={4000}
                         rows={4}
