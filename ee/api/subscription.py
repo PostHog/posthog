@@ -301,7 +301,7 @@ SUBSCRIPTION_CONTEXT_READ_SCHEMA = PolymorphicProxySerializer(
 )
 
 
-class SubscriptionSerializer(serializers.ModelSerializer):
+class SubscriptionWriteSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
     FIELDS_THAT_TRIGGER_REDELIVERY: ClassVar[tuple[str, ...]] = (
@@ -1200,7 +1200,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
-class SubscriptionReadSerializer(SubscriptionSerializer):
+class SubscriptionSerializer(SubscriptionWriteSerializer):
     contexts: serializers.Field = serializers.SerializerMethodField(
         help_text="Dashboards and insights that ground this AI report. Deleted resources are omitted."
     )
@@ -1352,19 +1352,19 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
         ],
     ),
     create=extend_schema(
-        request=SubscriptionSerializer,
-        responses={201: SubscriptionReadSerializer},
+        request=SubscriptionWriteSerializer,
+        responses={201: SubscriptionSerializer},
         extensions={"x-product": "subscriptions"},
     ),
     retrieve=extend_schema(extensions={"x-product": "subscriptions"}),
     update=extend_schema(
-        request=SubscriptionSerializer,
-        responses={200: SubscriptionReadSerializer},
+        request=SubscriptionWriteSerializer,
+        responses={200: SubscriptionSerializer},
         extensions={"x-product": "subscriptions"},
     ),
     partial_update=extend_schema(
-        request=SubscriptionSerializer,
-        responses={200: SubscriptionReadSerializer},
+        request=SubscriptionWriteSerializer,
+        responses={200: SubscriptionSerializer},
         extensions={"x-product": "subscriptions"},
     ),
     destroy=extend_schema(extensions={"x-product": "subscriptions"}),
@@ -1373,7 +1373,7 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "subscription"
     queryset = Subscription.objects.all()
-    serializer_class = SubscriptionReadSerializer
+    serializer_class = SubscriptionSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = [
         "title",
@@ -1395,8 +1395,8 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action in ("create", "update", "partial_update"):
-            return SubscriptionSerializer
-        return SubscriptionReadSerializer
+            return SubscriptionWriteSerializer
+        return SubscriptionSerializer
 
     # Writing an AI prompt subscription also requires query-read access: it runs LLM-generated
     # HogQL and delivers the results, so subscription:write alone could exfiltrate analytics.

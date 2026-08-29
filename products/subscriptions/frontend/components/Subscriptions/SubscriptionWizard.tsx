@@ -37,7 +37,7 @@ import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFiel
 import { InsightSelector } from './InsightSelector'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
-import type { SubscriptionLogicProps } from './subscriptionLogic'
+import type { SubscriptionFormType, SubscriptionLogicProps } from './subscriptionLogic'
 import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
@@ -345,7 +345,7 @@ function SubscriptionDeliveryStep({
     subscription,
     logicProps,
 }: {
-    subscription: SubscriptionType
+    subscription: SubscriptionFormType
     logicProps: SubscriptionLogicProps
 }): JSX.Element {
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
@@ -440,12 +440,11 @@ function SubscriptionContentStep({
     logicProps: SubscriptionLogicProps
     dashboard?: DashboardType<any> | null
     insightName?: string
-    subscription: SubscriptionType
+    subscription: SubscriptionFormType
     aiSubscriptionBlocked: boolean
 }): JSX.Element {
-    const { applyDefaultSelectedInsights, selectAiAnalysisWindow, selectAiExamplePrompt } = useActions(
-        subscriptionLogic(logicProps)
-    )
+    const { addContext, applyDefaultSelectedInsights, removeContext, selectAiAnalysisWindow, selectAiExamplePrompt } =
+        useActions(subscriptionLogic(logicProps))
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
 
     return (
@@ -471,8 +470,11 @@ function SubscriptionContentStep({
             {isAiPrompt ? (
                 <AiPromptFields
                     compactAnalysisWindow
+                    contexts={subscription.contexts}
                     prompt={subscription.prompt}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
+                    onAddContext={addContext}
+                    onRemoveContext={removeContext}
                     onSelectAnalysisWindow={selectAiAnalysisWindow}
                     onSelectExample={selectAiExamplePrompt}
                 />

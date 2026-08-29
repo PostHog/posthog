@@ -123,6 +123,29 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
+        contexts: zod
+            .array(
+                zod.object({
+                    dashboard_id: zod
+                        .number()
+                        .min(1)
+                        .optional()
+                        .describe(
+                            'Dashboard ID to use as AI report context. Set either dashboard_id or insight_id, not both.'
+                        ),
+                    insight_id: zod
+                        .number()
+                        .min(1)
+                        .optional()
+                        .describe(
+                            'Insight ID to use as AI report context. Set either insight_id or dashboard_id, not both.'
+                        ),
+                })
+            )
+            .optional()
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
+            ),
         target_type: zod
             .enum(['email', 'slack'])
             .describe('\* `email` - Email\n\* `slack` - Slack')
@@ -305,6 +328,29 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        contexts: zod
+            .array(
+                zod.object({
+                    dashboard_id: zod
+                        .number()
+                        .min(1)
+                        .optional()
+                        .describe(
+                            'Dashboard ID to use as AI report context. Set either dashboard_id or insight_id, not both.'
+                        ),
+                    insight_id: zod
+                        .number()
+                        .min(1)
+                        .optional()
+                        .describe(
+                            'Insight ID to use as AI report context. Set either insight_id or dashboard_id, not both.'
+                        ),
+                })
+            )
+            .optional()
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack'])

@@ -64,6 +64,24 @@ export interface AIPromptConfigApi {
     window?: AIWindowConfigApi
 }
 
+export interface SubscriptionDashboardContextApi {
+    /** Dashboard ID used to open the context dashboard. */
+    dashboard_id: number
+    /** Current display name of the context dashboard. */
+    dashboard_name: string
+}
+
+export interface SubscriptionInsightContextApi {
+    /** Database ID of the context insight. */
+    insight_id: number
+    /** Stable insight identifier used to open the context insight. */
+    insight_short_id: string
+    /** Current display name of the context insight. */
+    insight_name: string
+}
+
+export type SubscriptionContextApi = SubscriptionDashboardContextApi | SubscriptionInsightContextApi
+
 /**
  * * `email` - Email
  * * `slack` - Slack
@@ -203,6 +221,8 @@ export interface SubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
+    /** Dashboards and insights that ground this AI report. Deleted resources are omitted. */
+    readonly contexts: readonly SubscriptionContextApi[]
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -304,10 +324,164 @@ export interface PaginatedSubscriptionListApi {
  * * `saturday` - Saturday
  * * `sunday` - Sunday
  */
-export type PatchedSubscriptionApiByweekdayItem =
-    (typeof PatchedSubscriptionApiByweekdayItem)[keyof typeof PatchedSubscriptionApiByweekdayItem]
+export type SubscriptionWriteApiByweekdayItem =
+    (typeof SubscriptionWriteApiByweekdayItem)[keyof typeof SubscriptionWriteApiByweekdayItem]
 
-export const PatchedSubscriptionApiByweekdayItem = {
+export const SubscriptionWriteApiByweekdayItem = {
+    Monday: 'monday',
+    Tuesday: 'tuesday',
+    Wednesday: 'wednesday',
+    Thursday: 'thursday',
+    Friday: 'friday',
+    Saturday: 'saturday',
+    Sunday: 'sunday',
+} as const
+
+export interface SubscriptionContextWriteApi {
+    /**
+     * Dashboard ID to use as AI report context. Set either dashboard_id or insight_id, not both.
+     * @minimum 1
+     */
+    dashboard_id?: number
+    /**
+     * Insight ID to use as AI report context. Set either insight_id or dashboard_id, not both.
+     * @minimum 1
+     */
+    insight_id?: number
+}
+
+/**
+ * Standard Subscription serializer.
+ */
+export interface SubscriptionWriteApi {
+    readonly id: number
+    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+     *
+     * * `insight` - Insight
+     * * `dashboard` - Dashboard
+     * * `ai_prompt` - AI prompt */
+    readonly resource_type: ResourceTypeEnumApi
+    /**
+     * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+     * @nullable
+     */
+    dashboard?: number | null
+    /**
+     * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+     * @nullable
+     */
+    insight?: number | null
+    /** @nullable */
+    readonly insight_short_id: string | null
+    /** @nullable */
+    readonly resource_name: string | null
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+    dashboard_export_insights?: number[]
+    /**
+     * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
+     * @nullable
+     */
+    prompt?: string | null
+    /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+    ai_prompt_config?: AIPromptConfigApi
+    /** Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts. */
+    contexts?: SubscriptionContextWriteApi[]
+    /** Delivery channel: email or slack.
+     *
+     * * `email` - Email
+     * * `slack` - Slack */
+    target_type: TargetTypeEnumApi
+    /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+    target_value: string
+    /** How often to deliver: daily, weekly, monthly, or yearly.
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     * * `monthly` - Monthly
+     * * `yearly` - Yearly */
+    frequency: RecurrenceIntervalEnumApi
+    /**
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
+     * @maximum 2147483647
+     */
+    interval: number
+    /**
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * @nullable
+     */
+    byweekday?: SubscriptionWriteApiByweekdayItem[] | null
+    /**
+     * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    bysetpos?: number | null
+    /**
+     * Total number of deliveries before the subscription stops. Null for unlimited.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+    /** When to start delivering (ISO 8601 datetime). */
+    start_date: string
+    /**
+     * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+     * @nullable
+     */
+    until_date?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
+    deleted?: boolean
+    /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
+    enabled?: boolean
+    /**
+     * Human-readable name for this subscription.
+     * @maxLength 100
+     * @nullable
+     */
+    title?: string | null
+    /** Human-readable schedule summary, e.g. 'sent daily'. */
+    readonly summary: string
+    /** @nullable */
+    readonly next_delivery_date: string | null
+    /**
+     * ID of a connected Slack integration. Required when target_type is slack.
+     * @nullable
+     */
+    integration_id?: number | null
+    /**
+     * Optional message included in the invitation email when adding new recipients.
+     * @nullable
+     */
+    invite_message?: string | null
+    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+    send_test_now?: boolean
+    /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
+    summary_enabled?: boolean
+    /**
+     * Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.
+     * @maxLength 500
+     */
+    summary_prompt_guide?: string
+}
+
+/**
+ * * `monday` - Monday
+ * * `tuesday` - Tuesday
+ * * `wednesday` - Wednesday
+ * * `thursday` - Thursday
+ * * `friday` - Friday
+ * * `saturday` - Saturday
+ * * `sunday` - Sunday
+ */
+export type PatchedSubscriptionWriteApiByweekdayItem =
+    (typeof PatchedSubscriptionWriteApiByweekdayItem)[keyof typeof PatchedSubscriptionWriteApiByweekdayItem]
+
+export const PatchedSubscriptionWriteApiByweekdayItem = {
     Monday: 'monday',
     Tuesday: 'tuesday',
     Wednesday: 'wednesday',
@@ -320,7 +494,7 @@ export const PatchedSubscriptionApiByweekdayItem = {
 /**
  * Standard Subscription serializer.
  */
-export interface PatchedSubscriptionApi {
+export interface PatchedSubscriptionWriteApi {
     readonly id?: number
     /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
      *
@@ -351,6 +525,8 @@ export interface PatchedSubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
+    /** Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts. */
+    contexts?: SubscriptionContextWriteApi[]
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -375,7 +551,7 @@ export interface PatchedSubscriptionApi {
      * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
-    byweekday?: PatchedSubscriptionApiByweekdayItem[] | null
+    byweekday?: PatchedSubscriptionWriteApiByweekdayItem[] | null
     /**
      * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
      * @minimum -2147483648
