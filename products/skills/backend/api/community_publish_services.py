@@ -35,7 +35,7 @@ from .skill_services import (
     check_allowed_tool_name,
     normalize_skill_file_path,
 )
-from .skill_template_services import TemplateRenderError, parse_template_variables, validate_template_placeholders
+from .skill_template_services import TemplateRenderError, parse_template_variables, validate_template
 
 logger = structlog.get_logger(__name__)
 
@@ -230,10 +230,6 @@ def render_skill_md(
     if allowed_tools:
         frontmatter["allowed_tools"] = list(allowed_tools)
     template_variables = parse_template_variables(metadata)
-    try:
-        validate_template_placeholders(body, template_variables)
-    except TemplateRenderError as err:
-        raise CommunitySkillPublishValidationError(str(err)) from err
     if template_variables:
         # `required` is always written, so an omitted `default` reads back the same as an empty one.
         frontmatter["metadata"] = {
@@ -278,7 +274,14 @@ def render_community_skill_files(
     """
     _validate_slug(slug)
     _validate_entry_caps(body=body, files=files or [])
+    # Only a template reads `{{ }}` as placeholders. A plain skill keeps that text verbatim, the way
+    # install does, so a skill quoting GitHub Actions or Go template syntax still publishes.
     template_variables = parse_template_variables(metadata)
+    if template_variables:
+        try:
+            validate_template(variables=template_variables, body=body, files=files or [])
+        except TemplateRenderError as err:
+            raise CommunitySkillPublishValidationError(str(err)) from err
     skill_root = f"{SKILLS_DIR}/{slug}"
 
     rendered: list[RenderedFile] = [
@@ -306,10 +309,6 @@ def render_community_skill_files(
         # paths that community_skill_sync._validate_entry_within_caps then folds into one and
         # rejects as a duplicate: the pull request merges and the skill never appears in the catalog.
         rel_path = _publishable_file_path(file["path"])
-        try:
-            validate_template_placeholders(file["content"], template_variables)
-        except TemplateRenderError as err:
-            raise CommunitySkillPublishValidationError(str(err)) from err
         path = f"{skill_root}/{rel_path}"
         # Case-insensitive, matching community_skill_sync._validate_entry_within_caps: two paths
         # differing only by case pass every check on this side, and then ingest rejects the whole
