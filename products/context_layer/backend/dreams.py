@@ -199,11 +199,14 @@ def _read_dream_files(checkout: store.RepoCheckout, sha: str) -> list[DreamFileD
     if len(patches) != len(changed_files):
         raise store.ContextLayerStoreError("could not match dream patches to changed files")
     files: list[DreamFileDiff] = []
-    for line, patch in zip(changed_files[:DREAM_MAX_FILES], patches[:DREAM_MAX_FILES], strict=True):
+    for index, (line, patch) in enumerate(zip(changed_files, patches, strict=True)):
         status_code, _, path = line.partition("\t")
         status = _STATUS_MAP.get(status_code[:1], "modified")
         truncated = False
-        if len(patch.encode("utf-8")) > DREAM_MAX_PATCH_BYTES_PER_FILE:
+        if index >= DREAM_MAX_FILES:
+            patch = ""
+            truncated = True
+        elif len(patch.encode("utf-8")) > DREAM_MAX_PATCH_BYTES_PER_FILE:
             patch = patch.encode("utf-8")[:DREAM_MAX_PATCH_BYTES_PER_FILE].decode("utf-8", errors="ignore")
             truncated = True
         files.append(DreamFileDiff(path=path, status=status, patch=patch, truncated=truncated))

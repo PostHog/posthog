@@ -781,6 +781,38 @@ class TestContextLayerAPI(APIBaseTest):
         assert "+# Dreamt" in files["areas/dreamt.md"]["patch"]
         assert files["areas/dreamt.md"]["truncated"] is False
 
+    def test_dream_lists_files_past_the_patch_cap(self, _flag) -> None:
+        self._enable()
+        bundle_bytes = self._bundle_with_edits(
+            {
+                "areas/first.md": _page("First"),
+                "areas/second.md": _page("Second"),
+            },
+            branch="dream/2026-08-18",
+        )
+        response = self.client.post(
+            f"{self.base_url}/commits/",
+            {
+                "bundle": SimpleUploadedFile("out.bundle", bundle_bytes),
+                "branch": "dream/2026-08-18",
+                "summary": "Dream summary",
+            },
+            format="multipart",
+        )
+        assert response.status_code == 200, response.content
+        dream = self.client.get(f"{self.base_url}/dreams/").json()["dreams"][0]
+
+        with patch.object(dreams, "DREAM_MAX_FILES", 1):
+            response = self.client.get(f"{self.base_url}/dreams/{dream['sha']}/")
+
+        assert response.status_code == 200, response.content
+        files = response.json()["files"]
+        assert [file["path"] for file in files] == ["areas/first.md", "areas/second.md"]
+        assert files[0]["patch"]
+        assert files[0]["truncated"] is False
+        assert files[1]["patch"] == ""
+        assert files[1]["truncated"] is True
+
     def test_dream_rejects_a_sha_that_is_not_a_dream_merge(self, _flag) -> None:
         # The detail read diffs the sha it is given, so it must refuse arbitrary
         # commits rather than leak history that is not a dream run.
@@ -815,15 +847,19 @@ class TestContextLayerAPI(APIBaseTest):
 
     def _bundle_with_edit(self, path: str, content: str, branch: str = "main") -> bytes:
         """Clone the wiki the way a sandbox does, commit one edit, pack it as a thin bundle."""
+        return self._bundle_with_edits({path: content}, branch=branch)
+
+    def _bundle_with_edits(self, edits: dict[str, str], branch: str = "main") -> bytes:
         with store.checkout_repo(self.organization.id) as checkout:
             env_git = ["git", "-c", "user.name=agent", "-c", "user.email=agent@example.com"]
             if branch != "main":
                 subprocess.run([*env_git, "checkout", "--quiet", "-b", branch], cwd=checkout.path, check=True)
-            target = checkout.path / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content)
+            for path, content in edits.items():
+                target = checkout.path / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content)
             subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
-            subprocess.run([*env_git, "commit", "--quiet", "-m", f"Edit {path}"], cwd=checkout.path, check=True)
+            subprocess.run([*env_git, "commit", "--quiet", "-m", "Edit context"], cwd=checkout.path, check=True)
             with tempfile.NamedTemporaryFile(suffix=".bundle") as bundle_file:
                 subprocess.run(
                     [*env_git, "bundle", "create", bundle_file.name, f"origin/main..{branch}"],

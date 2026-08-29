@@ -36,6 +36,12 @@ const hoisted = vi.hoisted(() => ({
           "diff --git a/areas/dreamt.md b/areas/dreamt.md\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/areas/dreamt.md\n@@ -0,0 +1 @@\n+# Dreamt\n",
         truncated: false,
       },
+      {
+        path: "areas/omitted.md",
+        status: "modified",
+        patch: "",
+        truncated: true,
+      },
     ],
   },
   activeRun: {
@@ -97,6 +103,10 @@ describe("ContextWikiDreamsPane", () => {
     expect(document.querySelector("img")).toBeNull();
     expect(screen.getByText("areas/dreamt.md")).toBeInTheDocument();
     expect(screen.getByTestId("file-diff")).toBeInTheDocument();
+    expect(screen.getByText("areas/omitted.md")).toBeInTheDocument();
+    expect(
+      screen.getByText("This patch was too large to show in full."),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /2026-08-17/ }));
 

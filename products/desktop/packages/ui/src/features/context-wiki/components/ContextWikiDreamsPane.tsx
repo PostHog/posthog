@@ -330,7 +330,9 @@ function DreamFileDiffView({ file }: { file: ContextWikiDreamFile }) {
         </>
       ) : (
         <div className="bg-(--gray-2) px-3 py-2 text-(--gray-10) text-[12px]">
-          No diff available for this file.
+          {file.truncated
+            ? "This patch was too large to show in full."
+            : "No diff available for this file."}
         </div>
       )}
     </div>
