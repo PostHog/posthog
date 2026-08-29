@@ -443,6 +443,14 @@ class DeltaBatchConsumerAdapter:
         # them on the same cadence and connection. Isolated so its failure can't take the sweep down.
         try:
             await self._reconcile_stale_stranded_runs(conn, stale_seconds=TAKEOVER_STALE_THRESHOLD_SECONDS, limit=limit)
+        except psycopg.OperationalError as e:
+            if conn.closed:
+                # A transient connection drop (network blip, server-side cull, pgbouncer bounce)
+                # leaves the connection closed. The engine reconnects on the next cycle.
+                logger.warning("stranded_run_reconcile_sweep_closed_connection", error=str(e))
+            else:
+                logger.exception("stranded_run_reconcile_sweep_failed")
+                capture_exception(e)
         except Exception as e:
             logger.exception("stranded_run_reconcile_sweep_failed")
             capture_exception(e)

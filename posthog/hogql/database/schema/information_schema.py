@@ -1553,11 +1553,13 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
     Returns nothing unless the caller has data_catalog read access. Excludes certifications whose target
     is soft-deleted (or orphaned by a soft-deleted source) — matching `certifications_for_team` — and
     drops any whose target is denied or invisible to the caller. `allowed` trims the query to the
-    pushed-down set of target names.
+    requested set of target names.
     """
     team_id = context.team_id
     if team_id is None or not _can_read_catalog(context):
         return []
+    from posthog.hogql.database.database import get_data_warehouse_table_name  # noqa: PLC0415
+
     from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
     record_catalog_read("certifications")
@@ -1567,21 +1569,25 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
             .exclude(table__deleted=True)
             .exclude(table__external_data_source__deleted=True)
             .exclude(saved_query__deleted=True)
-            .select_related("table", "saved_query", "certified_by")
+            .select_related("table", "table__external_data_source", "saved_query", "certified_by")
             .order_by("-created_at")
         )
-        if allowed is not None:
-            certs = certs.filter(Q(table__name__in=allowed) | Q(saved_query__name__in=allowed))
         rows: list[list[Any]] = []
         for cert in certs:
             if cert.table_id is not None:
-                target_name = cert.table.name if cert.table else None
+                target_name = (
+                    get_data_warehouse_table_name(cert.table.external_data_source, cert.table.name)
+                    if cert.table
+                    else None
+                )
                 target_id = str(cert.table_id)
                 target_kind = "table"
             else:
                 target_name = cert.saved_query.name if cert.saved_query else None
                 target_id = str(cert.saved_query_id)
                 target_kind = "view"
+            if allowed is not None and target_name not in allowed:
+                continue
             if target_name is None or not _catalog_table_visible(context, target_name):
                 continue
             rows.append(
@@ -1914,7 +1920,10 @@ class InformationSchemaCertificationsTable(InformationSchemaTable):
     description: str = _CERTIFICATIONS_DESCRIPTION
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Certification UUID — pass to the certify/deprecate tools."),
-        "target_name": _string_field("target_name", description="Name of the certified table or view."),
+        "target_name": _string_field(
+            "target_name",
+            description="Queryable HogQL name of the certified table or view (for example, stripe.subscriptions).",
+        ),
         "target_id": _string_field(
             "target_id",
             description=(

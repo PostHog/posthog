@@ -13,6 +13,7 @@ import {
 import { DESKTOP_HOME_FLAG, LOOPS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
+import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import {
   pickRailDestination,
@@ -28,11 +29,9 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
-import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -183,15 +182,13 @@ export function NavRail() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const contextEnabled = useContextLayerFlag();
-  const channelReportsEnabled = useChannelReportsEnabled();
-  const reportsInboxEnabled = useReportsInboxEnabled();
+  const inboxAvailable = useInboxAvailable();
   const tabsEnabled = useSpacesTabs();
   const openBrowserTab = useOpenBrowserTab();
   const mentionsEnabled = useActivityFilterStore(
     (state) => state.mentionsEnabled,
   );
 
-  const inboxAvailable = !channelReportsEnabled || reportsInboxEnabled;
   const destinations = visibleRailDestinations({
     home: homeEnabled,
     inbox: inboxAvailable,

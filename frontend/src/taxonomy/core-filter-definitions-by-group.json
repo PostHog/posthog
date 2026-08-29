@@ -287,7 +287,8 @@
             "description": "The source that triggered this evaluation.",
             "examples": [
                 "signals-grouping",
-                "sandboxed-agent"
+                "sandboxed-agent",
+                "one-shot"
             ],
             "label": "AI eval source (LLM)"
         },
@@ -4866,7 +4867,8 @@
             "description": "The source that triggered this evaluation.",
             "examples": [
                 "signals-grouping",
-                "sandboxed-agent"
+                "sandboxed-agent",
+                "one-shot"
             ],
             "label": "AI eval source (LLM)"
         },
