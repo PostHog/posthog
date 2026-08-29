@@ -107,6 +107,7 @@ class TestAppleSearchAdsSource:
         [
             ("platform_unauthorized", 401, "api.ads.apple.com"),
             ("platform_forbidden", 403, "api.ads.apple.com"),
+            ("legacy_bad_request", 400, "api.searchads.apple.com"),
             ("legacy_unauthorized", 401, "api.searchads.apple.com"),
             ("legacy_forbidden", 403, "api.searchads.apple.com"),
         ]
