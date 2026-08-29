@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonInputSelect, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInputSelect, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import { TimeSeriesBarChart, useChartTheme, type TimeInterval } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
@@ -38,8 +39,9 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
         environmentScopeLabel,
         environmentOptions,
         githubTeamOptions,
+        showAllLeadTimeStages,
     } = useValues(doraLogic)
-    const { setEnvironments, setGithubTeam, setGranularity, loadDora } = useActions(doraLogic)
+    const { setEnvironments, setGithubTeam, setGranularity, toggleLeadTimeStages, loadDora } = useActions(doraLogic)
     const chartTheme = useChartTheme()
     const frequencySeries = useMemo(
         () => [{ key: 'deployments', label: 'Deployments', data: frequencyCounts }],
@@ -105,18 +107,6 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                             allowCustomValues={false}
                         />
                     </div>
-                    <LemonSelect
-                        size="small"
-                        value={granularity}
-                        onChange={setGranularity}
-                        options={[
-                            { value: null, label: 'Group automatically' },
-                            { value: 'hour' as const, label: 'Group by hour' },
-                            { value: 'day' as const, label: 'Group by day' },
-                            { value: 'week' as const, label: 'Group by week' },
-                        ]}
-                        data-attr="engineering-analytics-dora-granularity-select"
-                    />
                     {dora?.has_membership_data && (
                         <LemonSelect
                             size="small"
@@ -225,78 +215,110 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                     />
                 </div>
             </Section>
-            <Section
-                id="merge-to-deploy"
-                title="Lead time distributions"
-                note="Box per bucket: whisker min to max, box p25 to p75, line at the median, dot at the mean. All three stages cover the same deployed PRs, so they compare bucket by bucket. Buckets key on deploy time."
-                busy={doraLoading && !!dora}
+            <div
+                className="flex flex-col gap-4 rounded border bg-surface-primary p-4"
+                data-attr="engineering-analytics-dora-grouped-charts"
             >
-                {firstLoad ? (
-                    <LemonSkeleton className="h-40 w-full" />
-                ) : boxPlotBuckets.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-secondary">
-                        {githubTeam && dora && !dora.has_membership_data
-                            ? 'Team membership data is not synced, so the team filter cannot be applied.'
-                            : 'No deploy data for this window.'}
-                    </div>
-                ) : (
-                    <>
-                        <div className="flex flex-col gap-4">
-                            {leadTimeStages.map((stage) => (
-                                <div key={stage.seriesKey} data-attr={stage.wrapperDataAttr}>
-                                    <h3 className="m-0 mb-1 text-xs font-semibold text-secondary">{stage.title}</h3>
-                                    <LeadTimeBoxPlot
-                                        seriesKey={stage.seriesKey}
-                                        seriesLabel={stage.seriesLabel}
-                                        buckets={stage.buckets}
-                                        formatSeconds={compactAgeLabel}
-                                        dataAttr={stage.dataAttr}
-                                    />
-                                </div>
-                            ))}
+                <div className="flex justify-end">
+                    <LemonSelect
+                        size="small"
+                        value={granularity}
+                        onChange={setGranularity}
+                        options={[
+                            { value: null, label: 'Group automatically' },
+                            { value: 'hour' as const, label: 'Group by hour' },
+                            { value: 'day' as const, label: 'Group by day' },
+                            { value: 'week' as const, label: 'Group by week' },
+                        ]}
+                        data-attr="engineering-analytics-dora-granularity-select"
+                    />
+                </div>
+                <Section
+                    id="merge-to-deploy"
+                    title="Lead time distributions"
+                    note="Box per bucket: whisker min to max, box p25 to p75, line at the median, dot at the mean. Buckets key on deploy time."
+                    busy={doraLoading && !!dora}
+                >
+                    {firstLoad ? (
+                        <LemonSkeleton className="h-40 w-full" />
+                    ) : boxPlotBuckets.length === 0 ? (
+                        <div className="py-8 text-center text-sm text-secondary">
+                            {githubTeam && dora && !dora.has_membership_data
+                                ? 'Team membership data is not synced, so the team filter cannot be applied.'
+                                : 'No deploy data for this window.'}
                         </div>
-                        {dora?.unattributed_merged_pr_share != null && dora.unattributed_merged_pr_share > 0 && (
-                            <div
-                                className="mt-2 text-xs text-tertiary"
-                                data-attr="engineering-analytics-dora-unattributed"
-                            >
-                                {(dora.unattributed_merged_pr_share * 100).toFixed(1)}% of the {dora.merged_pr_count}{' '}
-                                PRs merged in this window have no deploy attributed yet, usually because their deploy
-                                hasn't happened or synced.
+                    ) : (
+                        <>
+                            <div className="flex flex-col gap-4">
+                                {(showAllLeadTimeStages ? leadTimeStages : leadTimeStages.slice(0, 1)).map((stage) => (
+                                    <div key={stage.seriesKey} data-attr={stage.wrapperDataAttr}>
+                                        <h3 className="m-0 mb-1 text-xs font-semibold text-secondary">{stage.title}</h3>
+                                        <LeadTimeBoxPlot
+                                            seriesKey={stage.seriesKey}
+                                            seriesLabel={stage.seriesLabel}
+                                            buckets={stage.buckets}
+                                            formatSeconds={compactAgeLabel}
+                                            dataAttr={stage.dataAttr}
+                                        />
+                                    </div>
+                                ))}
                             </div>
-                        )}
-                    </>
-                )}
-            </Section>
-            <Section
-                id="deployment-frequency"
-                title="Deployments over time"
-                note={`Successful deployments per bucket in the ${environmentScopeLabel} scope.`}
-                busy={doraLoading && !!dora}
-            >
-                {firstLoad ? (
-                    <LemonSkeleton className="h-40 w-full" />
-                ) : frequencyCounts.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-secondary">No deploy data for this window.</div>
-                ) : (
-                    // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column.
-                    <div className="flex h-40 flex-col" data-attr="engineering-analytics-dora-frequency-chart">
-                        <TimeSeriesBarChart
-                            series={frequencySeries}
-                            labels={frequencyIsoLabels}
-                            theme={chartTheme}
-                            config={{
-                                xAxis: {
-                                    timezone: 'UTC',
-                                    interval: (dora?.series_granularity ?? 'day') as TimeInterval,
-                                },
-                                yAxis: { format: 'numeric', decimalPlaces: 0 },
-                                minBarSize: 2,
-                            }}
-                        />
-                    </div>
-                )}
-            </Section>
+                            <div className="mt-2">
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    icon={showAllLeadTimeStages ? <IconChevronDown /> : <IconChevronRight />}
+                                    onClick={toggleLeadTimeStages}
+                                    data-attr="engineering-analytics-dora-stage-toggle"
+                                >
+                                    {showAllLeadTimeStages
+                                        ? 'Hide open to merge and merge to deploy'
+                                        : 'Show open to merge and merge to deploy'}
+                                </LemonButton>
+                            </div>
+                            {dora?.unattributed_merged_pr_share != null && dora.unattributed_merged_pr_share > 0 && (
+                                <div
+                                    className="mt-2 text-xs text-tertiary"
+                                    data-attr="engineering-analytics-dora-unattributed"
+                                >
+                                    {(dora.unattributed_merged_pr_share * 100).toFixed(1)}% of the{' '}
+                                    {dora.merged_pr_count} PRs merged in this window have no deploy attributed yet,
+                                    usually because their deploy hasn't happened or synced.
+                                </div>
+                            )}
+                        </>
+                    )}
+                </Section>
+                <Section
+                    id="deployment-frequency"
+                    title="Deployments over time"
+                    note={`Successful deployments per bucket in the ${environmentScopeLabel} scope.`}
+                    busy={doraLoading && !!dora}
+                >
+                    {firstLoad ? (
+                        <LemonSkeleton className="h-40 w-full" />
+                    ) : frequencyCounts.length === 0 ? (
+                        <div className="py-8 text-center text-sm text-secondary">No deploy data for this window.</div>
+                    ) : (
+                        // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column.
+                        <div className="flex h-40 flex-col" data-attr="engineering-analytics-dora-frequency-chart">
+                            <TimeSeriesBarChart
+                                series={frequencySeries}
+                                labels={frequencyIsoLabels}
+                                theme={chartTheme}
+                                config={{
+                                    xAxis: {
+                                        timezone: 'UTC',
+                                        interval: (dora?.series_granularity ?? 'day') as TimeInterval,
+                                    },
+                                    yAxis: { format: 'numeric', decimalPlaces: 0 },
+                                    minBarSize: 2,
+                                }}
+                            />
+                        </div>
+                    )}
+                </Section>
+            </div>
         </div>
     )
 }
