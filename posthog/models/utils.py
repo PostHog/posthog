@@ -201,6 +201,36 @@ def mask_key_value(value: str) -> str:
     return f"{value[:4]}...{value[-4:]}"
 
 
+# A masked value is either the short-token fallback or the four-dots-four form
+# that `mask_key_value` produces. Both are 11 characters at most.
+_MASKED_VALUE_RE = re.compile(r"\A(?:\*{8}|.{4}\.\.\..{4})\Z")
+
+
+def is_masked_value(value: str) -> bool:
+    """Report whether `value` has the shape that `mask_key_value` produces."""
+    return bool(_MASKED_VALUE_RE.match(value))
+
+
+class MaskedKeyMixin:
+    """Guards the masked-key column so a raw token can never be stored there.
+
+    The column is 11 characters wide, the exact size of a masked value, so a raw
+    token only fails at the database. `save()` checks the shape first, so a caller
+    that forgets `mask_key_value` fails loudly instead of nearly persisting a
+    secret. Set the column with `set_mask_value` to mask the token for you.
+    """
+
+    mask_value: Optional[str]
+
+    def set_mask_value(self, token: str) -> None:
+        self.mask_value = mask_key_value(token)
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.mask_value is not None and not is_masked_value(self.mask_value):
+            raise ValueError("mask_value must be a masked token; use set_mask_value() or mask_key_value()")
+        super().save(*args, **kwargs)  # type: ignore[misc]
+
+
 def hash_key_value(
     value: str, mode: EncryptionModeType = "sha256", legacy_salt: Optional[str] = None, iterations: Optional[int] = None
 ) -> str:
