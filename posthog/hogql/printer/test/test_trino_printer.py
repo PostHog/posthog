@@ -7,6 +7,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField, StringJSONDatabaseField, TableNode
 from posthog.hogql.errors import QueryError
+from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -155,7 +156,7 @@ def test_coerces_strict_trino_types_after_property_lowering() -> None:
         "trino",
     )
 
-    assert 'CAST(json_extract_scalar("users"."properties", %(hogql_val_0)s) AS DOUBLE) / 1000' in sql
+    assert 'CAST(json_extract_scalar("users"."properties", %(hogql_val_0)s) AS DOUBLE) / CAST(1000 AS DOUBLE)' in sql
     assert 'sum(CAST(json_extract_scalar("users"."properties", %(hogql_val_1)s) AS DOUBLE))' in sql
     assert 'CAST(json_extract_scalar("users"."properties", %(hogql_val_2)s) AS BOOLEAN) = true' in sql
     assert '"users"."created_at" >= CAST(%(hogql_val_3)s AS TIMESTAMP)' in sql
@@ -569,6 +570,144 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
     )
 
     assert expected in sql
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("endsWith(user_id, '1')", 'ends_with("users"."user_id", %(hogql_val_0)s)'),
+        ("mapFromArrays(['a'], [1])", "map(ARRAY[%(hogql_val_0)s], ARRAY[1])"),
+        (
+            "mapUpdate(mapFromArrays(['a'], [1]), mapFromArrays(['a'], [2]))",
+            "map_concat(map(ARRAY[%(hogql_val_0)s], ARRAY[1]), map(ARRAY[%(hogql_val_1)s], ARRAY[2]))",
+        ),
+        ("in(user_id, ('a', 'b'))", '"users"."user_id" IN (%(hogql_val_0)s, %(hogql_val_1)s)'),
+        ("notIn(user_id, ('a', 'b'))", '"users"."user_id" NOT IN (%(hogql_val_0)s, %(hogql_val_1)s)'),
+        ("toDateTime(created_at, 'UTC')", 'with_timezone(CAST("users"."created_at" AS TIMESTAMP),'),
+        ("toTimeZone(created_at, 'America/Toronto')", "at_timezone(with_timezone(CAST("),
+        ("parseDateTime(user_id, '%Y-%m-%d')", 'TRY(date_parse("users"."user_id",'),
+        ("dateAdd('day', 2, created_at)", 'date_add(%(hogql_val_0)s, 2, "users"."created_at")'),
+        ("dateSub('day', 2, created_at)", 'date_add(%(hogql_val_0)s, -(2), "users"."created_at")'),
+        ("date_diff('day', created_at, created_at)", 'date_diff(%(hogql_val_0)s, "users"."created_at"'),
+        ("dateTrunc('month', created_at, 'UTC')", "date_trunc(%(hogql_val_0)s, at_timezone("),
+        ("toISOWeek(created_at)", 'EXTRACT(WEEK FROM "users"."created_at")'),
+        ("toISOYear(created_at)", 'EXTRACT(YEAR_OF_WEEK FROM "users"."created_at")'),
+        ("toYYYYMM(created_at)", 'CAST(date_format("users"."created_at", \'%Y%m\') AS INTEGER)'),
+        ("toYYYYMMDD(created_at)", 'CAST(date_format("users"."created_at", \'%Y%m%d\') AS INTEGER)'),
+        (
+            "toYYYYMMDDhhmmss(created_at)",
+            'CAST(date_format("users"."created_at", \'%Y%m%d%H%i%s\') AS BIGINT)',
+        ),
+        ("toLastDayOfWeek(created_at)", "CAST(date_add('day', 5, date_trunc('week',"),
+        ("toLastDayOfWeek(created_at, 1)", "CAST(date_add('day', 6, date_trunc('week',"),
+        ("toIntervalQuarter(2)", "CAST(2 AS BIGINT) * INTERVAL '3' MONTH"),
+        ("toIntervalYear(2)", "CAST(2 AS BIGINT) * INTERVAL '12' MONTH"),
+        ("toIntervalWeek(2)", "CAST(2 AS BIGINT) * INTERVAL '7' DAY"),
+        ("toIntOrDefault(user_id, 7)", 'COALESCE(TRY_CAST("users"."user_id" AS BIGINT), CAST(7 AS BIGINT))'),
+        ("toNullable(user_id)", '"users"."user_id"'),
+        ("_toDate(user_id)", 'CAST("users"."user_id" AS DATE)'),
+        ("anyIf(user_id, user_id != '')", 'arbitrary("users"."user_id") FILTER (WHERE'),
+        ("countIf(user_id, user_id != '')", 'count("users"."user_id") FILTER (WHERE'),
+        ("repeat(user_id, 2)", 'ELSE array_join(repeat("users"."user_id", 2), \'\') END'),
+        ("5 / 2", "(CAST(5 AS DOUBLE) / CAST(2 AS DOUBLE))"),
+        ("divide(5, 2)", "(CAST(5 AS DOUBLE) / CAST(2 AS DOUBLE))"),
+        ("not(user_id = '')", '(NOT ("users"."user_id" = %(hogql_val_0)s))'),
+        ("toMonday(created_at)", 'CAST(date_trunc(\'week\', "users"."created_at") AS DATE)'),
+        ("yesterday()", "date_add('day', -1, CURRENT_DATE)"),
+        ("md5(user_id)", 'to_hex(md5(to_utf8(CAST("users"."user_id" AS VARCHAR))))'),
+        ("power(2, 3)", "power(2, 3)"),
+        ("ln(2)", "ln(2)"),
+        ("log2(2)", "log2(2)"),
+        ("cbrt(8)", "cbrt(8)"),
+        ("degrees(1)", "degrees(1)"),
+        ("radians(1)", "radians(1)"),
+        ("pi()", "pi()"),
+        ("sign(-1)", "sign(-1)"),
+        ("sin(1)", "sin(1)"),
+        ("cos(1)", "cos(1)"),
+        ("tan(1)", "tan(1)"),
+        ("asin(1)", "asin(1)"),
+        ("acos(1)", "acos(1)"),
+        ("atan(1)", "atan(1)"),
+        ("atan2(1, 2)", "atan2(1, 2)"),
+        ("trim(' x ', ' ')", "trim(%(hogql_val_0)s, %(hogql_val_1)s)"),
+        ("ltrim(' x ', ' ')", "ltrim(%(hogql_val_0)s, %(hogql_val_1)s)"),
+        ("rtrim(' x ', ' ')", "rtrim(%(hogql_val_0)s, %(hogql_val_1)s)"),
+        ("reverse(user_id)", 'reverse("users"."user_id")'),
+        ("replace(user_id, 'a', 'b')", 'replace("users"."user_id",'),
+        ("lpad(user_id, 3, '0')", 'lpad("users"."user_id", 3,'),
+        ("rpad(user_id, 3, '0')", 'rpad("users"."user_id", 3,'),
+        ("e()", "e()"),
+    ],
+)
+def test_prints_safe_pr_91053_function_mappings(expression: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {expression} FROM users"),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert expected in sql
+
+
+def test_prints_typed_json_map_and_trino_try_cast() -> None:
+    query = parse_select("SELECT JSONExtract(properties, 'Map(String, Float64)') FROM users")
+    assert isinstance(query, ast.SelectQuery)
+    query.select.append(ast.TryCast(expr=ast.Field(chain=["users", "user_id"]), type_name="BIGINT"))
+
+    sql, _ = prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+
+    assert "AS MAP(VARCHAR, DOUBLE))" in sql
+    assert 'TRY_CAST("users"."user_id" AS BIGINT)' in sql
+
+
+def test_rejects_parse_datetime_format_without_matching_trino_semantics() -> None:
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(
+            parse_select("SELECT parseDateTime(user_id, '%Q') FROM users"),
+            _context_with_trino_table(),
+            "trino",
+        )
+
+    assert error.value.feature_code == "TRINO_DATETIME_FORMAT_UNSUPPORTED"
+
+
+def test_rejects_map_from_arrays_with_duplicate_keys() -> None:
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(
+            parse_select("SELECT mapFromArrays(['a', 'a'], [1, 2])"),
+            _context_with_trino_table(),
+            "trino",
+        )
+
+    assert error.value.feature_code == "TRINO_MAP_DUPLICATE_KEYS_UNSUPPORTED"
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "formatReadableTimeDelta(1)",
+        "intDiv(5, 2)",
+        "medianIf(1, true)",
+        "multiplyDecimal(1, 2)",
+        "_toInt16(40000)",
+    ],
+)
+def test_rejects_pr_91053_shortcuts_without_matching_trino_semantics(expression: str) -> None:
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(
+            parse_select(f"SELECT {expression}"),
+            _context_with_trino_table(),
+            "trino",
+        )
+
+    assert error.value.feature_code == "TRINO_FUNCTION_UNSUPPORTED"
+
+
+@pytest.mark.parametrize("identifier", ["parameter?", "parameter%", "nul\0identifier"])
+def test_rejects_trino_identifiers_that_can_collide_with_parameter_binding(identifier: str) -> None:
+    with pytest.raises(QueryError):
+        escape_trino_identifier(identifier)
 
 
 @pytest.mark.parametrize(

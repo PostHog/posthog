@@ -18,10 +18,13 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "toTypeName": "typeof",
     "now": "now",
     "startsWith": "starts_with",
+    "endsWith": "ends_with",
     "rand": "random",
     "dateTrunc": "date_trunc",
     "substringUTF8": "substring",
     "toLastDayOfMonth": "last_day_of_month",
+    "mapFromArrays": "map",
+    "mapUpdate": "map_concat",
 }
 
 
@@ -47,6 +50,7 @@ def _cast_or_default(name: str, trino_type: str, default: str) -> Callable[[list
         if len(args) not in {1, 2}:
             raise _invalid_arguments(name, f"{name} expects one or two arguments in Trino mode.")
         fallback = args[1] if len(args) == 2 else default
+        fallback = f"CAST({fallback} AS {trino_type})"
         return f"COALESCE(TRY_CAST({args[0]} AS {trino_type}), {fallback})"
 
     return handler
@@ -76,8 +80,11 @@ def _multi_if(args: list[str]) -> str:
 
 
 def _count_if(args: list[str]) -> str:
-    _require_args("countIf", args, 1)
-    return f"count(*) FILTER (WHERE {args[0]})"
+    if len(args) == 1:
+        return f"count(*) FILTER (WHERE {args[0]})"
+    if len(args) == 2:
+        return f"count({args[0]}) FILTER (WHERE {args[1]})"
+    raise _invalid_arguments("countIf", "countIf expects one or two arguments in Trino mode.")
 
 
 def _aggregate_if(function: str) -> Callable[[list[str]], str]:
@@ -133,7 +140,7 @@ def _today(args: list[str]) -> str:
 
 def _yesterday(args: list[str]) -> str:
     _require_args("yesterday", args, 0)
-    return "CURRENT_DATE - INTERVAL '1' DAY"
+    return "date_add('day', -1, CURRENT_DATE)"
 
 
 def _to_unix_timestamp(args: list[str]) -> str:
@@ -147,6 +154,16 @@ def _binary(name: str, operator: str) -> Callable[[list[str]], str]:
         return f"({args[0]} {operator} {args[1]})"
 
     return handler
+
+
+def _divide(args: list[str]) -> str:
+    _require_args("divide", args, 2)
+    return f"(CAST({args[0]} AS DOUBLE) / CAST({args[1]} AS DOUBLE))"
+
+
+def _not(args: list[str]) -> str:
+    _require_args("not", args, 1)
+    return f"(NOT {args[0]})"
 
 
 def _logical(name: str, operator: str) -> Callable[[list[str]], str]:
@@ -186,12 +203,41 @@ def _position(args: list[str]) -> str:
 
 def _to_monday(args: list[str]) -> str:
     _require_args("toMonday", args, 1)
-    return f"date_trunc('week', {args[0]})"
+    return f"CAST(date_trunc('week', {args[0]}) AS DATE)"
 
 
 def _to_interval_month(args: list[str]) -> str:
     _require_args("toIntervalMonth", args, 1)
     return f"(CAST({args[0]} AS BIGINT) * INTERVAL '1' MONTH)"
+
+
+def _scaled_month_interval(name: str, months: int) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 1)
+        return f"(CAST({args[0]} AS BIGINT) * INTERVAL '{months}' MONTH)"
+
+    return handler
+
+
+def _scaled_day_interval(name: str, days: int) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 1)
+        return f"(CAST({args[0]} AS BIGINT) * INTERVAL '{days}' DAY)"
+
+    return handler
+
+
+def _formatted_date_number(name: str, pattern: str, trino_type: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 1)
+        return f"CAST(date_format({args[0]}, '{pattern}') AS {trino_type})"
+
+    return handler
+
+
+def _e(args: list[str]) -> str:
+    _require_args("e", args, 0)
+    return "e()"
 
 
 def _current_timestamp(args: list[str]) -> str:
@@ -201,6 +247,7 @@ def _current_timestamp(args: list[str]) -> str:
 
 TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toDate": _cast("toDate", "DATE"),
+    "_toDate": _cast("_toDate", "DATE"),
     "toDateTime": _cast("toDateTime", "TIMESTAMP"),
     "toString": _cast("toString", "VARCHAR"),
     "toInt": _cast("toInt", "BIGINT"),
@@ -220,6 +267,11 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toHour": _extract("toHour", "HOUR"),
     "toMinute": _extract("toMinute", "MINUTE"),
     "toSecond": _extract("toSecond", "SECOND"),
+    "toISOWeek": _extract("toISOWeek", "WEEK"),
+    "toISOYear": _extract("toISOYear", "YEAR_OF_WEEK"),
+    "toYYYYMM": _formatted_date_number("toYYYYMM", "%Y%m", "INTEGER"),
+    "toYYYYMMDD": _formatted_date_number("toYYYYMMDD", "%Y%m%d", "INTEGER"),
+    "toYYYYMMDDhhmmss": _formatted_date_number("toYYYYMMDDhhmmss", "%Y%m%d%H%i%s", "BIGINT"),
     "toUnixTimestamp": _to_unix_timestamp,
     "if": _if,
     "multiIf": _multi_if,
@@ -228,11 +280,13 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "minIf": _aggregate_if("min"),
     "maxIf": _aggregate_if("max"),
     "avgIf": _aggregate_if("avg"),
+    "anyIf": _aggregate_if("arbitrary"),
     "uniq": _uniq,
     "uniqExact": _uniq,
     "uniqIf": _uniq_if,
     "uniqExactIf": _uniq_if,
     "dateDiff": _date_diff,
+    "date_diff": _date_diff,
     "addSeconds": _date_add("second"),
     "addMinutes": _date_add("minute"),
     "addHours": _date_add("hour"),
@@ -253,7 +307,9 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toIntervalMinute": _interval("minutes"),
     "toIntervalHour": _interval("hours"),
     "toIntervalDay": _interval("days"),
-    "toIntervalWeek": _interval("weeks"),
+    "toIntervalWeek": _scaled_day_interval("toIntervalWeek", 7),
+    "toIntervalQuarter": _scaled_month_interval("toIntervalQuarter", 3),
+    "toIntervalYear": _scaled_month_interval("toIntervalYear", 12),
     "today": _today,
     "yesterday": _yesterday,
     "equals": _binary("equals", "="),
@@ -265,17 +321,20 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "plus": _binary("plus", "+"),
     "minus": _binary("minus", "-"),
     "multiply": _binary("multiply", "*"),
-    "divide": _binary("divide", "/"),
+    "divide": _divide,
     "modulo": _binary("modulo", "%"),
     "and": _logical("and", "AND"),
     "or": _logical("or", "OR"),
+    "not": _not,
     "isNull": _null_check("isNull", False),
     "isNotNull": _null_check("isNotNull", True),
     "assumeNotNull": _identity("assumeNotNull"),
+    "toNullable": _identity("toNullable"),
     "formatDateTime": _format_date_time,
     "position": _position,
     "toMonday": _to_monday,
     "toIntervalMonth": _to_interval_month,
+    "e": _e,
     "current_timestamp": _current_timestamp,
 }
 
@@ -285,14 +344,21 @@ TRINO_FUNCTION_HANDLERS_LOWER = {name.lower(): handler for name, handler in TRIN
 TRINO_PASSTHROUGH_FUNCTIONS = frozenset(
     {
         "abs",
+        "acos",
         "array_agg",
+        "asin",
+        "atan",
+        "atan2",
         "avg",
         "cardinality",
+        "cbrt",
         "ceil",
         "coalesce",
         "concat",
+        "cos",
         "count",
         "date_trunc",
+        "degrees",
         "dense_rank",
         "exp",
         "floor",
@@ -302,18 +368,33 @@ TRINO_PASSTHROUGH_FUNCTIONS = frozenset(
         "lead",
         "least",
         "length",
+        "ln",
         "log10",
+        "log2",
         "lower",
+        "lpad",
+        "ltrim",
         "max",
         "min",
         "nullif",
         "pow",
+        "power",
+        "pi",
+        "radians",
         "rank",
+        "replace",
+        "reverse",
         "round",
         "row_number",
+        "rpad",
+        "rtrim",
+        "sign",
+        "sin",
         "sqrt",
         "sum",
         "substring",
+        "tan",
+        "trim",
         "upper",
     }
 )

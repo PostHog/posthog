@@ -38,6 +38,7 @@ _SPECIAL_CALLS = frozenset(
         "has",
         "hasall",
         "hasany",
+        "in",
         "countdistinct",
         "date_part",
         "dateadd",
@@ -58,9 +59,12 @@ _SPECIAL_CALLS = frozenset(
         "match",
         "md5",
         "notempty",
+        "notin",
+        "parsedatetime",
         "quantile",
         "quantileif",
         "range",
+        "repeat",
         "splitbychar",
         "splitbystring",
         "todecimal",
@@ -80,6 +84,8 @@ _SPECIAL_CALLS = frozenset(
         "tostartoftenminutes",
         "tostartofweek",
         "tostartofyear",
+        "tolastdayofweek",
+        "totimezone",
     }
 )
 _SEMANTIC_CALLS = frozenset({"cohort", "matchesaction", "savedquery"})

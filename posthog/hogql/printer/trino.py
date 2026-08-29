@@ -145,6 +145,9 @@ _TRINO_EXTRACT_FIELDS = frozenset(
         "yow",
     }
 )
+_TRINO_DATE_PARSE_SPECIFIERS = frozenset(
+    {"%%", "%Y", "%y", "%m", "%c", "%d", "%e", "%H", "%k", "%h", "%I", "%l", "%i", "%s", "%S", "%f", "%p", "%T", "%r"}
+)
 
 
 class TrinoPrinter(PostgresPrinter):
@@ -252,6 +255,11 @@ class TrinoPrinter(PostgresPrinter):
             )
         if name in {"empty", "notempty"}:
             return self._visit_empty(node, negated=name == "notempty")
+        if name in {"in", "notin"}:
+            left, right = self._visit_binary_args(node)
+            return f"({left} {'NOT IN' if name == 'notin' else 'IN'} {right})"
+        if name == "mapfromarrays":
+            return self._visit_map_from_arrays(node)
         if name == "length" and node.args and isinstance(self._resolve_type(node.args[0]), ast.ArrayType):
             return self._visit_unary_function(node, "cardinality")
         if name in {"toint", "tointorzero", "tointordefault"} and node.args:
@@ -271,7 +279,23 @@ class TrinoPrinter(PostgresPrinter):
                 and isinstance(value.value, str)
                 and re.search(r"T.*(?:Z|[+-]\d\d:\d\d)$", value.value)
             ):
-                return f"CAST(from_iso8601_timestamp({self.visit(value)}) AS TIMESTAMP)"
+                timestamp = f"from_iso8601_timestamp({self.visit(value)})"
+                if len(node.args) == 1:
+                    return f"CAST({timestamp} AS TIMESTAMP)"
+                if len(node.args) == 2:
+                    return f"at_timezone({timestamp}, {self.visit(node.args[1])})"
+                self._invalid_function_arguments(
+                    node, "toDateTime expects a value and optional timezone in Trino mode."
+                )
+            if len(node.args) == 2:
+                return f"with_timezone(CAST({self.visit(value)} AS TIMESTAMP), {self.visit(node.args[1])})"
+        if name == "totimezone":
+            value, timezone = self._visit_binary_args(node)
+            return f"at_timezone(with_timezone(CAST({value} AS TIMESTAMP), 'UTC'), {timezone})"
+        if name == "parsedatetime":
+            return self._visit_parse_datetime(node)
+        if name == "tolastdayofweek":
+            return self._visit_to_last_day_of_week(node)
         if name == "todatetime64":
             return self._visit_to_datetime64(node)
         if name == "concat":
@@ -283,6 +307,12 @@ class TrinoPrinter(PostgresPrinter):
                 )
             rendered = [f"CAST({self.visit(arg)} AS VARCHAR)" for arg in node.args]
             return f"concat({', '.join(rendered)})"
+        if name == "repeat":
+            value, count = self._visit_binary_args(node)
+            return (
+                f"CASE WHEN {value} IS NULL OR {count} IS NULL THEN NULL "
+                f"ELSE array_join(repeat({value}, {count}), '') END"
+            )
         if name == "sum" and len(node.args) == 1 and self._is_dynamic_property(node.args[0]):
             lowered = clone_expr(node)
             lowered.args = [ast.Call(name="toFloat", args=[lowered.args[0]])]
@@ -373,14 +403,25 @@ class TrinoPrinter(PostgresPrinter):
             return f"split({right}, {left})"
         if name == "md5":
             rendered_value = self._visit_unary_arg(node)
-            return f"lower(to_hex(md5(to_utf8(CAST({rendered_value} AS VARCHAR)))))"
+            return f"to_hex(md5(to_utf8(CAST({rendered_value} AS VARCHAR))))"
         if name == "extract":
             return self._visit_extract(node)
         if name in {"quantile", "quantileif"}:
             return self._visit_quantile(node, filtered=name == "quantileif")
         if name in {"dateadd", "datesub"}:
-            left, right = self._visit_binary_args(node)
-            return f"({left} {'+' if name == 'dateadd' else '-'} {right})"
+            if len(node.args) == 2:
+                left, right = self._visit_binary_args(node)
+                return f"({left} {'+' if name == 'dateadd' else '-'} {right})"
+            if len(node.args) == 3:
+                unit, amount, value = (self.visit(arg) for arg in node.args)
+                if name == "datesub":
+                    amount = f"-({amount})"
+                return f"date_add({unit}, {amount}, {value})"
+            self._invalid_function_arguments(node, f"{node.name} expects two or three arguments in Trino mode.")
+        if name in {"datetrunc", "date_trunc"} and len(node.args) == 3:
+            unit, value, timezone = (self.visit(arg) for arg in node.args)
+            zoned_value = f"at_timezone(with_timezone(CAST({value} AS TIMESTAMP), 'UTC'), {timezone})"
+            return f"date_trunc({unit}, {zoned_value})"
         if name == "date_part":
             return self._visit_date_part(node)
         if name == "json_value":
@@ -446,6 +487,8 @@ class TrinoPrinter(PostgresPrinter):
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> str:
         left = self.visit(node.left)
         right = self.visit(node.right)
+        if node.op == ast.ArithmeticOperationOp.Div:
+            return f"(CAST({left} AS DOUBLE) / CAST({right} AS DOUBLE))"
         lowered = False
         if self._is_dynamic_property(node.left) and self._is_numeric(node.right):
             left = f"CAST({left} AS DOUBLE)"
@@ -457,7 +500,6 @@ class TrinoPrinter(PostgresPrinter):
             ast.ArithmeticOperationOp.Add: "+",
             ast.ArithmeticOperationOp.Sub: "-",
             ast.ArithmeticOperationOp.Mult: "*",
-            ast.ArithmeticOperationOp.Div: "/",
             ast.ArithmeticOperationOp.Mod: "%",
         }
         operator = operators.get(node.op)
@@ -521,21 +563,7 @@ class TrinoPrinter(PostgresPrinter):
                 "JSONExtract requires a constant target type in Trino mode.",
                 node,
             )
-        target_types = {
-            "String": "VARCHAR",
-            "Int64": "BIGINT",
-            "UInt64": "DECIMAL(20, 0)",
-            "Float64": "DOUBLE",
-            "Bool": "BOOLEAN",
-            "Array(String)": "ARRAY(VARCHAR)",
-        }
-        target = target_types.get(type_arg.value)
-        if target is None:
-            self._unsupported(
-                "TRINO_JSON_TARGET_TYPE_UNSUPPORTED",
-                f"JSONExtract target type '{type_arg.value}' is not supported in Trino mode.",
-                node,
-            )
+        target = self._trino_json_type(type_arg.value, node)
         path_members: list[str | int] = []
         for key in node.args[1:-1]:
             if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
@@ -547,8 +575,41 @@ class TrinoPrinter(PostgresPrinter):
             path_members.append(key.value)
         source = self.visit(node.args[0])
         path = self._json_path(path_members)
-        extractor = "json_extract" if target.startswith("ARRAY") else "json_extract_scalar"
+        extractor = "json_extract" if target.startswith(("ARRAY", "MAP")) else "json_extract_scalar"
         return f"CAST({extractor}({source}, {path}) AS {target})"
+
+    def _trino_json_type(self, type_name: str, node: ast.Call) -> str:
+        normalized = " ".join(type_name.strip().lower().split())
+        scalar_types = {
+            "bool": "BOOLEAN",
+            "float32": "REAL",
+            "float64": "DOUBLE",
+            "int8": "TINYINT",
+            "int16": "SMALLINT",
+            "int32": "INTEGER",
+            "int64": "BIGINT",
+            "string": "VARCHAR",
+            "uint8": "SMALLINT",
+            "uint16": "INTEGER",
+            "uint32": "BIGINT",
+            "uint64": "DECIMAL(20, 0)",
+        }
+        target = scalar_types.get(normalized)
+        if target is not None:
+            return target
+        if normalized.startswith("nullable(") and normalized.endswith(")"):
+            return self._trino_json_type(normalized[9:-1], node)
+        if normalized.startswith("array(") and normalized.endswith(")"):
+            return f"ARRAY({self._trino_json_type(normalized[6:-1], node)})"
+        if normalized.startswith("map(") and normalized.endswith(")"):
+            arguments = self._split_type_arguments(normalized[4:-1])
+            if len(arguments) == 2 and arguments[0] == "string":
+                return f"MAP(VARCHAR, {self._trino_json_type(arguments[1], node)})"
+        self._unsupported(
+            "TRINO_JSON_TARGET_TYPE_UNSUPPORTED",
+            f"JSONExtract target type '{type_name}' is not supported in Trino mode.",
+            node,
+        )
 
     def _visit_json_metadata(self, node: ast.Call) -> str:
         name = node.name.lower()
@@ -625,6 +686,52 @@ class TrinoPrinter(PostgresPrinter):
                 )
             precision = precision_arg.value
         return f"CAST({self.visit(node.args[0])} AS TIMESTAMP({precision}))"
+
+    def _visit_parse_datetime(self, node: ast.Call) -> str:
+        if len(node.args) not in {2, 3}:
+            self._invalid_function_arguments(
+                node, "parseDateTime expects a value, format, and optional timezone in Trino mode."
+            )
+        format_arg = node.args[1]
+        if not isinstance(format_arg, ast.Constant) or not isinstance(format_arg.value, str):
+            self._unsupported(
+                "TRINO_DATETIME_FORMAT_NON_CONSTANT",
+                "parseDateTime requires a constant format in Trino mode.",
+                node,
+            )
+        directives = re.findall(r"%.", format_arg.value)
+        if any(directive not in _TRINO_DATE_PARSE_SPECIFIERS for directive in directives):
+            self._unsupported(
+                "TRINO_DATETIME_FORMAT_UNSUPPORTED",
+                "parseDateTime uses a format directive that does not have matching Trino semantics.",
+                node,
+            )
+        parsed = f"TRY(date_parse({self.visit(node.args[0])}, {self.visit(format_arg)}))"
+        if len(node.args) == 3:
+            return f"with_timezone({parsed}, {self.visit(node.args[2])})"
+        return parsed
+
+    def _visit_to_last_day_of_week(self, node: ast.Call) -> str:
+        if len(node.args) not in {1, 2}:
+            self._invalid_function_arguments(node, "toLastDayOfWeek expects a value and optional mode in Trino mode.")
+        mode = 0
+        if len(node.args) == 2:
+            mode_arg = node.args[1]
+            if (
+                not isinstance(mode_arg, ast.Constant)
+                or isinstance(mode_arg.value, bool)
+                or not isinstance(mode_arg.value, int)
+                or not 0 <= mode_arg.value <= 9
+            ):
+                self._unsupported(
+                    "TRINO_WEEK_MODE_UNSUPPORTED",
+                    "toLastDayOfWeek requires a constant ClickHouse week mode from 0 to 9 in Trino mode.",
+                    node,
+                )
+            mode = mode_arg.value
+        day_offset = 5 if mode % 2 == 0 else 6
+        value = self.visit(node.args[0])
+        return f"CAST(date_add('day', {day_offset}, date_trunc('week', {value})) AS DATE)"
 
     def _visit_date_part(self, node: ast.Call) -> str:
         if len(node.args) != 2:
@@ -717,6 +824,27 @@ class TrinoPrinter(PostgresPrinter):
             self._invalid_function_arguments(node, "range expects one or two arguments in Trino mode.")
         value = self._print_identifier("__hogql_range_value")
         return f"filter(sequence({start}, greatest(({end}) - 1, {start})), {value} -> ({value} < {end}))"
+
+    def _visit_map_from_arrays(self, node: ast.Call) -> str:
+        if len(node.args) != 2:
+            self._invalid_function_arguments(node, "mapFromArrays expects key and value arrays in Trino mode.")
+        keys = node.args[0]
+        if not isinstance(keys, ast.Array) or any(
+            not isinstance(key, ast.Constant) or key.value is None for key in keys.exprs
+        ):
+            self._unsupported(
+                "TRINO_MAP_KEYS_UNPROVEN",
+                "mapFromArrays requires constant non-null keys so Trino map semantics can be verified.",
+                node,
+            )
+        key_values = [key.value for key in keys.exprs if isinstance(key, ast.Constant)]
+        if any(value in key_values[:index] for index, value in enumerate(key_values)):
+            self._unsupported(
+                "TRINO_MAP_DUPLICATE_KEYS_UNSUPPORTED",
+                "ClickHouse maps with duplicate keys cannot be represented safely in Trino.",
+                node,
+            )
+        return self._visit_binary_function(node, "map")
 
     def _visit_array_first(self, node: ast.Call) -> str:
         if len(node.args) != 2 or not isinstance(node.args[0], ast.Lambda):
@@ -1062,6 +1190,10 @@ class TrinoPrinter(PostgresPrinter):
             return target
         if normalized.startswith("array(") and normalized.endswith(")"):
             return f"ARRAY({self._trino_type(normalized[6:-1])})"
+        if normalized.startswith("map(") and normalized.endswith(")"):
+            arguments = self._split_type_arguments(normalized[4:-1])
+            if len(arguments) == 2:
+                return f"MAP({self._trino_type(arguments[0])}, {self._trino_type(arguments[1])})"
         if normalized.startswith("nullable(") and normalized.endswith(")"):
             return self._trino_type(normalized[9:-1])
         match = _TRINO_PARAMETERIZED_TYPE_RE.fullmatch(normalized)
@@ -1089,6 +1221,22 @@ class TrinoPrinter(PostgresPrinter):
             rendered_base = "CHAR" if normalized_base == "fixedstring" else normalized_base.upper()
             return f"{rendered_base}({values[0]})"
         self._unsupported("TRINO_CAST_TYPE_UNSUPPORTED", f"Type '{type_name}' is not supported in Trino mode.")
+
+    @staticmethod
+    def _split_type_arguments(arguments: str) -> list[str]:
+        parts: list[str] = []
+        depth = 0
+        start = 0
+        for index, character in enumerate(arguments):
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                depth -= 1
+            elif character == "," and depth == 0:
+                parts.append(arguments[start:index].strip())
+                start = index + 1
+        parts.append(arguments[start:].strip())
+        return parts
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field, unsafe_args):
         if not unsafe_args:
