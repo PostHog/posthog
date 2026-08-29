@@ -53,8 +53,8 @@ test('getSegmentDuration still applies the segment exclude rules under an allowl
 // (target - overhead) of work, so walls land near the target in every lane.
 test('calculateShards sizes shards to the flat wall target', () => {
     // 105 min of work, 5 min overhead: each shard gets up to 6 min of tests,
-    // so 18 shards keep every wall at or below the 11 min target.
-    assert.equal(calculateShards(6300, 300, 1), 18)
+    // so 21 shards keep every wall at or below the 10 min target.
+    assert.equal(calculateShards(6300, 300, 1), 21)
 })
 
 test('calculateShards rounds up, so the target is a ceiling, not an average', () => {
@@ -196,11 +196,11 @@ test('a product that fits one shard is packed, not split by its own margin', () 
 test("a split product's last shard absorbs a small product without leaking split flags", () => {
     const union = {}
     for (let i = 0; i < 11; i++) {
-        union[`products/big_one/backend/test_${i}.py::test_${i}`] = 24
+        union[`products/big_one/backend/test_${i}.py::test_${i}`] = 19
     }
-    union['products/small_one/backend/test_s.py::test_s'] = 40
+    union['products/small_one/backend/test_s.py::test_s'] = 10
 
-    assert.equal(productSplitShards({ work: 264, heavyCount: 0, lightWork: 264, maxLight: 24, testCount: 11 }), 2)
+    assert.equal(productSplitShards({ work: 209, heavyCount: 0, lightWork: 209, maxLight: 19, testCount: 11 }), 2)
 
     const matrix = buildMatrix(['big-one', 'small-one'], union, true)
 

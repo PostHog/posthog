@@ -52,8 +52,8 @@ const { loadContractSurfaces } = require('./trunk-impacted-targets')
 // A full run's wall is the pre-shard preamble plus the slowest of its shards.
 // The preamble (discovery, matrix build, runner start) measures ~5.5 min, and
 // sizing bounds the slowest shard at the target rather than the average, so a
-// 11-minute shard target puts a full PR run near 17 minutes end to end.
-const TARGET_WALL_SECONDS = 11 * 60
+// 10-minute shard target puts a full PR run near 16 minutes end to end.
+const TARGET_WALL_SECONDS = 10 * 60
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
