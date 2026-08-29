@@ -32,7 +32,7 @@ jobs:
             actions: write
             pull-requests: write
             issues: write
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         steps:
             - name: Get app token

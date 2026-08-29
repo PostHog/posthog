@@ -150,7 +150,7 @@ jobs:
         # skipped (no label / fork), where there is nothing to report.
         needs: build-macos
         if: ${{ !cancelled() && (needs.build-macos.result == 'success' || needs.build-macos.result == 'failure') }}
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         permissions:
             issues: write

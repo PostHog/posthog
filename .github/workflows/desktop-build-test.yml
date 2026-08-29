@@ -176,7 +176,7 @@ jobs:
                   retention-days: 7
 
     build-windows:
-        runs-on: windows-2022
+        runs-on: depot-windows-2022-4
         timeout-minutes: 60
         permissions:
             contents: read
@@ -261,9 +261,9 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - runner: ubuntu-24.04
+                    - runner: depot-ubuntu-24.04-4
                       arch: x64
-                    - runner: ubuntu-24.04-arm
+                    - runner: depot-ubuntu-24.04-arm-4
                       arch: arm64
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 60
