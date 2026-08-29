@@ -30,11 +30,15 @@ backquote_escape_chars_map = {**escape_chars_map, "`": "``"}
 _backquote_escape_chars_re = re.compile("[" + re.escape("".join(backquote_escape_chars_map)) + "]")
 
 
-def safe_identifier(identifier: str) -> str:
-    if "%" in identifier:
-        identifier = identifier.replace("%", "")
+# Characters that carry quoting or control meaning once an identifier is written into SQL or
+# recorded as a column name. HogQL escapes them when it prints an expression back, so a generated
+# alias for a wildcard call keeps the quoted `*` and its backticks. Strip them so a name HogQL
+# derived stays usable everywhere the alias later lands.
+_UNSAFE_IDENTIFIER_CHARACTERS = str.maketrans("", "", "%`\\\r\n\0")
 
-    return identifier
+
+def safe_identifier(identifier: str) -> str:
+    return identifier.translate(_UNSAFE_IDENTIFIER_CHARACTERS)
 
 
 # Copied from clickhouse_driver.util.escape_param
