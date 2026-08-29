@@ -210,8 +210,6 @@ tools:
                 cast: string-int
         ui_app: cohort
         response:
-            # Keep only created_by.id. Drop the rest of the creator profile so a
-            # cohort read does not expose personal data. Fetch it with a person lookup.
             exclude:
                 - filters.properties.values.*.values.*.bytecode
                 - filters.properties.values.*.values.*.bytecode_error
