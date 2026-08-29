@@ -44,16 +44,13 @@ const { loadContractSurfaces } = require('./trunk-impacted-targets')
 // work: bin-pack products into target-sized jobs, and multi-shard split any
 // single product that overflows on its own. A job runs what it holds
 // sequentially, so its wall is the sum of its parts, not the max.
-// One flat wall-clock target for every test shard, Django and products alike.
-// Predictability is the point: a dev who kicks off CI knows what a shard costs
-// without knowing which segment it is. Sizing solves wall = overhead + work/n
-// for n, so the target is a promise about the PR lane (where the overheads below
-// are fitted); master pays extra overhead (full migration replay) on top.
+// Sizing solves wall = overhead + work/n for n. Core uses its measured
+// 11-minute sweet spot; lowering it added runners without shortening the tail.
+// Product suites keep the 10-minute target because their lower setup cost still
+// turns smaller chunks into a shorter critical path.
 // A full run's wall is the pre-shard preamble plus the slowest of its shards.
-// The preamble (discovery, matrix build, runner start) measures ~5.5 min, and
-// sizing bounds the slowest shard at the target rather than the average, so a
-// 10-minute shard target puts a full PR run near 16 minutes end to end.
-const TARGET_WALL_SECONDS = 10 * 60
+const DJANGO_TARGET_WALL_SECONDS = 11 * 60
+const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
@@ -733,7 +730,7 @@ function getProductDuration(product, durations) {
 // far the worst chunk can run past the mean.
 // Budget of test work one product shard can hold, mirroring calculateShards.
 function productShardBudget() {
-    return Math.max(TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS, PRODUCT_JOB_OVERHEAD_SECONDS / 2, 1)
+    return Math.max(PRODUCT_TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS, PRODUCT_JOB_OVERHEAD_SECONDS / 2, 1)
 }
 
 // The parts of a product's duration distribution that sizing needs. Two tests
@@ -825,7 +822,7 @@ function packProducts(products, durations, productsScaled = false, seedJobs = []
     for (const { product, cost } of items) {
         let placed = false
         for (const bucket of buckets) {
-            if (bucket.cost + cost <= TARGET_WALL_SECONDS - bucket.baseOverhead) {
+            if (bucket.cost + cost <= PRODUCT_TARGET_WALL_SECONDS - bucket.baseOverhead) {
                 bucket.products.push(product)
                 bucket.cost += cost
                 placed = true
@@ -904,7 +901,7 @@ function getSegmentDuration(segment, durations, ranNodeIds = null) {
 const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 
 // A shard's wall is overhead + work/shards. Sizing solves that for the shared
-// TARGET_WALL_SECONDS: each shard carries (target - overhead) of work, so
+// DJANGO_TARGET_WALL_SECONDS: each shard carries (target - overhead) of work, so
 // shards = ceil(work / (target - overhead)) and every shard in every lane lands
 // near the same, predictable duration. Ceil, so the target is a ceiling, not an
 // average.
@@ -919,7 +916,7 @@ function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_M
     // The floor stops an overhead near the target from exploding the shard
     // count. It sits at half the overhead: a floor at the full overhead pinned
     // split product shards at twice their overhead, above any target below it.
-    const budget = Math.max(TARGET_WALL_SECONDS - overheadSeconds, overheadSeconds / 2, 1)
+    const budget = Math.max(DJANGO_TARGET_WALL_SECONDS - overheadSeconds, overheadSeconds / 2, 1)
     const shards = Math.ceil(totalWorkSeconds / budget)
     return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
@@ -1228,7 +1225,8 @@ module.exports = {
     productSplitShards,
     getProductShape,
     PRODUCTS_SCALED_MARKER,
-    TARGET_WALL_SECONDS,
+    DJANGO_TARGET_WALL_SECONDS,
+    PRODUCT_TARGET_WALL_SECONDS,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
