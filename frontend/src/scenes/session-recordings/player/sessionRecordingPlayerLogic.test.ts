@@ -555,6 +555,8 @@ describe('sessionRecordingPlayerLogic', () => {
 
         const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
         const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
+        // a non-rendering bookkeeping event; the segmenter treats Meta as active, so it opens a window segment
+        const meta = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.Meta)
         // second-window events for the multi-window cases
         const w2inc = (timestamp: number): RecordingSnapshot =>
             makeSnapshot(timestamp, EventType.IncrementalSnapshot, 2)
@@ -940,6 +942,15 @@ describe('sessionRecordingPlayerLogic', () => {
                 description: 'does not flag when the first window renders but a later window lacks a full snapshot',
                 firstSourceSnapshots: [fs(START), inc(START + 1000)],
                 secondSourceSnapshots: [w2inc(START + 61000), w2inc(START + 62000)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+            {
+                // idle tab: a backdated bookkeeping event pulls the start back over an empty span,
+                // then real content and its full snapshot arrive together — nothing is missing
+                description: 'does not flag an idle gap where only a bookkeeping event precedes the full snapshot',
+                firstSourceSnapshots: [meta(START)],
+                secondSourceSnapshots: [fs(LATE_FS_TS), inc(LATE_FS_TS + 1000)],
                 expectedLeadingUnplayableMs: 0,
                 expectedHasLate: false,
             },

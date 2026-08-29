@@ -1865,7 +1865,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return 0
                 }
                 const renderability = seekRenderability(firstWindowSegment.startTimestamp)
-                return renderability.kind === 'clampToFullSnapshot' ? Math.max(0, renderability.timestamp - start) : 0
+                if (renderability.kind !== 'clampToFullSnapshot' || firstWindowSegment.windowId === undefined) {
+                    return 0
+                }
+                // An idle tab backdates a non-rendering bookkeeping event to the last activity, which
+                // pulls the recording start back by the whole idle span. Nothing renders in that span,
+                // so only call it unplayable when real screen content sits before the recovery point.
+                const recoveryTimestamp = renderability.timestamp
+                const windowEvents = sessionPlayerData.snapshotsByWindowId[firstWindowSegment.windowId] ?? []
+                const hasContentBeforeRecovery = windowEvents.some(
+                    (event: eventWithTime) =>
+                        event.type === EventType.IncrementalSnapshot &&
+                        event.timestamp >= start &&
+                        event.timestamp < recoveryTimestamp
+                )
+                return hasContentBeforeRecovery ? Math.max(0, recoveryTimestamp - start) : 0
             },
         ],
 
