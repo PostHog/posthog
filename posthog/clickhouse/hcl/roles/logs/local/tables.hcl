@@ -196,6 +196,12 @@ database "posthog" {
       type  = "UInt64"
       codec = "DoubleDelta, ZSTD(1)"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
