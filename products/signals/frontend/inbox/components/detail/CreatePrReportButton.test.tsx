@@ -80,4 +80,28 @@ describe('CreatePrReportButton', () => {
         expect(actionType).toBe('create_pr')
         expect(extra).toEqual({ has_feedback: expectedHasFeedback })
     })
+
+    it('re-checks the live-task gate on submit, even via Cmd/Ctrl+Enter', async () => {
+        const report = makeReport()
+        const user = userEvent.setup()
+        const { rerender } = render(<CreatePrReportButton report={report} action={ACTION} />)
+
+        await user.click(screen.getByText('Create PR'))
+        // With the action enabled, Cmd/Ctrl+Enter submits — this also proves the key path is wired,
+        // so the assertion below can't pass just because the combo never fired.
+        await user.type(screen.getByRole('textbox'), 'put this behind a flag{Control>}{Enter}{/Control}')
+        expect(createPrFromReport).toHaveBeenCalledTimes(1)
+
+        // Polling then picks up a PR task created elsewhere (autostart, another tab, another user)
+        // and disables the action while the popover is still open. Cmd/Ctrl+Enter bypasses the now
+        // disabled button, so the handler must refuse the second request the server would reject.
+        const disabledAction: ReportDetailAction = {
+            ...ACTION,
+            disabledReason: 'A PR task already exists for this report. Open it in the task log to continue.',
+        }
+        rerender(<CreatePrReportButton report={report} action={disabledAction} />)
+        await user.type(screen.getByRole('textbox'), '{Control>}{Enter}{/Control}')
+
+        expect(createPrFromReport).toHaveBeenCalledTimes(1)
+    })
 })

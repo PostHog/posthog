@@ -29,7 +29,7 @@ export function CreatePrReportButton({
     action,
     'data-attr': dataAttr,
 }: CreatePrReportButtonProps): JSX.Element {
-    const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const buttonRef = useRef<HTMLButtonElement>(null)
     const [isOpen, setIsOpen] = useState(false)
@@ -43,8 +43,11 @@ export function CreatePrReportButton({
         if (isCreatingPr) {
             return
         }
-        if (aiConsentDisabledReason) {
-            lemonToast.error(aiConsentDisabledReason)
+        // `action.disabledReason` covers missing AI consent and a PR task that autostart or another
+        // tab created while this popover stayed open — the server would reject that second request
+        // with a task-cap error after the user composed a note.
+        if (action.disabledReason) {
+            lemonToast.error(action.disabledReason)
             return
         }
         captureInboxReportAction({
@@ -90,6 +93,7 @@ export function CreatePrReportButton({
                             size="small"
                             onClick={submit}
                             loading={isCreatingPr}
+                            disabledReason={action.disabledReason}
                             data-attr="inbox-report-create-pr-submit"
                         >
                             Create PR
