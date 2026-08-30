@@ -6342,7 +6342,8 @@ def warm_task_sandbox(
     (``Throttled``). The caller treats ``None`` as "no warm run; fall through to a cold create+run".
 
     When present, ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
-    (see :func:`resolve_team_github_integration_id`). Repository-less warms omit it.
+    (see :func:`resolve_team_github_integration_id`). A repository requires it; a repository-less warm
+    may carry it so the Run boots with the same GitHub credentials a repo-less create would get.
     """
     from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
         PermissionDenied,
@@ -6368,7 +6369,12 @@ def warm_task_sandbox(
         github_integration = Integration.objects.filter(
             id=github_integration_id, team_id=team_id, kind="github"
         ).first()
-    if bool(normalized_repositories) != bool(github_integration):
+    # An integration id that does not resolve to this team's GitHub integration is never warmed on, and
+    # a repository cannot be cloned without one. An integration without a repository is fine: the
+    # create path stores that pair too, and reuse matches on the integration id.
+    if github_integration_id is not None and github_integration is None:
+        return None
+    if normalized_repositories and github_integration is None:
         return None
     sandbox_environment = None
     if sandbox_environment_id is not None:
