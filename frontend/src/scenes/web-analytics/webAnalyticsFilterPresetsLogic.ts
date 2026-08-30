@@ -309,9 +309,15 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
                     limit: 100,
                     ...(search ? { search } : {}),
                 }
-                const response = await api.webAnalyticsFilterPresets.list(toParams(params))
-                // Discard this response if a newer loadPresets started while it was in flight, so a
-                // slower earlier search cannot overwrite the current results.
+                // Discard a superseded request whether it resolves or rejects, so a slower earlier
+                // search cannot overwrite the current results or raise a stale error.
+                let response: PaginatedResponse<WebAnalyticsFilterPresetType>
+                try {
+                    response = await api.webAnalyticsFilterPresets.list(toParams(params))
+                } catch (error) {
+                    breakpoint()
+                    throw error
+                }
                 breakpoint()
                 return response
             },

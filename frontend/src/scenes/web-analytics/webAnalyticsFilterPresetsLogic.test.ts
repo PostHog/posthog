@@ -96,4 +96,35 @@ describe('webAnalyticsFilterPresetsLogic', () => {
         expect(logic.values.presets.results).toHaveLength(1)
         expect(logic.values.presets.results[0].short_id).toBe('newer')
     })
+
+    it('swallows failures from a superseded request', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        let rejectEarlier: (error: Error) => void = () => {}
+        let resolveNewer: (response: PaginatedResponse<WebAnalyticsFilterPresetType>) => void = () => {}
+        const earlierRequest = new Promise<PaginatedResponse<WebAnalyticsFilterPresetType>>((_, reject) => {
+            rejectEarlier = reject
+        })
+        const newerRequest = new Promise<PaginatedResponse<WebAnalyticsFilterPresetType>>((resolve) => {
+            resolveNewer = resolve
+        })
+
+        api.get.mockImplementationOnce(() => earlierRequest).mockImplementationOnce(() => newerRequest)
+
+        logic.actions.loadPresets()
+        logic.actions.loadPresets()
+
+        // The earlier request fails after the newer one started. Its failure must be swallowed, so no
+        // failure action clears the loader or raises a stale error, and the newer results stand.
+        await expectLogic(logic, () => {
+            resolveNewer({ results: [makePreset('newer', false)] })
+            rejectEarlier(new Error('superseded'))
+        })
+            .toDispatchActions(['loadPresetsSuccess'])
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['loadPresetsFailure'])
+
+        expect(logic.values.presets.results).toHaveLength(1)
+        expect(logic.values.presets.results[0].short_id).toBe('newer')
+    })
 })
