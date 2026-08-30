@@ -137,6 +137,52 @@ async function runningTurnWithQueuedSecond(sessionId: string): Promise<
   return { ...harness, first, second };
 }
 
+/** Swap the agent's logger for a recorder so the dispatch-timing debug lines
+ *  can be asserted. */
+function captureDebugLogs(agent: Agent): Array<[string, unknown]> {
+  const entries: Array<[string, unknown]> = [];
+  (
+    agent as unknown as { logger: { debug: (m: string, d?: unknown) => void } }
+  ).logger = {
+    debug: (message: string, data?: unknown) => {
+      entries.push([message, data]);
+    },
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  } as never;
+  return entries;
+}
+
+function assistantMessage(sessionId: string, text: string): SDKMessage {
+  return {
+    type: "assistant",
+    parent_tool_use_id: null,
+    session_id: sessionId,
+    uuid: `assistant-${text}`,
+    message: {
+      id: `api-${text}`,
+      role: "assistant",
+      content: [{ type: "text", text }],
+    },
+  } as unknown as SDKMessage;
+}
+
+function commandsChanged(): SDKMessage {
+  return {
+    type: "system",
+    subtype: "commands_changed",
+    commands: [],
+  } as unknown as SDKMessage;
+}
+
+function timingEntries(
+  entries: Array<[string, unknown]>,
+  message: string,
+): unknown[] {
+  return entries.filter(([m]) => m === message).map(([, data]) => data);
+}
+
 describe("ClaudeAcpAgent turn queue input dispatch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -210,5 +256,82 @@ describe("ClaudeAcpAgent turn queue input dispatch", () => {
     } as unknown as SDKMessage);
     await expect(first).resolves.toMatchObject({ stopReason: "cancelled" });
     expect(pushed).toHaveLength(1);
+  });
+  it("times the SDK's first response to a dispatched prompt and names the message that ended the wait", async () => {
+    const sessionId = "s-first-sdk-message-timing";
+    const harness = installHarness(sessionId);
+    const entries = captureDebugLogs(harness.agent);
+    void harness.agent
+      .prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] })
+      .catch(() => {});
+    await tick();
+
+    harness.query._mockHelpers.sendMessage(commandsChanged());
+    await tick();
+
+    const timings = timingEntries(
+      entries,
+      "First SDK message after prompt dispatch",
+    );
+    expect(timings).toHaveLength(1);
+    expect(timings[0]).toMatchObject({
+      sessionId,
+      messageType: "system",
+      messageSubtype: "commands_changed",
+    });
+    expect((timings[0] as { waitMs: number }).waitMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("times the SDK's first response once per turn rather than once per message", async () => {
+    const sessionId = "s-first-sdk-message-once";
+    const harness = installHarness(sessionId);
+    const entries = captureDebugLogs(harness.agent);
+    void harness.agent
+      .prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] })
+      .catch(() => {});
+    await tick();
+
+    harness.query._mockHelpers.sendMessage(commandsChanged());
+    await tick();
+    echoTurn(harness.query, sessionOf(harness.agent).turnQueue[0].promptUuid);
+    await tick();
+    harness.query._mockHelpers.sendMessage(assistantMessage(sessionId, "one"));
+    await tick();
+
+    expect(
+      timingEntries(entries, "First SDK message after prompt dispatch"),
+    ).toHaveLength(1);
+  });
+
+  it("times first model output separately, so pre-model setup and model latency stay distinguishable", async () => {
+    const sessionId = "s-first-model-output-timing";
+    const harness = installHarness(sessionId);
+    const entries = captureDebugLogs(harness.agent);
+    void harness.agent
+      .prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] })
+      .catch(() => {});
+    await tick();
+
+    harness.query._mockHelpers.sendMessage(commandsChanged());
+    await tick();
+    echoTurn(harness.query, sessionOf(harness.agent).turnQueue[0].promptUuid);
+    await tick();
+    harness.query._mockHelpers.sendMessage(assistantMessage(sessionId, "one"));
+    await tick();
+    harness.query._mockHelpers.sendMessage(assistantMessage(sessionId, "two"));
+    await tick();
+
+    const output = timingEntries(
+      entries,
+      "First model output after prompt dispatch",
+    );
+    expect(output).toHaveLength(1);
+    const firstMessage = timingEntries(
+      entries,
+      "First SDK message after prompt dispatch",
+    )[0] as { waitMs: number };
+    expect((output[0] as { waitMs: number }).waitMs).toBeGreaterThanOrEqual(
+      firstMessage.waitMs,
+    );
   });
 });
