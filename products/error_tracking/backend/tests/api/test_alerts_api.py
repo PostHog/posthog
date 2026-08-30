@@ -9,6 +9,10 @@ from posthog.models.scoping import team_scope
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
 
+# Sentinel swapped for a real integration id inside the test body; parameterized
+# cases are built before setUp so they cannot reference one directly.
+VALID_INTEGRATION = object()
+
 
 def test_alert_contract_choices_match_model_choices():
     # The contract constants are duplicated from the model choices so presentation
@@ -176,17 +180,25 @@ class TestErrorTrackingAlerts(APIBaseTest):
             ("missing_integration", {"destinations": [{"channel_type": "slack", "config": {"channel": "C1"}}]}),
             (
                 "missing_channel_in_config",
-                {"destinations": [{"channel_type": "slack", "integration_id": None, "config": {}}]},
+                {"destinations": [{"channel_type": "slack", "integration_id": VALID_INTEGRATION, "config": {}}]},
             ),
             (
                 "non_string_channel_in_config",
-                {"destinations": [{"channel_type": "slack", "integration_id": None, "config": {"channel": 1}}]},
+                {
+                    "destinations": [
+                        {"channel_type": "slack", "integration_id": VALID_INTEGRATION, "config": {"channel": 12345}}
+                    ]
+                },
             ),
         ]
     )
     def test_alert_create_rejects_invalid_payload(self, _name, overrides):
         integration = self._create_slack_integration()
         payload = self._valid_payload(integration, **overrides)
+        # Config cases need a real integration so its validation cannot mask theirs.
+        for destination in payload.get("destinations", []):
+            if destination.get("integration_id") is VALID_INTEGRATION:
+                destination["integration_id"] = integration.id
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/error_tracking/alerts/",

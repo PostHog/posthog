@@ -1,3 +1,5 @@
+from typing import Any
+
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -18,8 +20,16 @@ from products.error_tracking.backend.facade.contracts import (
 MAX_THROTTLE_SECONDS = 2**31 - 1
 
 
+class _StrictCharField(serializers.CharField):
+    # CharField coerces numbers to strings; delivery identifiers must arrive as strings.
+    def to_internal_value(self, data: Any) -> str:
+        if not isinstance(data, str):
+            self.fail("invalid")
+        return super().to_internal_value(data)
+
+
 class ErrorTrackingAlertSlackConfigSerializer(serializers.Serializer):
-    channel = serializers.CharField(help_text="Slack channel ID notifications are delivered to.")
+    channel = _StrictCharField(help_text="Slack channel ID notifications are delivered to.")
     channel_name = serializers.CharField(
         required=False,
         allow_blank=True,
