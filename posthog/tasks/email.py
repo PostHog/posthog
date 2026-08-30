@@ -2230,6 +2230,9 @@ def send_project_deleted_email(
         template_name="project_deleted",
         template_context={
             "project_name": project_name,
+            # team_name aliases project_name for the remote Customer.io template; keep it until
+            # template 54 is confirmed to no longer read team_name.
+            "team_name": project_name,
             "data_erased_by": data_erased_by,
             "site_url": settings.SITE_URL,
         },
