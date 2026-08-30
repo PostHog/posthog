@@ -54,9 +54,38 @@ impl TryFrom<FileSelectionArgs> for FileSelection {
     }
 }
 
+/// Caps on the selection roots Display renders. A materialized selection can hold
+/// thousands of paths, and printing them all produces a log line larger than the pipe
+/// buffer (16-64 KiB depending on the platform), which kills the process with EAGAIN
+/// when stderr is a non-blocking pipe (e.g. inherited from a Node.js parent, as
+/// `@posthog/nextjs-config` does). The count cap keeps the line readable; the byte
+/// budget bounds it even when the individual paths are long.
+const MAX_DISPLAYED_ROOTS: usize = 8;
+const MAX_DISPLAY_BYTES: usize = 1024;
+
 impl Display for FileSelectionArgs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.directory)
+        let mut rendered = String::from("[");
+        let mut shown = 0usize;
+        for path in self.directory.iter().take(MAX_DISPLAYED_ROOTS) {
+            let formatted = format!("{path:?}");
+            // Always render the first path (a single path is bounded by PATH_MAX).
+            if shown > 0 && rendered.len() + formatted.len() + 2 > MAX_DISPLAY_BYTES {
+                break;
+            }
+            if shown > 0 {
+                rendered.push_str(", ");
+            }
+            rendered.push_str(&formatted);
+            shown += 1;
+        }
+        rendered.push(']');
+        let omitted = self.directory.len() - shown;
+        if omitted > 0 {
+            write!(f, "{rendered} … and {omitted} more")
+        } else {
+            write!(f, "{rendered}")
+        }
     }
 }
 
@@ -99,6 +128,11 @@ impl FileSelectionArgs {
     /// filesystem-cache flush on Next.js 16.3+) would otherwise hand upload chunks that
     /// inject never stamped, failing the run with "Chunk ID not found".
     /// See https://github.com/PostHog/posthog-js/issues/4667
+    ///
+    /// Every file is kept, not just chunk candidates: a `sourceMappingURL` can point at
+    /// any filename, and upload's `--delete-after` cleanup guard authorizes deletions by
+    /// the parent directories of the selected files, so dropping "irrelevant" files here
+    /// would silently shrink what that guard covers.
     pub fn materialize(self) -> Result<Self> {
         let resolved = self.resolve_stdin()?;
         resolved.validate()?;
@@ -323,6 +357,46 @@ mod tests {
             exclude: Vec::new(),
         };
         assert!(args.materialize().is_err());
+    }
+
+    #[test]
+    fn display_is_bounded_for_large_selections() {
+        let args = FileSelectionArgs {
+            directory: (0..10_000)
+                .map(|i| PathBuf::from(format!("static/chunks/chunk-{i}.js")))
+                .collect(),
+            stdin: false,
+            include: Vec::new(),
+            exclude: Vec::new(),
+        };
+
+        let rendered = args.to_string();
+
+        // Keep the rendered selection far under the smallest pipe buffer (16 KiB): a
+        // single oversized log line kills the CLI when stderr is a non-blocking pipe.
+        assert!(rendered.len() < 2048, "rendered {} bytes", rendered.len());
+        assert!(
+            rendered.ends_with("… and 9992 more"),
+            "rendered: {rendered}"
+        );
+    }
+
+    #[test]
+    fn display_is_bounded_for_long_paths() {
+        let long_segment = "a".repeat(300);
+        let args = FileSelectionArgs {
+            directory: (0..10_000)
+                .map(|i| PathBuf::from(format!("{long_segment}/chunk-{i}.js")))
+                .collect(),
+            stdin: false,
+            include: Vec::new(),
+            exclude: Vec::new(),
+        };
+
+        let rendered = args.to_string();
+
+        assert!(rendered.len() < 2048, "rendered {} bytes", rendered.len());
+        assert!(rendered.ends_with("more"), "rendered: {rendered}");
     }
 
     fn make_args(name: Option<&str>, version: Option<&str>, build: Option<&str>) -> ReleaseArgs {

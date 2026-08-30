@@ -128,6 +128,40 @@ mod tests {
     }
 
     #[test]
+    fn process_materialization_keeps_every_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("chunk.js"), "content").unwrap();
+        std::fs::write(dir.path().join("app.css"), "content").unwrap();
+        std::fs::create_dir(dir.path().join("maps")).unwrap();
+        // A sourceMappingURL can point at any filename, and upload's `--delete-after`
+        // cleanup guard is derived from the parents of the selected files — filtering
+        // the frozen selection down to "candidates" would shrink what it covers.
+        std::fs::write(dir.path().join("maps/app.custommap"), "{}").unwrap();
+
+        let parsed = SourcemapCli::try_parse_from([
+            "test",
+            "process",
+            "--directory",
+            dir.path().to_str().unwrap(),
+        ])
+        .expect("process args should parse");
+        let SourcemapCommand::Process(args) = parsed.command else {
+            panic!("expected process command");
+        };
+
+        let mut selected = args.materialize().unwrap().file_selection.directory;
+        selected.sort();
+        assert_eq!(
+            selected,
+            vec![
+                dir.path().join("app.css"),
+                dir.path().join("chunk.js"),
+                dir.path().join("maps/app.custommap"),
+            ]
+        );
+    }
+
+    #[test]
     fn upload_accepts_concurrency_override() {
         let parsed = SourcemapCli::try_parse_from([
             "test",
