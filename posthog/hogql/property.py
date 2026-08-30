@@ -565,7 +565,8 @@ def _multi_search_not_found(search_call: ast.Call) -> ast.CompareOperation:
     """Create comparison operation to check if multiSearchAnyCaseInsensitive did not find a match.
 
     A missing property makes the search return NULL. Coalescing to 0 before the comparison keeps
-    that row, matching single-value not_icontains, which the printer already passes on NULL."""
+    that row, matching single-value not_icontains, which the printer keeps by wrapping its NotILike
+    in ifNull(op, 1)."""
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Call(name="ifNull", args=[search_call, ast.Constant(value=0)]),
