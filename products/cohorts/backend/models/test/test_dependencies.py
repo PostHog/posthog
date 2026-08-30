@@ -258,14 +258,20 @@ class TestCohortDependencies(BaseTest):
             args, kwargs = mock_set_many.call_args
             self.assertEqual(kwargs.get("timeout"), DEPENDENCY_CACHE_TIMEOUT)
 
-    def test_cohort_save_survives_redis_error_in_dependency_refresh(self) -> None:
-        # A non-recalculation save fires _on_cohort_changed synchronously (see mock_transaction).
-        # A Redis error there must not escape Cohort.save() and leave the cohort stuck calculating.
+    @parameterized.expand(
+        [
+            # Dependency-refresh callback: cache.get raises inside _on_cohort_changed.
+            ("dependency_refresh", "products.cohorts.backend.models.dependencies.cache.get"),
+            # Behavioral-cache callback: cache.delete_many raises inside the invalidation callback.
+            ("behavioral_cache", "products.cohorts.backend.models.dependencies.cache.delete_many"),
+        ]
+    )
+    def test_cohort_save_survives_redis_error_in_commit_callback(self, _name: str, redis_target: str) -> None:
+        # A non-recalculation save fires both cohort_changed commit callbacks synchronously (see
+        # mock_transaction). A Redis error in either must not escape Cohort.save() and leave the cohort
+        # stuck calculating.
         cohort = self._create_cohort(name="Test Cohort")
-        with mock.patch(
-            "products.cohorts.backend.models.dependencies.cache.get",
-            side_effect=Exception("redis unavailable"),
-        ):
+        with mock.patch(redis_target, side_effect=Exception("redis unavailable")):
             cohort.name = "renamed"
             cohort.save()
 

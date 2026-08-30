@@ -204,6 +204,22 @@ def _invalidate_team_behavioral_cohort_cache(team_id: int) -> None:
 invalidate_team_behavioral_cohort_cache = _invalidate_team_behavioral_cohort_cache
 
 
+def _on_cohort_behavioral_cache_invalidated(team_id: int) -> None:
+    # Runs synchronously inside Cohort.save()/delete() under autocommit, so an unguarded Redis error
+    # here would escape the save, the same failure the _on_cohort_changed guard prevents. The
+    # behavioral-cohort cache is best-effort with a TTL and rebuilds on the next read, so a failed
+    # invalidation is safe to log and continue past. The public alias stays unguarded on purpose: the
+    # backfill finalizer wraps its own call and accounts for the failure.
+    try:
+        _invalidate_team_behavioral_cohort_cache(team_id)
+    except Exception as error:
+        logger.exception(
+            "failed_to_invalidate_team_behavioral_cohort_cache",
+            team_id=team_id,
+            error=str(error),
+        )
+
+
 def extract_cohort_dependencies(cohort: Cohort) -> set[int]:
     """
     Extract cohort dependencies from the given cohort.
@@ -454,7 +470,7 @@ def cohort_changed(sender, instance, **kwargs):
         return
 
     transaction.on_commit(lambda: _on_cohort_changed(instance))
-    transaction.on_commit(lambda: _invalidate_team_behavioral_cohort_cache(instance.team_id))
+    transaction.on_commit(lambda: _on_cohort_behavioral_cache_invalidated(instance.team_id))
 
 
 @receiver(post_save, sender=Cohort)
@@ -572,7 +588,7 @@ def cohort_deleted(sender, instance, **kwargs):
     Clear and rebuild dependency caches when cohort is deleted.
     """
     transaction.on_commit(lambda: _on_cohort_changed(instance, always_invalidate=True))
-    transaction.on_commit(lambda: _invalidate_team_behavioral_cohort_cache(instance.team_id))
+    transaction.on_commit(lambda: _on_cohort_behavioral_cache_invalidated(instance.team_id))
 
 
 @receiver(post_delete, sender=Team)
