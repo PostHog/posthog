@@ -1964,7 +1964,7 @@ class TestCSPMiddleware(APIBaseTest):
         if expects_reporting:
             assert "report-uri https://us.i.posthog.com/report/" in policy
             assert "report-to posthog" in policy
-            # Admin traffic is small enough to report every violation, unlike the sampled app policy.
+            # Sampling the admin policy too would silently drop violations, so the branches diverge.
             assert "sample_rate" not in policy
             assert "Reporting-Endpoints" in response
         else:

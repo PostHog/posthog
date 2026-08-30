@@ -85,16 +85,14 @@ CAPTURE_INTERNAL_BATCH_CHUNK_SIZE = get_from_env("CAPTURE_INTERNAL_BATCH_CHUNK_S
 
 # Outbound: where browsers send CSP violation and crash reports for pages this instance serves.
 # CSPMiddleware puts it in the `report-uri` directive and the `Reporting-Endpoints` header, and
-# picks the destination itself when this is unset. An empty value turns reporting off, which makes
-# this a kill switch that needs no deploy. The policy is still sent and still applies either way; we
-# only stop asking browsers to report against it.
+# picks the destination itself when this is unset. An empty value turns reporting off without
+# changing the policy, so it is a kill switch that needs no deploy.
 #
 # Read straight from the environment because `get_from_env` cannot tell an empty value from an unset
 # one, and the two mean different things here.
 #
-# An operator who wants this data can point the variable at their own install, which already serves
-# the receiving `/report/` endpoint:
-#   CSP_REPORT_ENDPOINT="https://posthog.example.com/report/?token=<their project token>&v=2"
+# An operator can point this at their own install, which already serves the receiving `/report/`
+# endpoint: CSP_REPORT_ENDPOINT="https://posthog.example.com/report/?token=<project token>&v=2"
 CSP_REPORT_ENDPOINT: str | None = os.getenv("CSP_REPORT_ENDPOINT")
 
 # Inbound bounds for /report/. The endpoint is unauthenticated and expands each CSP violation in
