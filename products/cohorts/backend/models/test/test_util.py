@@ -4,9 +4,10 @@ from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from clickhouse_driver.errors import SocketTimeoutError
+from kombu.exceptions import OperationalError as BrokerOperationalError
 from parameterized import parameterized
 from pydantic import (
     BaseModel,
@@ -38,6 +39,7 @@ from products.cohorts.backend.models.util import (
     insert_cohort_query_actors_into_ch,
     parse_error_code,
     print_cohort_hogql_query,
+    run_cohort_query,
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
     validate_actors_query_for_cohort,
@@ -1398,3 +1400,25 @@ class TestRecalculationErrorRecovery(BaseTest):
         self.assertIs(ctx.exception, real_error)
         assert mock_reset.call_count == 2
         mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
+
+
+class TestRunCohortQueryScheduling(SimpleTestCase):
+    @override_settings(TEST=False, IN_EVAL_TESTING=False)
+    def test_survives_broker_error_scheduling_initial_stats_task(self):
+        # The initial stats task is scheduled before the query runs. A broker blip there must not
+        # abort the recalculation before any ClickHouse work happens - run_cohort_query has to swallow
+        # it and still return fn's result, the same way the reschedule call after fn is guarded.
+        history = MagicMock()
+        with patch(
+            "posthog.tasks.calculate_cohort.collect_cohort_query_stats.apply_async",
+            side_effect=BrokerOperationalError("broker unavailable"),
+        ) as mock_apply:
+            result, _end_time = run_cohort_query(
+                lambda: "calc-result",
+                cohort_id=123,
+                history=history,
+                query="SELECT 1",
+            )
+
+        assert result == "calc-result"
+        mock_apply.assert_called_once()

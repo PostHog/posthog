@@ -213,10 +213,16 @@ def run_cohort_query(
         # Schedule delayed task to collect stats after query_log_archive is synced
         # Only if we have a history record to update and not in test mode
         if history and query and not (settings.TEST or settings.IN_EVAL_TESTING):
-            delayed_task = collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
-                countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
-            )
+            # Best-effort stats telemetry scheduled before the query runs, so a broker blip here must
+            # not abort the recalculation before any ClickHouse work happens. Log and continue with no
+            # delayed task, matching the guard on the reschedule below.
+            try:
+                delayed_task = collect_cohort_query_stats.apply_async(
+                    args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                    countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                )
+            except Exception as error:
+                logger.warning("cohort_stats_collection_scheduling_failed", cohort_id=cohort_id, error=str(error))
 
     try:
         result = fn(*args, **kwargs)
