@@ -1855,6 +1855,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 sseOpened: () => 'open',
                 sseReconnecting: () => 'reconnecting',
                 closeSse: () => 'closed',
+                // The sentinel tears the connection down without reconnecting, so the stream is no
+                // longer open — say so, rather than leaving a dead connection reading as healthy.
+                streamEnded: () => 'closed',
                 handleStreamError: () => 'error',
                 reset: () => 'idle',
             },
@@ -2481,6 +2484,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 return
             }
 
+            // Every open starts a fresh connection. The end sentinel and the proxy re-mint budget
+            // belong to the connection that saw them, so a stale `streamEnded` must not leak into
+            // this one — it suppresses the drop handler, which leaves a dropped stream dead with no
+            // reconnect and no terminal refetch (the thread then waits on a turn nothing delivers).
+            // A stream that really is finished re-delivers the sentinel on this connection.
+            cache.streamEnded = false
+            cache.streamTokenRefreshes = 0
+            const previousRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            if (previousRun && previousRun.runId !== runId) {
+                // The cursor is a Redis id from the previous run's stream — it addresses nothing in
+                // this one, so resuming from it can skip this run's opening frames.
+                cache.lastEventId = undefined
+            }
             // Track the active run so the reconnect loop can refetch it on a drop.
             cache.activeRun = { taskId, runId }
 
@@ -3061,6 +3077,23 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // stamp the turn start for per-turn duration metrics and append it as a `client`-sourced
             // log entry the projection renders in order.
             cache.turnStartedAtMs = Date.now()
+            // The turn needs a live connection to deliver it, and by now the stream may be gone —
+            // the durable sentinel landed on a run that kept accepting turns, or the reconnect
+            // budget ran out. Nothing else reopens it, so the turn would stream into a closed
+            // connection and the thread would wait on output that never arrives. The reopen resumes
+            // from the last-seen cursor, which is exclusive, so nothing already in the thread
+            // repeats. A terminal run is skipped: its follow-up starts a successor run, and the
+            // consumer opens that one.
+            const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            const streamRetryable = values.sseStatus === 'error' && values.bootstrapError?.retryable !== false
+            if (
+                !props.replayOnly &&
+                activeRun &&
+                !isTerminalRunStatus(values.currentRunStatus) &&
+                (values.sseStatus === 'closed' || streamRetryable)
+            ) {
+                actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: true })
+            }
             actions.appendEntries([
                 {
                     entry: {

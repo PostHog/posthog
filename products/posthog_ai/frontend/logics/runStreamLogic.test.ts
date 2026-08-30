@@ -1911,6 +1911,75 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('follow-up after the stream ended', () => {
+        // The durable sentinel can land on a run that keeps accepting turns (the successor-run
+        // resume, a proxy that ends its own stream). Nothing else reopens the connection, so
+        // without these the next turn streams into a closed connection and the thread waits on
+        // output that only a page reload surfaces.
+        it('reopens the connection when a follow-up starts a turn on a live run', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitMessage(notification('_posthog/turn_complete', {}), '101-0')
+            await MockStream.latest().emitStreamEnd()
+
+            expect(logic.values.sseStatus).toEqual('closed')
+            const opened = MockStream.connections.length
+
+            logic.actions.pushHumanMessage('and one more thing')
+
+            expect(MockStream.connections.length).toEqual(opened + 1)
+            // Resumes exactly after the last frame the thread carries, so nothing repeats.
+            expect(MockStream.latest().options.lastEventId).toEqual('101-0')
+            expect(logic.values.isThinking).toEqual(true)
+        })
+
+        it('leaves a healthy connection alone', async () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            const opened = MockStream.connections.length
+
+            logic.actions.pushHumanMessage('and one more thing')
+
+            expect(MockStream.connections.length).toEqual(opened)
+        })
+
+        it('does not reopen a terminal run — its follow-up starts a successor run', async () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            logic.actions.handleTerminalStatus({ status: 'completed' })
+            const opened = MockStream.connections.length
+
+            logic.actions.pushHumanMessage('and one more thing')
+
+            expect(MockStream.connections.length).toEqual(opened)
+        })
+
+        it("opens a successor run on fresh connection state, not the finished run's", async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitStreamEnd()
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2', startLatest: false })
+
+            // The cursor addresses the finished run's Redis stream — resuming from it in the
+            // successor's stream can skip that run's opening frames.
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            await MockStream.latest().emitOpen()
+
+            // The finished run's sentinel must not suppress this connection's drop handling.
+            const opened = MockStream.connections.length
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            expect(logic.values.sseStatus).toEqual('reconnecting')
+            jest.advanceTimersByTime(2000)
+            expect(MockStream.connections.length).toEqual(opened + 1)
+            jest.useRealTimers()
+        })
+    })
+
     describe('connection teardown', () => {
         // The keyed log store makes duplicate ingestion idempotent, so correctness no longer depends
         // on closing the exact connection a hot reload orphaned (the old EventSource registry is

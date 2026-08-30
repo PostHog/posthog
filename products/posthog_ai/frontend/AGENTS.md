@@ -117,7 +117,11 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
 The heart of the surface:
 
 - **SSE connection** — a `fetch` body reader pumped through `eventsource-parser`; a reconnect resumes after
-  the last Redis stream id via `Last-Event-ID` (capped exponential backoff + cumulative cap).
+  the last Redis stream id via `Last-Event-ID` (capped exponential backoff + cumulative cap). Connection
+  state (the `stream-end` sentinel, the resume cursor, the proxy token budget) belongs to one connection:
+  every `openSseForRun` starts it fresh, and the cursor is dropped when the run being opened differs from
+  the one it came from. A run can outlive its stream (the sentinel lands, the reconnect budget runs out),
+  so `pushHumanMessage` reopens a closed connection — a follow-up turn has nothing to stream into otherwise.
 - **Ordered, append-only `log` is the single source of truth** — every wire frame (plus a few synthetic
   client entries) is appended, never keyed or per-entry deduped — with one exception: superseded
   `tool_call_update` frames are field-wise merged per `toolCallId` (`appendToRunLog`). Each update carries
