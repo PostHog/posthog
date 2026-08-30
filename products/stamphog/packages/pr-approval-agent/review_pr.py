@@ -681,31 +681,42 @@ class Pipeline:
             suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
         suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""
         # Mixed PRs get mixed leniency: each file counts against the budget of
-        # the scope governing it (a folder override or the global pool), so a
-        # folder's higher ceilings cover its own files and nothing else.
-        for scope in self._size_scopes():
-            in_scope = set(scope.files)
-            scope_lines, scope_files = substantive_size([f for f in self.pr.files if f["filename"] in in_scope])
-            where = scope.path or "global"
-            if scope_lines > scope.max_lines:
+        # the scope governing it for a given ceiling (a folder override or the
+        # global pool), so a folder's higher ceiling covers its own files and
+        # nothing else. Lines and files partition independently, so a folder
+        # that raises one ceiling keeps the global one for the other.
+        line_scopes, file_scopes = self._size_scopes()
+        for scope in line_scopes:
+            scope_lines, _ = self._scope_size(scope)
+            if scope_lines > scope.ceiling:
                 return (
                     False,
-                    f"too large for auto-review ({scope_lines}L substantive in {where} — "
-                    f"ceiling is {scope.max_lines}L; {lines}L, {files}F total{suffix})",
+                    f"too large for auto-review ({scope_lines}L substantive in {scope.path or 'global'} — "
+                    f"ceiling is {scope.ceiling}L; {lines}L, {files}F total{suffix})",
                 )
-            if scope_files > scope.max_files:
+        for scope in file_scopes:
+            _, scope_files = self._scope_size(scope)
+            if scope_files > scope.ceiling:
                 return (
                     False,
-                    f"too large for auto-review ({scope_files}F substantive in {where} — "
-                    f"ceiling is {scope.max_files}F; {lines}L, {files}F total{suffix})",
+                    f"too large for auto-review ({scope_files}F substantive in {scope.path or 'global'} — "
+                    f"ceiling is {scope.ceiling}F; {lines}L, {files}F total{suffix})",
                 )
         return True, f"{lines}L, {files}F substantive{suffix} — within ceiling"
 
-    def _size_scopes(self) -> tuple[ScopeBudget, ...]:
+    def _scope_size(self, scope: ScopeBudget) -> tuple[int, int]:
+        in_scope = set(scope.files)
+        return substantive_size([f for f in self.pr.files if f["filename"] in in_scope])
+
+    def _size_scopes(self) -> tuple[tuple[ScopeBudget, ...], tuple[ScopeBudget, ...]]:
+        """The PR's line budgets and file budgets, in that order."""
         if self.effective_policy is not None:
-            return self.effective_policy.scopes
+            return self.effective_policy.line_scopes, self.effective_policy.file_scopes
         all_files = tuple(f["filename"] for f in self.pr.files)
-        return (ScopeBudget(path=None, max_files=MAX_FILES, max_lines=MAX_LINES, files=all_files),)
+        return (
+            (ScopeBudget(path=None, ceiling=MAX_LINES, files=all_files),),
+            (ScopeBudget(path=None, ceiling=MAX_FILES, files=all_files),),
+        )
 
     def _check_tier(self) -> tuple[bool, str]:
         cl = self.classification
@@ -1022,11 +1033,8 @@ class Pipeline:
         elif thumbs:
             bullets.append(f"👍 on the PR from {', '.join(thumbs)}.")
         if self.effective_policy is not None:
-            for scope in self.effective_policy.scopes:
-                if scope.path and scope.files:
-                    bullets.append(
-                        f"{len(scope.files)} of the {len(self.pr.files)} changed files are governed by `{scope.path}`."
-                    )
+            for path, governed in self.effective_policy.governed_file_counts():
+                bullets.append(f"{governed} of the {len(self.pr.files)} changed files are governed by `{path}`.")
         bullets.extend(str(issue) for issue in (self.reviewer_output.get("issues") or [])[:3])
 
         rows = [f"| {g.gate} | {'✓' if g.passed else '✗'} | {g.message} |" for g in self.gate_results if g]
@@ -1081,8 +1089,12 @@ class Pipeline:
                 "policy_file": ".stamphog/policy.yml",
                 "scopes": (
                     [
-                        {"path": s.path, "max_files": s.max_files, "max_lines": s.max_lines, "files": len(s.files)}
-                        for s in self.effective_policy.scopes
+                        {"path": s.path, "key": key, "ceiling": s.ceiling, "files": len(s.files)}
+                        for key, scopes in (
+                            ("max_lines", self.effective_policy.line_scopes),
+                            ("max_files", self.effective_policy.file_scopes),
+                        )
+                        for s in scopes
                     ]
                     if self.effective_policy
                     else []

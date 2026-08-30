@@ -182,16 +182,16 @@ class Policy:
 
 @dataclass(frozen=True)
 class ScopeBudget:
-    """One size-gate budget: a folder override's files, or the global pool.
+    """One size-gate ceiling and the files it governs.
 
-    `path` is the nearest granting AGENT_APPROVALS.md (repo-relative); None is
-    the global pool, which absorbs every file whose chain grants nothing so
-    splitting files across pseudo-scopes can never inflate the allowance.
+    `path` is the nearest AGENT_APPROVALS.md granting that ceiling (repo-relative);
+    None is the global pool, which absorbs every file whose chain grants that
+    ceiling nowhere, so splitting files across pseudo-scopes can never inflate
+    the allowance.
     """
 
     path: str | None
-    max_files: int
-    max_lines: int
+    ceiling: int
     files: tuple[str, ...]
 
 
@@ -200,16 +200,30 @@ class EffectivePolicy:
     """Per-PR resolved policy: per-scope size budgets plus advisory prose.
 
     Mixed PRs get mixed leniency: every AGENT_APPROVALS.md at or above a changed
-    file governs it, and the file is budgeted by the nearest folder on that
-    chain with a valid size_gate grant. Each scope's files must fit that scope's
-    own line and file ceilings; files with no valid grant on their chain keep
-    the global ceilings. No file ever gets more leniency than its own chain
+    file governs it, and each ceiling resolves on its own - a file is budgeted by
+    the nearest folder on its chain granting that ceiling, and by the global pool
+    when no folder on the chain grants it. Lines and files therefore partition
+    independently, so a folder that raises one ceiling never opens a second
+    budget for the other. No file ever gets more leniency than its own chain
     grants.
     """
 
-    scopes: tuple[ScopeBudget, ...]
+    file_scopes: tuple[ScopeBudget, ...]
+    line_scopes: tuple[ScopeBudget, ...]
     folder_prose: str | None = None
     invalid_folder_files: tuple[str, ...] = ()
+
+    def governed_file_counts(self) -> tuple[tuple[str, int], ...]:
+        """Changed files each granting AGENT_APPROVALS.md governs, path-sorted.
+
+        A folder can govern a file's line ceiling, its file ceiling, or both, so
+        each file counts once per folder.
+        """
+        governed: dict[str, set[str]] = {}
+        for scope in (*self.file_scopes, *self.line_scopes):
+            if scope.path is not None:
+                governed.setdefault(scope.path, set()).update(scope.files)
+        return tuple((path, len(files)) for path, files in sorted(governed.items()))
 
 
 class PolicyError(ValueError):
@@ -510,10 +524,6 @@ class _FolderOverride:
     prose: str | None = None
     invalid: bool = False
 
-    @property
-    def grants(self) -> bool:
-        return self.max_files is not None or self.max_lines is not None
-
 
 def _scope_chain_for(
     file_path: str, root: Path, cache: dict[PurePosixPath, tuple[PurePosixPath, ...]]
@@ -618,11 +628,12 @@ def _read_delegated_size_gate(stamphog: dict[str, Any], contract: dict[str, Over
 def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
     """Resolve the per-scope size budgets for a PR's changed files.
 
-    Every AGENT_APPROVALS.md at or above a changed file governs it. A file's size
-    budget comes from the nearest folder on its chain with a valid size_gate
-    grant, and each ceiling in that budget is the nearest grant of that key on
-    the chain; files whose chain grants nothing (no folder file, prose-only, or
-    only invalid grants) pool into the global budget. Advisory prose accumulates from
+    Every AGENT_APPROVALS.md at or above a changed file governs it. Each ceiling
+    resolves on its own: a file counts against the nearest folder on its chain
+    granting that ceiling, and against the global pool when the chain grants it
+    nowhere (no folder file, prose-only, or only invalid grants). Lines and files
+    therefore partition independently, so a folder raising one ceiling leaves its
+    files in the global pool for the other. Advisory prose accumulates from
     every valid folder file on the chain of at least one changed file, outermost
     first so general guidance precedes specific. An invalid folder file is
     treated as absent - it grants nothing and adds no prose, but its ancestors
@@ -638,44 +649,30 @@ def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
             parse_cache[scope_dir] = (rel_path, _parse_folder_policy(root / rel_path, policy.overrides))
         return parse_cache[scope_dir]
 
-    # Files sharing a granting AGENT_APPROVALS.md pool into one budget; the folder
-    # files touched by any chain feed the prose and invalid-file reporting.
-    grant_files: dict[str, list[str]] = {}
-    grant_max_files: dict[str, int] = {}
-    grant_max_lines: dict[str, int] = {}
-    global_files: list[str] = []
+    # Files sharing a granting AGENT_APPROVALS.md pool into one budget, per
+    # ceiling; a None bucket key is the global pool. The folder files touched by
+    # any chain feed the prose and invalid-file reporting.
+    file_buckets: dict[str | None, list[str]] = {}
+    line_buckets: dict[str | None, list[str]] = {}
+    file_ceilings: dict[str, int] = {}
+    line_ceilings: dict[str, int] = {}
     on_chain: dict[str, _FolderOverride] = {}  # rel path -> parse, each file once
     for file_path in changed_files:
-        scope_path: str | None = None
-        max_files: int | None = None
-        max_lines: int | None = None
+        file_scope: str | None = None
+        line_scope: str | None = None
         for scope_dir in _scope_chain_for(file_path, root, dir_cache):
             rel_path, parsed = parsed_for(scope_dir)
             on_chain[rel_path] = parsed
-            if parsed.invalid or not parsed.grants:
+            if parsed.invalid:
                 continue
-            if scope_path is None:
-                scope_path = rel_path
-            if max_files is None:
-                max_files = parsed.max_files
-            if max_lines is None:
-                max_lines = parsed.max_lines
-        if scope_path is None:
-            global_files.append(file_path)
-            continue
-        grant_files.setdefault(scope_path, []).append(file_path)
-        grant_max_files[scope_path] = policy.size_gate.max_files if max_files is None else max_files
-        grant_max_lines[scope_path] = policy.size_gate.max_lines if max_lines is None else max_lines
-
-    override_scopes = [
-        ScopeBudget(
-            path=rel_path,
-            max_files=grant_max_files[rel_path],
-            max_lines=grant_max_lines[rel_path],
-            files=tuple(files),
-        )
-        for rel_path, files in sorted(grant_files.items())
-    ]
+            if file_scope is None and parsed.max_files is not None:
+                file_scope = rel_path
+                file_ceilings[rel_path] = parsed.max_files
+            if line_scope is None and parsed.max_lines is not None:
+                line_scope = rel_path
+                line_ceilings[rel_path] = parsed.max_lines
+        file_buckets.setdefault(file_scope, []).append(file_path)
+        line_buckets.setdefault(line_scope, []).append(file_path)
 
     prose_parts: list[tuple[str, str]] = []
     invalid_files: list[str] = []
@@ -695,14 +692,20 @@ def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
     else:
         folder_prose = None
 
-    global_scope = ScopeBudget(
-        path=None,
-        max_files=policy.size_gate.max_files,
-        max_lines=policy.size_gate.max_lines,
-        files=tuple(global_files),
-    )
     return EffectivePolicy(
-        scopes=(*override_scopes, global_scope),
+        file_scopes=_scope_budgets(file_buckets, file_ceilings, policy.size_gate.max_files),
+        line_scopes=_scope_budgets(line_buckets, line_ceilings, policy.size_gate.max_lines),
         folder_prose=folder_prose,
         invalid_folder_files=tuple(invalid_files),
     )
+
+
+def _scope_budgets(
+    buckets: dict[str | None, list[str]], ceilings: dict[str, int], global_ceiling: int
+) -> tuple[ScopeBudget, ...]:
+    """Folder budgets sorted by path, then the global pool - present even when empty."""
+    overrides = [
+        ScopeBudget(path=path, ceiling=ceilings[path], files=tuple(buckets[path]))
+        for path in sorted(path for path in buckets if path is not None)
+    ]
+    return (*overrides, ScopeBudget(path=None, ceiling=global_ceiling, files=tuple(buckets.get(None, ()))))
