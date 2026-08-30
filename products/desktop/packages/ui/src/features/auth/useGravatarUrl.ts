@@ -7,12 +7,11 @@ const DEFAULT_GRAVATAR_SIZE = 96;
 // makes Gravatar return 404 (instead of a default silhouette) when the address has no
 // avatar, so the <img> errors and the initials fallback stays visible.
 async function gravatarUrlForEmail(
-  email: string,
+  normalizedEmail: string,
   size: number,
 ): Promise<string | undefined> {
   if (!globalThis.crypto?.subtle) return undefined;
-  const normalized = email.trim().toLowerCase();
-  const bytes = new TextEncoder().encode(normalized);
+  const bytes = new TextEncoder().encode(normalizedEmail);
   const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
   const hash = Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -20,32 +19,43 @@ async function gravatarUrlForEmail(
   return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=404`;
 }
 
+const gravatarUrls = new Map<string, string>();
+
+function cacheKey(normalizedEmail: string, size: number): string {
+  return `${normalizedEmail}:${size}`;
+}
+
+interface HashedGravatar {
+  key: string;
+  url: string | undefined;
+}
+
 export function useGravatarUrl(
   email?: string | null,
   size: number = DEFAULT_GRAVATAR_SIZE,
 ): string | undefined {
-  const [url, setUrl] = useState<string | undefined>(undefined);
+  const normalized = email?.trim().toLowerCase() || undefined;
+  const key = normalized ? cacheKey(normalized, size) : undefined;
+  const cached = key ? gravatarUrls.get(key) : undefined;
+  const [hashed, setHashed] = useState<HashedGravatar | null>(null);
 
   useEffect(() => {
-    if (!email) {
-      setUrl(undefined);
-      return;
-    }
+    if (!normalized || cached) return;
+    const pendingKey = cacheKey(normalized, size);
     let cancelled = false;
-    // Clear any prior URL so a reused avatar whose email just changed shows
-    // initials during the async hash rather than the previous person's photo.
-    setUrl(undefined);
-    gravatarUrlForEmail(email, size)
-      .then((next) => {
-        if (!cancelled) setUrl(next);
+    gravatarUrlForEmail(normalized, size)
+      .then((url) => {
+        if (url) gravatarUrls.set(pendingKey, url);
+        if (!cancelled) setHashed({ key: pendingKey, url });
       })
       .catch(() => {
-        if (!cancelled) setUrl(undefined);
+        if (!cancelled) setHashed({ key: pendingKey, url: undefined });
       });
     return () => {
       cancelled = true;
     };
-  }, [email, size]);
+  }, [normalized, size, cached]);
 
-  return url;
+  if (cached) return cached;
+  return hashed && hashed.key === key ? hashed.url : undefined;
 }

@@ -37,6 +37,7 @@ import type { UpdatesService } from "@posthog/core/updates/updates";
 import { CONNECTIVITY_CLIENT } from "@posthog/host-router/ports/connectivity-client";
 import { ENVIRONMENT_CLIENT } from "@posthog/host-router/ports/environment-client";
 import { FILE_WATCHER_CONTROL } from "@posthog/host-router/ports/file-watcher-control";
+import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type { ExternalAppsService } from "@posthog/workspace-server/services/external-apps/external-apps";
@@ -74,6 +75,7 @@ import {
 } from "./di/tokens";
 import { setupExternalLinkPermissionHandlers } from "./external-links";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
+import { registerDiskCacheProtocol } from "./protocols/disk-cache";
 import { registerMcpSandboxProtocol } from "./protocols/mcp-sandbox";
 import { destroyQuickAskWindow, setupQuickAsk } from "./quick-ask";
 import type { AppLifecycleService } from "./services/app-lifecycle/service";
@@ -375,6 +377,7 @@ async function boot(): Promise<void> {
   ensureClaudeConfigDir();
   setupExternalLinkPermissionHandlers(session.fromPartition("persist:main"));
   registerMcpSandboxProtocol();
+  registerDiskCacheProtocol(container.get(DISK_CACHE_SERVICE));
   installRendererNetworkLogging(
     session.fromPartition("persist:main").webRequest,
     container.get<DevNetworkService>(DEV_NETWORK_SERVICE),
