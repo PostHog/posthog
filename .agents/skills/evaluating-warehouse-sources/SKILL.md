@@ -30,13 +30,13 @@ The catalog is what makes the choice informed — it shows what each skipped tie
 
 ## The five escape classes
 
-| Class                                                                                                                                                    | Example PRs                            | What CI lacked                                 |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------- |
-| **1. Inferred vendor contract** — required params, envelope keys, cursor names, id fields, domain topology exist only in the author's head and fixtures  | #79119, #82961, #78129, #78983, #82159 | one authenticated request per endpoint         |
-| **2. Silent success** — a code path returns normally with fewer rows than the vendor holds                                                               | #78127, #82115, #82957, #78129         | row-count parity against the vendor's own UI   |
-| **3. Credential-instance variance** — key types, per-endpoint scopes, plan/add-on gating, OAuth manifest grants, regions                                 | #78033, #78035, #78134, #77920, #80824 | deliberately differentiated live accounts      |
-| **4. Keys, merges, partitions, restatements** — the key the merge uses is resolved at sync time, and correctness only breaks across overlapping runs, regenerated files, or days of vintages | #82959, #82099, #82974, #82973, #86510, #88969 | a second sync over real, drifting data |
-| **5. Environment & pre-existing state** — production egress topology, engine-variant catalogs, brownfield Delta tables, privilege-filtered introspection | #80823, #84705, #84740, #82273         | prod-like proxies, real clusters, seeded state |
+| Class                                                                                                                                                                                        | Example PRs                                    | What CI lacked                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| **1. Inferred vendor contract** — required params, envelope keys, cursor names, id fields, domain topology exist only in the author's head and fixtures                                      | #79119, #82961, #78129, #78983, #82159         | one authenticated request per endpoint         |
+| **2. Silent success** — a code path returns normally with fewer rows than the vendor holds                                                                                                   | #78127, #82115, #82957, #78129                 | row-count parity against the vendor's own UI   |
+| **3. Credential-instance variance** — key types, per-endpoint scopes, plan/add-on gating, OAuth manifest grants, regions                                                                     | #78033, #78035, #78134, #77920, #80824         | deliberately differentiated live accounts      |
+| **4. Keys, merges, partitions, restatements** — the key the merge uses is resolved at sync time, and correctness only breaks across overlapping runs, regenerated files, or days of vintages | #82959, #82099, #82974, #82973, #86510, #88969 | a second sync over real, drifting data         |
+| **5. Environment & pre-existing state** — production egress topology, engine-variant catalogs, brownfield Delta tables, privilege-filtered introspection                                     | #80823, #84705, #84740, #82273                 | prod-like proxies, real clusters, seeded state |
 
 ## Scope the evaluation to the change
 
