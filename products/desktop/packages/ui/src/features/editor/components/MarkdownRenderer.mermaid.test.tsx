@@ -1,8 +1,7 @@
 import { MarkdownDocumentPreview } from "@posthog/ui/features/code-editor/components/MarkdownDocumentPreview";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
-import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
-import type { ReactElement } from "react";
+import mermaid from "mermaid";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("mermaid", () => ({
@@ -28,10 +27,6 @@ vi.mock("@posthog/ui/utils/syntax-highlight", () => ({
 
 const MERMAID_FENCE = "```mermaid\ngraph TD; A-->B\n```";
 
-function renderInTheme(ui: ReactElement) {
-  return render(<Theme>{ui}</Theme>);
-}
-
 describe("mermaid fences in markdown", () => {
   it.each([
     [
@@ -43,7 +38,7 @@ describe("mermaid fences in markdown", () => {
       (content: string) => <MarkdownDocumentPreview content={content} />,
     ],
   ])("%s renders a mermaid fence as a diagram", async (_name, make) => {
-    renderInTheme(make(MERMAID_FENCE));
+    render(make(MERMAID_FENCE));
 
     expect(await screen.findByTestId("mermaid-svg")).toBeInTheDocument();
     expect(screen.queryByText("graph TD; A-->B")).toBeNull();
@@ -51,7 +46,7 @@ describe("mermaid fences in markdown", () => {
   });
 
   it("keeps other fences as code blocks", () => {
-    renderInTheme(<MarkdownRenderer content={"```ts\nconst a = 1;\n```"} />);
+    render(<MarkdownRenderer content={"```ts\nconst a = 1;\n```"} />);
 
     expect(screen.getByText("const a = 1;")).toBeInTheDocument();
     expect(screen.getByLabelText("Copy code")).toBeInTheDocument();
@@ -59,9 +54,7 @@ describe("mermaid fences in markdown", () => {
   });
 
   it("shows the source and the parse error when the diagram is invalid", async () => {
-    renderInTheme(
-      <MarkdownRenderer content={"```mermaid\ngraph TD; broken\n```"} />,
-    );
+    render(<MarkdownRenderer content={"```mermaid\ngraph TD; broken\n```"} />);
 
     expect(
       await screen.findByText(/Couldn't render this Mermaid diagram/),
@@ -69,8 +62,22 @@ describe("mermaid fences in markdown", () => {
     expect(screen.getByText("graph TD; broken")).toBeInTheDocument();
   });
 
+  it("never hands mermaid an image node that points at a remote URL", async () => {
+    const remoteImage =
+      '```mermaid\nflowchart TD\n  A@{ img: "http://127.0.0.1:9000/probe.png" }\n```';
+    render(<MarkdownRenderer content={remoteImage} />);
+
+    expect(
+      await screen.findByText(/Couldn't render this Mermaid diagram/),
+    ).toHaveTextContent("image nodes can't load remote URLs");
+    expect(mermaid.render).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("127.0.0.1"),
+    );
+  });
+
   it("keeps caller overrides in the document preview", () => {
-    renderInTheme(
+    render(
       <MarkdownDocumentPreview
         content="See [docs](https://example.com)"
         components={{ a: ({ children }) => <span>override:{children}</span> }}

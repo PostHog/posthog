@@ -12,11 +12,29 @@ function loadMermaid(): Promise<Mermaid> {
   return mermaidModule;
 }
 
+// The `img` key of a shape metadata block, as in `A@{ img: "…" }`.
+const IMAGE_NODE =
+  /(?:^|[,{\s])["']?img["']?\s*:\s*(?<url>"[^"]*"|'[^']*'|[^,}\n]*)/g;
+
+// Mermaid loads an image node through `new Image()` while it builds the SVG, before
+// DOMPurify ever sees the output. Diagrams reach us from PR comments and agent output, so
+// a remote image node would let their author make the app fetch any URL.
+function hasRemoteImageNode(code: string): boolean {
+  for (const node of code.matchAll(IMAGE_NODE)) {
+    const url = node.groups?.url?.trim() ?? "";
+    if (!/^["']?data:/i.test(url)) return true;
+  }
+  return false;
+}
+
 async function renderDiagram(
   id: string,
   code: string,
   isDarkMode: boolean,
 ): Promise<string> {
+  if (hasRemoteImageNode(code)) {
+    throw new Error("image nodes can't load remote URLs");
+  }
   const mermaid = await loadMermaid();
   if (initializedDarkMode !== isDarkMode) {
     mermaid.initialize({
