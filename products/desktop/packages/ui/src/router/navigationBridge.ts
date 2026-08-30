@@ -257,10 +257,17 @@ export function navigateToSettings(
   });
 }
 
+// Settings sits under the pathless `_shell` layout, so its route IDs read
+// `/_shell/settings/…` rather than `/settings/…`. Match on the substring so a
+// later move between layouts does not silently switch this off.
+export function isSettingsRouteId(routeId: string): boolean {
+  return routeId.includes("/settings/");
+}
+
 export function isOnSettingsRoute(): boolean {
   return (
     getRouterOrNull()?.state.matches.some((m) =>
-      m.routeId.startsWith("/settings"),
+      isSettingsRouteId(m.routeId),
     ) ?? false
   );
 }
