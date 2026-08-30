@@ -18,6 +18,7 @@ from posthog.temporal.oauth import (
     SCOUT_INTERNAL_SCOPES,
     SCOUT_USER_WRITE_SCOPES,
     SCRATCHPAD_INTERNAL_SCOPES,
+    McpScopePreset,
     create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user,
     has_write_scopes,
@@ -56,7 +57,13 @@ class TestResolveScopes(SimpleTestCase):
         # may carry `signal_scout_internal:write` (only the `signals_scout` preset does).
         # The two pipeline postures exist precisely so they can write memory WITHOUT it,
         # so they must not carry it either — nor the report channel's scope.
-        for preset in ("full", "read_only", "signals_research", "signals_implementation"):
+        without_scout_scopes: tuple[McpScopePreset, ...] = (
+            "full",
+            "read_only",
+            "signals_research",
+            "signals_implementation",
+        )
+        for preset in without_scout_scopes:
             assert "signal_scout_internal:write" not in resolve_scopes(preset)
             assert "signal_scout_report:write" not in resolve_scopes(preset)
         assert "signal_scout_internal:write" not in resolve_scopes(["feature_flag:read"])
@@ -81,9 +88,16 @@ class TestResolveScopes(SimpleTestCase):
     def test_scratchpad_write_reaches_scouts_and_the_pipeline_only(self) -> None:
         # Splitting the scope out of `signal_scout_internal` must not cost scouts their
         # remember/forget tools, and must not hand them to unrelated task tokens.
-        for preset in ("signals_scout", "signals_scout_reports", "signals_research", "signals_implementation"):
+        carriers: tuple[McpScopePreset, ...] = (
+            "signals_scout",
+            "signals_scout_reports",
+            "signals_research",
+            "signals_implementation",
+        )
+        for preset in carriers:
             assert "signal_scratchpad_internal:write" in resolve_scopes(preset)
-        for preset in ("read_only", "full"):
+        others: tuple[McpScopePreset, ...] = ("read_only", "full")
+        for preset in others:
             assert "signal_scratchpad_internal:write" not in resolve_scopes(preset)
         assert "signal_scratchpad_internal:write" not in resolve_scopes(["feature_flag:read"])
 
