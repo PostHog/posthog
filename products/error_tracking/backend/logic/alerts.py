@@ -1,6 +1,5 @@
 """CRUD and validation for error tracking alert configurations."""
 
-import json
 from typing import Any, Optional
 from uuid import UUID
 
@@ -185,14 +184,14 @@ def _compile_filters(team_id: int, filters: dict[str, Any]) -> dict[str, Any]:
 
 
 def _reject_duplicate_destinations(destinations: list[dict[str, Any]]) -> None:
-    # Delivery fans out one notification per destination row, so two identical
-    # destinations would double-post every notification.
+    # Delivery fans out one notification per destination row, so two destinations
+    # pointing at the same channel would double-post every notification. The
+    # identity ignores display-only config keys such as channel_name on purpose.
     seen = set()
     for destination in destinations:
-        key = json.dumps(
-            (destination.get("channel_type"), destination.get("integration_id"), destination.get("config")),
-            sort_keys=True,
-        )
+        config = destination.get("config")
+        channel = config.get("channel") if isinstance(config, dict) else None
+        key = (destination.get("channel_type"), destination.get("integration_id"), channel)
         if key in seen:
             raise AlertValidationError("Duplicate destinations are not allowed.")
         seen.add(key)

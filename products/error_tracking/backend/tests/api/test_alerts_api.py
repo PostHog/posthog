@@ -201,14 +201,17 @@ class TestErrorTrackingAlerts(APIBaseTest):
         integration = self._create_slack_integration()
         destination = {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": "C0123"}}
 
-        create = self.client.post(
-            f"/api/projects/{self.team.id}/error_tracking/alerts/",
-            data=self._valid_payload(integration, destinations=[destination, destination]),
-            format="json",
-        )
-        assert create.status_code == 400, create.json()
-        assert "Duplicate destinations" in str(create.json())
-        assert ErrorTrackingAlert.objects.for_team(self.team.id).count() == 0
+        # A destination differing only in display-only config keys is still the same target.
+        renamed = {**destination, "config": {"channel": "C0123", "channel_name": "#alerts"}}
+        for duplicates in ([destination, destination], [destination, renamed]):
+            create = self.client.post(
+                f"/api/projects/{self.team.id}/error_tracking/alerts/",
+                data=self._valid_payload(integration, destinations=duplicates),
+                format="json",
+            )
+            assert create.status_code == 400, create.json()
+            assert "Duplicate destinations" in str(create.json())
+            assert ErrorTrackingAlert.objects.for_team(self.team.id).count() == 0
 
         created = self._create_alert(integration)
         update = self.client.patch(
