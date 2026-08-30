@@ -148,11 +148,13 @@ import {
   type DiffWorkerFactory,
 } from "@posthog/ui/shell/diffWorkerHost";
 import {
+  createContext,
   memo,
   type ReactElement,
   type ReactNode,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -352,6 +354,13 @@ function formatTimestamp(ts: number): string {
  * A rated turn keeps its footer on screen, so the reader can see which thumb they picked without
  * hovering to find out.
  */
+/**
+ * True while the pointer is over the row or the row has keyboard focus. Footer buttons (each a
+ * Tooltip around a Button) mount only then: a thread mounts dozens of rows at once and the buttons
+ * are invisible until hover anyway.
+ */
+const FooterRevealContext = createContext(false);
+
 function TurnFooter({
   turnId,
   timestamp,
@@ -362,19 +371,24 @@ function TurnFooter({
   copyText?: string;
 }) {
   const sentiment = useTurnFeedback(turnId);
+  const revealed = useContext(FooterRevealContext);
   if (timestamp == null) return null;
   return (
     <ChatMessageFooter
       className={cn(
-        "mt-2 items-center justify-end gap-1 pl-0 transition-opacity",
+        "mt-2 min-h-5 items-center justify-end gap-1 pl-0 transition-opacity",
         sentiment ? "opacity-100" : "opacity-0 group-hover:opacity-100",
       )}
     >
       <span className="text-muted-foreground">
         {formatTimestamp(timestamp)}
       </span>
-      {copyText && <CopyButton value={copyText} label="Copy turn" />}
-      <TurnFeedback turnId={turnId} sentiment={sentiment} />
+      {(revealed || sentiment) && (
+        <>
+          {copyText && <CopyButton value={copyText} label="Copy turn" />}
+          <TurnFeedback turnId={turnId} sentiment={sentiment} />
+        </>
+      )}
     </ChatMessageFooter>
   );
 }
@@ -578,18 +592,20 @@ function UserBubble({
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const textRef = useRef<HTMLDivElement>(null);
+  const footerRevealed = useContext(FooterRevealContext);
 
   // Only meaningful while collapsed: expanding removes the clamp so scrollHeight === clientHeight.
   // We keep the prior result when expanded so the "Show less" trigger stays put.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the message text changes.
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (isExpanded) return;
     const el = textRef.current;
     if (!el) return;
-    const measure = () =>
-      setIsOverflowing(el.scrollHeight - el.clientHeight > 1);
-    measure();
-    const observer = new ResizeObserver(measure);
+    // The observer fires once on observe, after layout, so the first measure
+    // forces no layout inside the commit.
+    const observer = new ResizeObserver(() =>
+      setIsOverflowing(el.scrollHeight - el.clientHeight > 1),
+    );
     observer.observe(el);
     return () => observer.disconnect();
   }, [displayContent, isExpanded]);
@@ -698,9 +714,11 @@ function UserBubble({
             </ChatBubble>
           )}
           {timestamp != null && (
-            <ChatMessageFooter className="items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <ChatMessageFooter className="min-h-5 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               {formatTimestamp(timestamp)}
-              <CopyButton value={displayContent} label="Copy message" />
+              {(footerRevealed || keyboardFocused) && (
+                <CopyButton value={displayContent} label="Copy message" />
+              )}
             </ChatMessageFooter>
           )}
         </ChatMessageContent>
@@ -858,6 +876,8 @@ const ThreadRow = memo(function ThreadRow({
   renderItem: (item: ConversationItem) => ReactNode;
   keyboardFocused?: boolean;
 }) {
+  const [hovered, setHovered] = useState(false);
+  const footerRevealed = hovered || Boolean(keyboardFocused);
   if (item.type === "agent_turn") {
     return (
       <ChatMessageScrollerItem
@@ -865,31 +885,35 @@ const ThreadRow = memo(function ThreadRow({
         scrollAnchor={false}
         className="group mx-auto w-full empty:hidden"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
       >
-        <div className="flex flex-col gap-4 empty:hidden">
-          {item.items.map((sub, i) => (
-            // The scroller item's own content-visibility works at whole-turn granularity — a
-            // large turn (diffs, charts, dozens of tools) would render wholesale as soon as the
-            // card nears the viewport. Nesting content-visibility per sub-item keeps layout +
-            // paint bounded to the viewport-sized slice while scrolling; `auto` remembers each
-            // row's real size after first render so the scrollbar stays stable.
-            <div
-              key={sub.id}
-              className="[contain-intrinsic-size:auto_2rem] [content-visibility:auto] empty:hidden"
-            >
-              <ThreadItemBody
-                item={sub}
-                renderItem={renderItem}
-                isTrailing={i === item.items.length - 1}
-              />
-            </div>
-          ))}
-        </div>
-        <TurnFooter
-          turnId={item.id}
-          timestamp={completedTurnTimestamp(item)}
-          copyText={buildTurnCopyText(item.items) ?? undefined}
-        />
+        <FooterRevealContext.Provider value={footerRevealed}>
+          <div className="flex flex-col gap-4 empty:hidden">
+            {item.items.map((sub, i) => (
+              // The scroller item's own content-visibility works at whole-turn granularity — a
+              // large turn (diffs, charts, dozens of tools) would render wholesale as soon as the
+              // card nears the viewport. Nesting content-visibility per sub-item keeps layout +
+              // paint bounded to the viewport-sized slice while scrolling; `auto` remembers each
+              // row's real size after first render so the scrollbar stays stable.
+              <div
+                key={sub.id}
+                className="[contain-intrinsic-size:auto_2rem] [content-visibility:auto] empty:hidden"
+              >
+                <ThreadItemBody
+                  item={sub}
+                  renderItem={renderItem}
+                  isTrailing={i === item.items.length - 1}
+                />
+              </div>
+            ))}
+          </div>
+          <TurnFooter
+            turnId={item.id}
+            timestamp={completedTurnTimestamp(item)}
+            copyText={buildTurnCopyText(item.items) ?? undefined}
+          />
+        </FooterRevealContext.Provider>
       </ChatMessageScrollerItem>
     );
   }
@@ -899,12 +923,16 @@ const ThreadRow = memo(function ThreadRow({
       scrollAnchor={item.type === "user_message"}
       className="mx-auto w-full py-1 empty:hidden"
       style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
     >
-      <ThreadItemBody
-        item={item}
-        renderItem={renderItem}
-        keyboardFocused={keyboardFocused}
-      />
+      <FooterRevealContext.Provider value={footerRevealed}>
+        <ThreadItemBody
+          item={item}
+          renderItem={renderItem}
+          keyboardFocused={keyboardFocused}
+        />
+      </FooterRevealContext.Provider>
     </ChatMessageScrollerItem>
   );
 });
@@ -1237,10 +1265,14 @@ const FlatRowView = memo(
     keyboardFocused: boolean;
   }) {
     const { item } = row;
+    const [hovered, setHovered] = useState(false);
+    const footerRevealed = hovered || keyboardFocused;
     return (
       <ChatMessageScrollerItem
         messageId={item.id}
         scrollAnchor={false}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
         className={cn(
           // pb-4 stands in for the non-virtualized content's inter-row gap-4; an empty row
           // collapses entirely (display:none hides the padding too), matching how flex gap
@@ -1250,19 +1282,21 @@ const FlatRowView = memo(
         )}
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
       >
-        <ThreadItemBody
-          item={item}
-          renderItem={renderItem}
-          isTrailing={row.isTrailingInTurn}
-          keyboardFocused={keyboardFocused}
-        />
-        {row.turnId != null && row.turnTimestamp != null && (
-          <TurnFooter
-            turnId={row.turnId}
-            timestamp={row.turnTimestamp}
-            copyText={row.turnCopyText}
+        <FooterRevealContext.Provider value={footerRevealed}>
+          <ThreadItemBody
+            item={item}
+            renderItem={renderItem}
+            isTrailing={row.isTrailingInTurn}
+            keyboardFocused={keyboardFocused}
           />
-        )}
+          {row.turnId != null && row.turnTimestamp != null && (
+            <TurnFooter
+              turnId={row.turnId}
+              timestamp={row.turnTimestamp}
+              copyText={row.turnCopyText}
+            />
+          )}
+        </FooterRevealContext.Provider>
       </ChatMessageScrollerItem>
     );
   },
