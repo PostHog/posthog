@@ -1465,6 +1465,9 @@ export interface runStreamLogicActions {
     closeSse: () => {
         value: true
     }
+    retryConnection: () => {
+        value: true
+    }
     handleStreamError: (envelope: StreamErrorEnvelope) => StreamErrorEnvelope
     handleTerminalStatus: (status: {
         errorMessage?: string | null
@@ -1710,6 +1713,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
         bootstrapLogReady: true,
         closeSse: true,
         /**
+         * User-initiated retry after the reconnect budget ran out: reopens the SSE for the active run
+         * from the last-seen cursor and hands recovery back to the reconnect loop.
+         */
+        retryConnection: true,
+        /**
          * The conversations/open POST is in flight — drives the optimistic "spinning up" indicator
          * before any SSE state exists. The caller (maxThreadLogic) flips it on before the POST and off
          * on the no-handle/failure paths; the success path lets `openSseForRun` clear it via the reducer.
@@ -1866,6 +1874,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // A successful (re)connection clears the counter; bootstrapping a run starts fresh.
                 sseOpened: () => 0,
                 bootstrapRun: () => 0,
+                // A manual retry starts the per-drop budget over.
+                retryConnection: () => 0,
                 reset: () => 0,
             },
         ],
@@ -1877,6 +1887,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 sseReconnecting: (state) => state + 1,
                 bootstrapRun: () => 0,
+                // A manual retry starts the cumulative budget over.
+                retryConnection: () => 0,
                 reset: () => 0,
             },
         ],
@@ -2326,7 +2338,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     const detail = bootstrapError
                         ? [bootstrapError.errorTitle, bootstrapError.errorMessage].filter(Boolean).join(' — ')
                         : undefined
-                    return { kind: 'connection_failed', message: detail || undefined }
+                    return {
+                        kind: 'connection_failed',
+                        message: detail || undefined,
+                        retryable: bootstrapError?.retryable ?? false,
+                    }
                 }
                 return null
             },
@@ -3022,6 +3038,33 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 was_bootstrapping: cache.isBootstrapping === true,
                 execution_type: 'sandbox',
             })
+            // A retryable failure means the reconnect budget ran out while the run was probably still
+            // alive in the sandbox — the client just stopped watching. The analytics event above alone
+            // left this invisible in error tracking, so also capture an exception to make it measurable.
+            if (retryable) {
+                posthog.captureException(new Error(`Task run stream gave up: ${errorTitle}`), {
+                    conversation_id: props.conversationId,
+                    trace_id: values.traceId,
+                    run_id: activeRun?.runId,
+                    task_id: activeRun?.taskId,
+                    reconnect_attempts: values.reconnectAttempt,
+                    cumulative_reconnect_attempts: values.cumulativeReconnectAttempt,
+                })
+            }
+        },
+        retryConnection: () => {
+            const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            if (activeRun) {
+                // Resume from the last-seen cursor (openSseForRun reads cache.lastEventId) so the backend
+                // replays only the frames after it — no gap, no re-broadcast. The reducers cleared the
+                // reconnect budget, so the backoff loop owns recovery again from a fresh count.
+                actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: true })
+                return
+            }
+            // The stream never opened (the bootstrap fetch itself failed) — re-run bootstrap from scratch.
+            if (values.bootstrappedTaskId && values.bootstrappedRunId) {
+                actions.bootstrapRun({ taskId: values.bootstrappedTaskId, runId: values.bootstrappedRunId })
+            }
         },
         closeSse: () => {
             cache.activeRun = undefined

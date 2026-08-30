@@ -2930,6 +2930,53 @@ describe('runStreamLogic', () => {
             })
         })
 
+        it('captures an exception on a retryable exhaustion so error tracking sees it', () => {
+            const exceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+
+            logic.actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
+
+            expect(exceptionSpy).toHaveBeenCalledTimes(1)
+            expect(exceptionSpy.mock.calls[0][0]).toBeInstanceOf(Error)
+            exceptionSpy.mockRestore()
+        })
+
+        it('does not capture an exception for a non-retryable failure', () => {
+            const exceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+
+            logic.actions.handleStreamError({ errorTitle: 'No current project', retryable: false })
+
+            expect(exceptionSpy).not.toHaveBeenCalled()
+            exceptionSpy.mockRestore()
+        })
+
+        it('marks a retryable connection_failed banner as retryable', () => {
+            logic.actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
+            expect(logic.values.runConnectionState).toEqual(
+                expect.objectContaining({ kind: 'connection_failed', retryable: true })
+            )
+        })
+
+        it('reopens the stream from the cursor on retryConnection and resets the reconnect budget', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', traceId: 'trace-1' })
+            logic.actions.sseReconnecting(MAX_SSE_RECONNECT_ATTEMPTS)
+            logic.actions.sseDropped()
+            await flushPromises()
+            expect(logic.values.sseStatus).toEqual('error')
+
+            await expectLogic(logic, () => {
+                logic.actions.retryConnection()
+            }).toDispatchActions([
+                logic.actionCreators.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: true }),
+            ])
+
+            expect(logic.values.reconnectAttempt).toEqual(0)
+            expect(logic.values.cumulativeReconnectAttempt).toEqual(0)
+        })
+
         it('retries the snapshot before teardown and reports was_bootstrapping=true on exhaustion', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
