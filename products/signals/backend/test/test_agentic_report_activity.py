@@ -15,6 +15,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
+from posthog.temporal.oauth import grants_scratchpad_write
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.report_charts import ReportChart
@@ -33,6 +34,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import (
+    RESEARCH_MCP_SCOPES,
     RunAgenticReportInput,
     _parse_artefact_content,
     _parse_stored_charts,
@@ -497,6 +499,12 @@ async def test_run_agentic_report_activity_hands_fleet_steering_to_the_research_
     assert len(steering_events) == 1
     assert steering_events[0]["properties"]["notes_attached"] == 1
     assert steering_events[0]["properties"]["dismissal_notes_attached"] == 0
+    # The memory protocol is rendered from the same posture the sandbox token is minted with, so a
+    # posture that stopped granting the scratchpad would silently drop the write half instead of
+    # telling the run to remember with a tool the MCP server has stripped.
+    assert grants_scratchpad_write(RESEARCH_MCP_SCOPES)
+    assert steering_events[0]["properties"]["memory_protocol"] is True
+    assert "scout-scratchpad-remember" in captured["steering_section"]
 
 
 @pytest.mark.asyncio
