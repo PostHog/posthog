@@ -10,10 +10,11 @@ import type { HealthIssueCategory } from '../healthCategories'
 import { healthSceneLogic } from '../healthSceneLogic'
 import { severityToTagType, worstSeverity } from '../healthUtils'
 import type { HealthIssue } from '../types'
+import { HealthEmptyState } from './HealthEmptyState'
 import { HealthIssueCard } from './HealthIssueCard'
 
 export const HealthIssueList = (): JSX.Element => {
-    const { issues, healthIssuesLoading, healthIssues } = useValues(healthSceneLogic)
+    const { issues, healthIssuesLoading, healthIssues, hasIngestedEvents } = useValues(healthSceneLogic)
     const { snoozeIssue, dismissIssue, undismissIssue, loadHealthIssues } = useActions(healthSceneLogic)
 
     if (healthIssuesLoading && !healthIssues) {
@@ -35,12 +36,7 @@ export const HealthIssueList = (): JSX.Element => {
     }
 
     if (issues.length === 0) {
-        return (
-            <LemonBanner type="success">
-                <p className="font-semibold mb-0">All systems healthy</p>
-                <p className="text-sm mt-1 mb-0">No active health issues found for your project.</p>
-            </LemonBanner>
-        )
+        return <HealthEmptyState hasIngestedEvents={hasIngestedEvents} />
     }
 
     const groupedByCategory: Partial<Record<HealthIssueCategory, HealthIssue[]>> = {}

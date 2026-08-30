@@ -12,6 +12,10 @@ export const REFRESH_COOLDOWN_MS = 5 * 60 * 1000
 export const REFRESH_POLL_INTERVAL_MS = 5000
 export const REFRESH_POLL_COUNT = 12
 
+// Bound the issues load so a request that never settles fails instead of leaving the page on
+// skeletons forever. On timeout the loader rejects and the scene falls through to its retry banner.
+export const HEALTH_ISSUES_LOAD_TIMEOUT_MS = 30 * 1000
+
 export interface HealthIssue {
     id: string
     kind: string
