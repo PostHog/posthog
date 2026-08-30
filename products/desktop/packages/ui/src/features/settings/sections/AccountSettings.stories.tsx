@@ -19,9 +19,9 @@ const meta: Meta<typeof AccountSettingsView> = {
   args: {
     user,
     status: "found",
+    checking: false,
     imageUrl: SAMPLE_PICTURE,
     accountUrl: "https://us.posthog.com/settings/user",
-    onImageLoadingStatusChange: () => {},
     onRefresh: () => {},
     onOpenGravatar: () => {},
   },
@@ -46,9 +46,14 @@ export const NoGravatar: Story = {
   args: { status: "missing", imageUrl: undefined },
 };
 
-/** Still hashing the email or waiting on Gravatar: refresh is disabled and spinning. */
+/** First check, nothing known yet: refresh is disabled and spinning. */
 export const Checking: Story = {
-  args: { status: "checking", imageUrl: undefined },
+  args: { status: "unknown", checking: true, imageUrl: undefined },
+};
+
+/** Re-checking after an upload: the current picture and text stay put while refresh spins. */
+export const Refreshing: Story = {
+  args: { checking: true },
 };
 
 /** A person with no name set falls back to initials from the email. */

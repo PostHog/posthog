@@ -1,18 +1,16 @@
 import { ArrowSquareOut, ArrowsClockwise, Camera } from "@phosphor-icons/react";
 import { avatarColor } from "@posthog/core/auth/avatarColor";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-  Button,
-  cn,
-} from "@posthog/quill";
+import { Avatar, AvatarFallback, Button, cn } from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useGravatarUrl } from "@posthog/ui/features/auth/useGravatarUrl";
+import {
+  type ImageProbeResult,
+  useImageProbe,
+} from "@posthog/ui/features/auth/useImageProbe";
 import { getUserInitials } from "@posthog/ui/features/auth/userInitials";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import {
@@ -28,15 +26,13 @@ const GRAVATAR_MANAGE_URL = "https://gravatar.com/profile/avatars";
 // The avatar renders at 72px; ask Gravatar for 2x so it stays sharp on retina.
 const GRAVATAR_IMAGE_SIZE = 144;
 
-export type ProfilePictureStatus = "checking" | "found" | "missing";
-
-type ImageLoadingStatus = "idle" | "loading" | "loaded" | "error";
+export type ProfilePictureStatus = "unknown" | "found" | "missing";
 
 interface ProfilePictureRowProps {
   user: AvatarPerson;
   imageUrl?: string;
   status: ProfilePictureStatus;
-  onImageLoadingStatusChange: (status: ImageLoadingStatus) => void;
+  checking: boolean;
   onRefresh: () => void;
   onOpenGravatar: () => void;
 }
@@ -46,7 +42,7 @@ function profilePictureDescription(
   email: string,
 ): string {
   switch (status) {
-    case "checking":
+    case "unknown":
       return `Checking Gravatar for ${email}`;
     case "found":
       return `Comes from Gravatar, matched to ${email}. Change it there, then refresh to see it here.`;
@@ -55,20 +51,29 @@ function profilePictureDescription(
   }
 }
 
+function probeStatus(result: ImageProbeResult): ProfilePictureStatus {
+  switch (result) {
+    case "loaded":
+      return "found";
+    case "failed":
+      return "missing";
+    case "unknown":
+      return "unknown";
+  }
+}
+
 export function ProfilePictureRow({
   user,
   imageUrl,
   status,
-  onImageLoadingStatusChange,
+  checking,
   onRefresh,
   onOpenGravatar,
 }: ProfilePictureRowProps) {
   const name = userDisplayName(user);
   const color = avatarColor(user.uuid ?? user.email ?? name);
-  const hasPicture = status === "found";
-  const gravatarActionLabel = hasPicture
-    ? "Change on Gravatar"
-    : "Add on Gravatar";
+  const gravatarActionLabel =
+    status === "found" ? "Change on Gravatar" : "Add on Gravatar";
 
   return (
     <div className="flex flex-wrap items-center gap-4 px-3.5 py-3">
@@ -86,18 +91,18 @@ export function ProfilePictureRow({
               "outline-dashed outline-(--gray-8) outline-1 outline-offset-2",
           )}
         >
-          {imageUrl ? (
-            <AvatarImage
-              src={imageUrl}
-              alt={name}
-              onLoadingStatusChange={onImageLoadingStatusChange}
-            />
-          ) : null}
           <AvatarFallback
             style={{ backgroundColor: color.bg, color: color.text }}
           >
             {getUserInitials(user)}
           </AvatarFallback>
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt=""
+              className="absolute inset-0 size-full object-cover"
+            />
+          ) : null}
         </Avatar>
         <span
           aria-hidden
@@ -111,7 +116,7 @@ export function ProfilePictureRow({
         <span className="font-medium text-[13px] text-foreground leading-snug">
           Profile picture
         </span>
-        <span className="text-[12px] text-muted-foreground leading-snug">
+        <span className="min-h-[2lh] text-[12px] text-muted-foreground leading-snug">
           {profilePictureDescription(status, user.email ?? "your email")}
         </span>
       </div>
@@ -124,14 +129,12 @@ export function ProfilePictureRow({
             size="icon-sm"
             aria-label="Check Gravatar again"
             data-attr="settings-profile-picture-refresh"
-            disabled={status === "checking"}
+            disabled={checking}
             onClick={onRefresh}
           >
             <ArrowsClockwise
               size={12}
-              className={cn(
-                status === "checking" && "motion-safe:animate-spin",
-              )}
+              className={cn(checking && "motion-safe:animate-spin")}
             />
           </Button>
         </Tooltip>
@@ -192,23 +195,17 @@ export function AccountSection() {
   const { data: user } = useCurrentUser({ client });
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const gravatarUrl = useGravatarUrl(user?.email, GRAVATAR_IMAGE_SIZE);
-
-  const [status, setStatus] = useState<ProfilePictureStatus>("checking");
   const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
-
-  const handleImageLoadingStatusChange = useCallback(
-    (imageStatus: ImageLoadingStatus) => {
-      if (imageStatus === "loaded") setStatus("found");
-      else if (imageStatus === "error") setStatus("missing");
-      else setStatus("checking");
-    },
-    [],
-  );
 
   // A new query string forces the browser past its cached 404 or stale image
   // after the person uploads a picture on Gravatar.
+  const candidateUrl =
+    gravatarUrl && refreshedAt
+      ? `${gravatarUrl}&_=${refreshedAt}`
+      : gravatarUrl;
+  const probe = useImageProbe(candidateUrl);
+
   const handleRefresh = useCallback(() => {
-    setStatus("checking");
     setRefreshedAt(Date.now());
   }, []);
 
@@ -218,17 +215,12 @@ export function AccountSection() {
 
   if (!user) return null;
 
-  const imageUrl =
-    gravatarUrl && refreshedAt
-      ? `${gravatarUrl}&_=${refreshedAt}`
-      : gravatarUrl;
-
   return (
     <AccountSettingsView
       user={user}
-      imageUrl={imageUrl}
-      status={status}
-      onImageLoadingStatusChange={handleImageLoadingStatusChange}
+      imageUrl={probe.url}
+      status={probeStatus(probe.result)}
+      checking={probe.loading || !candidateUrl}
       onRefresh={handleRefresh}
       onOpenGravatar={handleOpenGravatar}
       accountUrl={buildPostHogUrl("/settings/user", cloudRegion)}
