@@ -52,7 +52,7 @@ jest.mock('lib/components/TaxonomicPopover/TaxonomicPopover', () => {
                     {isOpen ? (
                         <div data-testid="taxonomic-options">
                             <button
-                                data-testid="pick-dashboard"
+                                data-attr="pick-dashboard"
                                 disabled={selectedProperties?.[TaxonomicFilterGroupType.Dashboards]?.includes(7)}
                                 onClick={() =>
                                     select(7, TaxonomicFilterGroupType.Dashboards, {
@@ -64,7 +64,7 @@ jest.mock('lib/components/TaxonomicPopover/TaxonomicPopover', () => {
                                 Pick dashboard
                             </button>
                             <button
-                                data-testid="pick-insight"
+                                data-attr="pick-insight"
                                 disabled={selectedProperties?.[TaxonomicFilterGroupType.Insights]?.includes(
                                     'signup-conversion'
                                 )}
@@ -79,6 +79,7 @@ jest.mock('lib/components/TaxonomicPopover/TaxonomicPopover', () => {
                                 Pick insight
                             </button>
                             <button
+                                data-attr="pick-second-dashboard"
                                 onClick={() =>
                                     select(8, TaxonomicFilterGroupType.Dashboards, {
                                         id: 8,
@@ -89,6 +90,7 @@ jest.mock('lib/components/TaxonomicPopover/TaxonomicPopover', () => {
                                 Pick second dashboard
                             </button>
                             <button
+                                data-attr="pick-second-insight"
                                 onClick={() =>
                                     select('retention-trend', TaxonomicFilterGroupType.Insights, {
                                         id: 8,
@@ -133,9 +135,9 @@ describe('SubscriptionContextPicker', () => {
         const onAdd = jest.fn()
         renderPicker([], onAdd)
 
-        await userEvent.click(screen.getByRole('button', { name: 'Add context' }))
-        await userEvent.click(screen.getByRole('button', { name: 'Pick dashboard' }))
-        await userEvent.click(screen.getByRole('button', { name: 'Pick insight' }))
+        await userEvent.click(screen.getByText('Add context'))
+        await userEvent.click(screen.getByTestId('pick-dashboard'))
+        await userEvent.click(screen.getByTestId('pick-insight'))
 
         expect(onAdd).toHaveBeenNthCalledWith(1, DASHBOARD_CONTEXT)
         expect(onAdd).toHaveBeenNthCalledWith(2, INSIGHT_CONTEXT)
@@ -144,9 +146,9 @@ describe('SubscriptionContextPicker', () => {
     it('marks selected targets by their real taxonomic values when reopened', async () => {
         const { rerender } = renderPicker([DASHBOARD_CONTEXT])
 
-        await userEvent.click(screen.getByRole('button', { name: 'Add context' }))
-        expect(screen.getByRole('button', { name: 'Pick dashboard' })).toBeDisabled()
-        expect(screen.getByRole('button', { name: 'Pick insight' })).toBeEnabled()
+        await userEvent.click(screen.getByText('Add context'))
+        expect(screen.getByTestId('pick-dashboard')).toBeDisabled()
+        expect(screen.getByTestId('pick-insight')).toBeEnabled()
 
         rerender(
             <SubscriptionContextPicker
@@ -156,8 +158,8 @@ describe('SubscriptionContextPicker', () => {
             />
         )
 
-        expect(screen.getByRole('button', { name: 'Pick dashboard' })).toBeDisabled()
-        expect(screen.getByRole('button', { name: 'Pick insight' })).toBeDisabled()
+        expect(screen.getByTestId('pick-dashboard')).toBeDisabled()
+        expect(screen.getByTestId('pick-insight')).toBeDisabled()
     })
 
     it('removes the selected dashboard and insight from their tags', async () => {
@@ -169,12 +171,8 @@ describe('SubscriptionContextPicker', () => {
 
         expect(dashboardTag).not.toBeNull()
         expect(insightTag).not.toBeNull()
-        await userEvent.click(
-            within(dashboardTag as HTMLElement).getByRole('button', { name: 'Remove Activation overview' })
-        )
-        await userEvent.click(
-            within(insightTag as HTMLElement).getByRole('button', { name: 'Remove Signup conversion' })
-        )
+        await userEvent.click(within(dashboardTag as HTMLElement).getByLabelText('Remove Activation overview'))
+        await userEvent.click(within(insightTag as HTMLElement).getByLabelText('Remove Signup conversion'))
 
         expect(onRemove).toHaveBeenNthCalledWith(1, DASHBOARD_CONTEXT)
         expect(onRemove).toHaveBeenNthCalledWith(2, INSIGHT_CONTEXT)
@@ -188,8 +186,8 @@ describe('SubscriptionContextPicker', () => {
         const onAdd = jest.fn()
         const { rerender } = renderPicker([DASHBOARD_CONTEXT, INSIGHT_CONTEXT], onAdd)
 
-        await userEvent.click(screen.getByRole('button', { name: 'Add context' }))
-        await userEvent.click(screen.getByRole('button', { name: 'Pick second dashboard' }))
+        await userEvent.click(screen.getByText('Add context'))
+        await userEvent.click(screen.getByTestId('pick-second-dashboard'))
 
         expect(onAdd).toHaveBeenCalledWith(thirdContext)
         expect(screen.queryByTestId('taxonomic-options')).not.toBeInTheDocument()
@@ -207,7 +205,7 @@ describe('SubscriptionContextPicker', () => {
             'title',
             'You can add up to 3 dashboards and insights. Remove one to add another.'
         )
-        expect(screen.queryByRole('button', { name: 'Pick second insight' })).not.toBeInTheDocument()
+        expect(screen.queryByTestId('pick-second-insight')).not.toBeInTheDocument()
         expect(document.querySelector('[data-attr="ai-subscription-context-list"]')).toHaveClass('flex-wrap', 'min-w-0')
     })
 })

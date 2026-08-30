@@ -112,8 +112,8 @@ class _TargetLookups:
     dashboard: str
     context_insight_lookup: str
     context_dashboard_lookup: str
-    context_insight_array: str | None
-    context_dashboard_array: str | None
+    context_insight_overlap: str | None
+    context_dashboard_overlap: str | None
     exported_insights: str
     no_selection: str
     insights: Manager
@@ -126,8 +126,8 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     dashboard="dashboard_id__in",
     context_insight_lookup="contexts__insight_id__in",
     context_dashboard_lookup="contexts__dashboard_id__in",
-    context_insight_array=None,
-    context_dashboard_array=None,
+    context_insight_overlap=None,
+    context_dashboard_overlap=None,
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
@@ -141,8 +141,8 @@ _DELIVERY_TARGETS = _TargetLookups(
     dashboard="subscription__dashboard_id__in",
     context_insight_lookup="subscription__contexts__insight_id__in",
     context_dashboard_lookup="subscription__contexts__dashboard_id__in",
-    context_insight_array="context_insight_ids",
-    context_dashboard_array="context_dashboard_ids",
+    context_insight_overlap="context_insight_ids__overlap",
+    context_dashboard_overlap="context_dashboard_ids__overlap",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
@@ -1302,15 +1302,11 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
         | Q(**{targets.context_dashboard_lookup: blocked_dashboards})
         | Q(**{targets.context_dashboard_lookup: dashboards_with_blocked_tiles})
     )
-    if targets.context_insight_array is not None and targets.context_dashboard_array is not None:
+    if targets.context_insight_overlap is not None and targets.context_dashboard_overlap is not None:
+        references_a_blocked_context |= Q(**{targets.context_insight_overlap: ArraySubquery(blocked_insights)})
+        references_a_blocked_context |= Q(**{targets.context_dashboard_overlap: ArraySubquery(blocked_dashboards)})
         references_a_blocked_context |= Q(
-            **{f"{targets.context_insight_array}__overlap": ArraySubquery(blocked_insights)}
-        )
-        references_a_blocked_context |= Q(
-            **{f"{targets.context_dashboard_array}__overlap": ArraySubquery(blocked_dashboards)}
-        )
-        references_a_blocked_context |= Q(
-            **{f"{targets.context_dashboard_array}__overlap": ArraySubquery(dashboards_with_blocked_tiles)}
+            **{targets.context_dashboard_overlap: ArraySubquery(dashboards_with_blocked_tiles)}
         )
 
     return ~(
