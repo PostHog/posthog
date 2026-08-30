@@ -1063,8 +1063,8 @@ class TestReportVariants:
                             "results": [
                                 {
                                     "groupings": {
-                                        "campaign_id": "C1",
-                                        "campaign_message_id": "CM1",
+                                        "flow_id": "F1",
+                                        "flow_message_id": "FM1",
                                         "send_channel": "email",
                                     },
                                     "statistics": {"opens": [1, 2]},
@@ -1082,7 +1082,7 @@ class TestReportVariants:
             row
             for table in get_rows(
                 api_key="pk_test",
-                endpoint="campaign_series_reports",
+                endpoint="flow_series_reports",
                 logger=MagicMock(),
                 resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
             )
@@ -1092,8 +1092,8 @@ class TestReportVariants:
         assert captured["body"]["data"]["attributes"]["interval"] == "weekly"
         assert rows == [
             {
-                "campaign_id": "C1",
-                "campaign_message_id": "CM1",
+                "flow_id": "F1",
+                "flow_message_id": "FM1",
                 "send_channel": "email",
                 "date_time": "2026-01-05T00:00:00+00:00",
                 "opens": 1,
@@ -1101,8 +1101,8 @@ class TestReportVariants:
                 "conversion_metric_id": "M_ORDER",
             },
             {
-                "campaign_id": "C1",
-                "campaign_message_id": "CM1",
+                "flow_id": "F1",
+                "flow_message_id": "FM1",
                 "send_channel": "email",
                 "date_time": "2026-01-12T00:00:00+00:00",
                 "opens": 2,
@@ -1155,7 +1155,6 @@ class TestReportVariants:
 
     @parameterized.expand(
         [
-            ("campaign_series_reports",),
             ("flow_series_reports",),
             ("form_series_reports",),
             ("segment_series_reports",),

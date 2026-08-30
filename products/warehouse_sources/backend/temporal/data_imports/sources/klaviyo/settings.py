@@ -493,25 +493,8 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
     ),
     # Series reports carry the same statistics as the values reports above, but bucketed weekly over
     # the year instead of collapsed to a single total. They are opt-in because one row per grouping
-    # per week is ~52x the row count of the equivalent values report.
-    "campaign_series_reports": KlaviyoEndpointConfig(
-        name="campaign_series_reports",
-        path="/campaign-series-reports",
-        incremental_fields=[],
-        primary_keys=["campaign_id", "campaign_message_id", "send_channel", "date_time"],
-        should_sync_default=False,
-        values_report=KlaviyoValuesReportConfig(
-            report_type="campaign-series-report",
-            statistics=VALUES_REPORT_STATISTICS,
-            timeframe_key=VALUES_REPORT_TIMEFRAME_KEY,
-            group_by=["campaign_id", "campaign_message_id", "send_channel"],
-            interval=SERIES_REPORT_INTERVAL,
-        ),
-        description=(
-            "Klaviyo's own campaign-message performance statistics bucketed by week over the last 365 "
-            "days, one row per campaign message per week. Replaced in full on every sync"
-        ),
-    ),
+    # per week is ~52x the row count of the equivalent values report. Klaviyo exposes series variants
+    # for flows, forms, and segments only; campaigns have a values report but no series report.
     "flow_series_reports": KlaviyoEndpointConfig(
         name="flow_series_reports",
         path="/flow-series-reports",

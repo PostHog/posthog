@@ -315,20 +315,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_VALUES_REPORT_STATISTIC_COLUMNS,
         },
     },
-    "campaign_series_reports": {
-        "description": (
-            "Klaviyo's own campaign-message performance statistics bucketed by week over the last 365 "
-            "days, one row per campaign message per week. Replaced in full on every sync, so it is a "
-            "snapshot rather than a history."
-        ),
-        "docs_url": "https://developers.klaviyo.com/en/reference/query_campaign_series",
-        "columns": {
-            "campaign_id": "Identifier of the campaign the statistics belong to.",
-            "campaign_message_id": "Identifier of the campaign message the statistics belong to.",
-            **_SERIES_REPORT_DATE_TIME_COLUMN,
-            **_VALUES_REPORT_STATISTIC_COLUMNS,
-        },
-    },
     "flow_series_reports": {
         "description": (
             "Klaviyo's own flow-message performance statistics bucketed by week over the last 365 "
