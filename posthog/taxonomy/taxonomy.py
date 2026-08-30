@@ -1741,7 +1741,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag": {
             "label": "Feature flag",
-            "description": 'The key of the feature flag that was evaluated, sent only on "Feature flag called" events. To find other events where a flag was active, use "Active feature flags".',
+            "description": 'The key of the feature flag, sent on "Feature flag called" and "Feature enrollment" events. To find other events where a flag was active, use "Active feature flags".',
             "examples": ["beta-feature"],
         },
         "$feature_flag_reason": {
