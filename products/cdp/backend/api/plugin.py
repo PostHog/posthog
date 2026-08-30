@@ -752,14 +752,14 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             # Return plugin config without saving if hog function was created successfully
             return PluginConfig(**validated_data)
 
-        except Exception as e:
+        except Exception:
             # Legacy plugin creation is disabled, so this path is the expected outcome, not a
             # server error. Log a warning and return the 400 without opening an error tracking issue.
+            # The exception text is not logged: it can embed a private plugin URL token.
             logger.warning(
                 "plugin_config_create_no_longer_possible",
                 plugin_id=validated_data["plugin"].id,
                 team_id=self.context["team_id"],
-                error=str(e),
             )
             raise ValidationError(
                 "Plugin creation is no longer possible. Please refer to the Hog Functions documentation for more information."

@@ -6,7 +6,8 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
     plugin = plugin_config["plugin"]
     # Attempts to find a related HogFunctionTemplate for the plugin config
 
-    plugin_id = plugin.url.replace("inline://", "").replace("https://github.com/PostHog/", "")
+    # Drop any ?private_token=... query string, which the codebase treats as secret.
+    plugin_id = plugin.url.split("?")[0].replace("inline://", "").replace("https://github.com/PostHog/", "")
 
     # Inline plugins are named slightly differently so we fix it here
     if plugin_id == "semver-flattener":
