@@ -928,6 +928,7 @@ class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
         ]
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
 def error_tracking_alert_channel_type_choices() -> list[tuple[str, str]]:
     # Callable choices: adding a channel later must not generate an AlterField migration.
     return [(str(value), str(label)) for value, label in ErrorTrackingAlertDestination.ChannelType.choices]
