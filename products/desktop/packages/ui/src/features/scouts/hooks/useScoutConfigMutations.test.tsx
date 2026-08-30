@@ -10,6 +10,7 @@ const PROJECT_ID = 42;
 
 const updateScoutConfig = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
+const track = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useAuthenticatedClient: () => ({ updateScoutConfig }),
@@ -21,7 +22,7 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
 vi.mock("@posthog/core/scouts/scoutPresentation", () => ({
   getScoutOrigin: () => "canonical",
 }));
-vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: { error: toastError },
 }));
@@ -86,4 +87,34 @@ describe("useScoutConfigMutations", () => {
     expect(read()?.model).toBe("claude-sonnet-4");
     expect(toastError).toHaveBeenCalled();
   });
+
+  // The model input is free text, so a user could type private text the server
+  // rejects. Analytics must record only that a pin was set, never the text.
+  it.each([
+    { name: "on success", success: true },
+    { name: "on a rejected PATCH", success: false },
+  ])(
+    "reports whether a model pin is set, never the typed text, $name",
+    async ({ success }) => {
+      const config = makeConfig({ model: null });
+      const typed = "sk-not-a-real-model";
+      if (success) {
+        updateScoutConfig.mockResolvedValue(makeConfig({ model: typed }));
+      } else {
+        updateScoutConfig.mockRejectedValue(new Error("nope"));
+      }
+      const { result } = renderWithConfig(config);
+
+      await result.current.updateConfig(config.id, { model: typed });
+
+      expect(track).toHaveBeenCalledTimes(1);
+      expect(track.mock.calls[0][1]).toMatchObject({
+        setting: "model",
+        new_value: true,
+        old_value: false,
+        success,
+      });
+      expect(JSON.stringify(track.mock.calls[0])).not.toContain(typed);
+    },
+  );
 });
