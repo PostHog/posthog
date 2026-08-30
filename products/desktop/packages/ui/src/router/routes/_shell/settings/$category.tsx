@@ -3,8 +3,12 @@ import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/setti
 import { resolveSettingsCategory } from "@posthog/ui/features/settings/types";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 
-export const Route = createFileRoute("/settings/$category")({
+// Nested under `_shell` so the sidebar, tab strip and panels stay mounted while
+// settings covers them; leaving settings then costs one tab switch instead of
+// rebuilding the whole shell.
+export const Route = createFileRoute("/_shell/settings/$category")({
   component: SettingsRoute,
 });
 
@@ -19,5 +23,17 @@ function SettingsRoute() {
     return () => useSettingsPageStore.getState().reset();
   }, []);
 
-  return <SettingsPanel activeCategory={cat} />;
+  // Portalling to document.body would land outside the Radix <Theme> subtree.
+  const container =
+    document.getElementById("portal-container") ?? document.body;
+
+  return createPortal(
+    <div
+      className="absolute inset-0 z-[100] flex bg-(--color-background)"
+      data-overlay="settings"
+    >
+      <SettingsPanel activeCategory={cat} />
+    </div>,
+    container,
+  );
 }

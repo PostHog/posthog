@@ -260,7 +260,7 @@ export function navigateToSettings(
 export function isOnSettingsRoute(): boolean {
   return (
     getRouterOrNull()?.state.matches.some((m) =>
-      m.routeId.startsWith("/settings"),
+      m.routeId.includes("/settings/"),
     ) ?? false
   );
 }
