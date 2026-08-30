@@ -559,6 +559,11 @@ class TestConvexNonRetryableErrors:
             ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/document_deltas"),
             ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/document_deltas"),
             (
+                "missing_table_404",
+                "404 Client Error: Not Found for url: "
+                "https://x.convex.cloud/api/list_snapshot?tableName=verification&format=json&component=betterAuth",
+            ),
+            (
                 "invalid_window",
                 "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
                 "Please trigger a full resync of this source.",
@@ -568,6 +573,19 @@ class TestConvexNonRetryableErrors:
     def test_known_errors_match(self, _name: str, observed_error: str) -> None:
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
+
+    def test_missing_table_404_surfaces_actionable_message(self) -> None:
+        # A deleted table's 404 must stop retrying and tell the customer to turn off syncing for it,
+        # not store the raw driver text (which carries the deployment host). Mirror the finalizer's
+        # first-match selection so a reorder that shadowed it with an earlier None key would be caught.
+        error_msg = (
+            "404 Client Error: Not Found for url: "
+            "https://x.convex.cloud/api/list_snapshot?tableName=verification&format=json&component=betterAuth"
+        )
+        matches = [friendly for key, friendly in ConvexSource().get_non_retryable_errors().items() if key in error_msg]
+        assert matches, "a missing-table 404 must be classified non-retryable"
+        assert matches[0] is not None, "a missing-table 404 must surface an actionable message, not raw driver text"
+        assert "turn off syncing" in matches[0].lower()
 
     @parameterized.expand(
         [
