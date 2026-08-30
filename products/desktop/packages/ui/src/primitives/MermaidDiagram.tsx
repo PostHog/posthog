@@ -12,9 +12,10 @@ function loadMermaid(): Promise<Mermaid> {
   return mermaidModule;
 }
 
-// The `img` key of a shape metadata block, as in `A@{ img: "…" }`.
+// The `img` key of a shape metadata block, as in `A@{ img: "…" }`. Mermaid reads the key
+// case sensitively today, but matching either case keeps the guard off that detail.
 const IMAGE_NODE =
-  /(?:^|[,{\s])["']?img["']?\s*:\s*(?<url>"[^"]*"|'[^']*'|[^,}\n]*)/g;
+  /(?:^|[,{\s])["']?img["']?\s*:\s*(?<url>"[^"]*"|'[^']*'|[^,}\n]*)/gi;
 
 // Mermaid loads an image node through `new Image()` while it builds the SVG, before
 // DOMPurify ever sees the output. Diagrams reach us from PR comments and agent output, so
