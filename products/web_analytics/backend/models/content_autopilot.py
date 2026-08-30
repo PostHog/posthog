@@ -22,10 +22,6 @@ def default_content_autopilot_validation_report() -> dict[str, object]:
 
 
 class ContentAutopilotSiteProfile(TeamScopedRootMixin, UUIDModel):
-    class DeliveryMode(models.TextChoices):
-        EXPORT_ONLY = "export_only", "Export only"
-        GITHUB = "github", "GitHub"
-
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
@@ -39,11 +35,6 @@ class ContentAutopilotSiteProfile(TeamScopedRootMixin, UUIDModel):
     content_boundaries = models.JSONField(default=list)
     brand_rules = models.JSONField(default=list)
     search_console_enabled = models.BooleanField(default=False)
-    delivery_mode = models.CharField(max_length=32, choices=DeliveryMode.choices, default=DeliveryMode.EXPORT_ONLY)
-    github_repository = models.CharField(max_length=512, blank=True, default="")
-    base_branch = models.CharField(max_length=255, blank=True, default="main")
-    content_directories = models.JSONField(default=list)
-    url_to_file_convention = models.TextField(blank=True, default="")
     created_by_id = models.BigIntegerField(null=True, blank=True)
     updated_by_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -96,7 +87,6 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
         READY_FOR_REVIEW = "ready_for_review", "Ready for review"
         REJECTED = "rejected", "Rejected"
         EXPORTED = "exported", "Exported"
-        PR_OPENED = "pr_opened", "Pull request opened"
         FAILED = "failed", "Failed"
 
     class DeliveryState(models.TextChoices):
@@ -133,7 +123,6 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
     )
     delivery_reference = models.CharField(max_length=1024, blank=True, default="")
     delivery_error = models.TextField(blank=True, default="")
-    pull_request_url = models.URLField(max_length=2048, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

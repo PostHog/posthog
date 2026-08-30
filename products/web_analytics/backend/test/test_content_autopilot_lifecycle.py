@@ -8,7 +8,7 @@ from posthog.models.team import Team
 from products.web_analytics.backend.content_autopilot.lifecycle import (
     ContentAutopilotLifecycleError,
     cancel_run,
-    claim_proposals_for_delivery,
+    claim_proposal_for_delivery,
     edit_proposal,
     regenerate_proposal,
     reject_proposal,
@@ -56,9 +56,6 @@ class TestContentAutopilotLifecycle(BaseTest):
         self.assertEqual(first_run.input_snapshot["confidence"], "standard")
         self.assertEqual(first_run.input_snapshot["source_urls"], first_profile.source_urls)
         self.assertEqual(first_run.input_snapshot["content_boundaries"], first_profile.content_boundaries)
-        self.assertEqual(first_run.input_snapshot["delivery_mode"], first_profile.delivery_mode)
-        self.assertEqual(first_run.input_snapshot["base_branch"], first_profile.base_branch)
-        self.assertEqual(first_run.input_snapshot["content_directories"], first_profile.content_directories)
         with self.assertRaises(ContentAutopilotLifecycleError, msg="a duplicate run must not be created"):
             start_run(team=self.team, profile_id=str(first_profile.id), triggered_by_id=self.user.id)
 
@@ -125,48 +122,19 @@ class TestContentAutopilotLifecycle(BaseTest):
         self.assertEqual(regenerated.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.GENERATING)
         self.assertEqual(regenerated.validation_report, {"passed": False, "checks": []})
 
-    def test_delivery_claim_accepts_five_improvements_from_one_run(self) -> None:
+    def test_export_claim_rejects_unvalidated_and_in_flight_proposals(self) -> None:
         profile = create_content_autopilot_profile(self.team)
-        run = create_content_autopilot_run(self.team, profile)
-        proposals = [
-            create_content_autopilot_proposal(self.team, run, file_path=f"content/page-{index}.md")
-            for index in range(5)
-        ]
-
-        claimed = claim_proposals_for_delivery(
-            team_id=self.team.id,
-            proposal_ids=[str(proposal.id) for proposal in proposals],
-        )
-
-        self.assertEqual(len(claimed), 5)
-        self.assertTrue(
-            all(proposal.delivery_state == ContentAutopilotProposal.DeliveryState.DELIVERING for proposal in claimed)
-        )
-
-    def test_delivery_claim_rejects_new_content_batches_and_unvalidated_proposals(self) -> None:
-        profile = create_content_autopilot_profile(self.team)
-        run = create_content_autopilot_run(self.team, profile)
-        new_content = create_content_autopilot_proposal(
-            self.team,
-            run,
-            proposal_type=ContentAutopilotProposal.ProposalType.NEW_CONTENT,
-        )
-        improvement = create_content_autopilot_proposal(self.team, run, file_path="content/improvement.md")
-
-        with self.assertRaises(ContentAutopilotLifecycleError):
-            claim_proposals_for_delivery(
-                team_id=self.team.id,
-                proposal_ids=[str(new_content.id), str(improvement.id)],
-            )
-
-        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=improvement.id).update(
+        proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
+        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
             delivery_state=ContentAutopilotProposal.DeliveryState.DELIVERING,
         )
-        with self.assertRaises(ContentAutopilotLifecycleError, msg="a claimed proposal must not be claimed twice"):
-            claim_proposals_for_delivery(team_id=self.team.id, proposal_ids=[str(improvement.id)])
 
-        improvement.delivery_state = ContentAutopilotProposal.DeliveryState.NOT_DELIVERED
-        improvement.validation_report = {"passed": False, "checks": []}
-        improvement.save(update_fields=["delivery_state", "validation_report"])
+        with self.assertRaises(ContentAutopilotLifecycleError, msg="a claimed proposal must not be claimed twice"):
+            claim_proposal_for_delivery(team_id=self.team.id, proposal_id=str(proposal.id))
+
+        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
+            delivery_state=ContentAutopilotProposal.DeliveryState.NOT_DELIVERED,
+            validation_report={"passed": False, "checks": []},
+        )
         with self.assertRaises(ContentAutopilotLifecycleError):
-            claim_proposals_for_delivery(team_id=self.team.id, proposal_ids=[str(improvement.id)])
+            claim_proposal_for_delivery(team_id=self.team.id, proposal_id=str(proposal.id))

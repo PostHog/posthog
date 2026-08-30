@@ -11,9 +11,6 @@ def create_content_autopilot_profile(
     team: Team,
     *,
     domain: str = "https://example.com",
-    delivery_mode: str = ContentAutopilotSiteProfile.DeliveryMode.EXPORT_ONLY,
-    github_repository: str = "",
-    content_directories: list[str] | None = None,
     search_console_enabled: bool = False,
 ) -> ContentAutopilotSiteProfile:
     return ContentAutopilotSiteProfile.objects.for_team(team.id).create(
@@ -22,9 +19,6 @@ def create_content_autopilot_profile(
         domain=domain,
         source_urls=[f"{domain}/sitemap.xml"],
         content_boundaries=["/"],
-        delivery_mode=delivery_mode,
-        github_repository=github_repository,
-        content_directories=content_directories or [],
         search_console_enabled=search_console_enabled,
     )
 
