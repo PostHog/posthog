@@ -746,7 +746,8 @@ export interface dataNodeLogicMeta {
             responseError: string | null,
             dataLoading: boolean,
             isShowingCachedResults: boolean,
-            arg: any
+            arg: any,
+            arg2: any
         ) => DataNode | null
         canLoadNextData: (nextQuery: DataNode<Record<string, any>> | null, isShowingCachedResults: boolean) => boolean
         hasMoreData: (
