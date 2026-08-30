@@ -118,7 +118,9 @@ class _FakeRedis:
     # Qualified because this class defines a `set` method, shadowing the builtin in the class body.
     def smembers(self, key: str) -> builtins.set[str]:
         members = self.store.get(key)
-        return set(members) if isinstance(members, set) else set()
+        if not isinstance(members, set):
+            return set()
+        return {str(member) for member in members}
 
 
 @pytest.fixture

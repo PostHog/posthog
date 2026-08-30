@@ -118,10 +118,12 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.source_management import (
+    CONNECTION_TARGET_FIELDS,
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
+    SSH_TUNNEL_CONNECTION_FIELDS,
     AnySource,
     CDCRepairError,
     CDCRepairInProgress,
@@ -176,10 +178,6 @@ from products.warehouse_sources.backend.presentation.views.public_source_configs
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    CONNECTION_TARGET_FIELDS,
-    SSH_TUNNEL_CONNECTION_FIELDS,
 )
 
 logger = structlog.get_logger(__name__)
