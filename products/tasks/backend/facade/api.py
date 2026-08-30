@@ -207,6 +207,7 @@ __all__ = [
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
     "get_active_wizard_cloud_run",
+    "get_latest_active_internal_task_run_for_organization",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_merged_pr_task_ids",
@@ -1038,6 +1039,30 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
             started_at=run.created_at,
         )
     return None
+
+
+def get_latest_active_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str
+) -> contracts.TaskRunDTO | None:
+    """Return the newest active cloud run for a server-owned organization flow."""
+    run = (
+        TaskRun.objects.filter(
+            team__organization_id=organization_id,
+            task__team__organization_id=organization_id,
+            task__internal=True,
+            environment=TaskRun.Environment.CLOUD,
+            state__ai_stage=ai_stage,
+            status__in=[
+                TaskRun.Status.NOT_STARTED,
+                TaskRun.Status.QUEUED,
+                TaskRun.Status.IN_PROGRESS,
+            ],
+        )
+        .select_related("task", "task__created_by")
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    return _task_run_to_dto(run) if run is not None else None
 
 
 def get_stale_queued_task_run_ids(
