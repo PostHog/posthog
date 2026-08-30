@@ -17,10 +17,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SYNC_DISABLED_JOB_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+from products.warehouse_sources_queue.backend.core import (
     batch_consumer as batch_consumer_module,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+from products.warehouse_sources_queue.backend.core.batch_consumer import (
     QUEUE_RETRY_MAX_ATTEMPTS,
     CoalescingDeclined,
     OwnershipLostError,
@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _is_server_not_ready_error,
     _is_transient_queue_db_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
+from products.warehouse_sources_queue.backend.core.health import HealthState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -44,7 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
     _update_job_status_to_failed,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources_queue.backend.core.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
     FailedRunRef,
     OrphanedRunRef,
@@ -53,7 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     QueueFreshness,
     StrandedRunRef,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+from products.warehouse_sources_queue.backend.core.metrics import (
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
@@ -1498,7 +1498,7 @@ class TestPollBackoff:
         # unbounded delays.
         consumer = _make_consumer(poll_interval_seconds=2.0)
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
+            "products.warehouse_sources_queue.backend.core.batch_consumer.random.uniform",
             return_value=0.0,
         ):
             consumer._consecutive_poll_failures = 1
@@ -1518,7 +1518,7 @@ class TestPollBackoff:
         consumer = _make_consumer(poll_interval_seconds=2.0)
         consumer._consecutive_poll_failures = 1
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
+            "products.warehouse_sources_queue.backend.core.batch_consumer.random.uniform",
             return_value=1.5,
         ):
             assert consumer._poll_retry_delay() == 3.5  # 2.0 backoff + 1.5 jitter
@@ -3936,11 +3936,11 @@ class TestProcessGroupCoalescing:
 
 class TestBatchPhaseTracking:
     def test_phase_gauges_follow_the_batch_bound_to_the_processing_context(self) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.batch_phase import (
+        from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
+        from products.warehouse_sources_queue.backend.core.batch_phase import (
             BATCH_PHASE_AGE_SECONDS_MAX,
             BATCHES_IN_PHASE,
         )
-        from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
 
         consumer = _make_consumer()
         consumer._health_reporter = lambda: None
@@ -3962,9 +3962,6 @@ class TestBatchPhaseTracking:
         assert BATCHES_IN_PHASE.labels(phase="write")._value.get() == 0
 
     def test_watchdog_trip_names_the_phase_the_batch_stopped_in(self) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
-            batch_consumer as batch_consumer_module,
-        )
         from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
 
         consumer = _make_consumer(stuck_batch_timeout_seconds=0.0)

@@ -18,18 +18,13 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.batch_phase import (
+from products.warehouse_sources_queue.backend.core.batch_phase import (
     BatchPhaseProgress,
     publish_phase_gauges,
     track_batch_phases,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    PendingBatch,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
-    DELTA_CONSUMER_METRICS,
-    ConsumerMetrics,
-)
+from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
+from products.warehouse_sources_queue.backend.core.metrics import DELTA_CONSUMER_METRICS, ConsumerMetrics
 
 logger = structlog.get_logger(__name__)
 

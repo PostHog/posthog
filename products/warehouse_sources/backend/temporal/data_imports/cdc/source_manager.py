@@ -68,9 +68,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.batching import (
     DEFAULT_BATCH_BYTE_LIMIT,
     DEFAULT_BATCH_ROW_LIMIT,
@@ -78,6 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bat
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane, SourceInputs
+from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
