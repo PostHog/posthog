@@ -104,21 +104,33 @@ def _token_ttl_seconds() -> int:
     return max(60, min(configured, 86400))
 
 
-def _token_cap_usd(team_id: int) -> str:
-    """Per-run cap, with per-team overrides (JSON map of team id to dollars).
+def _cap_override(raw: str, key: str, setting_name: str) -> str | None:
+    if not raw:
+        return None
+    try:
+        override = json.loads(raw).get(key)
+    except (ValueError, AttributeError):
+        logger.warning("ai_gateway_token: %s is not a JSON object; ignoring it", setting_name)
+        return None
+    return str(override) if override is not None else None
 
-    Team 2's custom scouts run hotter than the external fleet, so it carries a
-    higher cap than the default without raising everyone's ceiling.
+
+def _token_cap_usd(team_id: int, ai_product: str) -> str:
+    """Per-run cap: the product override, else the team override, else the default.
+
+    The product override wins because run cost tracks the kind of work, not who
+    it runs for — implementation runs regularly outspend every other stage. The
+    team override raises a single team (team 2's custom scouts run hotter than
+    the external fleet) without raising everyone's ceiling.
     """
-    raw = settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES
-    if raw:
-        try:
-            override = json.loads(raw).get(str(team_id))
-        except (ValueError, AttributeError):
-            override = None
-            logger.warning("ai_gateway_token: cap overrides setting is not a JSON object; using the default cap")
-        if override is not None:
-            return str(override)
+    product_cap = _cap_override(
+        settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES, ai_product, "product cap overrides"
+    )
+    if product_cap is not None:
+        return product_cap
+    team_cap = _cap_override(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES, str(team_id), "cap overrides")
+    if team_cap is not None:
+        return team_cap
     return str(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD)
 
 
@@ -136,7 +148,7 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
         return None
 
     body: dict[str, Any] = {
-        "cap_usd": _token_cap_usd(team_id),
+        "cap_usd": _token_cap_usd(team_id, ai_product),
         "ttl_seconds": _token_ttl_seconds(),
         "product": ai_product,
         "obo": str(team_id),
