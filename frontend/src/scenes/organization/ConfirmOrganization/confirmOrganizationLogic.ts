@@ -121,7 +121,9 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
 
     forms(() => ({
         confirmOrganization: {
-            showErrorsOnTouch: true,
+            options: {
+                showErrorsOnTouch: true,
+            },
             defaults: {
                 organization_name: '',
                 first_name: '',
