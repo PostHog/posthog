@@ -42,13 +42,14 @@ from products.signals.backend.models import (
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
-from products.skills.backend.models.skills import LLMSkill
+from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -1423,23 +1424,38 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK
         assert [row["id"] for row in listed.json()] == [created["id"]]
 
+    def test_create_accepts_a_pipeline_audience_with_no_scout_skill(self) -> None:
+        # A pipeline audience names a stage of the report pipeline, which has no `LLMSkill` row,
+        # so it must clear the write path without one.
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "route billing-adjacent reports to the billing folks", "skill_name": PIPELINE_AUDIENCE},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["skill_name"] == PIPELINE_AUDIENCE
+
     @parameterized.expand(
         [
-            # (include_general, expected contents) — a scout's list must carry its own notes plus
-            # the fleet-wide general notes, and never another scout's.
-            ("with_general", "true", {"for the fleet", "for web analytics"}),
-            ("own_notes_only", "false", {"for web analytics"}),
+            # (target, include_general, expected contents) — a target's list must carry its own
+            # notes plus the fleet-wide general notes, and never another target's. A pipeline
+            # audience reads the same way a scout does, and neither one sees the other's notes.
+            ("scout_with_general", "signals-scout-web-analytics", "true", {"for the fleet", "for web analytics"}),
+            ("scout_own_notes_only", "signals-scout-web-analytics", "false", {"for web analytics"}),
+            ("pipeline_with_general", PIPELINE_AUDIENCE, "true", {"for the fleet", "for research"}),
+            ("pipeline_own_notes_only", PIPELINE_AUDIENCE, "false", {"for research"}),
         ]
     )
-    def test_list_scopes_to_skill_plus_general(self, _name: str, include_general: str, expected: set[str]) -> None:
+    def test_list_scopes_to_target_plus_general(
+        self, _name: str, target: str, include_general: str, expected: set[str]
+    ) -> None:
         SignalScoutNote.objects.create(team=self.team, skill_name="", content="for the fleet")
         SignalScoutNote.objects.create(
             team=self.team, skill_name="signals-scout-web-analytics", content="for web analytics"
         )
         SignalScoutNote.objects.create(team=self.team, skill_name="signals-scout-logs", content="for logs")
-        response = self.client.get(
-            f"{self._list_url()}?skill_name=signals-scout-web-analytics&include_general={include_general}"
-        )
+        SignalScoutNote.objects.create(team=self.team, skill_name=PIPELINE_AUDIENCE, content="for research")
+        response = self.client.get(self._list_url(), data={"skill_name": target, "include_general": include_general})
         assert response.status_code == status.HTTP_200_OK
         assert {row["content"] for row in response.json()} == expected
 
@@ -1465,6 +1481,9 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             # both a non-scout name and a scout name with no matching skill on the project.
             ("bad_target", {"content": "note", "skill_name": "web-analytics"}),
             ("unknown_scout", {"content": "note", "skill_name": "signals-scout-web-anlytics"}),
+            # Same reasoning for the pipeline family: it is an allowlist, not a free-form prefix,
+            # so a stage that reads no notes cannot be addressed.
+            ("unknown_pipeline_audience", {"content": "note", "skill_name": "pipeline:implementation"}),
             # A note born expired would never be seen by anyone.
             ("past_expiry", {"content": "note", "expires_at": "2020-01-01T00:00:00Z"}),
             ("blank_content", {"content": "   ", "skill_name": ""}),
@@ -1892,6 +1911,64 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["scout_origin"] == expected_origin
+
+    @parameterized.expand(["list", "partial_update", "sync"])
+    def test_config_responses_carry_the_skills_owners(self, action: str) -> None:
+        # Every response path builds the serializer's context by hand, and one that forgets the
+        # owners map reports the whole fleet as unowned instead of failing.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout", enabled=False)
+        self._make_skill("signals-scout-checkout")
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None, first_name="Ada")
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=owner
+        )
+
+        if action == "list":
+            response = self.client.get(self._list_url())
+        elif action == "sync":
+            response = self.client.post(self._sync_url())
+        else:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        rows = body if isinstance(body, list) else [body]
+        serialized = next(row for row in rows if row["skill_name"] == "signals-scout-checkout")
+        assert [o["email"] for o in serialized["owners"]] == ["owner@example.com"]
+
+    def test_list_reports_no_owners_when_an_owner_lost_project_access(self) -> None:
+        # An owner row outlives the member losing access, and the scout page turns owners into
+        # "who to talk to" — pointing at someone who can't even open the project is worse than
+        # saying nobody owns it.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self._make_skill("signals-scout-checkout")
+        outsider = User.objects.create_user("outsider@example.com", None, first_name="Bo")
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=outsider
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["owners"] == []
+
+    def test_list_hides_owners_from_a_scout_sandbox_token(self) -> None:
+        # The sandbox token carries `signal_scout:read`, so this is the one config path a scout run
+        # can reach. Owners are member PII that the skill API withholds from a sandbox caller unless
+        # the skill opted into the report channel, and a config list that ignored that would
+        # hand every custom scout's owners to any run.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self._make_skill("signals-scout-checkout")
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None, first_name="Ada")
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=owner
+        )
+        _authenticate_as_scout(self)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["owners"] == []
 
     def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
         # A config with no live skill row isn't a canonical scout.

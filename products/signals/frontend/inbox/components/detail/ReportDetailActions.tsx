@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconArchive, IconPullRequest, IconReceipt, IconUndo } from '@posthog/icons'
+import { IconArchive, IconReceipt, IconUndo } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -10,9 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
-import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
-import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
@@ -55,24 +53,18 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions as data: Archive/Restore, Refund, and Create PR. Discuss is rendered
- * separately as a standalone dropdown button (`DiscussReportButton`) since it opens a question
- * popover rather than firing on click; rating a report lives at the end of the body
- * (`ReportFeedbackFooter`). Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses the
- * shared `useReportArchive` dialog flow. Callers render these inline or inside a menu.
+ * Detail-pane actions as data: Archive/Restore and Refund. Create PR and Discuss are each rendered
+ * separately as a standalone dropdown button (`CreatePrButton`, `DiscussReportButton`) since they
+ * open a note popover rather than firing on click; rating a report lives at the end of the body
+ * (`ReportFeedbackFooter`). Archiving reuses the shared `useReportArchive` dialog flow. Callers
+ * render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
-    const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
-    // Already mounted by `ReportDetail` with these same props, so this reads the loaded value
-    // rather than starting a second fetch.
-    const { hasLiveImplementationTask } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
-    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
 
-    const showCreatePr = canCreateImplementationPr(report)
     const isArchived = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal – nothing to archive, restore, or kick off.
     const isResolved = report.status === SignalReportStatus.RESOLVED
@@ -187,25 +179,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         },
         ...(canRefund ? [refund] : []),
     ]
-
-    if (showCreatePr) {
-        actions.push({
-            key: 'create-pr',
-            label: 'Create PR',
-            icon: <IconPullRequest />,
-            loading: isCreatingPr,
-            tooltip: 'Have Self-driving open a pull request for this report',
-            disabledReason:
-                aiConsentDisabledReason ??
-                (hasLiveImplementationTask
-                    ? 'A PR task already exists for this report. Open it in the task log to continue.'
-                    : undefined),
-            onClick: () => {
-                captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
-                createPrFromReport(report)
-            },
-        })
-    }
 
     return actions
 }

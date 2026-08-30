@@ -2,7 +2,7 @@ import './DataGrid.scss'
 import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
@@ -35,6 +35,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
@@ -932,6 +933,9 @@ function InternalDataTableVisualization(
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
+    const { editingInsight } = useValues(sqlEditorLogic)
+
+    const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
     let component: JSX.Element | null = null
 
@@ -961,16 +965,20 @@ function InternalDataTableVisualization(
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
-            <SqlChart
-                className="p-2"
-                xData={_xData}
-                yData={_yData}
-                visualizationType={effectiveVisualizationType}
-                chartSettings={chartSettings}
-                dashboardId={dashboardId}
-                goalLines={goalLines}
-                presetChartHeight={presetChartHeight}
-            />
+            <BindLogic logic={insightLogic} props={{ dashboardItemId: editingInsight?.short_id, doNotLoad: true }}>
+                <SqlChart
+                    className="p-2"
+                    xData={_xData}
+                    yData={_yData}
+                    visualizationType={effectiveVisualizationType}
+                    chartSettings={chartSettings}
+                    dashboardId={dashboardId}
+                    goalLines={goalLines}
+                    insightNumericId={editingInsight?.id || 'new'}
+                    showAnnotations={isDateXAxis && chartSettings.showAnnotations === true}
+                    presetChartHeight={presetChartHeight}
+                />
+            </BindLogic>
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData

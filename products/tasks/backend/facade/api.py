@@ -207,6 +207,7 @@ __all__ = [
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
     "get_active_wizard_cloud_run",
+    "get_latest_active_internal_task_run_for_organization",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_merged_pr_task_ids",
@@ -430,7 +431,9 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # first message; without them it silently falls back to `task.description`. Withheld from
 # human readers: a workflow task is team-readable, and its boot prompt embeds the triggering
 # event wholesale, which for a Slack trigger can be a private channel's message content.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"initial_prompt_override"})
+# `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
+# filter drops never reaches the agent server, so the gate would silently do nothing.
+_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override"})
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -629,6 +632,7 @@ def _task_detail_to_dto(
         latest_run_id=latest_run_id,
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
+        origin_key=task.origin_key,
     )
 
 
@@ -1035,6 +1039,30 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
             started_at=run.created_at,
         )
     return None
+
+
+def get_latest_active_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str
+) -> contracts.TaskRunDTO | None:
+    """Return the newest active cloud run for a server-owned organization flow."""
+    run = (
+        TaskRun.objects.filter(
+            team__organization_id=organization_id,
+            task__team__organization_id=organization_id,
+            task__internal=True,
+            environment=TaskRun.Environment.CLOUD,
+            state__ai_stage=ai_stage,
+            status__in=[
+                TaskRun.Status.NOT_STARTED,
+                TaskRun.Status.QUEUED,
+                TaskRun.Status.IN_PROGRESS,
+            ],
+        )
+        .select_related("task", "task__created_by")
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    return _task_run_to_dto(run) if run is not None else None
 
 
 def get_stale_queued_task_run_ids(
@@ -6339,7 +6367,8 @@ def warm_task_sandbox(
     (``Throttled``). The caller treats ``None`` as "no warm run; fall through to a cold create+run".
 
     When present, ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
-    (see :func:`resolve_team_github_integration_id`). Repository-less warms omit it.
+    (see :func:`resolve_team_github_integration_id`). A repository requires it; a repository-less warm
+    may carry it so the Run boots with the same GitHub credentials a repo-less create would get.
     """
     from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
         PermissionDenied,
@@ -6365,7 +6394,12 @@ def warm_task_sandbox(
         github_integration = Integration.objects.filter(
             id=github_integration_id, team_id=team_id, kind="github"
         ).first()
-    if bool(normalized_repositories) != bool(github_integration):
+    # An integration id that does not resolve to this team's GitHub integration is never warmed on, and
+    # a repository cannot be cloned without one. An integration without a repository is fine: the
+    # create path stores that pair too, and reuse matches on the integration id.
+    if github_integration_id is not None and github_integration is None:
+        return None
+    if normalized_repositories and github_integration is None:
         return None
     sandbox_environment = None
     if sandbox_environment_id is not None:

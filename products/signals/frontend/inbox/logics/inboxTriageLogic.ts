@@ -65,7 +65,11 @@ export interface inboxTriageLogicActions {
         id: string | null
         openMethod: import('../inboxAnalytics').InboxReportOpenMethod
     } // inboxSceneLogic
-    createPrFromReport: (report: SignalReport) => {
+    createPrFromReport: (
+        report: SignalReport,
+        feedback?: string | undefined
+    ) => {
+        feedback: string | undefined
         report: SignalReport
     } // inboxTaskKickoffLogic
     archiveReport: (
@@ -374,7 +378,13 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 if (!report || !values.canCreatePr || values.isCreatingPr || values.aiConsentDisabledReason) {
                     return
                 }
-                captureInboxReportAction({ report, actionType: 'create_pr', surface: 'triage_mode' })
+                // Triage is a fast keyboard flow with no note box, so it never steers the agent.
+                captureInboxReportAction({
+                    report,
+                    actionType: 'create_pr',
+                    surface: 'triage_mode',
+                    extra: { has_feedback: false },
+                })
                 actions.createPrFromReport(report)
             },
             openCurrent: () => {

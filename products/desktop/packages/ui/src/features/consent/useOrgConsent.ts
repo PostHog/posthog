@@ -9,13 +9,18 @@ import { useCallback } from "react";
 
 export type OrgConsent =
   | { status: "loading"; organizationId?: string }
-  | { status: "error"; organizationId?: string; retry: () => void }
+  | {
+      status: "error";
+      organizationId?: string;
+      retry: () => Promise<void>;
+    }
   | {
       status: "resolved";
       organizationId: string;
       needsAiConsent: boolean;
       needsBetaTerms: boolean;
       satisfied: boolean;
+      retry: () => Promise<void>;
     };
 
 export const desktopBetaTermsKeys = {
@@ -52,8 +57,8 @@ export function useOrgConsent(enabled = true): OrgConsent {
   const organization = currentUserQuery.data?.organization;
   const betaTermsQuery = useDesktopBetaTerms(organization?.id, enabled);
   const queryClient = useQueryClient();
-  const retry = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ["auth"] });
+  const retry = useCallback(async (): Promise<void> => {
+    await queryClient.invalidateQueries({ queryKey: ["auth"] });
   }, [queryClient]);
 
   const reportableError = [currentUserQuery.error, betaTermsQuery.error].some(
@@ -74,5 +79,6 @@ export function useOrgConsent(enabled = true): OrgConsent {
     needsAiConsent,
     needsBetaTerms,
     satisfied: !needsAiConsent && !needsBetaTerms,
+    retry,
   };
 }
