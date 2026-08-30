@@ -563,10 +563,11 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 user_id=user_id,
                 repository=repository,
                 sandbox_environment_id=sandbox_env_id,
-                # Reads only: the research agent queries data/insights and can list the report's
-                # artefacts, but never writes artefacts itself — the pipeline persists its
-                # structured outputs after the session.
-                posthog_mcp_scopes="read_only",
+                # Reads, plus the scratchpad: the research agent queries data/insights and can
+                # list the report's artefacts, but never writes artefacts itself — the pipeline
+                # persists its structured outputs after the session. What it does keep is what it
+                # judged, so the next run over the same entities starts from it.
+                posthog_mcp_scopes="signals_research",
                 model=agent_runtime.model,
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,

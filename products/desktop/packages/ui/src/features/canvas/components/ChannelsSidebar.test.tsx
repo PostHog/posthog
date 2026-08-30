@@ -85,18 +85,28 @@ vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
   useWorkspaces: () => ({ data: {}, isFetched: true }),
 }));
 vi.mock("@tanstack/react-router", () => ({
-  useParams: () => ({ channelId: mocks.routeChannelId }),
+  useParams: ({
+    select,
+  }: {
+    select?: (params: { channelId: string | undefined }) => unknown;
+  } = {}) => {
+    const params = { channelId: mocks.routeChannelId };
+    return select ? select(params) : params;
+  },
   useRouterState: ({
     select,
   }: {
     select: (s: {
       matches: { fullPath: string }[];
-      location: { state: { tabId?: string } };
+      location: { pathname: string; state: { tabId?: string } };
     }) => unknown;
   }) =>
     select({
       matches: [{ fullPath: mocks.fullPath }],
-      location: { state: { tabId: mocks.historyTabId } },
+      location: {
+        pathname: mocks.fullPath,
+        state: { tabId: mocks.historyTabId },
+      },
     }),
 }));
 
