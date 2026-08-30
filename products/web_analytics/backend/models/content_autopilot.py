@@ -121,8 +121,10 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
     title = models.CharField(max_length=512)
     target_query = models.CharField(max_length=512, blank=True, default="")
     target_url = models.URLField(max_length=2048, blank=True, default="")
+    evidence = models.JSONField(default=list)
     validation_report = models.JSONField(default=default_content_autopilot_validation_report)
     content_package = models.JSONField(default=default_content_autopilot_package)
+    original_markdown = models.TextField(blank=True, default="")
     proposed_markdown = models.TextField(blank=True, default="")
     delivery_state = models.CharField(
         max_length=32,

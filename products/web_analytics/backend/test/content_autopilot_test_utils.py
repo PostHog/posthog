@@ -58,6 +58,15 @@ def create_content_autopilot_proposal(
         lifecycle_status=ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW,
         title="Improve the example guide",
         target_url="https://example.com/guides/example",
+        evidence=[
+            {
+                "opportunity_kind": "poor_ctr",
+                "explanation": "The page ranks for this query but is clicked rarely.",
+                "page_url": "https://example.com/guides/example",
+                "query": "example guide",
+                "metrics": {"impressions": 1240, "clicks": 21, "click_through_rate": 0.017},
+            }
+        ],
         validation_report={"passed": validation_passed, "checks": []},
         content_package={
             "file_path": file_path,
