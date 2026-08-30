@@ -1188,14 +1188,37 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     _EVIDENCE_SHAPE = EvidenceEntrySerializer
 
 
+# The scratchpad write path moved onto its own scope in #91364, split out of
+# `signal_scout_internal:write` so the report pipeline could keep durable memory without the
+# scout's emit scopes. A sandbox token lives `TOKEN_EXPIRATION_SECONDS`, so a scout run already
+# in flight at deploy time keeps the legacy scope its mint gave it and never carries the new one.
+# Accept either scope on the write path so those runs keep their memory across a scope rename;
+# drop the legacy one a token lifetime after the split ships. Both objects are internal
+# (`INTERNAL_API_SCOPE_OBJECTS`), so neither is reachable via a user key or `*` consent.
+SCRATCHPAD_WRITE_SCOPE = "signal_scratchpad_internal:write"
+LEGACY_SCRATCHPAD_WRITE_SCOPE = "signal_scout_internal:write"
+
+
+def _resolve_scratchpad_write_scope(request: Request) -> str:
+    """The scratchpad-write scope to enforce for this caller.
+
+    Require the current scope, but fall back to the legacy one when the token carries only that —
+    the pre-split sandbox tokens the deploy left in flight. See `SCRATCHPAD_WRITE_SCOPE`.
+    """
+    scopes = get_authenticator_scopes(request.successful_authenticator) or []
+    if SCRATCHPAD_WRITE_SCOPE not in scopes and LEGACY_SCRATCHPAD_WRITE_SCOPE in scopes:
+        return LEGACY_SCRATCHPAD_WRITE_SCOPE
+    return SCRATCHPAD_WRITE_SCOPE
+
+
 class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Durable agent memories (`SignalScratchpad`) — read, write, and delete.
 
     Reads (`list`) use the public `signal_scout:read` scope by inheriting the
     viewset's `scope_object`. Writes (`create`, `forget`) elevate to the
-    internal-only `signal_scratchpad_internal:write` scope — `forget` carries it
-    on its `@action`, and `create` (a built-in DRF method) gets it via the
-    `dangerously_get_required_scopes` hook below.
+    internal-only `signal_scratchpad_internal:write` scope, resolved per request by
+    `dangerously_get_required_scopes` so a pre-split token carrying only the legacy
+    `signal_scout_internal:write` still passes (see `SCRATCHPAD_WRITE_SCOPE`).
 
     The write scope is the scratchpad's own, not the wider `signal_scout_internal:write`,
     so the report pipeline's research and implementation runs can keep durable memory
@@ -1211,12 +1234,12 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
-        # `create` is a default DRF action so it has no `@action` decorator to set
-        # `required_scopes`; without this override the permission would resolve to
-        # `signal_scout:write` (user-grantable) and let any team member with a PAK
-        # write durable memories. Map it to the internal scope explicitly.
-        if getattr(view, "action", None) == "create":
-            return ["signal_scratchpad_internal:write"]
+        # `create` and `forget` are internal writes: without this override `create` (a default
+        # DRF method with no `@action`) would resolve to the user-grantable `signal_scout:write`
+        # and let any team member with a PAK write durable memories. Both actions resolve to the
+        # scratchpad write scope, accepting the legacy scout scope for pre-split tokens.
+        if getattr(view, "action", None) in ("create", "forget"):
+            return [_resolve_scratchpad_write_scope(request)]
         return None
 
     @validated_request(
@@ -1321,7 +1344,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         methods=["post"],
         url_path="forget",
-        required_scopes=["signal_scratchpad_internal:write"],
+        # No `required_scopes` here: `_get_required_scopes` reads that attribute before the
+        # `dangerously_get_required_scopes` hook, so setting it would skip the per-token
+        # legacy-scope fallback. The hook governs `forget` the same as `create`.
         pagination_class=None,
     )
     def forget(self, request: Request, **kwargs) -> Response:

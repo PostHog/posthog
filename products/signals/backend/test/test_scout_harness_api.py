@@ -1375,6 +1375,22 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"deleted": False}
 
+    @parameterized.expand([("remember",), ("forget",)])
+    def test_write_path_accepts_pre_split_legacy_scope(self, action: str) -> None:
+        # A scout run in flight at the scope-split deploy holds a token minted with only the legacy
+        # `signal_scout_internal:write`, never the new `signal_scratchpad_internal:write`. The write
+        # path must still accept it until those tokens drain, or the run silently loses its memory.
+        _authenticate_as_scout(self, scopes=["signal_scout_internal:write", "signal_scout:read"])
+        if action == "remember":
+            response = self.client.post(self._list_url(), data={"key": "k1", "content": "v"}, format="json")
+            assert response.status_code == status.HTTP_200_OK
+            assert SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+        else:
+            SignalScratchpad.objects.create(team=self.team, key="k1", content="v")
+            response = self.client.post(self._forget_url(), data={"key": "k1"}, format="json")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json() == {"deleted": True}
+
     def test_remember_accepts_run_id_belonging_to_same_team(self) -> None:
         run = _make_run(self.team)
         response = self.client.post(

@@ -12,9 +12,9 @@
 // `posthog/temporal/oauth.py`). Its presence proves the caller is a scout.
 const SCOUT_INTERNAL_WRITE_SCOPE = 'signal_scout_internal:write'
 
-// Minted server-side only for the report-research and implementation pipeline runs that share
-// the fleet scratchpad. Added by the scope-split work; absent today, so pipeline callers fall
-// through to `user` until that lands.
+// Minted server-side for the report-research and implementation pipeline runs that share the
+// fleet scratchpad, and folded into the scout posture too. Its presence without the scout scope
+// marks a pipeline caller.
 const SCRATCHPAD_INTERNAL_WRITE_SCOPE = 'signal_scratchpad_internal:write'
 
 // Every server-minted token carries `task:write` (INTERNAL_SCOPES), so it cannot tell a
@@ -23,8 +23,8 @@ const ALWAYS_PRESENT_WRITE_SCOPES = new Set(['task:write'])
 
 // Provenance marker on every server-minted token (INTERNAL_SCOPES). `internal_run` is not a
 // user-grantable scope object, so a token carrying it came from a sandbox run, never from a
-// person's own key or consent grant. It says "sandbox", not which kind: until the scratchpad
-// scope lands, the report-research and implementation runs land here rather than in `user`.
+// person's own key or consent grant. It says "sandbox", not which kind — a run carrying neither
+// the scout nor the scratchpad scope lands here rather than in `user`.
 const SERVER_MINTED_MARKER_SCOPE = 'internal_run:read'
 
 // Scope objects minted server-side only (mirrors SERVER_MINT_ONLY_SCOPE_OBJECTS in `api.ts`
