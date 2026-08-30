@@ -18,6 +18,7 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useCallback, useState } from "react";
 
@@ -130,10 +131,9 @@ export function ProfilePictureRow({
             disabled={checking}
             onClick={onRefresh}
           >
-            <ArrowsClockwise
-              size={12}
-              className={cn(checking && "motion-safe:animate-spin")}
-            />
+            <Spin spinning={checking} className="motion-reduce:animate-none">
+              <ArrowsClockwise size={12} />
+            </Spin>
           </Button>
         </Tooltip>
         <Button
