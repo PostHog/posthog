@@ -1,9 +1,4 @@
-import {
-  ArrowSquareOut,
-  ArrowsClockwise,
-  Camera,
-  Plus,
-} from "@phosphor-icons/react";
+import { ArrowSquareOut, ArrowsClockwise, Camera } from "@phosphor-icons/react";
 import { avatarColor } from "@posthog/core/auth/avatarColor";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import {
@@ -109,16 +104,6 @@ export function ProfilePictureRow({
           className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-(--radius-3) bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none"
         >
           <Camera size={20} weight="fill" />
-        </span>
-        <span
-          aria-hidden
-          className="-right-1.5 -bottom-1.5 absolute flex size-6 items-center justify-center rounded-full border-2 border-card bg-(--primary) text-(--primary-foreground)"
-        >
-          {hasPicture ? (
-            <Camera size={12} weight="bold" />
-          ) : (
-            <Plus size={12} weight="bold" />
-          )}
         </span>
       </button>
 

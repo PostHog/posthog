@@ -41,7 +41,7 @@ type Story = StoryObj<typeof AccountSettingsView>;
 /** Gravatar has a picture for the email: it fills the avatar and the action reads "Change". */
 export const WithGravatar: Story = {};
 
-/** No Gravatar yet: initials in a dashed slot, a plus badge and an "Add" action. */
+/** No Gravatar yet: initials in a dashed slot and an "Add" action. */
 export const NoGravatar: Story = {
   args: { status: "missing", imageUrl: undefined },
 };
