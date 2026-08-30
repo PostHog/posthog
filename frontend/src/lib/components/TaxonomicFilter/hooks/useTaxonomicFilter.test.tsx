@@ -481,9 +481,10 @@ describe('useTaxonomicFilter', () => {
         expect(input.enableKeywordShortcuts).toBe(true)
     })
 
-    // Pins are global, so a picker that offers only events would otherwise list a pinned cohort and
-    // hand back a value it cannot represent. The menu's shortcut rows already filter this way.
-    it('keeps the Pinned tab to groups this picker offers', () => {
+    // Only the headless primitives read this override, and none of them renders in production
+    // today, so this changes nothing a person sees. It keeps the hook in step with the rule the
+    // menu applies to the rows it does render.
+    it('filters the Pinned override to groups this picker offers', () => {
         const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
         pinnedLogic.mount()
         pinnedLogic.actions.setPinnedFilters([
