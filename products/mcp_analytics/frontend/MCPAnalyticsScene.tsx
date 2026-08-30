@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 
-import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
@@ -16,14 +15,13 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { askPostHogAI } from './askPostHogAI'
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData'
 import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
-import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
+import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
@@ -143,17 +141,6 @@ function MCPAnalyticsSceneContent(): JSX.Element {
                             }}
                             data-attr="mcp-analytics-feedback-button"
                         />
-                        {onboardingState === 'onboarded' && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconSparkles />}
-                                onClick={() => askPostHogAI(TAB_AI_PROMPTS[activeTab])}
-                                data-attr="mcp-analytics-ask-ai"
-                            >
-                                Ask PostHog AI
-                            </LemonButton>
-                        )}
                         <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
                             Documentation
                         </LemonButton>
