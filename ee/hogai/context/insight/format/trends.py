@@ -83,7 +83,7 @@ class TrendsResultsFormatter:
 
         row = [range]
         for series in results:
-            row.append(format_number(series["aggregated_value"]))
+            row.append(format_number(series.get("aggregated_value")))
         matrix.append(row)
 
         return format_matrix(matrix)

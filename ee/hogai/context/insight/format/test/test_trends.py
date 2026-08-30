@@ -253,6 +253,33 @@ class TestTrendsResultsFormatter(BaseTest):
             "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|1000",
         )
 
+    def test_trends_aggregated_values_with_mixed_series(self):
+        results = [
+            {
+                "data": [],
+                "days": [],
+                "count": 0,
+                "aggregated_value": 993,
+                "label": "$pageview",
+                "action": {
+                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
+                },
+            },
+            {
+                "data": [],
+                "days": [],
+                "count": 0,
+                "label": "$pageleave",
+                "action": {
+                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
+                },
+            },
+        ]
+        self.assertEqual(
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
+            "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|N/A",
+        )
+
     def test_trends_aggregated_value_with_null_action(self):
         results = [
             {
