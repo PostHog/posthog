@@ -1,0 +1,7 @@
+//! Kafka consumption core for stateful services.
+//!
+//! The vocabulary follows `rust/ingestion-consumer/docs/driver-model.md` §8:
+//! the top-level component is the consumer loop, a driver is the single owner
+//! of one unit's state, and a group is one routing key's messages from one poll.
+
+pub mod config;
