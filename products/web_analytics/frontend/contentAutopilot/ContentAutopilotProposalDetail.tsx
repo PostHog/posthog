@@ -3,15 +3,12 @@ import { useActions, useValues } from 'kea'
 import {
     LemonBanner,
     LemonButton,
-    LemonCollapse,
     LemonDialog,
     LemonModal,
     LemonSkeleton,
     LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
-
-import { Link } from 'lib/lemon-ui/Link/Link'
 
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 
@@ -100,7 +97,7 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
             isOpen
             onClose={closeProposal}
             title={selectedProposal.title}
-            description={selectedProposal.expected_outcome}
+            description={selectedProposal.target_query || selectedProposal.target_url}
             width={960}
             footer={
                 <div className="flex flex-wrap gap-2 justify-between w-full">
@@ -152,33 +149,6 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
             }
         >
             <div className="flex flex-col gap-5">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="rounded border p-3">
-                        <div className="font-semibold mb-1">Audience</div>
-                        <div>{selectedProposal.audience || 'Not specified'}</div>
-                    </div>
-                    <div className="rounded border p-3">
-                        <div className="font-semibold mb-1">Search intent</div>
-                        <div>{selectedProposal.search_intent || 'Not specified'}</div>
-                    </div>
-                </div>
-
-                <section>
-                    <h3>Supporting evidence</h3>
-                    <div className="flex flex-col gap-2">
-                        {selectedProposal.evidence.map((evidence) => (
-                            <div
-                                key={`${evidence.opportunity_kind}-${evidence.page_url}-${evidence.query}-${evidence.explanation}`}
-                                className="rounded border p-3"
-                            >
-                                <LemonTag>{evidence.opportunity_kind.replaceAll('_', ' ')}</LemonTag>
-                                <p className="mb-0 mt-2">{evidence.explanation}</p>
-                                {evidence.query ? <div className="text-sm mt-2">Query: {evidence.query}</div> : null}
-                            </div>
-                        ))}
-                    </div>
-                </section>
-
                 <section>
                     <h3>Validation</h3>
                     {!selectedProposal.validation_report.passed ? (
@@ -222,22 +192,6 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                             Save changes
                         </LemonButton>
                     </div>
-                    {selectedProposal.proposal_type === 'page_improvement' && selectedProposal.original_markdown ? (
-                        <LemonCollapse
-                            className="mb-3"
-                            panels={[
-                                {
-                                    key: 'original',
-                                    header: 'View original content',
-                                    content: (
-                                        <pre className="max-h-72 overflow-auto rounded border p-3 whitespace-pre-wrap">
-                                            {selectedProposal.original_markdown}
-                                        </pre>
-                                    ),
-                                },
-                            ]}
-                        />
-                    ) : null}
                     <LemonTextArea
                         aria-label="Proposal Markdown"
                         value={proposedMarkdown}
@@ -245,28 +199,6 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                         minRows={18}
                         className="font-mono"
                     />
-                </section>
-
-                <section>
-                    <h3>Source ledger</h3>
-                    {selectedProposal.source_ledger.length > 0 ? (
-                        <div className="flex flex-col gap-2">
-                            {selectedProposal.source_ledger.map((source) => (
-                                <div key={source.url} className="rounded border p-3">
-                                    <Link to={source.url} target="_blank">
-                                        {source.title || source.url}
-                                    </Link>
-                                    <ul className="mb-0 mt-2">
-                                        {source.supported_claims.map((claim) => (
-                                            <li key={claim}>{claim}</li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="text-muted">No factual sources were recorded.</p>
-                    )}
                 </section>
             </div>
         </LemonModal>
