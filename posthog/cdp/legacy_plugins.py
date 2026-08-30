@@ -14,9 +14,9 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
     if plugin_id == "user-agent":
         plugin_id = "user-agent-plugin"
 
-    template = HogFunctionTemplate.objects.get(template_id=f"plugin-{plugin_id}")
-
-    if not template:
+    try:
+        template = HogFunctionTemplate.objects.get(template_id=f"plugin-{plugin_id}")
+    except HogFunctionTemplate.DoesNotExist:
         raise Exception(f"Template not found for plugin {plugin_id}")
 
     inputs = {}

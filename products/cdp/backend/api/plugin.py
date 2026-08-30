@@ -11,8 +11,8 @@ from django.utils.encoding import smart_str
 from django.utils.timezone import now
 
 import requests
+import structlog
 from dateutil.relativedelta import relativedelta
-from posthoganalytics import capture_exception
 from rest_framework import renderers, request, serializers, status, viewsets
 from rest_framework.decorators import renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -53,6 +53,8 @@ from products.cdp.backend.models.plugin import (
     transpile,
     update_validated_data_from_url,
 )
+
+logger = structlog.get_logger(__name__)
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
@@ -751,8 +753,14 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             return PluginConfig(**validated_data)
 
         except Exception as e:
-            # If anything goes wrong with hog function creation, capture the error but continue with plugin creation
-            capture_exception(e)
+            # Legacy plugin creation is disabled, so this path is the expected outcome, not a
+            # server error. Log a warning and return the 400 without opening an error tracking issue.
+            logger.warning(
+                "plugin_config_create_no_longer_possible",
+                plugin_id=validated_data["plugin"].id,
+                team_id=self.context["team_id"],
+                error=str(e),
+            )
             raise ValidationError(
                 "Plugin creation is no longer possible. Please refer to the Hog Functions documentation for more information."
             )
