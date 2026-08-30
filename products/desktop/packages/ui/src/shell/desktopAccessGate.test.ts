@@ -184,8 +184,22 @@ describe("desktopAccessGate", () => {
       },
       {
         name: "first check with no previously blocked project",
-        lastBlockedProjectId: null,
+        lastBlockedProjectId: undefined,
         currentProjectId: 42,
+        accessStatus: "checking" as const,
+        expected: false,
+      },
+      {
+        name: "recheck of a null-project denial (account has no project)",
+        lastBlockedProjectId: null,
+        currentProjectId: null,
+        accessStatus: "checking" as const,
+        expected: true,
+      },
+      {
+        name: "no denial recorded even with a null current project",
+        lastBlockedProjectId: undefined,
+        currentProjectId: null,
         accessStatus: "checking" as const,
         expected: false,
       },
@@ -221,7 +235,7 @@ describe("desktopAccessGate", () => {
     it.each([
       {
         name: "records the project on a blocked result",
-        previous: null,
+        previous: undefined,
         state: {
           isAuthenticated: true,
           currentProjectId: 42,
@@ -232,7 +246,7 @@ describe("desktopAccessGate", () => {
       },
       {
         name: "records the project on an error result",
-        previous: null,
+        previous: undefined,
         state: {
           isAuthenticated: true,
           currentProjectId: 42,
@@ -240,6 +254,17 @@ describe("desktopAccessGate", () => {
           accessStatus: "error" as const,
         },
         expected: 42,
+      },
+      {
+        name: "records a null project on an error result (account has no project)",
+        previous: undefined,
+        state: {
+          isAuthenticated: true,
+          currentProjectId: null,
+          accessIsCurrent: true,
+          accessStatus: "error" as const,
+        },
+        expected: null,
       },
       {
         name: "clears on a settled allowed result",
@@ -250,7 +275,7 @@ describe("desktopAccessGate", () => {
           accessIsCurrent: true,
           accessStatus: "allowed" as const,
         },
-        expected: null,
+        expected: undefined,
       },
       {
         name: "clears on sign-out",
@@ -261,7 +286,7 @@ describe("desktopAccessGate", () => {
           accessIsCurrent: true,
           accessStatus: "blocked" as const,
         },
-        expected: null,
+        expected: undefined,
       },
       {
         name: "keeps the marker through a recheck",
@@ -281,7 +306,7 @@ describe("desktopAccessGate", () => {
     it("holds the denial screen through a retry instead of flashing onboarding", () => {
       // blocked -> retry publishes "checking" for the same project. The marker
       // must survive that flip so the recheck keeps the denial screen up.
-      const afterBlocked = nextLastBlockedProjectId(null, {
+      const afterBlocked = nextLastBlockedProjectId(undefined, {
         isAuthenticated: true,
         currentProjectId: 42,
         accessIsCurrent: true,
@@ -294,6 +319,27 @@ describe("desktopAccessGate", () => {
         accessStatus: "checking",
       });
       expect(isBlockedAccessRecheck(afterRetry, 42, "checking")).toBe(true);
+    });
+
+    it("holds the error screen through a retry when the account has no project", () => {
+      // An account with no accessible project has a null current project, so
+      // the access check settles as an error carrying a null project. The retry
+      // republishes "checking" for that same null project. The marker must keep
+      // the null denial distinct from "no denial recorded" so the recheck holds
+      // the screen instead of flashing onboarding or the loading screen.
+      const afterError = nextLastBlockedProjectId(undefined, {
+        isAuthenticated: true,
+        currentProjectId: null,
+        accessIsCurrent: true,
+        accessStatus: "error",
+      });
+      const afterRetry = nextLastBlockedProjectId(afterError, {
+        isAuthenticated: true,
+        currentProjectId: null,
+        accessIsCurrent: true,
+        accessStatus: "checking",
+      });
+      expect(isBlockedAccessRecheck(afterRetry, null, "checking")).toBe(true);
     });
   });
 });

@@ -105,8 +105,11 @@ function App({ devToolbar }: AppProps) {
   const settledDesktopAccess = hasDesktopAccess || isRevalidatingAccess;
   // Mirrors lastAllowedProjectRef for the denial screen. It holds the project
   // the app already showed as blocked, so a recheck for that same project
-  // keeps the denial screen up instead of flashing the onboarding flow.
-  const lastBlockedProjectRef = useRef<number | null>(null);
+  // keeps the denial screen up instead of flashing the onboarding flow. It
+  // starts undefined, not null, because a blocked project can itself be null
+  // (an access error with no current project), which must stay distinct from
+  // "no denial recorded yet".
+  const lastBlockedProjectRef = useRef<number | null | undefined>(undefined);
   useEffect(() => {
     lastBlockedProjectRef.current = nextLastBlockedProjectId(
       lastBlockedProjectRef.current,

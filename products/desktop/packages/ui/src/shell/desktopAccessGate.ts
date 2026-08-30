@@ -55,15 +55,21 @@ export function nextLastAllowedProjectId(
  * app drops the denial screen for the onboarding flow until the check settles
  * again. It mirrors isBackgroundAccessRecheck, but holds the denial screen
  * rather than the running app.
+ *
+ * The marker uses `undefined` for "no denial recorded", so a recorded `null`
+ * project is a real blocked location rather than an empty marker. An access
+ * error carries a null project when the account has no current project (an
+ * organization with no accessible projects), and its retry re-checks that same
+ * null project, so the grace must apply to it too.
  */
 export function isBlockedAccessRecheck(
-  lastBlockedProjectId: number | null,
+  lastBlockedProjectId: number | null | undefined,
   currentProjectId: number | null,
   accessStatus: DesktopAccessStatus,
 ): boolean {
   return (
     accessStatus === "checking" &&
-    lastBlockedProjectId !== null &&
+    lastBlockedProjectId !== undefined &&
     lastBlockedProjectId === currentProjectId
   );
 }
@@ -74,21 +80,26 @@ export function isBlockedAccessRecheck(
  * screen, which is what lets isBlockedAccessRecheck keep that screen up
  * through a recheck. A settled "allowed" result clears it, and sign-out
  * clears it; a "checking" flip carries it so the recheck keeps the screen.
+ *
+ * `undefined` is the cleared marker, distinct from a recorded `null` project.
+ * A "blocked" or "error" result can carry a null project (an error does when
+ * the account has no current project), so the marker keeps null as a real
+ * blocked location rather than treating it as cleared.
  */
 export function nextLastBlockedProjectId(
-  previous: number | null,
+  previous: number | null | undefined,
   state: {
     isAuthenticated: boolean;
     currentProjectId: number | null;
     accessIsCurrent: boolean;
     accessStatus: DesktopAccessStatus;
   },
-): number | null {
-  if (!state.isAuthenticated) return null;
+): number | null | undefined {
+  if (!state.isAuthenticated) return undefined;
   if (!state.accessIsCurrent) return previous;
   if (state.accessStatus === "blocked" || state.accessStatus === "error") {
     return state.currentProjectId;
   }
-  if (state.accessStatus === "allowed") return null;
+  if (state.accessStatus === "allowed") return undefined;
   return previous;
 }
