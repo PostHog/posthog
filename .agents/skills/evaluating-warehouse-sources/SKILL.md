@@ -151,7 +151,7 @@ If Tier 1 was impossible pre-merge, say so in the PR and name the watch — a sc
 
 ## Tier 3 — adversarial replay (no credentials, graduates into CI)
 
-These are fixtures and tests that live in the source's `tests/` and run in CI forever after — the point is that they encode _vendor reality_, not the author's assumptions, so build them from captured or historical material wherever possible.
+These are fixtures and tests that live in the source's `tests/` and run in CI forever after — the point is that they encode _vendor reality_, not the author's assumptions, so derive their shape from captured or historical material wherever possible (under the warning at the end of this tier).
 
 - **Malformed bodies**: HTML error page, JSON error, blank-prefixed body, truncated stream fed to the parser must raise a loud, named error — `csv.DictReader` happily parses `<html>` into a column named `html` (#82159).
 - **Format eras**: real historical file variants (ragged widths, trailing delimiters, header variants); invariant: any file with data rows loads at least one row or raises, and the skip ratio is capped (#82957).
@@ -162,15 +162,21 @@ These are fixtures and tests that live in the source's `tests/` and run in CI fo
 - **Brownfield**: seed a Delta table in the pre-change schema, append a new-shape batch, and observe what actually happens to types and existing rows — typed values cast silently back to string on existing tables (#82973); assert post-call DB state for any bulk/schema API, never just the 200 (#82273).
 - **SQL sources**: introspection fixtures under a restricted role (privilege-filtered catalogs must answer "undetermined", not "no key" — #84740), engine-variant catalogs (Redshift has no `pg_matviews` — #84705), composite-key column order asserted explicitly.
 
-**Source fixtures from production, not imagination.**
-For a deployed source, opt-in sample capture writes scrubbed request/response pairs to S3:
+**Build fixtures from what a real payload shows, not from what you expect it to hold.**
+The Checkout.com zero-row tables existed precisely because the fixtures carried ids the live API never sends (#82961), so the shape has to come from a real response.
+For a deployed source, opt-in sample capture writes request/response pairs to S3:
 
 ```sh
-python manage.py warehouse_sources_capture_http_samples enable --source-type <type> --response-code '*' --limit 50 --ttl 1h
+python manage.py warehouse_sources_capture_http_samples enable --source-type <type> \
+    --team-id <your-test-team> --schema-id <your-test-schema> --response-code '*' --limit 50 --ttl 1h
 ```
 
 (gRPC variant: `warehouse_sources_capture_grpc_samples`.)
-Replayed as fixtures, these are the cheapest way to stop tests re-asserting the author's model — the Checkout.com zero-row tables existed precisely because fixtures contained ids the live API never sends (#82961).
+Always scope the rule to a connection you own. Every filter defaults to `*`, so an unscoped rule captures whichever customer's sync fires first.
+
+> [!WARNING]
+> A captured sample is customer data, and scrubbing does not change that. The scrubber redacts a curated list of auth field names and runs scrubadub over values; ordinary business strings and numbers survive by design, because a sample stripped of them proves nothing.
+> Read the sample, then write the fixture from what it shows: real field names, real envelope shape, invented values, `example.com` domains, obviously fake tokens. Never paste a captured payload into `tests/` — this repo is public, and an edited customer payload is derived, not synthetic ("Public open source repo guidance" in `AGENTS.md`).
 
 ## Record the verdict
 
