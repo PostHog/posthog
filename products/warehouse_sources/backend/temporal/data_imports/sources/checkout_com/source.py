@@ -151,11 +151,14 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
         return {
             "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
             "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
-            # A run that stops at its per-run API budget is incomplete, not broken. Every
-            # window it finished is checkpointed, so the retry resumes there and covers more
-            # ground; a long backfill converges over several attempts. It has to raise rather
-            # than return so the schema never reports Completed over an unfilled range.
+            # A run that stops at its per-run API budget without advancing the watermark is
+            # incomplete, not broken. Every window it finished is checkpointed, so the retry
+            # resumes there and covers more ground. Incremental runs that landed rows end
+            # cleanly instead of raising (see payments._get_rows), so this only fires when
+            # the watermark could not move: a full refresh, or a run that landed no rows.
             SYNC_BUDGET_EXCEEDED_MARKER,
+            # Jobs in flight across a deploy can still raise the pre-rename message text.
+            "Checkout.com sync hit its per-run API budget",
         }
 
     @property
