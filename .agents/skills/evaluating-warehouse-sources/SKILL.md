@@ -14,6 +14,11 @@ The defects that escape this way are rarely loud.
 The dominant class is **silent incompleteness under a green status**: the sync reports `Completed` while landing zero rows (#82961, #78127), one page (#78129), a clamped window (#82115), silently skipped file rows (#82957), or duplicated keys (#82959, #82099).
 Loud failures get customer reports within days; silent ones surface weeks later, only when someone reconciles the landed table against the vendor's own dashboard.
 
+A second pattern is **loud but unfixable**: a failure that repeats identically on every schedule, with advice the operator cannot act on.
+A keyless table disabled and re-enabled into the same error (#90674), a view retried forever on a missing `_id` (#89701), a plan-gated 403 blaming a working API key (#91423).
+These are reported fast and still stay broken, because the response hands the problem back to someone with no lever.
+When a check finds one, ask what the sync should do on the next run — not only what the message should say.
+
 This skill is the repeatable evaluation that runs where CI cannot.
 It was distilled from a month of shipped fixes; [references/defect-catalog.md](references/defect-catalog.md) records each one with the check that would have caught it.
 Read the catalog once to calibrate suspicion, then run the tiers below.
@@ -30,7 +35,7 @@ The catalog is what makes the choice informed — it shows what each skipped tie
 | **1. Inferred vendor contract** — required params, envelope keys, cursor names, id fields, domain topology exist only in the author's head and fixtures  | #79119, #82961, #78129, #78983, #82159 | one authenticated request per endpoint         |
 | **2. Silent success** — a code path returns normally with fewer rows than the vendor holds                                                               | #78127, #82115, #82957, #78129         | row-count parity against the vendor's own UI   |
 | **3. Credential-instance variance** — key types, per-endpoint scopes, plan/add-on gating, OAuth manifest grants, regions                                 | #78033, #78035, #78134, #77920, #80824 | deliberately differentiated live accounts      |
-| **4. Keys, merges, partitions, restatements** — correctness only breaks across overlapping runs, regenerated files, or days of vintages                  | #82959, #82099, #82974, #82973         | multi-run syncs over real, drifting data       |
+| **4. Keys, merges, partitions, restatements** — the key the merge uses is resolved at sync time, and correctness only breaks across overlapping runs, regenerated files, or days of vintages | #82959, #82099, #82974, #82973, #86510, #88969 | a second sync over real, drifting data |
 | **5. Environment & pre-existing state** — production egress topology, engine-variant catalogs, brownfield Delta tables, privilege-filtered introspection | #80823, #84705, #84740, #82273         | prod-like proxies, real clusters, seeded state |
 
 ## Scope the evaluation to the change
@@ -39,10 +44,11 @@ The map from change type to the tiers that historically would have caught its de
 
 - **New source or new table**: all four tiers pay for themselves here. A passing Tier 1 is the natural bar for promoting a source past `ReleaseStatus.ALPHA` — see "Record the verdict".
 - **Pagination, cursor, incremental, resume changes**: Tiers 0, 1 (probes + double sync + kill/resume), 3 (exhaustion + resume fixtures).
+- **Primary-key, key-detection, or merge changes**: Tier 0 step 4, Tier 1's second sync, Tier 2 queries 0–2, Tier 3 key fixtures. One sync proves nothing here — the merge path only runs from the second sync on.
 - **Auth, scopes, key handling, OAuth manifest changes**: Tiers 0 and 1 with the credential matrix.
 - **Parser / report-file changes**: Tiers 0, 3 (malformed-body and format-era fixtures), 2 after any live sync.
 - **New transport (WebSocket, gRPC, vendor SDK socket)**: Tier 1 must include the egress-proxy check.
-- **SQL-database source introspection**: Tier 1 against a real cluster of that engine, plus the restricted-role fixtures in Tier 3.
+- **SQL-database source introspection**: Tier 1 against a real cluster of that engine, plus the restricted-role fixtures in Tier 3. Test on an engine that does not enforce key constraints, not only on Postgres — that is where a declared key and a unique key stop being the same thing (#90674).
 - **Schema/settings APIs that mutate existing rows** (bulk updates, migrations): Tier 3 brownfield checks — assert post-call state, never just HTTP status (#82273).
 
 ## Tier 0 — contract-assumption audit (cheapest, no credentials)
@@ -71,6 +77,26 @@ Enumerate every way the sync can return normally, and ask what data each path ca
 - Every distinct failure cause yields a distinct, actionable message (#78034); non-retryable matchers are ordered most-specific-first, plan-gating before blanket 403 (#78134); never advise an action that can't fix the cause — "re-authorize" cannot grant a manifest-gated permission (#80824).
 - Duplicated per-vendor lists (field sets, scopes) are cross-checked by a test: OAuth manifest ↔ table catalog (#77920), duplicate field lists (#80824), every endpoint declares a scope (#78035).
 
+**4. Trace the key the merge will actually use.**
+The key declared in `settings.py` is a proposal.
+At sync time `resolve_primary_keys` (`pipelines/common/extract.py`) takes the first of: the persisted `sync_type_config["primary_key_columns"]`, the keys the source detected this run, then any column named `id`.
+Four consequences, each worth a line in the claims ledger on any key change:
+
+- **A persisted key wins forever.** `persist_primary_keys` only fills an empty value and nothing clears it, so a corrected declaration or a fixed detector reaches new connections only — every schema that already synced keeps merging on the old key. Say in the PR how existing tables get the new key (an operator PATCH, a reset, a migration), or say that they don't.
+- **`id` is guessed twice, and a guess is not evidence.** `SQLSource._default_primary_key_from_columns` fills it at discovery, `resolve_primary_keys` again at sync. Where the engine does not enforce keys, the guess can be non-unique and the table is defaulted into a merge that can never match — Redshift treats key constraints as informational and a view cannot declare one at all (#90674). Probe for duplicates (`SourceResponse.has_duplicate_primary_keys`) rather than trusting the catalog, and prefer keyless to a guessed key.
+- **A composite key is a candidate list, not a conjunction.** The writer merges on whichever declared columns survive into the batch and raises only when none do. That is what lets `["uuid", "id"]` cover records carrying either (#88969), and what silently narrows a real composite key when one column is optional — collapsing rows that were never the same record. If every column must match, assert their presence per batch.
+- **Keyless incremental is legal on the first sync.** `validate_incremental_sync` raises only once a table exists, so the first run writes cleanly and every run after it fails identically. A single smoke sync cannot see this class at all.
+
+## Pipeline version changes what a failure does
+
+Which pipeline runs a sync decides where an error can be raised and what raising it late costs.
+`pipeline_version` is persisted on the job row and is the source of truth for a run; `pipelines/README.md` is the map.
+
+- **v2 writes Delta inline**, so extract and load are one activity and the workflow finalizes the job.
+- **v3 splits them across deployments**: extract writes parquet batches to S3 and enqueues them, and a separate load consumer writes Delta and finalizes. An error raised in the load consumer can only fail the job — it never pauses the schema, so the same doomed run repeats on every schedule. Anything a user must fix has to be detected before extraction, which is why the keyless-table guard sits in `validate_incremental_sync` and not in the writer. Design new user-fixable failures the same way.
+- **The incremental cursor advances per batch on v2 and is staged until completion on v3**, so a retried v3 attempt re-extracts its window from batch 0. Kill/resume behavior and `rows_synced` (that number is billed) only mean something under the version production will run — check the flag before reading a resume result as a pass.
+- **A green extract is not a landed row on v3.** Assert against the table, never the activity.
+
 ## Tier 1 — live smoke sync (the part CI can never do)
 
 **Credentials.**
@@ -91,8 +117,10 @@ Count parity with the vendor's UI is the single check that caught both the one-p
 **3. Run the landed-data invariants** — Tier 2, below — against every synced table.
 
 **4. Sync again, then kill one.**
+The second sync is the first run that exercises the merge at all — a first sync writes rather than merges, so it cannot fail on a key. Never accept one sync as evidence about keys.
 An immediate second sync must be idempotent: `count()` still equals `uniqExact(pk)` on merge tables, counts unchanged on full refresh.
 Then interrupt a sync mid-run and resume: boundary rows must be neither skipped nor duplicated, and a completed job must not re-append its final page on retry (#80183).
+Record the effective key (Tier 0 step 4) and the pipeline version next to the result — a resume result read under the wrong version means nothing.
 
 **5. Credential matrix** (when the change touches auth, scopes, or gating).
 Cells worth holding accounts for: narrow-scope key, full-scope key, lowest plan, plan with the relevant add-on, OAuth install where supported, wrong region, wrong account.
@@ -107,6 +135,7 @@ Before merging a novel transport, run `validate_credentials` through a proxy spe
 
 Run the parameterized queries in [references/invariant-queries.md](references/invariant-queries.md) after any live sync: primary-key integrity, duplicate hotspots, month-gap scan, parent/child coverage join, restatement sanity for report-based sources, zero-row-completion detection.
 Several of these are lifted verbatim from the audits that found shipped defects — they are the acceptance criteria the fixes were verified against.
+Start with query 0: a result only means something once you know the table's sync type and its effective key, because a full-refresh or append table is not expected to satisfy key integrity at all.
 
 **Post-merge watch: hand it to self-driving first.**
 Tier 1 verifies one account; production is many, and Self-driving is already standing watch there.
@@ -127,6 +156,7 @@ These are fixtures and tests that live in the source's `tests/` and run in CI fo
 - **Malformed bodies**: HTML error page, JSON error, blank-prefixed body, truncated stream fed to the parser must raise a loud, named error — `csv.DictReader` happily parses `<html>` into a column named `html` (#82159).
 - **Format eras**: real historical file variants (ragged widths, trailing delimiters, header variants); invariant: any file with data rows loads at least one row or raises, and the skip ratio is capped (#82957).
 - **Regeneration replay**: two overlapping generations of the same logical rows, fresh file ids, drifted values → keep-last by business key, `count() == uniqExact(key)` after both (#82099, #82959).
+- **Key resolution**: a second write into an existing table (the only one that merges); a record variant carrying a different id field (#88969); a batch where part of a composite key is absent — assert the predicate the merge ran on, not just that the write returned; a stale persisted key naming a column the source no longer returns → a named error, never an empty predicate.
 - **Exhaustion**: force the budget/page cap to a tiny value → typed retryable error, never a normal return; assert the message carries the marker the retry classifier matches (#82115).
 - **Kill/resume**: interrupt after each checkpoint boundary → no skipped or duplicated rows; completed state cleared so retries don't re-append (#80183).
 - **Brownfield**: seed a Delta table in the pre-change schema, append a new-shape batch, and observe what actually happens to types and existing rows — typed values cast silently back to string on existing tables (#82973); assert post-call DB state for any bulk/schema API, never just the 200 (#82273).

@@ -5,6 +5,21 @@ Several are the exact acceptance criteria shipped inside the fix PRs they refere
 
 Substitute `{table}` with the warehouse table name (as shown in the SQL editor), `{pk}` with the primary key (use `tuple(a, b)` for composites).
 
+## 0. Effective sync type and key (run before anything below)
+
+Nothing under here means anything until you know how the table is written and what it merges on.
+
+```sql
+SELECT name, sync_type, status, last_synced_at
+FROM system.source_schemas
+WHERE should_sync AND deleted = 0
+```
+
+Only `incremental` tables merge, so only they are expected to satisfy query 1; a `full_refresh` or append table failing it is the design, not a defect.
+
+`system.source_schemas` does not carry the key. Read that from `primary_key_columns` on the schema API (`GET .../external_data_schemas/`) or the table's sync-method editor, and compare it against the key the source declares in `settings.py`.
+A difference is not a bug by itself — a persisted key always wins over a fresh declaration (SKILL.md, Tier 0 step 4) — but it decides which key query 1 runs with, and whether a key fix in the diff reaches this table at all.
+
 ## 1. Primary-key integrity (every merge table, every sync)
 
 ```sql
@@ -116,14 +131,19 @@ Results are internal operational data: use them to decide, never commit them any
 Schemas of the changed source type in a bad or suspicious state, both regions:
 
 ```sql
-SELECT status, count() AS schemas, uniqExact(team_id) AS teams
+SELECT
+    status,
+    count() AS schemas,
+    uniqExact(team_id) AS teams,
+    countIf(table_id IS NULL) AS no_table,
+    countIf(last_synced_at IS NULL) AS never_synced
 FROM (
-    SELECT s.status AS status, s.team_id AS team_id
+    SELECT s.status AS status, s.team_id AS team_id, s.table_id AS table_id, s.last_synced_at AS last_synced_at
     FROM postgres_posthog_externaldataschema AS s
     JOIN postgres_posthog_externaldatasource AS src ON src.id = s.source_id
     WHERE src.source_type = '{SourceType}' AND s.should_sync = true
     UNION ALL
-    SELECT s.status, s.team_id
+    SELECT s.status, s.team_id, s.table_id, s.last_synced_at
     FROM eu_postgres_posthog_externaldataschema AS s
     JOIN eu_postgres_posthog_externaldatasource AS src ON src.id = s.source_id
     WHERE src.source_type = '{SourceType}' AND s.should_sync = true
@@ -132,8 +152,10 @@ GROUP BY status
 ORDER BY schemas DESC
 ```
 
+`no_table` and `never_synced` are in the projection because grouping on status alone hides the failure this tier exists for: a schema reporting `Completed` with nothing behind it counts as healthy in a `Completed` row.
+
 Watch for:
 
+- any `Completed` row with `no_table` or `never_synced` above zero — the silent-success signature (#82961); pull those schemas individually rather than reading the group total
 - schemas in a failure/paused status that appeared after the deploy — pull their `latest_error` strings; a new error string shared across many teams is the fleet-wide signature that separated a bad default from one broken account (#78035)
-- schemas reporting `Completed` with no linked table or a null `last_synced_at` — the silent-success signature (#82961)
 - for loud regressions in one customer's sync rather than the fleet, hand off to `/triaging-warehouse-sync-tickets`
