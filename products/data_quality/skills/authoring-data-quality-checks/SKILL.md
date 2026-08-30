@@ -60,7 +60,9 @@ names and columns, not IDs. Resolve the ID first:
   take the nested `table.id`, not the schema record's own `id`. That value is the `table_id`.
 
 `posthog:data-quality-check-types` also requires `saved_query_id`. Its catalog is static, so pass any
-view's `id`; the returned schemas apply to tables too.
+view's `id`; the returned schemas apply to tables too. A project with only imported tables has no view
+to pass, so that reader can skip the call: the same per-type config is in the
+`data-quality-check-create-on-table` tool description and under "Choosing checks" below.
 
 ## Choosing checks
 
