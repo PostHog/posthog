@@ -20,6 +20,24 @@ ui_apps:
         detail_args: '{ issueId: item.id }'
         click_prop: onIssueClick
 tools:
+    error-tracking-alerts-create:
+        operation: error_tracking_alerts_create
+        enabled: false
+    error-tracking-alerts-destroy:
+        operation: error_tracking_alerts_destroy
+        enabled: false
+    error-tracking-alerts-list:
+        operation: error_tracking_alerts_list
+        enabled: false
+    error-tracking-alerts-partial-update:
+        operation: error_tracking_alerts_partial_update
+        enabled: false
+    error-tracking-alerts-retrieve:
+        operation: error_tracking_alerts_retrieve
+        enabled: false
+    error-tracking-alerts-update:
+        operation: error_tracking_alerts_update
+        enabled: false
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: true
