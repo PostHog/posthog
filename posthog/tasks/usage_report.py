@@ -43,6 +43,7 @@ from posthog.models.utils import namedtuplefetchall
 from posthog.schema_enums import AIEventType
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
+from posthog.tasks.ai_observability_usage_report import LLM_PROMPT_FETCHED_EVENT
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
@@ -109,6 +110,9 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     "survey shown",
     "survey dismissed",
     "$exception",
+    # Emitted server-side on each prompt fetch. Prompt management is free, so the event is an
+    # artifact of using the product rather than customer instrumentation.
+    LLM_PROMPT_FETCHED_EVENT,
     *AI_EVENTS,
     *CONVERSATIONS_EVENTS,
 ]

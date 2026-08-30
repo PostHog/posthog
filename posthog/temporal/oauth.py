@@ -280,6 +280,16 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 
+def grants_scratchpad_write(scopes: PosthogMcpScopes) -> bool:
+    """Whether a posture's resolved scopes carry `scout-scratchpad-remember` / `-forget`.
+
+    Asked by the prompt side before it renders a memory protocol. A run told to record what it
+    learned, holding a token that strips the write tools, spends prompt tokens on an instruction
+    it cannot follow, so the instruction has to track the posture rather than be assumed.
+    """
+    return set(SCRATCHPAD_INTERNAL_SCOPES).issubset(resolve_scopes(scopes))
+
+
 def _get_client_id_for_region(*, region: str | None, us: str, eu: str, dev: str) -> str:
     if region == "EU":
         return eu
