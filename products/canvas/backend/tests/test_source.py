@@ -51,6 +51,14 @@ class TestCanvasSourceAdapter(SimpleTestCase):
     def test_valid_minimal_project_has_no_diagnostics(self):
         self.assertEqual(validate_source_project(project()), [])
 
+    def test_canvas_sdk_import_is_allowed_without_a_dependency_pin(self):
+        # The SDK is platform-provided (inlined by the builder), so the import
+        # must pass without an entry in the project's dependencies map.
+        candidate = project(
+            files={CANVAS_COMPONENT_PATH: 'import { ph } from "@posthog/canvas-sdk";\n' + CODE},
+        )
+        self.assertEqual(validate_source_project(candidate), [])
+
     @parameterized.expand(
         [
             ("wrong_schema_version", project(schemaVersion=2), "unsupported_schema_version"),
