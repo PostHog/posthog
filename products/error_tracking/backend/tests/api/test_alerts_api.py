@@ -6,7 +6,15 @@ from parameterized import parameterized
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
+from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
+
+
+def test_alert_contract_choices_match_model_choices():
+    # The contract constants are duplicated from the model choices so presentation
+    # code never imports Django models; this guards against the two drifting.
+    assert set(contracts.ERROR_TRACKING_ALERT_TRIGGERS) == set(ErrorTrackingAlert.Trigger.values)
+    assert set(contracts.ERROR_TRACKING_ALERT_CHANNEL_TYPES) == set(ErrorTrackingAlertDestination.ChannelType.values)
 
 
 class TestErrorTrackingAlerts(APIBaseTest):
@@ -188,6 +196,55 @@ class TestErrorTrackingAlerts(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert ErrorTrackingAlert.objects.for_team(self.team.id).count() == 0
+
+    def test_alert_rejects_duplicate_destinations(self):
+        integration = self._create_slack_integration()
+        destination = {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": "C0123"}}
+
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/",
+            data=self._valid_payload(integration, destinations=[destination, destination]),
+            format="json",
+        )
+        assert create.status_code == 400, create.json()
+        assert "Duplicate destinations" in str(create.json())
+        assert ErrorTrackingAlert.objects.for_team(self.team.id).count() == 0
+
+        created = self._create_alert(integration)
+        update = self.client.patch(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/{created['id']}/",
+            data={"destinations": [destination, destination]},
+            format="json",
+        )
+        assert update.status_code == 400, update.json()
+        assert ErrorTrackingAlertDestination.objects.for_team(self.team.id).count() == 1
+
+    def test_empty_patch_does_not_touch_updated_at(self):
+        integration = self._create_slack_integration()
+        created = self._create_alert(integration)
+
+        update = self.client.patch(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/{created['id']}/", data={}, format="json"
+        )
+
+        assert update.status_code == 200, update.json()
+        assert update.json()["updated_at"] == created["updated_at"]
+
+    def test_put_replaces_the_whole_alert(self):
+        integration = self._create_slack_integration()
+        created = self._create_alert(integration, throttle_seconds=600)
+        alert_url = f"/api/projects/{self.team.id}/error_tracking/alerts/{created['id']}/"
+        patched = self.client.patch(alert_url, data={"enabled": False}, format="json")
+        assert patched.status_code == 200, patched.json()
+
+        put = self.client.put(alert_url, data=self._valid_payload(integration, name="Renamed"), format="json")
+
+        assert put.status_code == 200, put.json()
+        body = put.json()
+        assert body["name"] == "Renamed"
+        # Fields omitted from a PUT reset to their defaults instead of keeping current values.
+        assert body["enabled"] is True
+        assert body["throttle_seconds"] == 0
 
     def test_alert_create_rejects_other_teams_integration(self):
         other_team = self.create_team_with_organization(organization=self.organization)

@@ -18,6 +18,11 @@ from pydantic.dataclasses import dataclass
 
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
+# Keep in sync with ErrorTrackingAlert.Trigger and ErrorTrackingAlertDestination.ChannelType
+# (asserted by tests); duplicated here so presentation code never imports Django models.
+ERROR_TRACKING_ALERT_TRIGGERS = ("issue_created", "issue_reopened", "issue_spiking", "issue_assigned")
+ERROR_TRACKING_ALERT_CHANNEL_TYPES = ("slack",)
+
 # Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
 

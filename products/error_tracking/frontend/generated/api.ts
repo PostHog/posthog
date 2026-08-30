@@ -11,7 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ErrorTrackingAlertApi,
     ErrorTrackingAlertCreateRequestApi,
-    ErrorTrackingAlertUpdateRequestApi,
+    ErrorTrackingAlertPutRequestApi,
     ErrorTrackingAlertsListParams,
     ErrorTrackingAssignmentRuleApi,
     ErrorTrackingAssignmentRuleCreateRequestApi,
@@ -160,7 +160,7 @@ export const getErrorTrackingAlertsCreateUrl = (projectId: string) => {
 
 export const errorTrackingAlertsCreate = async (
     projectId: string,
-    errorTrackingAlertCreateRequestApi: ErrorTrackingAlertCreateRequestApi,
+    errorTrackingAlertCreateRequestApi: NonReadonly<ErrorTrackingAlertCreateRequestApi>,
     options?: RequestInit
 ): Promise<ErrorTrackingAlertApi> => {
     return apiMutator<ErrorTrackingAlertApi>(getErrorTrackingAlertsCreateUrl(projectId), {
@@ -193,14 +193,14 @@ export const getErrorTrackingAlertsUpdateUrl = (projectId: string, id: string) =
 export const errorTrackingAlertsUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingAlertUpdateRequestApi?: ErrorTrackingAlertUpdateRequestApi,
+    errorTrackingAlertPutRequestApi: NonReadonly<ErrorTrackingAlertPutRequestApi>,
     options?: RequestInit
 ): Promise<ErrorTrackingAlertApi> => {
     return apiMutator<ErrorTrackingAlertApi>(getErrorTrackingAlertsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingAlertUpdateRequestApi),
+        body: JSON.stringify(errorTrackingAlertPutRequestApi),
     })
 }
 
@@ -211,7 +211,7 @@ export const getErrorTrackingAlertsPartialUpdateUrl = (projectId: string, id: st
 export const errorTrackingAlertsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingAlertUpdateRequestApi?: PatchedErrorTrackingAlertUpdateRequestApi,
+    patchedErrorTrackingAlertUpdateRequestApi?: NonReadonly<PatchedErrorTrackingAlertUpdateRequestApi>,
     options?: RequestInit
 ): Promise<ErrorTrackingAlertApi> => {
     return apiMutator<ErrorTrackingAlertApi>(getErrorTrackingAlertsPartialUpdateUrl(projectId, id), {

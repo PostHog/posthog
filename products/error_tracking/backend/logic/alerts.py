@@ -1,5 +1,6 @@
 """CRUD and validation for error tracking alert configurations."""
 
+import json
 from typing import Any, Optional
 from uuid import UUID
 
@@ -81,6 +82,7 @@ def create_alert(
     # paths (for_team) all agree on the same team id for child environments.
     team_id = resolve_effective_team_id(team_id)
     compiled_filters = _compile_filters(team_id, filters)
+    _reject_duplicate_destinations(destinations)
     for destination in destinations:
         _validate_destination(team_id, destination)
 
@@ -119,6 +121,14 @@ def update_alert(
     parsed_id = _parse_alert_id(alert_id)
     if parsed_id is None:
         return None
+
+    updates = (name, enabled, triggers, filters, throttle_seconds, destinations)
+    if all(value is None for value in updates):
+        # Nothing to change; skip the write so updated_at stays untouched.
+        return get_alert(team_id, parsed_id)
+
+    if destinations is not None:
+        _reject_duplicate_destinations(destinations)
 
     with transaction.atomic():
         # Lock the row so concurrent partial updates cannot overwrite each other's fields.
@@ -172,6 +182,20 @@ def _compile_filters(team_id: int, filters: dict[str, Any]) -> dict[str, Any]:
     if compiled.get("bytecode_error"):
         raise AlertValidationError(f"Invalid filter configuration: {compiled['bytecode_error']}")
     return compiled
+
+
+def _reject_duplicate_destinations(destinations: list[dict[str, Any]]) -> None:
+    # Delivery fans out one notification per destination row, so two identical
+    # destinations would double-post every notification.
+    seen = set()
+    for destination in destinations:
+        key = json.dumps(
+            (destination.get("channel_type"), destination.get("integration_id"), destination.get("config")),
+            sort_keys=True,
+        )
+        if key in seen:
+            raise AlertValidationError("Duplicate destinations are not allowed.")
+        seen.add(key)
 
 
 def _validate_destination(team_id: int, destination: dict[str, Any]) -> None:
