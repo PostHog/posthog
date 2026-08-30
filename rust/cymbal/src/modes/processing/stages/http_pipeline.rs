@@ -56,6 +56,7 @@ fn handle_result(
         Err(err) => match err {
             EventError::Suppressed(_)
             | EventError::SuppressedByRule(_)
+            | EventError::MaskedExtensionOnly(_)
             | EventError::RateLimitedPerIssue(_)
             | EventError::RateLimitedProject(_) => None,
             err => {

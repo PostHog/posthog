@@ -6,6 +6,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 pub mod event_release;
 pub mod exception;
 pub mod frame;
+pub mod masked_filter;
 pub mod remote;
 
 use crate::{
@@ -14,6 +15,7 @@ use crate::{
     metric_consts::RESOLUTION_STAGE,
     stages::pipeline::{ParsedPipelineItem, ResolvedPipelineItem},
     stages::resolution::event_release::{EventReleaseResolver, ReleaseCache},
+    stages::resolution::masked_filter::MaskedExtensionFilter,
     stages::resolution::remote::resolver::{resolve_batch, RemoteResolutionContext},
     symbolication::symbol::SymbolResolver,
     types::{
@@ -70,6 +72,9 @@ impl Stage for ResolutionStage {
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
+        // Drop all-masked browser-extension stacks before any source-map work: they have no
+        // in-app frames and cannot become an actionable issue.
+        let batch = batch.apply_operator(MaskedExtensionFilter, ()).await?;
         // Release resolution runs after resolve_batch so it can later fall back to the resolved
         // frames' symbol sets for legacy events.
         let resolved = resolve_batch(batch, self.remote.clone()).await?;

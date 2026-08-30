@@ -130,6 +130,18 @@ impl RawFrame {
             _ => false,
         }
     }
+
+    // A Safari-masked browser-extension frame that the page does not control: the source URL
+    // is masked and the frame is not in application code. A stack made up only of these is
+    // third-party noise we can drop.
+    pub fn is_masked_third_party(&self) -> bool {
+        match self {
+            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
+                frame.is_masked() && !frame.meta.in_app
+            }
+            _ => false,
+        }
+    }
 }
 
 // We emit a single, unified representation of a frame, which is what we pass on to users.

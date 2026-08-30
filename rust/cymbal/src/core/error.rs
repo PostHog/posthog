@@ -232,6 +232,8 @@ pub enum EventError {
     Suppressed(Uuid),
     #[error("Suppressed by rule: {0}")]
     SuppressedByRule(Uuid),
+    #[error("Dropped: masked browser-extension stack on event {0}")]
+    MaskedExtensionOnly(Uuid),
     #[error("Rate limited (per-issue): {0}")]
     RateLimitedPerIssue(Uuid),
     #[error("Rate limited (project): team {0}")]

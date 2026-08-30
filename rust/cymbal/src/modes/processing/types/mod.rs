@@ -87,6 +87,14 @@ impl ExceptionList {
         unique_by(self.get_in_app_frames(), |f| f.resolved_name.clone())
     }
 
+    // True when every raw frame is a Safari-masked browser-extension frame and none are in
+    // application code. Such a stack is entirely third-party: the crash is in a visitor's
+    // browser extension, not in the customer's code, so there is no issue worth opening.
+    pub fn is_masked_extension_only(&self) -> bool {
+        let mut frames = self.iter().flat_map(|e| e.get_raw_frame()).peekable();
+        frames.peek().is_some() && frames.all(RawFrame::is_masked_third_party)
+    }
+
     pub fn get_is_handled(&self) -> bool {
         self.first()
             .and_then(|e| e.mechanism.as_ref())
@@ -384,6 +392,49 @@ mod test {
             props.unwrap_err().to_string(),
             "missing field `type` at line 5 column 13"
         );
+    }
+
+    fn js_frame(filename: &str, in_app: bool) -> Value {
+        json!({
+            "platform": "web:javascript",
+            "filename": filename,
+            "function": "e",
+            "in_app": in_app,
+        })
+    }
+
+    fn exception_list_from_frames(frames: Value) -> ExceptionList {
+        serde_json::from_value(json!([{
+            "type": "TypeError",
+            "value": "undefined is not an object",
+            "stacktrace": {"type": "raw", "frames": frames},
+        }]))
+        .expect("valid exception list")
+    }
+
+    #[test]
+    fn masked_extension_only_stacks_are_detected() {
+        let masked = "webkit-masked-url://hidden/";
+
+        // All frames masked and none in-app: this is browser-extension noise.
+        let all_masked =
+            exception_list_from_frames(json!([js_frame(masked, false), js_frame(masked, false)]));
+        assert!(all_masked.is_masked_extension_only());
+
+        // A masked stack that still touches application code must be kept.
+        let with_in_app =
+            exception_list_from_frames(json!([js_frame(masked, false), js_frame(masked, true)]));
+        assert!(!with_in_app.is_masked_extension_only());
+
+        // A real (non-masked) third-party frame is not extension noise.
+        let with_real_frame = exception_list_from_frames(json!([
+            js_frame(masked, false),
+            js_frame("https://example.com/vendor.js", false),
+        ]));
+        assert!(!with_real_frame.is_masked_extension_only());
+
+        // An empty stack is never dropped by this rule.
+        assert!(!exception_list_from_frames(json!([])).is_masked_extension_only());
     }
 
     fn processed_properties_json(exception_list: Value) -> Value {

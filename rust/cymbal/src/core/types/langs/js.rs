@@ -17,6 +17,9 @@ use crate::{
 
 use super::utils::{add_raw_to_junk, get_sourcelocation_context, is_kotlin_compose_source};
 
+// The scheme Safari uses to mask the source URL of browser-extension and user-script code.
+pub const WEBKIT_MASKED_URL_PREFIX: &str = "webkit-masked-url://";
+
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -179,6 +182,16 @@ impl RawJSFrame {
         format!("{:x}", hasher.finalize())
     }
 
+    // Safari replaces the real file URL of code injected by a browser extension or user
+    // script with `webkit-masked-url://hidden/`. A frame that carries it is third-party code
+    // the page does not control, so we treat it as known third-party, the same way we treat
+    // `<anonymous>` frames and `node_modules` paths.
+    pub fn is_masked(&self) -> bool {
+        self.source_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with(WEBKIT_MASKED_URL_PREFIX))
+    }
+
     pub fn is_suspicious(&self) -> bool {
         // posthog-js is served from a regional asset CDN whose host is
         // `{region}-assets.i.posthog.com` (the `assets` target in the SDK's request router).
@@ -224,7 +237,9 @@ impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
             .and_then(|f| f.name())
             .map(|s| sanitize_string(s.to_string()));
 
-        let in_app = raw_frame.meta.in_app && !source.as_deref().is_some_and(is_dependency_source);
+        let in_app = raw_frame.meta.in_app
+            && !raw_frame.is_masked()
+            && !source.as_deref().is_some_and(is_dependency_source);
 
         let suspicious = source.as_ref().is_some_and(|s| s.contains("posthog-js@"));
 
@@ -290,7 +305,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             line: Some(location.line),
             column: Some(location.column),
             source: raw_frame.source_url().map(|u| u.path().to_string()).ok(),
-            in_app: raw_frame.meta.in_app,
+            in_app: raw_frame.meta.in_app && !raw_frame.is_masked(),
             resolved_name,
             lang: "javascript".to_string(),
             resolved,
@@ -323,7 +338,7 @@ impl From<&RawJSFrame> for Frame {
             .map(|s| s == "<anonymous>")
             .unwrap_or_default();
 
-        let in_app = raw_frame.meta.in_app && !is_anon;
+        let in_app = raw_frame.meta.in_app && !is_anon && !raw_frame.is_masked();
 
         let mut res = Self {
             frame_id: FrameId::placeholder(),
@@ -457,5 +472,25 @@ mod test {
         }
 
         assert!(!frame_from(None).is_suspicious());
+    }
+
+    #[test]
+    fn detects_webkit_masked_frames() {
+        let cases = [
+            ("webkit-masked-url://hidden/", true),
+            ("webkit-masked-url://hidden/:1:2", true),
+            ("https://example.com/static/bundle.js", false),
+            ("<anonymous>", false),
+        ];
+
+        for (source_url, expected) in cases {
+            assert_eq!(
+                frame_from(Some(source_url)).is_masked(),
+                expected,
+                "{source_url}"
+            );
+        }
+
+        assert!(!frame_from(None).is_masked());
     }
 }
