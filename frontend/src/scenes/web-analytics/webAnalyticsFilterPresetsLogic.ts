@@ -302,13 +302,17 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
     loaders(({ values, actions }) => ({
         presets: {
             __default: { results: [], count: 0 } as PaginatedResponse<WebAnalyticsFilterPresetType>,
-            loadPresets: async () => {
+            loadPresets: async (_, breakpoint) => {
                 const params = {
                     order: '-last_modified_at',
                     limit: 100,
                     ...(values.presetSearchTerm ? { search: values.presetSearchTerm } : {}),
                 }
-                return await api.webAnalyticsFilterPresets.list(toParams(params))
+                const response = await api.webAnalyticsFilterPresets.list(toParams(params))
+                // Discard this response if a newer loadPresets started while it was in flight, so a
+                // slower earlier search cannot overwrite the current results.
+                breakpoint()
+                return response
             },
         },
         savedPreset: {
