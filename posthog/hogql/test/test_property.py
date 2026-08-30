@@ -2505,6 +2505,12 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
                 {"type": "event", "key": "plan", "value": ["free", "trial"], "operator": "not_icontains"},
                 2,
             ),
+            # event property via the distinct not_icontains_multi branch: enterprise kept, free dropped, missing kept
+            (
+                "event_not_icontains_multi",
+                {"type": "event", "key": "plan", "value": ["free"], "operator": "not_icontains_multi"},
+                2,
+            ),
             # event property: score 50 dropped (in range), 500 kept, missing kept
             ("event_not_between", {"type": "event", "key": "score", "value": [0, 100], "operator": "not_between"}, 2),
             # event property: only the event with no plan matches
