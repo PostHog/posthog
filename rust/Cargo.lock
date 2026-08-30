@@ -2903,6 +2903,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-kafka-consumer"
+version = "0.1.0"
+dependencies = [
+ "rdkafka",
+]
+
+[[package]]
 name = "common-liveness"
 version = "0.1.0"
 
@@ -6156,6 +6163,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
+ "common-kafka-consumer",
  "dashmap 6.1.0",
  "envconfig",
  "futures",

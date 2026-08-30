@@ -243,6 +243,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn batch_consumer_defaults_are_stable() {
+        let config = ConsumerConfigBuilder::for_batch_consumer("kafka:9092", "g").build();
+
+        let mut entries: Vec<(String, String)> = config
+            .config_map()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        entries.sort();
+
+        assert_eq!(
+            entries,
+            [
+                ("enable.auto.commit", "false"),
+                ("enable.auto.offset.store", "false"),
+                ("group.id", "g"),
+                ("heartbeat.interval.ms", "5000"),
+                ("max.poll.interval.ms", "300000"),
+                ("metadata.broker.list", "kafka:9092"),
+                ("session.timeout.ms", "60000"),
+                ("socket.timeout.ms", "10000"),
+            ]
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+        );
+    }
+
+    #[test]
     fn strips_classic_keys_under_consumer_protocol() {
         let config = ConsumerConfigBuilder::for_batch_consumer("kafka:9092", "g")
             .with_sticky_partition_assignment(Some("pod-1"), true)
