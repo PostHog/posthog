@@ -15,6 +15,11 @@ function createWorkspacesObserver(queryClient: QueryClient, trpc: HostTRPC) {
     queryClient,
     trpc.workspace.getAll.queryOptions(undefined, {
       staleTime: 1000 * 60,
+      // The bare observer never tracks accessed fields the way `useQuery` does,
+      // so without this it notifies every subscriber on any result change
+      // (fetchStatus flips, dataUpdatedAt bumps on refetch). All hooks here read
+      // only these two fields.
+      notifyOnChangeProps: ["data", "isFetched"],
     }),
   );
 }
