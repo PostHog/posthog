@@ -21,6 +21,7 @@ export interface webAnalyticsFilterPresetsLogicValues {
     appliedPreset: WebAnalyticsFilterPresetType | null
     canSavePreset: boolean
     editingPreset: WebAnalyticsFilterPresetType | null
+    hasAnyPresets: boolean
     hasPresets: boolean
     hasUnsavedChanges: boolean
     isEditMode: boolean
@@ -147,6 +148,9 @@ export interface webAnalyticsFilterPresetsLogicActions {
     setAppliedPreset: (preset: WebAnalyticsFilterPresetType | null) => {
         preset: WebAnalyticsFilterPresetType | null
     }
+    setHasAnyPresets: (hasAnyPresets: boolean) => {
+        hasAnyPresets: boolean
+    }
     setPresetFormDescription: (description: string) => {
         description: string
     }
@@ -235,6 +239,7 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
         closeSaveModal: true,
         setPresetFormName: (name: string) => ({ name }),
         setPresetSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setHasAnyPresets: (hasAnyPresets: boolean) => ({ hasAnyPresets }),
         setPresetFormDescription: (description: string) => ({ description }),
         resetPresetForm: true,
         openDeleteModal: (preset: WebAnalyticsFilterPresetType) => ({ preset }),
@@ -279,6 +284,14 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
             '',
             {
                 setPresetSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        // Whether the account has any presets at all, independent of the current search filter.
+        // A filtered response that matches nothing must not read as "no presets exist".
+        hasAnyPresets: [
+            false,
+            {
+                setHasAnyPresets: (_, { hasAnyPresets }) => hasAnyPresets,
             },
         ],
         presetToDelete: [
@@ -346,9 +359,22 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
         },
     })),
     listeners(({ actions, values }) => ({
-        setPresetSearchTerm: async (_, breakpoint) => {
-            await breakpoint(300)
+        setPresetSearchTerm: async ({ searchTerm }, breakpoint) => {
+            // Debounce while typing, but reload at once when the search is cleared, so the list
+            // shows the loading state instead of stale filtered results.
+            if (searchTerm.trim()) {
+                await breakpoint(300)
+            }
             actions.loadPresets()
+        },
+        loadPresetsSuccess: ({ presets }) => {
+            // Only an unfiltered load can prove the account has no presets. A filtered load can
+            // confirm presets exist when it returns results, but says nothing when it returns none.
+            if (!values.presetSearchTerm.trim()) {
+                actions.setHasAnyPresets(presets.results.length > 0)
+            } else if (presets.results.length > 0) {
+                actions.setHasAnyPresets(true)
+            }
         },
         applyPreset: ({ preset }) => {
             if (values.appliedPreset?.short_id === preset.short_id) {

@@ -127,4 +127,23 @@ describe('webAnalyticsFilterPresetsLogic', () => {
         expect(logic.values.presets.results).toHaveLength(1)
         expect(logic.values.presets.results[0].short_id).toBe('newer')
     })
+
+    it('reads a no-match search as "presets exist", not "no presets"', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        // An unfiltered load establishes that the account has presets.
+        api.get.mockResolvedValueOnce({ results: [makePreset('u0', false)] })
+        logic.actions.loadPresets()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.hasAnyPresets).toBe(true)
+
+        // A search that matches nothing empties the filtered view.
+        api.get.mockResolvedValueOnce({ results: [] })
+        logic.actions.setPresetSearchTerm('no-such-preset')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.hasPresets).toBe(false)
+        // The account still has presets, so the search box stays and the empty state reads "no match".
+        expect(logic.values.hasAnyPresets).toBe(true)
+    })
 })

@@ -37,6 +37,7 @@ export const FilterPresetsDropdown = (): JSX.Element => {
         presetsLoading,
         activePreset,
         hasPresets,
+        hasAnyPresets,
         presetToDelete,
         hasUnsavedChanges,
         presetSearchTerm,
@@ -161,7 +162,7 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                 )}
             </div>
 
-            {(hasPresets || presetSearchTerm) && (
+            {(hasAnyPresets || presetSearchTerm) && (
                 <div className="px-2 pb-1">
                     <LemonInput
                         type="search"
@@ -180,7 +181,7 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                     <LemonSkeleton className="h-8" />
                 </div>
             ) : !hasPresets ? (
-                presetSearchTerm.trim() ? (
+                hasAnyPresets ? (
                     <div className="px-3 pb-3 text-center text-muted text-sm">No presets match your search.</div>
                 ) : (
                     <div className="px-3 pb-3 text-center text-muted text-sm">
