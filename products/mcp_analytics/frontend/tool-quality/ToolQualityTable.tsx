@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     Badge,
     Button,
@@ -20,6 +19,7 @@ import {
     PaginationItem,
     PaginationNext,
     PaginationPrevious,
+    Spinner,
     Table,
     TableBody,
     TableCell,
@@ -71,7 +71,6 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
     { key: 'last_seen', label: 'Last seen' },
 ]
 
-// Tool column + every sortable column + the trailing "Full report" action, for the skeleton-row colSpan
 const COLUMN_COUNT = SORTABLE_COLUMNS.length + 2
 
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
@@ -124,17 +123,11 @@ function ToolRows(): JSX.Element {
         useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
-    if (toolRowsPageLoading) {
+    if (toolRowsPageLoading && toolRows.length === 0) {
         return (
             <TableBody>
                 <TableRow>
-                    <TableCell colSpan={COLUMN_COUNT}>
-                        <div className="space-y-2 py-1">
-                            {Array.from({ length: 6 }).map((_, i) => (
-                                <LemonSkeleton key={i} className="h-3.5 w-full" />
-                            ))}
-                        </div>
-                    </TableCell>
+                    <TableCell colSpan={COLUMN_COUNT} className="h-32" />
                 </TableRow>
             </TableBody>
         )
@@ -185,12 +178,19 @@ function ToolRows(): JSX.Element {
 }
 
 export function ToolQualityTable(): JSX.Element {
-    const { toolQualitySort, toolQualityPageIndex, toolRows, toolRowsPageLoading, toolRowsTotalCount, searchTerm } =
-        useValues(mcpAnalyticsToolQualityLogic)
+    const {
+        toolQualitySort,
+        toolQualityPageIndex,
+        loadedToolQualityPageIndex,
+        toolRows,
+        toolRowsPageLoading,
+        toolRowsTotalCount,
+        searchTerm,
+    } = useValues(mcpAnalyticsToolQualityLogic)
     const { setToolQualitySort, setToolQualityPageIndex, setSearchTerm } = useActions(mcpAnalyticsToolQualityLogic)
     const pageCount = Math.max(Math.ceil(toolRowsTotalCount / TOOL_QUALITY_PAGE_SIZE), 1)
     const pageRange = getPaginationRange(pageCount, toolQualityPageIndex)
-    const firstRow = toolRowsTotalCount === 0 ? 0 : toolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
+    const firstRow = toolRowsTotalCount === 0 ? 0 : loadedToolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
     const lastRow = Math.min(firstRow + toolRows.length - 1, toolRowsTotalCount)
 
     return (
@@ -212,25 +212,32 @@ export function ToolQualityTable(): JSX.Element {
                     />
                 </InputGroup>
             </CardHeader>
-            <Table fullWidth stickyHeader className="max-h-[44rem]">
-                <TableHeader>
-                    <TableRow>
-                        <TableHead expand>Tool</TableHead>
-                        {SORTABLE_COLUMNS.map((column) => (
-                            <SortableHead
-                                key={column.key}
-                                column={column}
-                                sort={toolQualitySort}
-                                loading={toolRowsPageLoading}
-                                onSort={setToolQualitySort}
-                            />
-                        ))}
-                        <TableHead />
-                    </TableRow>
-                </TableHeader>
-                <ToolRows />
-            </Table>
-            {!toolRowsPageLoading && toolRowsTotalCount > 0 && (
+            <div className="relative">
+                <Table fullWidth stickyHeader className="max-h-[44rem]" aria-busy={toolRowsPageLoading}>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead expand>Tool</TableHead>
+                            {SORTABLE_COLUMNS.map((column) => (
+                                <SortableHead
+                                    key={column.key}
+                                    column={column}
+                                    sort={toolQualitySort}
+                                    loading={toolRowsPageLoading}
+                                    onSort={setToolQualitySort}
+                                />
+                            ))}
+                            <TableHead />
+                        </TableRow>
+                    </TableHeader>
+                    <ToolRows />
+                </Table>
+                {toolRowsPageLoading ? (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
+                        <Spinner className="size-5" />
+                    </div>
+                ) : null}
+            </div>
+            {toolRowsTotalCount > 0 && (
                 <CardFooter className="flex flex-row flex-wrap items-center justify-between gap-2 border-t border-border">
                     <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
                         {firstRow}-{lastRow} of {pluralize(toolRowsTotalCount, 'tool')}
@@ -240,7 +247,7 @@ export function ToolQualityTable(): JSX.Element {
                             <PaginationContent>
                                 <PaginationItem>
                                     <PaginationPrevious
-                                        disabled={toolQualityPageIndex === 0}
+                                        disabled={toolRowsPageLoading || toolQualityPageIndex === 0}
                                         onClick={() => setToolQualityPageIndex(toolQualityPageIndex - 1)}
                                         data-attr="mcp-tool-quality-page-previous"
                                     />
@@ -254,6 +261,7 @@ export function ToolQualityTable(): JSX.Element {
                                         <PaginationItem key={item}>
                                             <PaginationButton
                                                 isActive={item === toolQualityPageIndex}
+                                                disabled={toolRowsPageLoading}
                                                 aria-label={`Go to page ${item + 1}`}
                                                 onClick={() => setToolQualityPageIndex(item)}
                                                 data-attr="mcp-tool-quality-page"
@@ -265,7 +273,7 @@ export function ToolQualityTable(): JSX.Element {
                                 )}
                                 <PaginationItem>
                                     <PaginationNext
-                                        disabled={toolQualityPageIndex === pageCount - 1}
+                                        disabled={toolRowsPageLoading || toolQualityPageIndex === pageCount - 1}
                                         onClick={() => setToolQualityPageIndex(toolQualityPageIndex + 1)}
                                         data-attr="mcp-tool-quality-page-next"
                                     />
