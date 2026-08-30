@@ -161,6 +161,18 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub seeder_max_chunk_attempts: u32,
 
+    /// The first retry's wait ceiling after a chunk fails; it doubles per attempt up to
+    /// [`Config::seeder_retry_backoff_cap_secs`]. Without a wait, the poll loop re-claims a chunk
+    /// that failed for a durable reason within seconds and spends its whole attempt budget on the
+    /// same failure, which fails the run.
+    #[envconfig(default = "30")]
+    pub seeder_retry_backoff_base_secs: u64,
+
+    /// The longest a failed chunk waits before it is claimable again. Sized well under the default
+    /// chunk lease budget so a run still drains its retries in reasonable time.
+    #[envconfig(default = "1800")]
+    pub seeder_retry_backoff_cap_secs: u64,
+
     #[envconfig(default = "3000")]
     pub seeder_tiles_per_sec: u32,
 

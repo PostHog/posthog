@@ -184,6 +184,8 @@ bin/phrocs
 CODE_DEBUGGING_SESSION.md
 CODE_REVIEW.md
 QAREPORT.md
+SESSION.md
+*_REVIEW.md
 
 # SeaweedFS data + migration checkpoint
 .migration-checkpoint.json

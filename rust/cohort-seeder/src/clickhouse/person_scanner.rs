@@ -12,8 +12,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use uuid::Uuid;
 
+use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::person_sql::{person_boundaries_sql, person_scan_sql, PersonScanSpec};
-use crate::domain::{UtcMillis, MAX_PERSON_CHUNKS};
+use crate::domain::{ChunkSpec, RunId, UtcMillis, MAX_PERSON_CHUNKS};
 
 /// One scanned person's latest row: the id and its `argMax(properties, version)` payload.
 #[derive(Debug, Row, Deserialize)]
@@ -43,6 +44,7 @@ impl PersonScanner {
     /// scan stops early rather than failing a run over a column-width constraint.
     pub async fn boundaries(
         &self,
+        run_id: RunId,
         team_id: TeamId,
         scan_since: UtcMillis,
         persons_per_chunk: NonZeroU64,
@@ -51,6 +53,10 @@ impl PersonScanner {
         let mut cursor = self
             .client
             .query(&person_boundaries_sql(team_id, scan_since))
+            .with_option(
+                LOG_COMMENT_OPTION,
+                ScanLogComment::PersonBoundaries { run_id, team_id }.to_string(),
+            )
             .fetch::<PersonIdRow>()
             .map_err(PersonScanError::Query)?;
         let mut keeper = BoundaryKeeper::new(persons_per_chunk);
@@ -75,13 +81,19 @@ impl PersonScanner {
         Ok(keeper.into_boundaries())
     }
 
-    /// The streaming cursor over one chunk's UUID range; the caller owns the fold.
+    /// The streaming cursor over one chunk's UUID range; the caller owns the fold. `chunk` is the
+    /// claim the range came from, and is used only to attribute the query in `system.query_log`.
     pub fn scan_rows(
         &self,
         spec: &PersonScanSpec,
+        chunk: ChunkSpec,
     ) -> Result<RowCursor<PersonRow>, PersonScanError> {
         self.client
             .query(&person_scan_sql(spec))
+            .with_option(
+                LOG_COMMENT_OPTION,
+                ScanLogComment::PersonChunk(chunk).to_string(),
+            )
             .fetch::<PersonRow>()
             .map_err(PersonScanError::Query)
     }

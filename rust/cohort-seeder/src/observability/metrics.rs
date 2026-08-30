@@ -5,7 +5,7 @@
 use std::time::{Duration, Instant};
 
 use metrics::histogram;
-use metrics_exporter_prometheus::{BuildError, PrometheusBuilder, PrometheusHandle};
+use metrics_exporter_prometheus::{BuildError, Matcher, PrometheusBuilder, PrometheusHandle};
 
 pub const RUNS_DISCOVERED: &str = "seeder_runs_discovered_total";
 pub const BOUNDARY_ESTABLISHED: &str = "seeder_boundary_established_total";
@@ -28,6 +28,12 @@ pub const CHUNKS_POISONED: &str = "seeder_chunks_poisoned_total";
 /// which is what an operator reads once this counter points them at a run.
 pub const RUNS_FAILED_EXHAUSTED_CHUNKS: &str = "seeder_runs_failed_exhausted_chunks_total";
 pub const CHUNK_SCAN_DURATION_SECONDS: &str = "seeder_chunk_scan_duration_seconds";
+/// Compressed bytes a scan cursor read off the wire, labelled by `kind` (counter). Paired with
+/// [`SCAN_DECODED_BYTES`], it tells a slow scan that moved a lot of data apart from one that moved
+/// little and spent its time on CPU.
+pub const SCAN_RECEIVED_BYTES: &str = "seeder_scan_received_bytes_total";
+/// Decompressed bytes a scan cursor produced, labelled by `kind` (counter).
+pub const SCAN_DECODED_BYTES: &str = "seeder_scan_decoded_bytes_total";
 pub const ROWS_SCANNED: &str = "seeder_rows_scanned_total";
 pub const EVENTS_SKIPPED: &str = "seeder_events_skipped_total";
 pub const CONDITIONS_EVALUATED: &str = "seeder_conditions_evaluated_total";
@@ -127,6 +133,130 @@ impl Drop for MetricTimer {
     }
 }
 
+/// Bucket ladder for every seeder histogram that measures a short wall-clock span in seconds:
+/// [`PRODUCE_ACK_SECONDS`], [`PACER_WAIT_SECONDS`], and
+/// [`RECONCILE_OBSERVATION_PASS_SECONDS`]. It is installed as the recorder-wide default, so a new
+/// histogram inherits a real bucketed histogram instead of a rolling-window summary. A future
+/// histogram measuring anything other than seconds needs its own
+/// [`PrometheusBuilder::set_buckets_for_metric`] entry, or its samples land in the wrong ladder.
+///
+/// The recorder is process-wide, so this also shapes histograms from linked crates. The only one
+/// the seeder reaches is `lifecycle`'s component shutdown duration, which is in seconds and well
+/// inside the 60s top bucket; the shared `common-metrics` builder every other service installs
+/// already renders it as a histogram too, on a millisecond ladder.
+const DEFAULT_SECONDS_BUCKETS: &[f64] = &[
+    0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
+];
+
+/// Bucket ladder for the three ClickHouse-bound scan spans. The top bucket is the default
+/// `SEEDER_CH_MAX_EXECUTION_TIME_SECS` (14400), because a scan cannot outlive the server-side
+/// execution-time budget: a chunk that reaches the last bucket was killed by ClickHouse. The value
+/// is repeated here rather than read from `Config` so this module stays a leaf that no other seeder
+/// module can pull a dependency through.
+const SCAN_DURATION_SECONDS_BUCKETS: &[f64] = &[
+    1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, 7200.0, 14400.0,
+];
+
+/// Bucket ladder for [`AGGREGATE_ENTRIES`], which counts `(person, condition)` pairs held in one
+/// chunk's in-memory aggregate. It is a cardinality, not a duration, so it needs its own ladder;
+/// the top bucket is the scale at which an operator should raise `SEEDER_BANDS_PER_DAY` to split
+/// the day further.
+const AGGREGATE_ENTRIES_BUCKETS: &[f64] = &[
+    100.0,
+    1_000.0,
+    10_000.0,
+    50_000.0,
+    100_000.0,
+    250_000.0,
+    500_000.0,
+    1_000_000.0,
+    2_500_000.0,
+    5_000_000.0,
+    10_000_000.0,
+];
+
+/// The recorder configuration shared by [`install_recorder`] and its test.
+///
+/// Without `set_buckets` the exporter renders every histogram as a rolling-window summary, whose
+/// quantiles read 0 once a rare long recording ages out of the window. That is exactly the shape of
+/// the scan metrics, where one multi-hour chunk per hour is the signal.
+///
+/// The two `seeder_reconcile_*` lag and age metrics take no entry on purpose: they are gauges, and
+/// a bucket ladder would not apply to them.
+fn configured_builder() -> Result<PrometheusBuilder, BuildError> {
+    PrometheusBuilder::new()
+        .set_buckets(DEFAULT_SECONDS_BUCKETS)?
+        .set_buckets_for_metric(
+            Matcher::Full(CHUNK_SCAN_DURATION_SECONDS.to_owned()),
+            SCAN_DURATION_SECONDS_BUCKETS,
+        )?
+        .set_buckets_for_metric(
+            Matcher::Full(PERSON_CHUNK_SCAN_DURATION_SECONDS.to_owned()),
+            SCAN_DURATION_SECONDS_BUCKETS,
+        )?
+        .set_buckets_for_metric(
+            Matcher::Full(PERSON_PLANNING_DURATION_SECONDS.to_owned()),
+            SCAN_DURATION_SECONDS_BUCKETS,
+        )?
+        .set_buckets_for_metric(
+            Matcher::Full(AGGREGATE_ENTRIES.to_owned()),
+            AGGREGATE_ENTRIES_BUCKETS,
+        )
+}
+
 pub fn install_recorder() -> Result<PrometheusHandle, BuildError> {
-    PrometheusBuilder::new().install_recorder()
+    configured_builder()?.install_recorder()
+}
+
+#[cfg(test)]
+mod tests {
+    use metrics::histogram;
+
+    use super::*;
+
+    /// Every histogram the seeder records, paired with the top bucket its ladder must end on.
+    const HISTOGRAM_LADDERS: [(&str, &str); 7] = [
+        (CHUNK_SCAN_DURATION_SECONDS, "14400"),
+        (PERSON_CHUNK_SCAN_DURATION_SECONDS, "14400"),
+        (PERSON_PLANNING_DURATION_SECONDS, "14400"),
+        (AGGREGATE_ENTRIES, "10000000"),
+        (PRODUCE_ACK_SECONDS, "60"),
+        (PACER_WAIT_SECONDS, "60"),
+        (RECONCILE_OBSERVATION_PASS_SECONDS, "60"),
+    ];
+
+    /// Renders one sample per histogram through the configured recorder.
+    fn render_one_sample_each() -> String {
+        let recorder = configured_builder()
+            .expect("the configured bucket ladders are non-empty")
+            .build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            for (name, _) in HISTOGRAM_LADDERS {
+                histogram!(name).record(1.0);
+            }
+        });
+        handle.render()
+    }
+
+    /// A histogram with no ladder renders as a summary, so its rare long recordings age out of the
+    /// rolling window and its quantiles read 0. Asserting the exact top bucket of each ladder also
+    /// pins that the per-metric overrides beat the recorder-wide default: the exporter's own
+    /// `set_buckets_for_metric` documentation claims the opposite, while its implementation
+    /// consults the overrides first. A dependency bump that makes the documentation true would
+    /// collapse the scan metrics onto the 60s default ladder, and this test is what catches it.
+    #[test]
+    fn every_histogram_renders_with_its_own_bucket_ladder() {
+        let rendered = render_one_sample_each();
+        for (name, top_bucket) in HISTOGRAM_LADDERS {
+            assert!(
+                rendered.contains(&format!("{name}_bucket{{le=\"{top_bucket}\"}}")),
+                "{name} is missing its le={top_bucket} bucket:\n{rendered}"
+            );
+            assert!(
+                !rendered.contains(&format!("{name}{{quantile=")),
+                "{name} rendered as a summary instead of a histogram:\n{rendered}"
+            );
+        }
+    }
 }

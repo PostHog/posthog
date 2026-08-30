@@ -1,6 +1,7 @@
--- Snapshot pinned to products/cohorts/backend/migrations/0009_cohort_backfill_per_kind_uniqueness.py,
--- the last migration that changed this DDL. 0010 alters only `marker_watch`'s help_text, which emits
--- no SQL.
+-- Snapshot pinned to
+-- products/cohorts/backend/migrations/0012_cohortbackfillchunk_next_attempt_at_and_more.py, the last
+-- migration that changed this DDL. 0010 alters only `marker_watch`'s help_text, which emits no SQL,
+-- and 0011 touches posthog_cohort columns this projection does not carry.
 -- External Team/Cohort foreign keys are omitted so the contract test stays schema-local.
 
 CREATE TABLE cohort_backfill_runs (
@@ -59,8 +60,13 @@ CREATE TABLE cohort_backfill_chunks (
     person_range_lo uuid,
     person_range_hi uuid,
     attempts integer NOT NULL DEFAULT 0,
+    next_attempt_at timestamptz,
     last_error text NOT NULL DEFAULT '',
     tiles_produced bigint NOT NULL DEFAULT 0,
+    -- 0012 scan-volume columns. The DEFAULT is the contract `plan_chunks` leans on: it inserts an
+    -- explicit column list that names neither, so dropping the default would break planning.
+    scan_received_bytes bigint NOT NULL DEFAULT 0,
+    scan_decoded_bytes bigint NOT NULL DEFAULT 0,
     produce_hwms jsonb,
     confirmed_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
