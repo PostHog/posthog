@@ -761,7 +761,6 @@ depends_on = [
     "products.skills",
     "products.surveys",
     "products.tasks",
-    "products.web_analytics",
     "products.warehouse_sources",
     "products.workflows", "products.business_knowledge", "products.access_control",
 ]

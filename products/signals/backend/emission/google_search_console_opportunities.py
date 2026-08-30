@@ -20,6 +20,8 @@ Two things make this source need a bespoke `record_fetcher` instead of the gener
    (day, page, query) opportunity exactly once.
 """
 
+import hashlib
+import datetime as dt
 from typing import Any
 
 from django.utils import timezone
@@ -33,15 +35,6 @@ from posthog.models import Team
 
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.models import SignalEmissionRecord
-from products.web_analytics.backend.facade import (
-    GSC_FIELDS,
-    GSC_LOOKBACK_DAYS,
-    OPPORTUNITY_WHERE_CLAUSE,
-    build_search_opportunity_description,
-    search_opportunity_date,
-    search_opportunity_source_id,
-    search_opportunity_weight,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +45,63 @@ SOURCE_TYPE = "search_opportunity"
 # actionable ("users searching for X see your page but don't click"). It is synced by default
 # for the source (should_sync_default=True in the GSC source settings).
 SCHEMA_NAME = "search_analytics_by_query_page"
+
+# What counts as a fixable opportunity: a page ranking on roughly the first two pages of results
+# (position <= 20) that is seen often (>= 100 impressions in a day) but clicked rarely (CTR < 2%).
+GSC_MIN_IMPRESSIONS = 100
+GSC_MAX_CTR = 0.02
+GSC_MAX_POSITION = 20.0
+OPPORTUNITY_WHERE_CLAUSE = (
+    f"impressions >= {GSC_MIN_IMPRESSIONS} AND ctr < {GSC_MAX_CTR} AND position <= {GSC_MAX_POSITION}"
+)
+
+# GSC data lags ~3 days, and a schedule can miss a day, so look back far enough to catch up without
+# re-scanning the whole 16-month history. SignalEmissionRecord dedupe keeps re-emission at zero.
+GSC_LOOKBACK_DAYS = 7
+
+GSC_FIELDS = ("date", "query", "page", "clicks", "impressions", "ctr", "position")
+
+
+def _date_str(value: Any) -> str:
+    """Normalize the warehouse `date` value (date/datetime/str) to a stable ISO day string."""
+    if isinstance(value, dt.datetime | dt.date):
+        return value.date().isoformat() if isinstance(value, dt.datetime) else value.isoformat()
+    return str(value)[:10]
+
+
+def _source_id(record: dict[str, Any]) -> str:
+    """Stable, length-bounded id for one (day, page, query) opportunity.
+
+    Page URLs and queries are unbounded, so hash them to stay under the Signal.source_id 200-char
+    limit while keeping the day readable for debugging.
+    """
+    key = f"{record.get('page', '')}\n{record.get('query', '')}".encode()
+    return f"{_date_str(record.get('date'))}:{hashlib.sha256(key).hexdigest()}"
+
+
+def _weight(impressions: int) -> float:
+    """Grade by lost audience size: more impressions on a poorly-clicked page is a bigger miss.
+
+    Capped below 1.0 so a single day never dominates; base 0.5 keeps every opportunity relevant.
+    """
+    return round(min(0.95, 0.5 + impressions / 50000), 3)
+
+
+def _build_description(
+    page: str, query: str, date_str: str, impressions: int, clicks: int, ctr: float, position: float
+) -> str:
+    ctr_pct = round(ctr * 100, 2)
+    position_str = round(position, 1)
+    return (
+        f"Search ranking opportunity for {page}. "
+        f'On {date_str} this page appeared in Google Search results for the query "{query}" '
+        f"{impressions} times but was clicked only {clicks} times, a {ctr_pct}% click-through rate, "
+        f"while ranking at average position {position_str}. "
+        f"A click-through rate this low for a page already ranking near the first page of results usually "
+        f"means the search result title or meta description is not compelling for this query, or the page "
+        f"does not match what searchers expect. Improving the title and description for this query, or the "
+        f"page content itself, could recover lost organic traffic."
+    )
 
 
 def google_search_console_opportunity_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
@@ -70,7 +120,7 @@ def google_search_console_opportunity_emitter(team_id: int, record: dict[str, An
         )
         return None
 
-    date_str = search_opportunity_date(record.get("date"))
+    date_str = _date_str(record.get("date"))
     impressions = int(record.get("impressions") or 0)
     clicks = int(record.get("clicks") or 0)
     ctr = float(record.get("ctr") or 0.0)
@@ -79,9 +129,9 @@ def google_search_console_opportunity_emitter(team_id: int, record: dict[str, An
     return SignalEmitterOutput(
         source_product=SOURCE_PRODUCT,
         source_type=SOURCE_TYPE,
-        source_id=search_opportunity_source_id(record),
-        description=build_search_opportunity_description(page, query, date_str, impressions, clicks, ctr, position),
-        weight=search_opportunity_weight(impressions),
+        source_id=_source_id(record),
+        description=_build_description(page, query, date_str, impressions, clicks, ctr, position),
+        weight=_weight(impressions),
         extra={
             "page": page,
             "query": query,
@@ -136,7 +186,7 @@ def google_search_console_record_fetcher(
         return []
 
     rows = [dict(zip(result.columns, row)) for row in result.results]
-    source_ids = [search_opportunity_source_id(r) for r in rows]
+    source_ids = [_source_id(r) for r in rows]
     already_emitted = set(
         SignalEmissionRecord.objects.filter(
             team=team,
@@ -156,7 +206,7 @@ def google_search_console_record_fetcher(
                 team=team,
                 source_product=config.source_product,
                 source_type=config.source_type,
-                source_id=search_opportunity_source_id(row),
+                source_id=_source_id(row),
                 emitted_at=now,
             )
             for row in new_rows
