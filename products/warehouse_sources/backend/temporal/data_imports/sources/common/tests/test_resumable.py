@@ -109,6 +109,24 @@ class TestResumableSourceManager:
         reset.save_state(_Cursor(next_url="page-9"))
         assert redis.get(reset._key) == '{"next_url":"page-2"}'  # untouched by the reset run
 
+    def test_reset_run_discards_stale_state(self, redis: _FakeRedis) -> None:
+        # A prior killed run left a checkpoint under the now-stable key. A reset wipes the table, so
+        # the checkpoint must be dropped or a later non-reset run would resume onto the wiped table.
+        _manager(_inputs()).save_state(_Cursor(next_url="page-2"))
+
+        _manager(_inputs(reset_pipeline=True)).discard_stale_state_on_reset()
+
+        # The next normal run finds no checkpoint and starts from the first page.
+        assert _manager(_inputs()).can_resume() is False
+
+    def test_discard_stale_state_is_noop_off_reset(self, redis: _FakeRedis) -> None:
+        # A normal run calls this too; it must not wipe the checkpoint it is about to resume from.
+        _manager(_inputs()).save_state(_Cursor(next_url="page-2"))
+
+        _manager(_inputs()).discard_stale_state_on_reset()
+
+        assert _manager(_inputs()).can_resume() is True
+
     def test_save_state_ttl_outlives_a_worst_case_run(self, redis: _FakeRedis) -> None:
         _manager(_inputs()).save_state(_Cursor(next_url="page-2"))
 

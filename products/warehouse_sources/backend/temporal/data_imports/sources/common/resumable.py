@@ -107,6 +107,20 @@ class ResumableSourceManager(Generic[ResumableData]):
             self._logger.debug(f"Clearing resumable source state. key={self._key}")
             redis.delete(self._key)
 
+    def discard_stale_state_on_reset(self) -> None:
+        """Drop any saved checkpoint when this run is a reset, called before the reset wipes the table.
+
+        A reset re-pulls from scratch. The key is stable across runs now, so a checkpoint left by a
+        prior killed run would survive the reset and let a later non-reset run — this job's own retry
+        once `reset_pipeline` is popped from the schema, or the next scheduled run — resume from the
+        pre-reset cursor onto the wiped table, silently keeping only the tail of the source. On a
+        non-reset run this is a no-op; `save_state` stays disabled during a reset, so none is rewritten.
+        """
+        if not self._inputs.reset_pipeline:
+            return
+
+        self.clear_state()
+
     def can_resume(self) -> bool:
         if self._inputs.reset_pipeline:
             # A reset always restarts from the first page, so never resume a prior checkpoint.

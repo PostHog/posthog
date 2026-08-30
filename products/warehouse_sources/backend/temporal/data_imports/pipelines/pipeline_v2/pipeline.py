@@ -200,6 +200,11 @@ class PipelineNonDLT(Generic[ResumableData]):
             # merge) before extraction so it self-heals in this run instead of looping forever.
             await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_ref, self._logger)
 
+            # Drop any stale checkpoint before a reset wipes the table (no-op otherwise), so a later
+            # non-reset run can't resume from the pre-reset cursor onto the emptied table.
+            if self._resumable_source_manager is not None:
+                self._resumable_source_manager.discard_stale_state_on_reset()
+
             await handle_reset_or_full_refresh(
                 self._reset_pipeline,
                 should_resume,
