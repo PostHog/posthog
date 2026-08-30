@@ -49,6 +49,19 @@ close but wrong, create the corrected check and delete the old one — the asser
 config) is immutable and the subject is fixed by the URL, so an update that tries to change them is
 rejected. Update is only for metadata, severity, and ownership.
 
+## Resolve the subject
+
+Every create, run, and check-type call needs the subject's UUID, and the two queries above return
+names and columns, not IDs. Resolve the ID first:
+
+- **Saved query (view).** Call `posthog:view-list` with `search=<subject name>` and take the
+  result's `id`. That value is the `saved_query_id`.
+- **Imported table.** Call `posthog:external-data-schemas-list` with `search=<subject name>` and
+  take the nested `table.id`, not the schema record's own `id`. That value is the `table_id`.
+
+`posthog:data-quality-check-types` also requires `saved_query_id`. Its catalog is static, so pass any
+view's `id`; the returned schemas apply to tables too.
+
 ## Choosing checks
 
 Aim for a handful that would actually catch a real regression, not blanket coverage. A model with
