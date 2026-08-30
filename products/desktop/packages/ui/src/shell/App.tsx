@@ -134,10 +134,10 @@ function App({ devToolbar }: AppProps) {
     selectProjectMutation.isError || switchOrgMutation.isError
       ? "Couldn't switch your selection. Try again."
       : null;
-  // These mutations are wired only to the denial screen, and each one stays
-  // pending until its access check settles. So while one runs, the user is
-  // switching from the denial screen and must keep seeing it, even though the
-  // switch moves to a project the same-project recheck grace does not cover.
+  // A switch runs only from the denial screen, and a pending switch holds that
+  // screen until its access check settles, so the screen does not flash
+  // onboarding mid-switch even though the switch moves to a project the
+  // same-project recheck grace does not cover.
   const isSwitchingAccess =
     selectProjectMutation.isPending || switchOrgMutation.isPending;
   // Analytics init + dev inbox console moved to host CONTRIBUTIONs
@@ -153,7 +153,11 @@ function App({ devToolbar }: AppProps) {
     ((desktopAccessIsCurrent &&
       (["blocked", "error"].includes(desktopAccess.status) ||
         isRecheckingBlockedAccess)) ||
-      isSwitchingAccess);
+      // A pending switch holds the screen, but the mutation stays pending
+      // through its onSuccess side effects, which run after access has already
+      // settled. Release the hold once access is allowed, so a granted result
+      // does not render as a denial for the tail of the switch.
+      (isSwitchingAccess && !hasDesktopAccess));
   const authenticatedClient = useOptionalAuthenticatedClient();
   const consent = useOrgConsent(isAuthenticated && settledDesktopAccess);
   const needsConsent =
