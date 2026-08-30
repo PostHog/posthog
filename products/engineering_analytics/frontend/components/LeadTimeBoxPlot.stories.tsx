@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { MergeToDeployBoxPlot, type BoxPlotBucket } from './MergeToDeployBoxPlot'
+import { LeadTimeBoxPlot, type BoxPlotBucket } from './LeadTimeBoxPlot'
 
 function bucket(
     label: string,
@@ -42,27 +42,30 @@ const BUCKETS: BoxPlotBucket[] = [
     bucket('Jul 14', 11, [600, 1200, 2400, 2900, 3600, 7200]),
 ]
 
-const meta: Meta<typeof MergeToDeployBoxPlot> = {
-    title: 'Scenes-App/Engineering Analytics/Merge To Deploy Box Plot',
-    component: MergeToDeployBoxPlot,
+const meta: Meta<typeof LeadTimeBoxPlot> = {
+    title: 'Scenes-App/Engineering Analytics/Lead Time Box Plot',
+    component: LeadTimeBoxPlot,
     parameters: {
         layout: 'fullscreen',
         testOptions: {
             snapshotBrowsers: ['chromium'],
-            waitForSelector: '[data-attr="merge-to-deploy-box-plot-story"] canvas',
+            waitForSelector: '[data-attr="lead-time-box-plot-story"] canvas',
             viewport: { width: 1280, height: 400 },
         },
     },
     decorators: [
         (Story) => (
-            <div className="p-6" data-attr="merge-to-deploy-box-plot-story">
+            <div className="p-6" data-attr="lead-time-box-plot-story">
                 <Story />
             </div>
         ),
     ],
     args: {
+        seriesKey: 'merge_to_deploy',
+        seriesLabel: 'Merge to deploy',
         buckets: BUCKETS,
         formatSeconds: (seconds: number) => `${Math.round(seconds / 60)}m`,
+        dataAttr: 'merge-to-deploy-box-plot',
     },
 }
 

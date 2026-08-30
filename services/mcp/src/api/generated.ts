@@ -22863,6 +22863,7 @@ export namespace Schemas {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
@@ -24191,6 +24192,7 @@ export namespace Schemas {
       Gladly: 'Gladly',
       Qualtrics: 'Qualtrics',
       AzureDevOps: 'AzureDevOps',
+      RoktAds: 'RoktAds',
       Rollbar: 'Rollbar',
       Opsgenie: 'Opsgenie',
       IncidentIo: 'IncidentIo',
@@ -25533,6 +25535,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -27570,6 +27573,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -28866,38 +28870,38 @@ export namespace Schemas {
       Selected: 'selected',
     } as const;
 
-    export interface MergeToDeployBucket {
+    export interface LeadTimeBucket {
       /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
       bucket_start: string;
-      /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). */
+      /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). The same population backs every lead-time series, so the stages compare bucket by bucket. */
       deployed_pr_count: number;
       /**
-         * Fastest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+         * Fastest duration for this stage in this bucket, in seconds. Null when nothing deployed.
          * @nullable
          */
       min_seconds: number | null;
       /**
-         * 25th percentile merge-to-deploy seconds. Null when nothing deployed.
+         * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p25_seconds: number | null;
       /**
-         * Median merge-to-deploy seconds. Null when nothing deployed.
+         * Median of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * Mean merge-to-deploy seconds. Null when nothing deployed.
+         * Mean of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       mean_seconds: number | null;
       /**
-         * 75th percentile merge-to-deploy seconds. Null when nothing deployed.
+         * 75th percentile of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p75_seconds: number | null;
       /**
-         * Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+         * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
          * @nullable
          */
       max_seconds: number | null;
@@ -28907,7 +28911,11 @@ export namespace Schemas {
       /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
       deployment_frequency_series: DeploymentFrequencyBucket[];
       /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
-      merge_to_deploy_series: MergeToDeployBucket[];
+      merge_to_deploy_series: LeadTimeBucket[];
+      /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
+      open_to_merge_series: LeadTimeBucket[];
+      /** Open-to-deploy distribution over the same deployed PRs and buckets: the full open to first-successful-deploy span the two stages above compose into. Empty in the same cases as merge_to_deploy_series. */
+      open_to_deploy_series: LeadTimeBucket[];
       /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
       deploy_data_available: boolean;
       /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
@@ -28982,7 +28990,7 @@ export namespace Schemas {
          * @nullable
          */
       latest_deploy_status_at: string | null;
-      /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
+      /** Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'. */
       series_granularity: string;
     }
 
@@ -35936,6 +35944,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -37298,6 +37307,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -75810,9 +75820,9 @@ export namespace Schemas {
     export interface ScoutNote {
       /** Note UUID. Pass to `scout-notes-delete` to retire the note. */
       id: string;
-      /** Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet. */
+      /** Who the note is addressed to: a scout skill (`signals-scout-*`), a pipeline audience (`pipeline:*`, e.g. `pipeline:report-research`), or blank for a general note every scout sees. */
       skill_name: string;
-      /** The note's prose, read verbatim by scout runs. */
+      /** The note's prose, read verbatim by the run that picks it up. */
       content: string;
       /**
          * ISO-8601 creation timestamp.
@@ -75838,12 +75848,12 @@ export namespace Schemas {
      */
     export interface ScoutNoteCreateRequest {
       /**
-         * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim.
+         * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; the run reads it verbatim.
          * @maxLength 10000
          */
       content: string;
       /**
-         * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.
+         * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.
          * @maxLength 200
          */
       skill_name?: string;
@@ -77342,6 +77352,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -78712,6 +78723,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -80072,6 +80084,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -97212,7 +97225,7 @@ export namespace Schemas {
      */
     include_expired?: boolean;
     /**
-     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.
+     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the target's own notes only.
      */
     include_general?: boolean;
     /**
@@ -97222,7 +97235,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.
+     * Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a scout skill (`signals-scout-*`) or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.
      * @minLength 1
      */
     skill_name?: string;
@@ -97555,6 +97568,10 @@ export namespace Schemas {
     export type SurveysListParams = {
     archived?: boolean;
     /**
+     * Filter surveys by the ID of the user who created them.
+     */
+    created_by?: number;
+    /**
      * Multiple values may be separated by commas.
      */
     ids?: string[];
@@ -97571,6 +97588,14 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * Filter surveys by their current status.
+     *
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `complete` - Complete
+     */
+    status?: SurveysListStatus;
+    /**
      * * `popover` - popover
      * * `widget` - widget
      * * `external_survey` - external survey
@@ -97578,6 +97603,15 @@ export namespace Schemas {
      */
     type?: SurveysListType;
     };
+
+    export type SurveysListStatus = typeof SurveysListStatus[keyof typeof SurveysListStatus];
+
+
+    export const SurveysListStatus = {
+      Complete: 'complete',
+      Draft: 'draft',
+      Running: 'running',
+    } as const;
 
     export type SurveysListType = typeof SurveysListType[keyof typeof SurveysListType];
 
