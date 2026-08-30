@@ -38,10 +38,11 @@ done
 
 # Build env for endpoints: MinIO (objectstorage) -> source; SeaweedFS -> destination
 # We pass these to the script; it will detect via env.
+# The MinIO OBJECT_STORAGE_* credentials come from the plugins service environment,
+# which reads the operator's values from .env. Passing them here would override a
+# rotated credential with the stale default and fail auth against MinIO.
 ENV_ARGS=(
     -e OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000
-    -e OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
-    -e OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
     -e SESSION_RECORDING_V2_S3_ENDPOINT=http://seaweedfs:8333
     -e SESSION_RECORDING_V2_S3_ACCESS_KEY_ID=any
     -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY=any
