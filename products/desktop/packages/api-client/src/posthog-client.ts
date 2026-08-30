@@ -2236,24 +2236,26 @@ export class PostHogAPIClient {
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(updates),
-      },
-    });
-    if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as {
-        detail?: string;
-      };
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "patch",
+        url,
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(updates),
+        },
+      });
+      return (await response.json()) as ScoutConfig;
+    } catch (error) {
+      // The fetcher throws on any non-ok response, so surface the server's
+      // field-level message — a rejected model pin comes back as
+      // `{ model: [...] }` with no `detail` — instead of the raw transport
+      // JSON. Mirrors the sandbox-environment methods.
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        errorData.detail ??
-          `Failed to update scout config: ${response.statusText}`,
+        `Failed to update scout config: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as ScoutConfig;
   }
 
   async listScoutRuns(
