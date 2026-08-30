@@ -85,8 +85,12 @@ jobs:
         if: needs.changes.outputs.python == 'true'
         timeout-minutes: 30
 
-        name: Python code quality (depot-ubuntu-24.04)
-        runs-on: depot-ubuntu-24.04
+        # `uv run ty check` peaks close to the 8 GB of the 2-vCPU default runner. When it
+        # crosses, Depot stops the whole VM: the step exits 137 with a runner shutdown
+        # signal, and mypy, ruff, the formatters and the hogli tests never run. This runner
+        # gives the job 16 GB. Talk to #team-devex before you make it smaller.
+        name: Python code quality (depot-ubuntu-24.04-4)
+        runs-on: depot-ubuntu-24.04-4
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
