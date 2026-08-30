@@ -56,8 +56,16 @@ names and columns, not IDs. Resolve the ID first:
 
 - **Saved query (view).** Call `posthog:view-list` with `search=<subject name>` and take the
   result's `id`. That value is the `saved_query_id`.
-- **Imported table.** Call `posthog:external-data-schemas-list` with `search=<subject name>` and
-  take the nested `table.id`, not the schema record's own `id`. That value is the `table_id`.
+- **Imported table.** The subject name is the warehouse table's own source-prefixed name (e.g.
+  `stripe_charge`), so resolve its `id` by exact match against the table catalog:
+
+  ```sql
+  SELECT id FROM system.data_warehouse_tables WHERE name = 'stripe_charge'
+  ```
+
+  That value is the `table_id`. Do not resolve it with `posthog:external-data-schemas-list`: its
+  `search` matches the source-side schema name (e.g. `Charge`), not the prefixed table name, and two
+  sources can each expose a schema of that same name.
 
 `posthog:data-quality-check-types` also requires `saved_query_id`. Its catalog is static, so pass any
 view's `id`; the returned schemas apply to tables too. A project with only imported tables has no view
