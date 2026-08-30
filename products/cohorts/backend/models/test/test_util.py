@@ -1360,10 +1360,17 @@ class TestRecalculationErrorRecovery(BaseTest):
         assert mock_history.save.call_count == 2
         mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
 
-    def test_original_error_surfaces_when_reset_calculating_save_fails(self):
-        # calculate_people_ch's finally block resets is_calculating on the same connection the recovery
-        # bookkeeping save uses. If that reset write hits the dropped connection it must not raise out of
-        # finally and mask the real calculation error - it runs through the same reconnect-and-retry.
+    @parameterized.expand(
+        [
+            # A dropped Postgres connection, and a Redis error escaping the save's post_save signals.
+            ("connection_error", OperationalError("the connection is closed")),
+            ("redis_error", Exception("redis unavailable")),
+        ]
+    )
+    def test_original_error_surfaces_when_reset_calculating_save_fails(self, _name, bookkeeping_error):
+        # calculate_people_ch's finally block resets is_calculating through the recovery bookkeeping.
+        # If that reset write fails - a dropped connection, or a Redis error from the save's signals -
+        # it must not raise out of finally and mask the real calculation error.
         cohort = _create_cohort(
             team=self.team,
             name="c",
@@ -1376,11 +1383,11 @@ class TestRecalculationErrorRecovery(BaseTest):
                 "products.cohorts.backend.models.util.recalculate_cohortpeople",
                 side_effect=real_error,
             ),
-            # The is_calculating reset write fails on the dropped connection, initial attempt and retry.
+            # The is_calculating reset write fails, initial attempt and retry.
             patch.object(
                 Cohort,
                 "_safe_reset_calculating_state",
-                side_effect=OperationalError("the connection is closed"),
+                side_effect=bookkeeping_error,
             ) as mock_reset,
             # Patch connections so the reconnect doesn't close the real test transaction's connection.
             patch("products.cohorts.backend.models.util.connections") as mock_connections,
