@@ -9,6 +9,7 @@ provides a typed wrapper so consumers don't have to do dict access.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from posthog.utils import str_to_bool
@@ -38,7 +39,9 @@ class PostgresCDCConfig(CDCConfig):
 
     @classmethod
     def from_dict(cls, job_inputs: dict | None) -> PostgresCDCConfig:
-        ji = job_inputs or {}
+        # job_inputs decrypts to whatever the JSON column holds, so a bare string is possible;
+        # treat any non-Mapping as unset instead of letting the `.get` calls below throw.
+        ji = job_inputs if isinstance(job_inputs, Mapping) else {}
         management_mode: ManagementMode = (
             "self_managed" if ji.get("cdc_management_mode") == "self_managed" else "posthog"
         )
