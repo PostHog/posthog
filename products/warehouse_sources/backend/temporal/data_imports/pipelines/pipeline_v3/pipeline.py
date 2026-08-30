@@ -404,7 +404,7 @@ class PipelineV3(Generic[ResumableData]):
             # job, so a leftover cursor would make the next scheduled run resume from this run's end
             # instead of starting fresh. A worker-shutdown mid-walk raises above and skips this.
             if self._resumable_source_manager is not None:
-                self._resumable_source_manager.clear_state()
+                self._resumable_source_manager.clear_all_state()
 
             await self._finalize(row_count=row_count)
 

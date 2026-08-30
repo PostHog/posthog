@@ -53,7 +53,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         yield redis
 
     @property
-    def _key(self) -> str:
+    def _base_key(self) -> str:
         # Keyed by the stable (team, source, endpoint) identity, not the per-run job id. A
         # restarted sync gets a fresh job id, so a job-scoped key orphaned the previous run's
         # checkpoint and forced a full re-walk. `schema_id` is the endpoint: one schema per table.
@@ -61,7 +61,15 @@ class ResumableSourceManager(Generic[ResumableData]):
             "posthog:data_warehouse:resumable_source:"
             f"{self._inputs.team_id}:{self._inputs.source_id}:{self._inputs.schema_id}"
         )
-        return f"{base}:{self._namespace}" if self._namespace else base
+        # The vendor API version is part of the identity: a repinned version cancels the running
+        # job, so resuming its cursor against the new version would mix two versions in one table.
+        if self._inputs.api_version:
+            base = f"{base}:v={self._inputs.api_version}"
+        return base
+
+    @property
+    def _key(self) -> str:
+        return f"{self._base_key}:{self._namespace}" if self._namespace else self._base_key
 
     def _dump_json(self, data: ResumableData) -> str:
         data_dict = dataclasses.asdict(data)
@@ -107,8 +115,23 @@ class ResumableSourceManager(Generic[ResumableData]):
             self._logger.debug(f"Clearing resumable source state. key={self._key}")
             redis.delete(self._key)
 
+    def clear_all_state(self) -> None:
+        """Drop this schema's checkpoint and every `with_namespace` sibling of it.
+
+        The stable key outlives a run, so a checkpoint left by a completed or killed walk stays
+        readable by the next run. When the pipeline finishes a walk, it must delete every key for the
+        schema, including the namespaced siblings a source writes through `with_namespace` (Convex)
+        that `clear_state` on the base manager would miss. Otherwise a later run resumes stale rows
+        onto a fresh table and the sync truncates silently.
+        """
+        with self._get_redis() as redis:
+            self._logger.debug(f"Clearing all resumable source state. base={self._base_key}")
+            redis.delete(self._base_key)
+            for key in redis.scan_iter(match=f"{self._base_key}:*", count=100):
+                redis.delete(key)
+
     def discard_stale_state_on_reset(self) -> None:
-        """Drop any saved checkpoint when this run is a reset, called before the reset wipes the table.
+        """Drop every saved checkpoint when this run is a reset, called before the reset wipes the table.
 
         A reset re-pulls from scratch. The key is stable across runs now, so a checkpoint left by a
         prior killed run would survive the reset and let a later non-reset run — this job's own retry
@@ -119,7 +142,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         if not self._inputs.reset_pipeline:
             return
 
-        self.clear_state()
+        self.clear_all_state()
 
     def can_resume(self) -> bool:
         if self._inputs.reset_pipeline:

@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 RESUMABLE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class _Cursor:
     next_url: str
 
@@ -25,6 +25,7 @@ def _inputs(
     schema_id: str = "schema-1",
     job_id: str = "job-1",
     reset_pipeline: bool = False,
+    api_version: str | None = None,
 ) -> SourceInputs:
     return SourceInputs(
         schema_name="quiz_attempts",
@@ -39,6 +40,7 @@ def _inputs(
         job_id=job_id,
         logger=MagicMock(),
         reset_pipeline=reset_pipeline,
+        api_version=api_version,
     )
 
 
@@ -64,6 +66,12 @@ class _FakeRedis:
 
     def delete(self, key: str) -> None:
         self.store.pop(key, None)
+
+    def scan_iter(self, match: str, count: int = 100) -> list[str]:
+        # Only the trailing-`*` glob the manager uses is supported.
+        assert match.endswith("*")
+        prefix = match[:-1]
+        return [key for key in list(self.store) if key.startswith(prefix)]
 
 
 @pytest.fixture
@@ -133,3 +141,21 @@ class TestResumableSourceManager:
         # The import activity can run a week; the checkpoint must outlast it.
         assert redis.last_set_ex == RESUMABLE_STATE_TTL_SECONDS
         assert redis.last_set_ex > 60 * 60 * 24 * 7
+
+    def test_clear_all_state_removes_namespaced_siblings(self, redis: _FakeRedis) -> None:
+        base = _manager(_inputs())
+        base.save_state(_Cursor(next_url="base"))
+        # A source that walks more than one endpoint writes namespaced siblings (Convex).
+        base.with_namespace("list_snapshot").save_state(_Cursor(next_url="snapshot"))
+        base.with_namespace("document_deltas").save_state(_Cursor(next_url="deltas"))
+
+        base.clear_all_state()
+
+        # A plain clear_state would leave the namespaced cursors behind to poison the next run.
+        assert redis.store == {}
+
+    def test_api_version_isolates_the_key(self, redis: _FakeRedis) -> None:
+        _manager(_inputs(api_version="2024-01-01")).save_state(_Cursor(next_url="old"))
+
+        # A repin cancels the running job; resuming its cursor against the new version is unsafe.
+        assert _manager(_inputs(api_version="2025-01-01")).can_resume() is False
