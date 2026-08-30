@@ -672,7 +672,6 @@ class Pipeline:
 
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.pr.files)
-        max_lines = self.effective_policy.max_lines if self.effective_policy else MAX_LINES
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
         exempt_files = len(self.pr.files) - files
         suffix_parts = []
@@ -681,19 +680,20 @@ class Pipeline:
         if exempt_files:
             suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
         suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""
-        if lines > max_lines:
-            return (
-                False,
-                f"too large for auto-review ({lines}L, {files}F substantive{suffix} — ceiling is {max_lines}L)",
-            )
         # Mixed PRs get mixed leniency: each file counts against the budget of
         # the scope governing it (a folder override or the global pool), so a
-        # folder's higher ceiling covers its own files and nothing else.
+        # folder's higher ceilings cover its own files and nothing else.
         for scope in self._size_scopes():
             in_scope = set(scope.files)
-            _, scope_files = substantive_size([f for f in self.pr.files if f["filename"] in in_scope])
+            scope_lines, scope_files = substantive_size([f for f in self.pr.files if f["filename"] in in_scope])
+            where = scope.path or "global"
+            if scope_lines > scope.max_lines:
+                return (
+                    False,
+                    f"too large for auto-review ({scope_lines}L substantive in {where} — "
+                    f"ceiling is {scope.max_lines}L; {lines}L, {files}F total{suffix})",
+                )
             if scope_files > scope.max_files:
-                where = scope.path or "global"
                 return (
                     False,
                     f"too large for auto-review ({scope_files}F substantive in {where} — "
@@ -705,7 +705,7 @@ class Pipeline:
         if self.effective_policy is not None:
             return self.effective_policy.scopes
         all_files = tuple(f["filename"] for f in self.pr.files)
-        return (ScopeBudget(path=None, max_files=MAX_FILES, files=all_files),)
+        return (ScopeBudget(path=None, max_files=MAX_FILES, max_lines=MAX_LINES, files=all_files),)
 
     def _check_tier(self) -> tuple[bool, str]:
         cl = self.classification
@@ -1081,7 +1081,7 @@ class Pipeline:
                 "policy_file": ".stamphog/policy.yml",
                 "scopes": (
                     [
-                        {"path": s.path, "max_files": s.max_files, "files": len(s.files)}
+                        {"path": s.path, "max_files": s.max_files, "max_lines": s.max_lines, "files": len(s.files)}
                         for s in self.effective_policy.scopes
                     ]
                     if self.effective_policy

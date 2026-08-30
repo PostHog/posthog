@@ -184,13 +184,16 @@ class Policy:
 class ScopeBudget:
     """One size-gate budget: a folder override's files, or the global pool.
 
-    `path` is the granting AGENT_APPROVALS.md (repo-relative); None is the global
-    pool, which absorbs every file whose chain grants no valid max_files so
-    splitting files across pseudo-scopes can never inflate the allowance.
+    `path` is the nearest granting AGENT_APPROVALS.md (repo-relative); None is
+    the global pool, which absorbs every file whose chain grants nothing so
+    splitting files across pseudo-scopes can never inflate the allowance. Each
+    ceiling comes from the nearest grant of that key on the chain, falling back
+    to the global value when no folder on the chain grants it.
     """
 
     path: str | None
     max_files: int
+    max_lines: int
     files: tuple[str, ...]
 
 
@@ -200,13 +203,12 @@ class EffectivePolicy:
 
     Mixed PRs get mixed leniency: every AGENT_APPROVALS.md at or above a changed
     file governs it, and the file is budgeted by the nearest folder on that
-    chain with a valid max_files grant. Each scope's files must fit that scope's
-    own ceiling; files with no valid grant on their chain keep the global
-    ceiling. No file ever gets more leniency than its own chain grants.
-    max_lines stays a single global total; it is not delegable.
+    chain with a valid size_gate grant. Each scope's files must fit that scope's
+    own line and file ceilings; files with no valid grant on their chain keep
+    the global ceilings. No file ever gets more leniency than its own chain
+    grants.
     """
 
-    max_lines: int
     scopes: tuple[ScopeBudget, ...]
     folder_prose: str | None = None
     invalid_folder_files: tuple[str, ...] = ()
@@ -229,9 +231,10 @@ _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
-# The delegation contract's only delegable key. Everything else (deny, allow,
-# tiers, size_gate.max_lines) is non-delegable by construction.
-_DELEGABLE_KEYS = {"size_gate.max_files"}
+# The delegation contract's delegable keys. Everything else (deny, allow, tiers)
+# is non-delegable by construction.
+_DELEGABLE_KEYS = {"size_gate.max_files", "size_gate.max_lines"}
+_SIZE_GATE_DELEGATIONS = {"max_files": "size_gate.max_files", "max_lines": "size_gate.max_lines"}
 
 # Invariant 7: self-governance deny must cover these path families so a future
 # policy edit cannot silently drop stamphog's protection of its own files.
@@ -505,8 +508,13 @@ class _FolderOverride:
     """Result of parsing a folder AGENT_APPROVALS.md."""
 
     max_files: int | None = None
+    max_lines: int | None = None
     prose: str | None = None
     invalid: bool = False
+
+    @property
+    def grants(self) -> bool:
+        return self.max_files is not None or self.max_lines is not None
 
 
 def _scope_chain_for(
@@ -579,42 +587,46 @@ def _parse_folder_policy(path: Path, contract: dict[str, OverrideContract]) -> _
     stamphog = frontmatter.get("stamphog")
     if stamphog is None:
         # Advisory-only file: no delegated override, prose still applies.
-        return _FolderOverride(max_files=None, prose=prose or None)
+        return _FolderOverride(prose=prose or None)
     if not isinstance(stamphog, dict):
         return _FolderOverride(invalid=True)
 
-    # Positive allow-list: the only delegated path is size_gate.max_files.
-    max_files = _read_delegated_max_files(stamphog, contract)
-    if max_files is None:
+    # Positive allow-list: the only delegated paths are the size_gate ceilings.
+    grants = _read_delegated_size_gate(stamphog, contract)
+    if grants is None:
         return _FolderOverride(invalid=True)
-    return _FolderOverride(max_files=max_files, prose=prose or None)
+    return _FolderOverride(max_files=grants.get("max_files"), max_lines=grants.get("max_lines"), prose=prose or None)
 
 
-def _read_delegated_max_files(stamphog: dict[str, Any], contract: dict[str, OverrideContract]) -> int | None:
-    """Return the delegated max_files if valid and within ceiling, else None (invalid)."""
-    if "size_gate.max_files" not in contract:
-        return None
+def _read_delegated_size_gate(stamphog: dict[str, Any], contract: dict[str, OverrideContract]) -> dict[str, int] | None:
+    """Return the delegated size_gate grants if every key is delegated and within its ceiling, else None (invalid)."""
     if set(stamphog) - {"size_gate"}:
         return None
     size_gate = stamphog.get("size_gate")
-    if not isinstance(size_gate, dict) or set(size_gate) - {"max_files"}:
+    if not isinstance(size_gate, dict) or not size_gate:
         return None
-    value = size_gate.get("max_files")
-    if not isinstance(value, int) or isinstance(value, bool):
-        return None
-    ceiling = contract["size_gate.max_files"].ceiling
-    if value < 1 or value > ceiling:
-        return None
-    return value
+    grants: dict[str, int] = {}
+    for key, value in size_gate.items():
+        contract_key = _SIZE_GATE_DELEGATIONS.get(key) if isinstance(key, str) else None
+        if contract_key is None or contract_key not in contract:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            return None
+        if value < 1 or value > contract[contract_key].ceiling:
+            return None
+        grants[key] = value
+    return grants
 
 
 def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
     """Resolve the per-scope size budgets for a PR's changed files.
 
     Every AGENT_APPROVALS.md at or above a changed file governs it. A file's size
-    budget comes from the nearest folder on its chain with a valid max_files
-    grant; files whose chain grants nothing (no folder file, prose-only, or only
-    invalid grants) pool into the global budget. Advisory prose accumulates from
+    budget comes from the nearest folder on its chain with a valid size_gate
+    grant, and each ceiling in that budget is the nearest grant of that key on
+    the chain (a child granting only max_lines still rides its parent's
+    max_files); files whose chain grants nothing (no folder file, prose-only, or
+    only invalid grants) pool into the global budget. Advisory prose accumulates from
     every valid folder file on the chain of at least one changed file, outermost
     first so general guidance precedes specific. An invalid folder file is
     treated as absent - it grants nothing and adds no prose, but its ancestors
@@ -633,24 +645,40 @@ def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
     # Files sharing a granting AGENT_APPROVALS.md pool into one budget; the folder
     # files touched by any chain feed the prose and invalid-file reporting.
     grant_files: dict[str, list[str]] = {}
-    grant_max: dict[str, int] = {}
+    grant_budget: dict[str, tuple[int, int]] = {}  # rel path -> (max_files, max_lines)
     global_files: list[str] = []
     on_chain: dict[str, _FolderOverride] = {}  # rel path -> parse, each file once
     for file_path in changed_files:
-        grant: tuple[str, int] | None = None
+        scope_path: str | None = None
+        max_files: int | None = None
+        max_lines: int | None = None
         for scope_dir in _scope_chain_for(file_path, root, dir_cache):
             rel_path, parsed = parsed_for(scope_dir)
             on_chain[rel_path] = parsed
-            if grant is None and not parsed.invalid and parsed.max_files is not None:
-                grant = (rel_path, parsed.max_files)
-        if grant is None:
+            if parsed.invalid or not parsed.grants:
+                continue
+            if scope_path is None:
+                scope_path = rel_path
+            if max_files is None:
+                max_files = parsed.max_files
+            if max_lines is None:
+                max_lines = parsed.max_lines
+        if scope_path is None:
             global_files.append(file_path)
-        else:
-            grant_files.setdefault(grant[0], []).append(file_path)
-            grant_max[grant[0]] = grant[1]
+            continue
+        grant_files.setdefault(scope_path, []).append(file_path)
+        grant_budget[scope_path] = (
+            policy.size_gate.max_files if max_files is None else max_files,
+            policy.size_gate.max_lines if max_lines is None else max_lines,
+        )
 
     override_scopes = [
-        ScopeBudget(path=rel_path, max_files=grant_max[rel_path], files=tuple(files))
+        ScopeBudget(
+            path=rel_path,
+            max_files=grant_budget[rel_path][0],
+            max_lines=grant_budget[rel_path][1],
+            files=tuple(files),
+        )
         for rel_path, files in sorted(grant_files.items())
     ]
 
@@ -672,10 +700,14 @@ def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
     else:
         folder_prose = None
 
-    scopes = (*override_scopes, ScopeBudget(path=None, max_files=policy.size_gate.max_files, files=tuple(global_files)))
-    return EffectivePolicy(
+    global_scope = ScopeBudget(
+        path=None,
+        max_files=policy.size_gate.max_files,
         max_lines=policy.size_gate.max_lines,
-        scopes=scopes,
+        files=tuple(global_files),
+    )
+    return EffectivePolicy(
+        scopes=(*override_scopes, global_scope),
         folder_prose=folder_prose,
         invalid_folder_files=tuple(invalid_files),
     )
