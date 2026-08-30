@@ -685,17 +685,17 @@ class Pipeline:
         # global pool), so a folder's higher ceiling covers its own files and
         # nothing else. Lines and files partition independently, so a folder
         # that raises one ceiling keeps the global one for the other.
-        line_scopes, file_scopes = self._size_scopes()
-        for scope in line_scopes:
-            scope_lines, _ = self._scope_size(scope)
+        budgets = self._size_budgets()
+        for scope in budgets.line_scopes:
+            scope_lines, _ = substantive_size(self._files_in(scope))
             if scope_lines > scope.ceiling:
                 return (
                     False,
                     f"too large for auto-review ({scope_lines}L substantive in {scope.path or 'global'} — "
                     f"ceiling is {scope.ceiling}L; {lines}L, {files}F total{suffix})",
                 )
-        for scope in file_scopes:
-            _, scope_files = self._scope_size(scope)
+        for scope in budgets.file_scopes:
+            _, scope_files = substantive_size(self._files_in(scope))
             if scope_files > scope.ceiling:
                 return (
                     False,
@@ -704,18 +704,18 @@ class Pipeline:
                 )
         return True, f"{lines}L, {files}F substantive{suffix} — within ceiling"
 
-    def _scope_size(self, scope: ScopeBudget) -> tuple[int, int]:
+    def _files_in(self, scope: ScopeBudget) -> list[dict]:
         in_scope = set(scope.files)
-        return substantive_size([f for f in self.pr.files if f["filename"] in in_scope])
+        return [f for f in self.pr.files if f["filename"] in in_scope]
 
-    def _size_scopes(self) -> tuple[tuple[ScopeBudget, ...], tuple[ScopeBudget, ...]]:
-        """The PR's line budgets and file budgets, in that order."""
+    def _size_budgets(self) -> EffectivePolicy:
+        """The PR's resolved size budgets, or global-only ones when resolution did not run."""
         if self.effective_policy is not None:
-            return self.effective_policy.line_scopes, self.effective_policy.file_scopes
+            return self.effective_policy
         all_files = tuple(f["filename"] for f in self.pr.files)
-        return (
-            (ScopeBudget(path=None, ceiling=MAX_LINES, files=all_files),),
-            (ScopeBudget(path=None, ceiling=MAX_FILES, files=all_files),),
+        return EffectivePolicy(
+            file_scopes=(ScopeBudget(path=None, ceiling=MAX_FILES, files=all_files),),
+            line_scopes=(ScopeBudget(path=None, ceiling=MAX_LINES, files=all_files),),
         )
 
     def _check_tier(self) -> tuple[bool, str]:
