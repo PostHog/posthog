@@ -60,6 +60,10 @@ describe("PreBaselineState", () => {
     expect(
       screen.getByRole("status", { name: "Loading" }).parentElement,
     ).toHaveClass("animate-spin", "motion-reduce:animate-none");
+    expect(screen.getByRole("status", { name: "Loading" })).toHaveClass(
+      "size-5",
+      "animate-none",
+    );
     const metrics = screen.getByRole("status", {
       name: "Loading autoresearch metrics",
     });
