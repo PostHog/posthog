@@ -1,6 +1,6 @@
-// Which kind of caller a server-minted token belongs to, stamped as `$mcp_scope_preset` on
-// every `$mcp_*` event so scratchpad and notes usage can be split by scout vs report research
-// vs implementation run vs ordinary user.
+// Which kind of caller a token belongs to, stamped as `$mcp_scope_preset` on every `$mcp_*`
+// event so scratchpad and notes usage can be split by scout vs report research vs
+// implementation run vs any other server-minted sandbox run vs ordinary user.
 //
 // Derived from the token's scope set, not read from the token. The sandbox token is minted in
 // `posthog/temporal/oauth.py::create_oauth_access_token_for_user` from a preset name, but that
@@ -21,6 +21,12 @@ const SCRATCHPAD_INTERNAL_WRITE_SCOPE = 'signal_scratchpad_internal:write'
 // read-only research run apart from a write-capable implementation run. Excluded here.
 const ALWAYS_PRESENT_WRITE_SCOPES = new Set(['task:write'])
 
+// Provenance marker on every server-minted token (INTERNAL_SCOPES). `internal_run` is not a
+// user-grantable scope object, so a token carrying it came from a sandbox run, never from a
+// person's own key or consent grant. It says "sandbox", not which kind: until the scratchpad
+// scope lands, the report-research and implementation runs land here rather than in `user`.
+const SERVER_MINTED_MARKER_SCOPE = 'internal_run:read'
+
 // Scope objects minted server-side only (mirrors SERVER_MINT_ONLY_SCOPE_OBJECTS in `api.ts`
 // plus the scratchpad object). A `:write` on one of these is internal provenance, not the
 // user-facing write access that separates an implementation run from a research run.
@@ -37,6 +43,7 @@ export const MCP_SCOPE_PRESET = {
     SCOUT: 'scout',
     RESEARCH: 'research',
     IMPLEMENTATION: 'implementation',
+    SANDBOX: 'sandbox',
     USER: 'user',
 } as const
 
@@ -59,7 +66,8 @@ function hasUserFacingWriteScope(scopes: readonly string[]): boolean {
  *
  * A scout is settled first: its own internal write scope is proof on its own. A pipeline run
  * carries the scratchpad write scope without the scout one, and splits into a read-only
- * research run and a write-capable implementation run. Everything else is an ordinary user.
+ * research run and a write-capable implementation run. Any other token that carries the
+ * server-minted marker is a sandbox run of unknown kind. Everything else is an ordinary user.
  */
 export function resolveScopePreset(scopes: readonly string[] | undefined): McpScopePreset {
     const scopeSet = scopes ?? []
@@ -68,6 +76,9 @@ export function resolveScopePreset(scopes: readonly string[] | undefined): McpSc
     }
     if (scopeSet.includes(SCRATCHPAD_INTERNAL_WRITE_SCOPE)) {
         return hasUserFacingWriteScope(scopeSet) ? MCP_SCOPE_PRESET.IMPLEMENTATION : MCP_SCOPE_PRESET.RESEARCH
+    }
+    if (scopeSet.includes(SERVER_MINTED_MARKER_SCOPE)) {
+        return MCP_SCOPE_PRESET.SANDBOX
     }
     return MCP_SCOPE_PRESET.USER
 }
