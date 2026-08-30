@@ -406,7 +406,10 @@ function RootLayout() {
             </Flex>
           )}
         </Flex>
-        <ConnectivityBanner />
+        {/* Settings draws its own copies over this tree — see the settings
+            route. One instance of each at a time, so an announcement is not
+            reported as seen twice. */}
+        {!isSettingsRoute && <ConnectivityBanner />}
         <Flex flexGrow="1" overflow="hidden" className="relative">
           {/* Scrim under the peeked nav: dims the content while the overlay is
               out. Purely visual (pointer-transparent) and paired with the
@@ -446,7 +449,7 @@ function RootLayout() {
               <Flex direction="column" height="100%">
                 {/* Inside the framed pane, not the app column: announcements
                     overlay the content, never the sidebar. */}
-                <AnnouncementBanner />
+                {!isSettingsRoute && <AnnouncementBanner />}
                 {/* The shell renders its own header (ShellLayout);
                       everywhere else the shared header carries the view title
                       and, on a task, its action row. */}

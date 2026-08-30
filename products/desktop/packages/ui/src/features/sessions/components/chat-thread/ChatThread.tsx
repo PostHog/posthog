@@ -149,6 +149,7 @@ import {
 } from "@posthog/ui/shell/diffWorkerHost";
 import {
   createContext,
+  type FocusEvent,
   memo,
   type ReactElement,
   type ReactNode,
@@ -355,9 +356,10 @@ function formatTimestamp(ts: number): string {
  * hovering to find out.
  */
 /**
- * True while the pointer is over the row or the row has keyboard focus. Footer buttons (each a
- * Tooltip around a Button) mount only then: a thread mounts dozens of rows at once and the buttons
- * are invisible until hover anyway.
+ * True while the pointer is over the row, or focus sits inside it. The feedback thumbs (each a
+ * Tooltip around a Button) mount only then: a thread mounts dozens of rows at once and they are
+ * invisible until hover anyway. The copy button stays mounted regardless, so the footer keeps the
+ * tab stop a keyboard reader needs to reach the thumbs at all.
  */
 const FooterRevealContext = createContext(false);
 
@@ -377,17 +379,17 @@ function TurnFooter({
     <ChatMessageFooter
       className={cn(
         "mt-2 min-h-5 items-center justify-end gap-1 pl-0 transition-opacity",
-        sentiment ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+        sentiment
+          ? "opacity-100"
+          : "opacity-0 focus-within:opacity-100 group-hover:opacity-100",
       )}
     >
       <span className="text-muted-foreground">
         {formatTimestamp(timestamp)}
       </span>
+      {copyText && <CopyButton value={copyText} label="Copy turn" />}
       {(revealed || sentiment) && (
-        <>
-          {copyText && <CopyButton value={copyText} label="Copy turn" />}
-          <TurnFeedback turnId={turnId} sentiment={sentiment} />
-        </>
+        <TurnFeedback turnId={turnId} sentiment={sentiment} />
       )}
     </ChatMessageFooter>
   );
@@ -861,6 +863,38 @@ function ThreadItemBody({
 }
 
 /**
+ * Pointer and focus state for one transcript row, which is what its footer mounts against. Focus
+ * counts alongside hover because the footer holds the only copy and rating controls a turn has: a
+ * reader who tabs into the row has to be able to bring them out.
+ */
+function useRowReveal(keyboardFocused?: boolean): {
+  revealed: boolean;
+  rowProps: {
+    onPointerEnter: () => void;
+    onPointerLeave: () => void;
+    onFocus: () => void;
+    onBlur: (event: FocusEvent<HTMLElement>) => void;
+  };
+} {
+  const [hovered, setHovered] = useState(false);
+  const [focusWithin, setFocusWithin] = useState(false);
+  return {
+    revealed: hovered || focusWithin || Boolean(keyboardFocused),
+    rowProps: {
+      onPointerEnter: () => setHovered(true),
+      onPointerLeave: () => setHovered(false),
+      onFocus: () => setFocusWithin(true),
+      // React's blur is focusout, so it also fires for moves within the row.
+      onBlur: (event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setFocusWithin(false);
+        }
+      },
+    },
+  };
+}
+
+/**
  * One transcript row. Memoized and scroll-state-free, so rows never re-render while scrolling — the
  * non-virtualized thread stays cheap. The pinned header is the separate overlay, not the rows.
  *
@@ -876,8 +910,7 @@ const ThreadRow = memo(function ThreadRow({
   renderItem: (item: ConversationItem) => ReactNode;
   keyboardFocused?: boolean;
 }) {
-  const [hovered, setHovered] = useState(false);
-  const footerRevealed = hovered || Boolean(keyboardFocused);
+  const { revealed: footerRevealed, rowProps } = useRowReveal(keyboardFocused);
   if (item.type === "agent_turn") {
     return (
       <ChatMessageScrollerItem
@@ -885,8 +918,7 @@ const ThreadRow = memo(function ThreadRow({
         scrollAnchor={false}
         className="group mx-auto w-full empty:hidden"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
+        {...rowProps}
       >
         <FooterRevealContext.Provider value={footerRevealed}>
           <div className="flex flex-col gap-4 empty:hidden">
@@ -923,8 +955,7 @@ const ThreadRow = memo(function ThreadRow({
       scrollAnchor={item.type === "user_message"}
       className="mx-auto w-full py-1 empty:hidden"
       style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
+      {...rowProps}
     >
       <FooterRevealContext.Provider value={footerRevealed}>
         <ThreadItemBody
@@ -1265,14 +1296,13 @@ const FlatRowView = memo(
     keyboardFocused: boolean;
   }) {
     const { item } = row;
-    const [hovered, setHovered] = useState(false);
-    const footerRevealed = hovered || keyboardFocused;
+    const { revealed: footerRevealed, rowProps } =
+      useRowReveal(keyboardFocused);
     return (
       <ChatMessageScrollerItem
         messageId={item.id}
         scrollAnchor={false}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
+        {...rowProps}
         className={cn(
           // pb-4 stands in for the non-virtualized content's inter-row gap-4; an empty row
           // collapses entirely (display:none hides the padding too), matching how flex gap

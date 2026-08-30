@@ -357,7 +357,10 @@ export function ShellLayout() {
   // selector subscribes to the whole param set, which the nearest match carries
   // for the entire route chain.
   const channelId = useParams({ strict: false, select: (p) => p.channelId });
-  const dashboardId = useParams({ strict: false, select: (p) => p.dashboardId });
+  const dashboardId = useParams({
+    strict: false,
+    select: (p) => p.dashboardId,
+  });
   const { dashboard: selectedCanvas } = useDashboard(selectedCanvasId);
   const toolbarDashboardId = dashboardId ?? selectedCanvasId;
   const toolbarChannelId = channelId ?? selectedCanvas?.channelId;
