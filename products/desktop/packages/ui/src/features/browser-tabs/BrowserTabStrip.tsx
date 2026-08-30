@@ -381,16 +381,22 @@ function BrowserTabStripImpl() {
       href: locationHref,
       ...(railPane === "spaces" ? { listOpen, spaceId: stampedSpaceId } : {}),
     };
+    const previousLastByPane = mirrorActive?.viewState?.lastByPane ?? {};
     const viewState: TabViewState = {
       // Keep the stored name when nothing has resolved yet, so a loading frame
       // does not blank a background tab's label.
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
       spaceId: stampedSpaceId,
-      lastByPane: {
-        ...(mirrorActive?.viewState?.lastByPane ?? {}),
-        [railPane]: visit,
-      },
+      // Settings is a full-window overlay that classifies as the spaces pane, so
+      // recording its href here would overwrite the tab's real last spaces
+      // location and a later Spaces rail click would reopen Settings. Keep the
+      // existing map on the settings route, as the strip did before settings
+      // stayed mounted.
+      lastByPane:
+        routeAppView === "settings"
+          ? previousLastByPane
+          : { ...previousLastByPane, [railPane]: visit },
     };
     const decision = decideTabNavigation({
       // The SETTLED tag, not the in-flight one. Pairing the in-flight tag with
