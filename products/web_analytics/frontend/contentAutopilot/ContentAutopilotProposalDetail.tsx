@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import {
     LemonBanner,
     LemonButton,
+    LemonCollapse,
     LemonDialog,
     LemonModal,
     LemonSkeleton,
@@ -149,6 +150,26 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
             }
         >
             <div className="flex flex-col gap-5">
+                {selectedProposal.evidence.length > 0 ? (
+                    <section>
+                        <h3>Why PostHog selected this</h3>
+                        <div className="flex flex-col gap-2">
+                            {selectedProposal.evidence.map((evidence) => (
+                                <div
+                                    key={`${evidence.opportunity_kind}-${evidence.page_url}-${evidence.query}-${evidence.explanation}`}
+                                    className="rounded border p-3"
+                                >
+                                    <LemonTag>{evidence.opportunity_kind.replaceAll('_', ' ')}</LemonTag>
+                                    <p className="mb-0 mt-2">{evidence.explanation}</p>
+                                    {evidence.query ? (
+                                        <div className="text-sm mt-2">Query: {evidence.query}</div>
+                                    ) : null}
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                ) : null}
+
                 <section>
                     <h3>Validation</h3>
                     {!selectedProposal.validation_report.passed ? (
@@ -192,6 +213,22 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                             Save changes
                         </LemonButton>
                     </div>
+                    {selectedProposal.proposal_type === 'page_improvement' && selectedProposal.original_markdown ? (
+                        <LemonCollapse
+                            className="mb-3"
+                            panels={[
+                                {
+                                    key: 'original',
+                                    header: 'View original content',
+                                    content: (
+                                        <pre className="max-h-72 overflow-auto rounded border p-3 whitespace-pre-wrap">
+                                            {selectedProposal.original_markdown}
+                                        </pre>
+                                    ),
+                                },
+                            ]}
+                        />
+                    ) : null}
                     <LemonTextArea
                         aria-label="Proposal Markdown"
                         value={proposedMarkdown}

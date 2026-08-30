@@ -20,6 +20,8 @@ export const ContentAutopilotProposalCard = ({
     proposal,
     onReview,
 }: ContentAutopilotProposalCardProps): JSX.Element => {
+    const primaryEvidence = proposal.evidence[0]
+
     return (
         <LemonCard hoverEffect={false} className="p-4 flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -32,6 +34,12 @@ export const ContentAutopilotProposalCard = ({
                 <h3 className="m-0">{proposal.title}</h3>
                 <p className="m-0 mt-1 text-muted">{proposal.target_query}</p>
             </div>
+            {primaryEvidence ? (
+                <div className="rounded border p-3 bg-surface-secondary">
+                    <div className="font-semibold">Why PostHog selected this</div>
+                    <div className="text-sm mt-1">{primaryEvidence.explanation}</div>
+                </div>
+            ) : null}
             <div className="flex justify-end mt-auto">
                 <LemonButton type="secondary" onClick={() => onReview(proposal.id)}>
                     Review proposal
