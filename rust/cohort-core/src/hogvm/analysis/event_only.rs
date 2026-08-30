@@ -5,6 +5,7 @@
 //! over the decoded instructions: the value of recognizing this shape is that it is exact, and a
 //! looser rule risks claiming a condition needs no evaluation when it does.
 
+use hogvm::Operation;
 use serde_json::Value;
 
 use super::EvaluationClass;
@@ -12,10 +13,15 @@ use super::EvaluationClass;
 /// `["_H", <version>, STRING, <name>, STRING, "event", GET_GLOBAL, 1, EQ]`, as the compiler emits
 /// `event == '<name>'`, followed by the `RETURN` the catalog loader appends.
 const PREFIX_LEN: usize = 2;
-const OP_STRING: u64 = 32;
-const OP_GET_GLOBAL: u64 = 1;
-const OP_EQ: u64 = 11;
-const OP_RETURN: u64 = 38;
+
+/// The opcodes as they appear on the wire. Derived from [`Operation`] rather than written out:
+/// its discriminants *are* the wire format, so a renumbering that breaks decoding must break this
+/// matcher too. A hand-copied table would instead keep matching the old numbers and silently
+/// classify the wrong programs as event-only.
+const OP_STRING: u64 = Operation::String as u64;
+const OP_GET_GLOBAL: u64 = Operation::GetGlobal as u64;
+const OP_EQ: u64 = Operation::Eq as u64;
+const OP_RETURN: u64 = Operation::Return as u64;
 
 pub(super) fn classify(bytecode: &[Value]) -> EvaluationClass {
     match match_event_equality(bytecode) {
@@ -28,7 +34,11 @@ fn match_event_equality(bytecode: &[Value]) -> Option<String> {
     // Version-0 bytecode carries no version token, so the body would start one slot earlier. The
     // compiler has emitted a version for as long as these catalogs have existed, so this matcher
     // requires one and anything else falls through to a general classification.
-    if bytecode.first()?.as_str()? != "_H" || !bytecode.get(1)?.is_number() {
+    //
+    // `as_u64`, not `is_number`: the VM refuses a fractional or negative version outright, so a
+    // program carrying one never runs. Accepting it here would classify a program the VM rejects as
+    // needing no evaluation, which is the one direction this matcher must not be wrong in.
+    if bytecode.first()?.as_str()? != "_H" || bytecode.get(1)?.as_u64().is_none() {
         return None;
     }
     let body = &bytecode[PREFIX_LEN..];
@@ -141,6 +151,19 @@ mod tests {
             }),
             ("empty bytecode", Vec::new()),
             ("header only", vec![json!("_H"), json!(1)]),
+            // The VM refuses a version it cannot read as a `u64`, so these programs never run.
+            // Classifying one as event-only would say "needs no evaluation" about a program that
+            // would in fact have errored.
+            ("a negative version", {
+                let mut tokens = event_equality("purchase");
+                tokens[1] = json!(-1);
+                tokens
+            }),
+            ("a fractional version", {
+                let mut tokens = event_equality("purchase");
+                tokens[1] = json!(1.5);
+                tokens
+            }),
         ];
         for (label, tokens) in cases {
             assert_eq!(classify(&tokens), EvaluationClass::General, "{label}");

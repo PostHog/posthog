@@ -1,38 +1,88 @@
 //! Turns a bytecode array into typed instructions, consuming each opcode's immediates exactly as
 //! `hogvm::HogVM::step` does.
 //!
-//! This module holds no policy about which instructions an analysis can handle. It answers one
-//! question: where does each instruction start and end. Getting that wrong would misread the
-//! following tokens as opcodes, so the immediate counts here must track `vm.rs` and nothing else.
+//! This module holds no policy about which instructions an analysis can handle. It answers two
+//! questions: where does each instruction start and end, and where does each branch land. Getting
+//! the first wrong would misread the following tokens as opcodes, so the immediate counts here must
+//! track `vm.rs` and nothing else. Whether a landing site is *legal* is the analysis layer's call,
+//! because only that layer knows where instructions begin.
+
+use std::sync::Arc;
 
 use hogvm::Operation;
 use serde_json::Value;
 
-/// One decoded instruction, grouped by the shape of its immediates rather than by what it does.
-/// The [`Operation`] is always carried, so the interpreter still dispatches on the exact opcode.
+/// A position in the raw token array. Jump offsets are expressed in these, and the VM resolves them
+/// against a body-relative instruction pointer — which differs from an index into the full array by
+/// the constant header length, so adding an offset gives the same landing site either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) struct TokenIndex(pub(super) usize);
+
+/// A position in the decoded instruction list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) struct InstrIndex(pub(super) usize);
+
+/// One decoded instruction and where it starts, so a branch target can be matched against the
+/// instruction boundaries.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Instr {
+pub(super) struct Instr {
+    pub(super) start: TokenIndex,
+    pub(super) kind: InstrKind,
+}
+
+/// The instruction itself, grouped by the shape of its immediates rather than by what it does. The
+/// [`Operation`] is always carried, so the interpreter still dispatches on the exact opcode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum InstrKind {
     /// No immediates: comparisons, arithmetic, `NOT`, `POP`, `RETURN`, property reads, `THROW`,
     /// `POP_TRY`, `CLOSE_UPVALUE`, the cohort opcodes, and the bare constants.
     Bare(Operation),
     /// A single count immediate: `GET_GLOBAL`, `AND`, `OR`, `DICT`, `ARRAY`, `TUPLE`, `CALL_LOCAL`,
     /// the local slots, and the upvalue slots.
     Counted(Operation, usize),
-    /// A single signed offset immediate: the jumps and `TRY`.
-    Branch(Operation),
+    /// A jump, with its offset resolved to the token it lands on. `None` when the offset resolves
+    /// outside the addressable range, which is refused on visit rather than at decode: an offset no
+    /// path follows must not fail a program that never reaches the opcode.
+    Branch {
+        op: Operation,
+        target: Option<TokenIndex>,
+    },
+    /// `TRY`. It carries a jump offset like the branches, but the interpreter refuses it, so no
+    /// landing site is resolved: an offset nothing will follow must not be able to fail a program
+    /// that never reaches the opcode.
+    Try,
     /// `STRING` and the literal it pushes. The literal is the only immediate the analysis reads,
-    /// because a global path is built from them.
-    String(String),
+    /// because a global path is built from them. `Arc<str>` because the interpreter carries these
+    /// on abstract stacks it copies at every branch merge, and copying the bytes there is what
+    /// turns one long literal into an allocation proportional to the program length.
+    String(Arc<str>),
     /// `INTEGER` or `FLOAT`. The value is not retained: the abstract domain cannot name a number,
     /// so nothing downstream could use it.
     Number(Operation),
     /// `CALL_GLOBAL`, with the callee name and its argument count.
     CallGlobal { name: String, argc: usize },
-    /// `CALLABLE`. Its body tokens are skipped, exactly as the VM skips them by advancing past
-    /// `body_length`, so the instructions after it decode at the right offsets.
-    Callable,
+    /// `CALLABLE`, with the span of the body tokens it skips. The interpreter skips them exactly as
+    /// the VM does by advancing past `body_length`; the span is kept so a caller that needs to look
+    /// inside — the standard-library guard — can decode them in place.
+    Callable { body: TokenSpan },
     /// `CLOSURE`, with its capture pairs consumed.
     Closure,
+}
+
+/// A half-open token range, in absolute positions so a nested decode resolves jumps the same way
+/// the enclosing one does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct TokenSpan {
+    pub(super) start: TokenIndex,
+    pub(super) end: TokenIndex,
+}
+
+/// A decoded program: its instructions, and the token one past its last, which is where a jump off
+/// the end lands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Decoded {
+    pub(super) instrs: Vec<Instr>,
+    pub(super) body_end: TokenIndex,
 }
 
 /// Why a bytecode array could not be split into instructions.
@@ -56,55 +106,74 @@ pub enum DecodeError {
 /// pre-version program whose first opcode happens to be a number has that opcode read as its
 /// version. The VM reads it the same way, so an analysis that disagreed would be describing a
 /// program the VM never runs.
-pub(super) fn decode(bytecode: &[Value]) -> Result<Vec<Instr>, DecodeError> {
-    let mut cursor = Cursor::new(bytecode)?;
+pub(super) fn decode(bytecode: &[Value]) -> Result<Decoded, DecodeError> {
+    if bytecode.first().and_then(Value::as_str) != Some("_H") {
+        return Err(DecodeError::MissingHeader);
+    }
+    let body_start = match bytecode.get(1) {
+        None => 1,
+        Some(Value::Number(_)) => 2,
+        Some(_) => return Err(DecodeError::MalformedVersion),
+    };
+    decode_span(
+        bytecode,
+        TokenSpan {
+            start: TokenIndex(body_start),
+            end: TokenIndex(bytecode.len()),
+        },
+    )
+}
+
+/// Decode one span of an already-headered array — a `CALLABLE` body, say. Positions stay absolute,
+/// so a jump inside the span resolves to the same token the VM would reach.
+pub(super) fn decode_span(tokens: &[Value], span: TokenSpan) -> Result<Decoded, DecodeError> {
+    let mut cursor = Cursor {
+        tokens,
+        ip: span.start.0,
+        end: span.end.0,
+    };
     let mut instrs = Vec::new();
     while let Some(instr) = cursor.next_instr()? {
         instrs.push(instr);
     }
-    Ok(instrs)
+    Ok(Decoded {
+        instrs,
+        body_end: span.end,
+    })
 }
 
 struct Cursor<'a> {
     tokens: &'a [Value],
     ip: usize,
+    end: usize,
 }
 
 impl<'a> Cursor<'a> {
-    fn new(bytecode: &'a [Value]) -> Result<Self, DecodeError> {
-        if bytecode.first().and_then(Value::as_str) != Some("_H") {
-            return Err(DecodeError::MissingHeader);
-        }
-        let body_start = match bytecode.get(1) {
-            None => 1,
-            Some(Value::Number(_)) => 2,
-            Some(_) => return Err(DecodeError::MalformedVersion),
-        };
-        Ok(Self {
-            tokens: bytecode,
-            ip: body_start,
-        })
-    }
-
     fn next_instr(&mut self) -> Result<Option<Instr>, DecodeError> {
-        let Some(token) = self.tokens.get(self.ip) else {
+        if self.ip >= self.end {
             return Ok(None);
-        };
+        }
         let op_ip = self.ip;
+        let token = &self.tokens[op_ip];
         let op = Operation::try_from(token.clone())
             .map_err(|_| DecodeError::NotAnOpcode { ip: op_ip })?;
         self.ip += 1;
-        self.instr_for(op, op_ip).map(Some)
+        Ok(Some(Instr {
+            start: TokenIndex(op_ip),
+            kind: self.kind_for(op, op_ip)?,
+        }))
     }
 
     /// The immediate table, one arm per opcode. Exhaustive on purpose: a new opcode in the VM must
     /// not silently inherit "no immediates", which would misalign every instruction after it.
-    fn instr_for(&mut self, op: Operation, op_ip: usize) -> Result<Instr, DecodeError> {
+    fn kind_for(&mut self, op: Operation, op_ip: usize) -> Result<InstrKind, DecodeError> {
         match op {
-            Operation::String => Ok(Instr::String(self.take_string(&op, op_ip)?)),
+            Operation::String => Ok(InstrKind::String(Arc::from(
+                self.take_string(op, op_ip)?.as_str(),
+            ))),
             Operation::Integer | Operation::Float => {
-                self.take_token(&op, op_ip)?;
-                Ok(Instr::Number(op))
+                self.take_token(op, op_ip)?;
+                Ok(InstrKind::Number(op))
             }
             Operation::GetGlobal
             | Operation::And
@@ -116,35 +185,41 @@ impl<'a> Cursor<'a> {
             | Operation::GetLocal
             | Operation::SetLocal
             | Operation::GetUpvalue
-            | Operation::SetUpvalue => Ok(Instr::Counted(op.clone(), self.take_count(&op, op_ip)?)),
-            Operation::Jump
-            | Operation::JumpIfFalse
-            | Operation::JumpIfStackNotNull
-            | Operation::Try => {
-                self.take_i64(&op, op_ip)?;
-                Ok(Instr::Branch(op))
+            | Operation::SetUpvalue => Ok(InstrKind::Counted(op, self.take_count(op, op_ip)?)),
+            Operation::Jump | Operation::JumpIfFalse | Operation::JumpIfStackNotNull => {
+                let target = self.take_target(op, op_ip)?;
+                Ok(InstrKind::Branch { op, target })
+            }
+            // `TRY`'s immediate is consumed so the instructions after it decode at the right
+            // offsets, but its offset is deliberately left unresolved — see [`InstrKind::Try`].
+            Operation::Try => {
+                self.take_i64(op, op_ip)?;
+                Ok(InstrKind::Try)
             }
             Operation::CallGlobal => {
-                let name = self.take_string(&op, op_ip)?;
-                let argc = self.take_count(&op, op_ip)?;
-                Ok(Instr::CallGlobal { name, argc })
+                let name = self.take_string(op, op_ip)?;
+                let argc = self.take_count(op, op_ip)?;
+                Ok(InstrKind::CallGlobal { name, argc })
             }
             Operation::Callable => {
-                self.take_string(&op, op_ip)?;
-                self.take_count(&op, op_ip)?;
-                self.take_count(&op, op_ip)?;
-                let body_length = self.take_count(&op, op_ip)?;
-                self.skip(body_length, &op, op_ip)?;
-                Ok(Instr::Callable)
+                self.take_string(op, op_ip)?;
+                self.take_count(op, op_ip)?;
+                self.take_count(op, op_ip)?;
+                let body_length = self.take_count(op, op_ip)?;
+                let start = TokenIndex(self.ip);
+                self.skip(body_length, op, op_ip)?;
+                Ok(InstrKind::Callable {
+                    body: TokenSpan {
+                        start,
+                        end: TokenIndex(self.ip),
+                    },
+                })
             }
             Operation::Closure => {
-                let captures = self.take_count(&op, op_ip)?;
-                // Each capture is an `is_local` flag and a slot offset.
-                let pairs = captures
-                    .checked_mul(2)
-                    .ok_or_else(|| malformed(&op, op_ip))?;
-                self.skip(pairs, &op, op_ip)?;
-                Ok(Instr::Closure)
+                let captures = self.take_count(op, op_ip)?;
+                let pairs = captures.checked_mul(2).ok_or(malformed(op, op_ip))?;
+                self.skip(pairs, op, op_ip)?;
+                Ok(InstrKind::Closure)
             }
             // `DECLARE_FN` reaches the VM only to be refused, so it never consumes its immediates
             // there and there is no arity to copy. Reading it as bare keeps this decoder aligned
@@ -184,42 +259,70 @@ impl<'a> Cursor<'a> {
             | Operation::GetPropertyNullish
             | Operation::Throw
             | Operation::PopTry
-            | Operation::CloseUpvalue => Ok(Instr::Bare(op)),
+            | Operation::CloseUpvalue => Ok(InstrKind::Bare(op)),
         }
     }
 
-    fn take_token(&mut self, op: &Operation, op_ip: usize) -> Result<&'a Value, DecodeError> {
-        let token = self.tokens.get(self.ip).ok_or(truncated(op, op_ip))?;
+    fn take_token(&mut self, op: Operation, op_ip: usize) -> Result<&'a Value, DecodeError> {
+        if self.ip >= self.end {
+            return Err(truncated(op, op_ip));
+        }
+        let token = &self.tokens[self.ip];
         self.ip += 1;
         Ok(token)
     }
 
-    fn take_string(&mut self, op: &Operation, op_ip: usize) -> Result<String, DecodeError> {
+    fn take_string(&mut self, op: Operation, op_ip: usize) -> Result<String, DecodeError> {
         self.take_token(op, op_ip)?
             .as_str()
             .map(str::to_owned)
             .ok_or(malformed(op, op_ip))
     }
 
-    fn take_count(&mut self, op: &Operation, op_ip: usize) -> Result<usize, DecodeError> {
+    /// Read a count immediate, bounded by the token count.
+    ///
+    /// Every count in the instruction set is either a span of tokens to skip or a number of stack
+    /// values to consume, and the stack can never hold more values than the program has tokens to
+    /// push them with. So no honest count exceeds `tokens.len()`, and refusing the rest here keeps
+    /// a hostile catalog row from reaching a `Vec::with_capacity` downstream — where a `u64::MAX`
+    /// is a capacity-overflow panic and a merely huge value is an allocation abort, neither of
+    /// which the fail-closed contract can absorb.
+    fn take_count(&mut self, op: Operation, op_ip: usize) -> Result<usize, DecodeError> {
         self.take_token(op, op_ip)?
             .as_u64()
             .and_then(|count| usize::try_from(count).ok())
+            .filter(|count| *count <= self.tokens.len())
             .ok_or(malformed(op, op_ip))
     }
 
-    fn take_i64(&mut self, op: &Operation, op_ip: usize) -> Result<i64, DecodeError> {
+    fn take_i64(&mut self, op: Operation, op_ip: usize) -> Result<i64, DecodeError> {
         self.take_token(op, op_ip)?
             .as_i64()
             .ok_or(malformed(op, op_ip))
     }
 
-    fn skip(&mut self, count: usize, op: &Operation, op_ip: usize) -> Result<(), DecodeError> {
-        let end = self
-            .ip
-            .checked_add(count)
-            .ok_or_else(|| malformed(op, op_ip))?;
-        if end > self.tokens.len() {
+    /// Resolve a jump offset against the instruction pointer the VM would hold: one past the
+    /// offset immediate.
+    ///
+    /// An offset that resolves outside the addressable range yields `None` rather than an error.
+    /// Whether a landing site is usable is the analysis layer's question, and it asks it on visit,
+    /// so a dead jump cannot fail the decode of instructions a path does reach.
+    fn take_target(
+        &mut self,
+        op: Operation,
+        op_ip: usize,
+    ) -> Result<Option<TokenIndex>, DecodeError> {
+        let offset = self.take_i64(op, op_ip)?;
+        Ok(i64::try_from(self.ip)
+            .ok()
+            .and_then(|ip| ip.checked_add(offset))
+            .and_then(|target| usize::try_from(target).ok())
+            .map(TokenIndex))
+    }
+
+    fn skip(&mut self, count: usize, op: Operation, op_ip: usize) -> Result<(), DecodeError> {
+        let end = self.ip.checked_add(count).ok_or(malformed(op, op_ip))?;
+        if end > self.end {
             return Err(truncated(op, op_ip));
         }
         self.ip = end;
@@ -227,12 +330,12 @@ impl<'a> Cursor<'a> {
     }
 }
 
-fn truncated(op: &Operation, ip: usize) -> DecodeError {
-    DecodeError::TruncatedImmediates { ip, op: op.clone() }
+fn truncated(op: Operation, ip: usize) -> DecodeError {
+    DecodeError::TruncatedImmediates { ip, op }
 }
 
-fn malformed(op: &Operation, ip: usize) -> DecodeError {
-    DecodeError::MalformedImmediate { ip, op: op.clone() }
+fn malformed(op: Operation, ip: usize) -> DecodeError {
+    DecodeError::MalformedImmediate { ip, op }
 }
 
 #[cfg(test)]
@@ -247,43 +350,65 @@ mod tests {
         bytecode
     }
 
+    fn kinds(bytecode: &[Value]) -> Result<Vec<InstrKind>, DecodeError> {
+        Ok(decode(bytecode)?
+            .instrs
+            .into_iter()
+            .map(|instr| instr.kind)
+            .collect())
+    }
+
     /// One case per immediate arity class. A wrong count here shifts every later instruction, so
     /// the decoded sequence is asserted whole rather than by length.
     #[test]
     fn each_arity_class_consumes_exactly_its_immediates() {
-        let cases: Vec<(Vec<Value>, Vec<Instr>)> = vec![
-            (vec![json!(11)], vec![Instr::Bare(Operation::Eq)]),
+        let cases: Vec<(Vec<Value>, Vec<InstrKind>)> = vec![
+            (vec![json!(11)], vec![InstrKind::Bare(Operation::Eq)]),
             (
                 vec![json!(32), json!("x"), json!(35)],
-                vec![Instr::String("x".to_owned()), Instr::Bare(Operation::Pop)],
+                vec![
+                    InstrKind::String(Arc::from("x")),
+                    InstrKind::Bare(Operation::Pop),
+                ],
             ),
             (
                 vec![json!(33), json!(7), json!(34), json!(1.5), json!(35)],
                 vec![
-                    Instr::Number(Operation::Integer),
-                    Instr::Number(Operation::Float),
-                    Instr::Bare(Operation::Pop),
+                    InstrKind::Number(Operation::Integer),
+                    InstrKind::Number(Operation::Float),
+                    InstrKind::Bare(Operation::Pop),
                 ],
             ),
             (
                 vec![json!(1), json!(2), json!(35)],
                 vec![
-                    Instr::Counted(Operation::GetGlobal, 2),
-                    Instr::Bare(Operation::Pop),
+                    InstrKind::Counted(Operation::GetGlobal, 2),
+                    InstrKind::Bare(Operation::Pop),
                 ],
             ),
             (
+                // JUMP at tokens 2-3 lands one token past its immediate, minus four: token 0.
                 vec![json!(39), json!(-4), json!(35)],
-                vec![Instr::Branch(Operation::Jump), Instr::Bare(Operation::Pop)],
+                vec![
+                    InstrKind::Branch {
+                        op: Operation::Jump,
+                        target: Some(TokenIndex(0)),
+                    },
+                    InstrKind::Bare(Operation::Pop),
+                ],
+            ),
+            (
+                vec![json!(50), json!(2), json!(35)],
+                vec![InstrKind::Try, InstrKind::Bare(Operation::Pop)],
             ),
             (
                 vec![json!(2), json!("toString"), json!(1), json!(35)],
                 vec![
-                    Instr::CallGlobal {
+                    InstrKind::CallGlobal {
                         name: "toString".to_owned(),
                         argc: 1,
                     },
-                    Instr::Bare(Operation::Pop),
+                    InstrKind::Bare(Operation::Pop),
                 ],
             ),
             (
@@ -298,7 +423,15 @@ mod tests {
                     json!(38),
                     json!(35),
                 ],
-                vec![Instr::Callable, Instr::Bare(Operation::Pop)],
+                vec![
+                    InstrKind::Callable {
+                        body: TokenSpan {
+                            start: TokenIndex(7),
+                            end: TokenIndex(9),
+                        },
+                    },
+                    InstrKind::Bare(Operation::Pop),
+                ],
             ),
             (
                 // CLOSURE with two captures consumes four capture tokens.
@@ -311,16 +444,33 @@ mod tests {
                     json!(1),
                     json!(35),
                 ],
-                vec![Instr::Closure, Instr::Bare(Operation::Pop)],
+                vec![InstrKind::Closure, InstrKind::Bare(Operation::Pop)],
             ),
         ];
         for (tokens, expected) in cases {
             assert_eq!(
-                decode(&body(tokens.clone())).unwrap(),
+                kinds(&body(tokens.clone())).unwrap(),
                 expected,
                 "{tokens:?}"
             );
         }
+    }
+
+    /// A forward jump resolves against the instruction pointer one past its immediate, which is how
+    /// the VM adds the offset. Off by one here would land every conditional on the wrong branch.
+    #[test]
+    fn a_jump_target_is_the_token_the_vm_would_reach() {
+        // Header, then JUMP_IF_FALSE +1 at tokens 2-3, FALSE at 4, TRUE at 5.
+        let decoded = decode(&body(vec![json!(40), json!(1), json!(30), json!(29)])).unwrap();
+        assert_eq!(
+            decoded.instrs[0].kind,
+            InstrKind::Branch {
+                op: Operation::JumpIfFalse,
+                target: Some(TokenIndex(5)),
+            }
+        );
+        assert_eq!(decoded.instrs[0].start, TokenIndex(2));
+        assert_eq!(decoded.body_end, TokenIndex(6));
     }
 
     /// Truncation must be an error rather than a short read, in every arity class including the
@@ -383,6 +533,48 @@ mod tests {
         }
     }
 
+    /// A count immediate larger than the whole program is refused at the source. Downstream, these
+    /// counts size allocations, so `u64::MAX` is a capacity-overflow panic and a merely huge value
+    /// is an allocation abort — on the orchestrator's own task, from one catalog row.
+    #[test]
+    fn a_count_immediate_larger_than_the_program_is_refused() {
+        for count in [json!(u64::MAX), json!(4_000_000_000u64), json!(1_000)] {
+            let error = decode(&body(vec![json!(1), count.clone()])).unwrap_err();
+            assert!(
+                matches!(
+                    &error,
+                    DecodeError::MalformedImmediate {
+                        op: Operation::GetGlobal,
+                        ..
+                    }
+                ),
+                "GET_GLOBAL {count} gave {error:?}"
+            );
+        }
+    }
+
+    /// A jump that would land before the start of the array has no landing site, which decode
+    /// records rather than refuses. Refusing it here would fail the whole program over an offset no
+    /// path may even follow; the analysis layer decides that on visit. One past the end is a
+    /// different case again: it is where a jump off the end legitimately lands.
+    #[test]
+    fn a_jump_landing_outside_the_addressable_range_has_no_target() {
+        assert_eq!(
+            kinds(&body(vec![json!(39), json!(-99)])).unwrap(),
+            vec![InstrKind::Branch {
+                op: Operation::Jump,
+                target: None,
+            }]
+        );
+        assert_eq!(
+            kinds(&body(vec![json!(39), json!(0)])).unwrap(),
+            vec![InstrKind::Branch {
+                op: Operation::Jump,
+                target: Some(TokenIndex(4)),
+            }]
+        );
+    }
+
     #[test]
     fn a_token_that_is_not_an_opcode_is_rejected_with_its_position() {
         assert_eq!(
@@ -392,6 +584,39 @@ mod tests {
         assert_eq!(
             decode(&body(vec![json!("bare")])).unwrap_err(),
             DecodeError::NotAnOpcode { ip: 2 }
+        );
+    }
+
+    /// A `CALLABLE` body decodes in place, so its positions and any jump inside it resolve exactly
+    /// as they would when the enclosing program runs.
+    #[test]
+    fn a_callable_body_decodes_at_its_absolute_positions() {
+        let tokens = body(vec![
+            json!(52),
+            json!("f"),
+            json!(0),
+            json!(0),
+            json!(3),
+            json!(32),
+            json!("x"),
+            json!(38),
+        ]);
+        let InstrKind::Callable { body: span } = decode(&tokens).unwrap().instrs[0].kind.clone()
+        else {
+            panic!("the first instruction is not a callable");
+        };
+        let decoded = decode_span(&tokens, span).unwrap();
+        assert_eq!(decoded.instrs[0].start, TokenIndex(7));
+        assert_eq!(
+            decoded
+                .instrs
+                .into_iter()
+                .map(|instr| instr.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                InstrKind::String(Arc::from("x")),
+                InstrKind::Bare(Operation::Return),
+            ]
         );
     }
 
@@ -409,13 +634,13 @@ mod tests {
             DecodeError::MalformedVersion
         );
         // A bare marker is a valid, empty program.
-        assert_eq!(decode(&[json!("_H")]).unwrap(), Vec::new());
-        assert_eq!(decode(&[json!("_H"), json!(1)]).unwrap(), Vec::new());
+        assert_eq!(kinds(&[json!("_H")]).unwrap(), Vec::new());
+        assert_eq!(kinds(&[json!("_H"), json!(1)]).unwrap(), Vec::new());
         // The version slot is consumed even when it holds what looks like an opcode, because the
         // VM consumes it too.
         assert_eq!(
-            decode(&[json!("_H"), json!(35), json!(35)]).unwrap(),
-            vec![Instr::Bare(Operation::Pop)]
+            kinds(&[json!("_H"), json!(35), json!(35)]).unwrap(),
+            vec![InstrKind::Bare(Operation::Pop)]
         );
     }
 }

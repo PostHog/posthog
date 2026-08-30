@@ -19,11 +19,24 @@ use serde_json::{json, Value};
 
 // Opcodes, named so the emitter reads like the compiler's output.
 const OP_GET_GLOBAL: i64 = 1;
+const OP_CALL_GLOBAL: i64 = 2;
 const OP_AND: i64 = 3;
 const OP_OR: i64 = 4;
+const OP_NOT_EQ: i64 = 12;
+const OP_GT_EQ: i64 = 14;
+const OP_LT_EQ: i64 = 16;
+const OP_FALSE: i64 = 30;
+const OP_NULL: i64 = 31;
 const OP_STRING: i64 = 32;
+const OP_INTEGER: i64 = 33;
+const OP_POP: i64 = 35;
+const OP_GET_LOCAL: i64 = 36;
+const OP_SET_LOCAL: i64 = 37;
 const OP_RETURN: i64 = 38;
+const OP_JUMP: i64 = 39;
+const OP_JUMP_IF_FALSE: i64 = 40;
 const OP_TUPLE: i64 = 44;
+const OP_JUMP_IF_STACK_NOT_NULL: i64 = 47;
 
 /// A property key no generated condition ever reads. Every event carries it, so a projection that
 /// leaked the whole property bag instead of the claimed keys would still pass; a projection that
@@ -79,12 +92,42 @@ enum Expr {
         op: CmpOp,
         literal: String,
     },
+    /// `if(isNull(left) or isNull(right), false, left <op> right)`, which is what
+    /// `null_safe_comparisons` turns every `>`, `>=`, `<`, and `<=` into. The cohort API compiles
+    /// with that flag on, so this — not [`Expr::Compare`] — is the shape a date or numeric filter
+    /// actually reaches the seeder as.
+    NullSafeCompare {
+        field: Field,
+        op: CmpOp,
+        literal: String,
+    },
+    /// `ifNull(match(toString(field), pattern), 0)`, how `property.py` compiles a regex filter. The
+    /// `ifNull` lowers to a `JUMP_IF_STACK_NOT_NULL`/`POP` pair, and the two nested calls put
+    /// `CALL_GLOBAL` under the equivalence check rather than under a read-set assertion alone.
+    IfNullRegex {
+        field: Field,
+        pattern: String,
+    },
     InTuple {
         field: Field,
         options: Vec<String>,
     },
     All(Vec<Expr>),
     Any(Vec<Expr>),
+}
+
+/// `field BETWEEN low AND high`, which compiles to an IIFE holding its three operands in local
+/// slots and merging two arms into a result slot.
+///
+/// Kept out of [`Expr`] because the compiler numbers those slots from the frame base, so the shape
+/// is only faithful at the top level of a program. Nesting it inside an `AND` would emit slot
+/// numbers that no longer line up with the stack, which would test the harness's guess rather than
+/// the compiler's output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Between {
+    field: Field,
+    low: i64,
+    high: i64,
 }
 
 /// Emit `expr` the way `posthog/hogql/compiler/bytecode.py` emits it.
@@ -112,9 +155,96 @@ fn emit(expr: &Expr) -> Vec<Value> {
             tokens.push(json!(21));
             tokens
         }
+        Expr::NullSafeCompare { field, op, literal } => {
+            // `or(isNull(left), isNull(right))`, then the `if` that guards the real comparison.
+            let mut tokens = emit_field(field);
+            tokens.extend(emit_call("isNull", 1));
+            tokens.push(json!(OP_STRING));
+            tokens.push(json!(literal));
+            tokens.extend(emit_call("isNull", 1));
+            tokens.push(json!(OP_OR));
+            tokens.push(json!(2));
+
+            let comparison = emit(&Expr::Compare {
+                field: field.clone(),
+                op: *op,
+                literal: literal.clone(),
+            });
+            // The `then` arm is one `FALSE` token, plus the two the `JUMP` over the else takes.
+            tokens.push(json!(OP_JUMP_IF_FALSE));
+            tokens.push(json!(3));
+            tokens.push(json!(OP_FALSE));
+            tokens.push(json!(OP_JUMP));
+            tokens.push(json!(comparison.len() as i64));
+            tokens.extend(comparison);
+            tokens
+        }
+        Expr::IfNullRegex { field, pattern } => {
+            let mut tokens = emit_field(field);
+            tokens.extend(emit_call("toString", 1));
+            tokens.push(json!(OP_STRING));
+            tokens.push(json!(pattern));
+            tokens.extend(emit_call("match", 2));
+            // The null arm is `INTEGER 0`, two tokens, plus the `POP` the jump also skips.
+            tokens.push(json!(OP_JUMP_IF_STACK_NOT_NULL));
+            tokens.push(json!(3));
+            tokens.push(json!(OP_POP));
+            tokens.push(json!(OP_INTEGER));
+            tokens.push(json!(0));
+            tokens
+        }
         Expr::All(exprs) => emit_combined(exprs, OP_AND),
         Expr::Any(exprs) => emit_combined(exprs, OP_OR),
     }
+}
+
+fn emit_call(name: &str, argc: i64) -> Vec<Value> {
+    vec![json!(OP_CALL_GLOBAL), json!(name), json!(argc)]
+}
+
+/// Emit `field BETWEEN low AND high` exactly as `visit_between_expr` does: push a `NULL` result
+/// slot, then the three operands into slots 1-3, null-check them through `GET_LOCAL`, branch, store
+/// the answer into slot 0, and pop the three locals on the way out.
+fn emit_between(between: &Between) -> Vec<Value> {
+    let Between { field, low, high } = between;
+    let mut tokens = vec![json!(OP_NULL)];
+    tokens.extend(emit_field(field));
+    tokens.extend([json!(OP_INTEGER), json!(low)]);
+    tokens.extend([json!(OP_INTEGER), json!(high)]);
+
+    // low != null AND high != null AND expr != null
+    for slot in [2, 3, 1] {
+        tokens.extend([
+            json!(OP_GET_LOCAL),
+            json!(slot),
+            json!(OP_NULL),
+            json!(OP_NOT_EQ),
+        ]);
+    }
+    tokens.extend([json!(OP_AND), json!(3)]);
+
+    // expr >= low AND expr <= high
+    let comparison = vec![
+        json!(OP_GET_LOCAL),
+        json!(2),
+        json!(OP_GET_LOCAL),
+        json!(1),
+        json!(OP_GT_EQ),
+        json!(OP_GET_LOCAL),
+        json!(3),
+        json!(OP_GET_LOCAL),
+        json!(1),
+        json!(OP_LT_EQ),
+        json!(OP_AND),
+        json!(2),
+    ];
+    tokens.push(json!(OP_JUMP_IF_FALSE));
+    tokens.push(json!(comparison.len() as i64 + 2));
+    tokens.extend(comparison);
+    tokens.extend([json!(OP_JUMP), json!(1), json!(OP_FALSE)]);
+    tokens.extend([json!(OP_SET_LOCAL), json!(0)]);
+    tokens.extend([json!(OP_POP), json!(OP_POP), json!(OP_POP)]);
+    tokens
 }
 
 fn emit_combined(exprs: &[Expr], op: i64) -> Vec<Value> {
@@ -141,8 +271,12 @@ fn emit_field(field: &Field) -> Vec<Value> {
 
 /// The loaded form: the header, the program, and the `RETURN` the catalog loader appends.
 fn program(expr: &Expr) -> Vec<Value> {
+    loaded(emit(expr))
+}
+
+fn loaded(body: Vec<Value>) -> Vec<Value> {
     let mut bytecode = vec![json!("_H"), json!(1)];
-    bytecode.extend(emit(expr));
+    bytecode.extend(body);
     bytecode.push(json!(OP_RETURN));
     bytecode
 }
@@ -263,6 +397,15 @@ fn field_strategy() -> impl Strategy<Value = Field> {
     ]
 }
 
+fn ordering_op_strategy() -> impl Strategy<Value = CmpOp> {
+    prop_oneof![
+        Just(CmpOp::Gt),
+        Just(CmpOp::GtEq),
+        Just(CmpOp::Lt),
+        Just(CmpOp::LtEq),
+    ]
+}
+
 fn leaf_strategy() -> impl Strategy<Value = Expr> {
     prop_oneof![
         (
@@ -282,6 +425,22 @@ fn leaf_strategy() -> impl Strategy<Value = Expr> {
                 op,
                 literal: literal.to_owned(),
             }),
+        (
+            field_strategy(),
+            ordering_op_strategy(),
+            prop::sample::select(&VALUES[..]),
+        )
+            .prop_map(|(field, op, literal)| Expr::NullSafeCompare {
+                field,
+                op,
+                literal: literal.to_owned(),
+            }),
+        (field_strategy(), prop::sample::select(&PATTERNS[..])).prop_map(|(field, pattern)| {
+            Expr::IfNullRegex {
+                field,
+                pattern: pattern.to_owned(),
+            }
+        }),
         (
             field_strategy(),
             prop_oneof![Just(CmpOp::Like), Just(CmpOp::ILike), Just(CmpOp::Regex)],
@@ -316,8 +475,17 @@ fn event_strategy() -> impl Strategy<Value = TestEvent> {
     (
         prop::sample::select(&EVENT_NAMES[..]),
         prop::sample::select(&VALUES[..]),
-        prop::collection::vec(prop::sample::select(&VALUES[..]), PROPERTY_KEYS.len()),
-        prop::collection::vec(prop::sample::select(&VALUES[..]), PERSON_KEYS.len()),
+        // A value or nothing per key. An absent key is what makes `isNull` true, so without these
+        // the null-safe comparison would only ever run its else arm and the guard the compiler
+        // wraps every ordering comparison in would go untested in one direction.
+        prop::collection::vec(
+            prop::option::of(prop::sample::select(&VALUES[..])),
+            PROPERTY_KEYS.len(),
+        ),
+        prop::collection::vec(
+            prop::option::of(prop::sample::select(&VALUES[..])),
+            PERSON_KEYS.len(),
+        ),
         prop::sample::select(&VALUES[..]),
         // Half the events leave the elements-chain column empty, which is what makes the globals
         // fall back to `properties.$elements_chain`. Without those cases the fallback the analysis
@@ -329,7 +497,7 @@ fn event_strategy() -> impl Strategy<Value = TestEvent> {
                 let mut properties: BTreeMap<String, String> = PROPERTY_KEYS
                     .iter()
                     .zip(property_values)
-                    .map(|(key, value)| ((*key).to_owned(), value.to_owned()))
+                    .filter_map(|(key, value)| Some(((*key).to_owned(), value?.to_owned())))
                     .collect();
                 // Keys no condition reads. A projection that dropped a claimed key fails; one that
                 // kept these extra keys does not, which is the asymmetry this test wants.
@@ -352,7 +520,7 @@ fn event_strategy() -> impl Strategy<Value = TestEvent> {
                     person_properties: PERSON_KEYS
                         .iter()
                         .zip(person_values)
-                        .map(|(key, value)| ((*key).to_owned(), value.to_owned()))
+                        .filter_map(|(key, value)| Some(((*key).to_owned(), value?.to_owned())))
                         .collect(),
                 }
             },
@@ -386,6 +554,72 @@ proptest! {
             paths.iter().map(ReadPath::render).collect::<Vec<_>>()
         );
     }
+
+    /// The same gate for `BETWEEN`, whose IIFE is the only generated shape that uses local slots.
+    /// A frame-base or slot-indexing mistake would either lose a read or claim one the program
+    /// never makes, and both show up as a disagreement here.
+    #[test]
+    fn a_between_iife_decides_from_its_claimed_read_set(
+        between in between_strategy(),
+        event in event_strategy(),
+    ) {
+        let bytecode = loaded(emit_between(&between));
+        let Projection::Reads(paths) = analyze_condition(&bytecode).projection else {
+            prop_assert!(false, "{between:?} was not narrowed");
+            return Ok(());
+        };
+        let full = evaluate(&bytecode, &event.to_stream_event());
+        let projected = evaluate(&bytecode, &event.projected(&paths));
+        prop_assert_eq!(
+            &full, &projected,
+            "{:?} read {:?} but disagreed once projected",
+            between,
+            paths.iter().map(ReadPath::render).collect::<Vec<_>>()
+        );
+    }
+
+    /// Arbitrary token vectors, to cover the fail-closed contract as a class rather than one
+    /// instance at a time. The generated programs are almost all nonsense, which is the point: the
+    /// analysis is documented as total, and a catalog row is not a trusted input.
+    #[test]
+    fn analyzing_arbitrary_tokens_never_panics(tokens in token_vector_strategy()) {
+        let mut bytecode = vec![json!("_H"), json!(1)];
+        bytecode.extend(tokens);
+        analyze_condition(&bytecode);
+    }
+}
+
+/// Small integers around the opcode range, a few strings, and the hostile immediates: the values a
+/// corrupt or malicious catalog row could actually carry.
+fn token_strategy() -> impl Strategy<Value = Value> {
+    prop_oneof![
+        (0i64..60).prop_map(|number| json!(number)),
+        prop_oneof![
+            Just(json!(-1)),
+            Just(json!(i64::MIN)),
+            Just(json!(u64::MAX)),
+            Just(json!(4_000_000_000u64)),
+        ],
+        prop::sample::select(&["properties", "person", "event", "plan", "", "isNull"][..])
+            .prop_map(|text| json!(text)),
+        Just(json!(null)),
+        Just(json!(true)),
+    ]
+}
+
+/// Deliberately wide. A short cap only catches per-instruction mistakes, and the analysis's costs
+/// are per program: a pass that retained state per instruction was quadratic and allocated
+/// gigabytes on a few hundred tokens, which no 12-token case can reach.
+fn token_vector_strategy() -> impl Strategy<Value = Vec<Value>> {
+    prop::collection::vec(token_strategy(), 0..600)
+}
+
+fn between_strategy() -> impl Strategy<Value = Between> {
+    (field_strategy(), 0i64..12, 0i64..12).prop_map(|(field, low, high)| Between {
+        field,
+        low,
+        high,
+    })
 }
 
 /// The harness has to be able to fail. Dropping one claimed key from the projection must make some
@@ -452,6 +686,92 @@ fn the_emitter_matches_the_compilers_output_for_an_event_equality() {
             json!(1),
             json!(11),
             json!(38),
+        ]
+    );
+}
+
+/// The null-safe emitter must produce what the compiler produces.
+///
+/// Pinned against `isnull_numeric_gte_match.json`, a fixture holding real compiled cohort bytecode,
+/// with only the property key and the literal changed. The `JUMP_IF_FALSE 3` and the `JUMP` over an
+/// else arm exactly as long as the comparison are the two numbers that make the shape a control
+/// flow graph rather than a straight line — an emitter that drifted on either would leave every
+/// generated case testing something the compiler never emits.
+#[test]
+fn the_emitter_matches_the_compilers_null_safe_comparison() {
+    let expr = Expr::NullSafeCompare {
+        field: Field::Property("$screen_height".to_owned()),
+        op: CmpOp::GtEq,
+        literal: "500".to_owned(),
+    };
+    assert_eq!(
+        emit(&expr),
+        vec![
+            json!(32),
+            json!("$screen_height"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(2),
+            json!("isNull"),
+            json!(1),
+            json!(32),
+            json!("500"),
+            json!(2),
+            json!("isNull"),
+            json!(1),
+            json!(4),
+            json!(2),
+            json!(40),
+            json!(3),
+            json!(30),
+            json!(39),
+            json!(9),
+            json!(32),
+            json!("500"),
+            json!(32),
+            json!("$screen_height"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(14),
+        ]
+    );
+}
+
+/// The `ifNull` regex shape, as `property.py` builds it: `ifNull(match(toString(x), p), 0)`. The
+/// jump skips both the `POP` and the two-token null arm, which is what leaves the two paths at the
+/// same stack depth where they meet.
+#[test]
+fn the_emitter_matches_the_compilers_ifnull_regex() {
+    let expr = Expr::IfNullRegex {
+        field: Field::Property("plan".to_owned()),
+        pattern: "a.*".to_owned(),
+    };
+    assert_eq!(
+        emit(&expr),
+        vec![
+            json!(32),
+            json!("plan"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(2),
+            json!("toString"),
+            json!(1),
+            json!(32),
+            json!("a.*"),
+            json!(2),
+            json!("match"),
+            json!(2),
+            json!(47),
+            json!(3),
+            json!(35),
+            json!(33),
+            json!(0),
         ]
     );
 }

@@ -1,9 +1,13 @@
-//! Runs the shared HogVM bytecode corpus through the static analysis.
+//! Runs the shared HogVM bytecode corpus through the static analysis, as a totality check.
 //!
-//! The corpus is general Hog, not cohort filters, so almost every program is expected to fall back
-//! to full columns. That is the point: this asserts totality and determinism, not coverage. A panic
-//! or a hang on real bytecode is what would break the seeder, because the analysis runs on every
-//! condition at run-validation time.
+//! The corpus is general Hog — closures, locals, exception handling — not cohort filters, and none
+//! of its programs touch the globals dict. So this asserts one thing: that the analysis terminates
+//! with an answer on arbitrary real bytecode. A panic or a hang is what would break the seeder,
+//! because the analysis runs on every condition at run-validation time.
+//!
+//! It is deliberately not a coverage corpus, and cannot be read as one. Whether the analysis names
+//! the right globals for a *cohort* condition is `analysis_parity_corpus.rs`'s question, over
+//! compiled cohort bytecode with a recorded oracle verdict.
 
 use cohort_core::hogvm::analysis::{analyze_condition, ConditionAnalysis, Projection, ReadPath};
 use serde_json::Value;
@@ -44,8 +48,8 @@ fn analyzing_the_same_program_twice_gives_the_same_answer() {
 
 /// No corpus program names a global it reads.
 ///
-/// The corpus is general Hog, so its programs split two ways. Most use locals, closures, or
-/// branches, which the linear model refuses, and land on full columns. A few are string-function
+/// The corpus is general Hog, so its programs split two ways. Most use closures or exception
+/// handling, which the model refuses, and land on full columns. The rest are string-function
 /// demonstrations over literals with no `GET_GLOBAL` at all, and those correctly read nothing. What
 /// no program in this corpus can legitimately produce is a read of a named global, because none of
 /// them touch the globals dict. A change that started reporting one here would be inventing reads.

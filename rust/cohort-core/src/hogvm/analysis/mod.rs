@@ -50,6 +50,13 @@ pub enum EvaluationClass {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Projection {
     /// Exactly these paths, and nothing else. Empty means the program reads no globals.
+    ///
+    /// A path names a subtree, not a leaf: `person.properties` claims everything under it, because
+    /// the program may hand that object to a function that indexes it at runtime. A caller
+    /// building a projection has to supply the whole subtree each path names. The analysis never
+    /// returns a bare object root here — [`FullColumnsReason::BarePropertiesRoot`] and
+    /// [`FullColumnsReason::BarePersonRoot`] carry those — so a `Reads` path is always at least one
+    /// key deep under `properties`, `person`, or `pdi`.
     Reads(BTreeSet<ReadPath>),
     /// The read set could not be narrowed, so a caller must supply every column.
     FullColumns(FullColumnsReason),
@@ -75,14 +82,23 @@ impl FullColumnsReason {
             Self::Unanalyzable(reason) => reason.as_str(),
         }
     }
+
+    /// Which opcode stopped the analysis, when one did. See [`UnanalyzableReason::op`].
+    pub fn op(&self) -> Option<Operation> {
+        match self {
+            Self::Unanalyzable(reason) => reason.op(),
+            _ => None,
+        }
+    }
 }
 
-/// Why a program escaped the linear abstract model. Each variant is a closed metric label, so this
+/// Why a program escaped the abstract model. Each variant is a closed metric label, so this
 /// vocabulary is what a census reports on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnanalyzableReason {
     Decode(DecodeError),
-    /// An opcode whose stack effect the linear model does not reproduce, most often a branch.
+    /// An opcode whose effect the model does not reproduce: a frame, a heap write, or an exception
+    /// handler.
     UnsupportedOp(Operation),
     /// A global root outside [`GlobalRoot`], so the program reads something this build cannot name.
     UnknownGlobalRoot(String),
@@ -91,13 +107,29 @@ pub enum UnanalyzableReason {
     StackUnderflow,
     /// `GET_GLOBAL 0`, which the VM itself rejects.
     ZeroLengthGlobalChain,
-    /// Instructions after the terminating `RETURN` that are not themselves `RETURN`.
-    CodeAfterReturn,
+    /// Two paths reached one instruction holding stacks of different depths, so the model has lost
+    /// the layout every later `GET_GLOBAL` depends on.
+    StackDepthMismatch,
+    /// A jump landing inside an instruction rather than on one, which the VM would read as an
+    /// opcode where an immediate is.
+    BadJumpTarget,
+    /// The worklist ran past its step ceiling, so the fixpoint argument does not hold for this
+    /// program. Never expected; it exists so an unforeseen shape is a wide answer, not a hang.
+    IterationBudget,
+    /// The pass would have had to hold more abstract stack state than its ceiling allows. Bounds
+    /// the memory a single condition can cost, whatever its branching shape.
+    StateBudget,
+    /// A local slot outside the current frame, which the VM's own bounds check refuses.
+    LocalSlotOutOfRange,
+    /// A `RETURN` that left values on the stack, meaning a stack effect in the transfer table is
+    /// wrong.
+    UnbalancedReturn,
 }
 
 impl UnanalyzableReason {
     /// A closed, bounded label. The payloads (an opcode, a root name, a decode position) stay out
-    /// of it, so it is safe as a metric dimension however hostile the bytecode is.
+    /// of it, so it is safe as a metric dimension however hostile the bytecode is. Use
+    /// [`Self::op`] for the one payload that is itself bounded.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Decode(_) => "decode",
@@ -106,7 +138,25 @@ impl UnanalyzableReason {
             Self::DynamicGlobalPath => "dynamic_global_path",
             Self::StackUnderflow => "stack_underflow",
             Self::ZeroLengthGlobalChain => "zero_length_global_chain",
-            Self::CodeAfterReturn => "code_after_return",
+            Self::StackDepthMismatch => "stack_depth_mismatch",
+            Self::BadJumpTarget => "bad_jump_target",
+            Self::IterationBudget => "iteration_budget",
+            Self::StateBudget => "state_budget",
+            Self::LocalSlotOutOfRange => "local_slot_out_of_range",
+            Self::UnbalancedReturn => "unbalanced_return",
+        }
+    }
+
+    /// Which opcode stopped the analysis, when one did.
+    ///
+    /// [`Operation`] is a closed 57-variant enum, so this is as bounded as [`Self::as_str`] and
+    /// safe as a second metric dimension — unlike [`Self::UnknownGlobalRoot`]'s payload, which is
+    /// customer-shaped. It is worth carrying because "unsupported_op" alone cannot tell one
+    /// fixable compiler template apart from a genuinely unreadable program.
+    pub fn op(&self) -> Option<Operation> {
+        match self {
+            Self::UnsupportedOp(op) => Some(*op),
+            _ => None,
         }
     }
 }
@@ -267,6 +317,11 @@ mod tests {
     /// Today no standard-library body contains a `GET_GLOBAL`; they work purely on their arguments.
     /// This fails if one ever does, which is the moment `CALL_GLOBAL` would stop being safe to treat
     /// as a plain stack reduction.
+    ///
+    /// A body may itself define a lambda, whose tokens `decode` steps over rather than into —
+    /// `sortableSemver` already does. Those tokens are still code the VM runs against the same
+    /// globals dict, so the scan follows every nested `CALLABLE` body too. Without that, the check
+    /// would pass on exactly the shape it exists to catch.
     #[test]
     fn no_standard_library_function_body_reads_a_global() {
         let module = hogvm::hog_stl();
@@ -275,6 +330,7 @@ mod tests {
             !functions.is_empty(),
             "the standard library is empty, so this check would pass vacuously"
         );
+        let mut nested_bodies_seen = 0;
         for (name, function) in functions {
             // The bodies are raw instruction lists, so give them the header the decoder expects.
             let mut body = vec![json!("_H"), json!(1)];
@@ -283,17 +339,33 @@ mod tests {
                 body.push(token.clone());
                 index += 1;
             }
-            let instrs = decode::decode(&body).unwrap_or_else(|error| {
+            let decoded = decode::decode(&body).unwrap_or_else(|error| {
                 panic!("standard library function {name} did not decode: {error}")
             });
-            assert!(
-                !instrs
-                    .iter()
-                    .any(|instr| matches!(instr, decode::Instr::Counted(Operation::GetGlobal, _))),
-                "standard library function {name} reads a global, so a condition calling it would \
-                 read globals this analysis does not record"
-            );
+            let mut pending = vec![decoded];
+            while let Some(decoded) = pending.pop() {
+                for instr in &decoded.instrs {
+                    assert!(
+                        !matches!(
+                            instr.kind,
+                            decode::InstrKind::Counted(Operation::GetGlobal, _)
+                        ),
+                        "standard library function {name} reads a global, so a condition calling \
+                         it would read globals this analysis does not record"
+                    );
+                    if let decode::InstrKind::Callable { body: span } = instr.kind {
+                        nested_bodies_seen += 1;
+                        pending.push(decode::decode_span(&body, span).unwrap_or_else(|error| {
+                            panic!("a lambda body in {name} did not decode: {error}")
+                        }));
+                    }
+                }
+            }
         }
+        assert!(
+            nested_bodies_seen > 0,
+            "no standard library function defines a lambda, so the recursion is untested"
+        );
     }
 
     #[test]

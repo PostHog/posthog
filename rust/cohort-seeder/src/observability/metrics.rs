@@ -16,11 +16,19 @@ pub const TZ_FALLBACK: &str = "seeder_tz_fallback_total";
 pub const CONDITIONS_DROPPED: &str = "seeder_conditions_dropped_total";
 pub const LOOKBACK_TRUNCATED: &str = "seeder_lookback_truncated_total";
 /// Pinned behavioral conditions by what a static read of their bytecode found, labelled by `class`
-/// (counter). Counted once per run per unique condition hash. Dark: nothing reads the analysis yet,
-/// so this reports what real catalogs look like before anything is built on it.
+/// and `team_id` (counter). Counted once per run per unique condition hash. Dark: nothing reads the
+/// analysis yet, so this reports what real catalogs look like before anything is built on it.
+///
+/// `team_id` is bounded by `REALTIME_COHORT_TEAM_ALLOWLIST` and is here because the question these
+/// counters answer is about one team's catalog; blended across teams they answer nobody's.
 pub const CONDITIONS_CLASSIFIED: &str = "seeder_conditions_classified_total";
-/// Conditions the static read could not narrow, labelled by a closed `reason` (counter). The label
-/// never carries bytecode text.
+/// Conditions the static read could not narrow, labelled by a closed `reason`, the `op` that
+/// stopped it (`none` when no opcode did), and `team_id` (counter).
+///
+/// Both label vocabularies are closed and never carry bytecode text: `reason` by construction, `op`
+/// because it is one of `Operation`'s 57 variant names. The opcode is worth a dimension because one
+/// fixable compiler template and a program nothing will ever narrow otherwise land in the same
+/// `unsupported_op` bucket.
 pub const CONDITIONS_UNANALYZABLE: &str = "seeder_conditions_unanalyzable_total";
 pub const CHUNKS_PLANNED: &str = "seeder_chunks_planned_total";
 pub const CHUNKS_CLAIMED: &str = "seeder_chunks_claimed_total";

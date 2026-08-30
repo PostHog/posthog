@@ -11,15 +11,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use cohort_core::bucket_tz::window_start_for_now;
-use cohort_core::filters::CohortId;
+use cohort_core::filters::{CohortId, TeamId};
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, gauge};
 use sqlx::PgPool;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::domain::{
-    plan_days, ConditionClass, Lookback, PersonRunValidation, PinnedPersonRun, PinnedRun,
-    PinnedWarning, PlanCaps, RunId,
+    plan_days, ConditionAnalyses, ConditionClass, Lookback, PersonRunValidation, PinnedPersonRun,
+    PinnedRun, PinnedWarning, PlanCaps, RunId,
 };
 use crate::observability::metrics::{
     BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_CLASSIFIED,
@@ -398,37 +398,65 @@ async fn persist_run_warning(pool: &PgPool, run_id: RunId, note: RunWarningNote)
     }
 }
 
-/// Publish what a static read of the run's condition bytecode found. Emitted once per run per
-/// stretch, alongside the pinned warnings, so the counters track runs rather than poll ticks.
+/// Publish what a static read of the run's condition bytecode found.
 ///
-/// Nothing consumes the analysis yet. The point is to learn the shape of real catalogs, in
-/// particular what fraction of conditions could be narrowed to a few columns and why the rest
-/// cannot, before any scan is built on it.
+/// The analysis is built here rather than during validation, so it runs exactly once per run per
+/// stretch: this is already behind the `reported_runs` gate, where validation is not. Validation
+/// runs every poll tick, and the decode is the one place the seeder interprets an untrusted catalog
+/// value.
+///
+/// Nothing consumes the analysis yet. The point is to learn the shape of real catalogs before any
+/// scan is built on one: which event names a projection could narrow, and what blocks the rest.
 fn record_condition_census(run_id: RunId, run: &PinnedRun) {
-    let census = run.analyses.census(&run.conditions);
+    let census = ConditionAnalyses::build(&run.conditions, &run.filters).census(&run.conditions);
     if census.total() == 0 {
         return;
     }
     for class in ConditionClass::ALL {
         let count = census.count(class);
         if count > 0 {
-            counter!(CONDITIONS_CLASSIFIED, "class" => class.as_str()).increment(count);
+            counter!(
+                CONDITIONS_CLASSIFIED,
+                "class" => class.as_str(),
+                "team_id" => team_label(run.team_id),
+            )
+            .increment(count);
         }
     }
-    for (reason, count) in &census.unanalyzable_reasons {
-        counter!(CONDITIONS_UNANALYZABLE, "reason" => *reason).increment(*count);
+    for (label, count) in &census.unanalyzable_reasons {
+        counter!(
+            CONDITIONS_UNANALYZABLE,
+            "reason" => label.reason,
+            "op" => label.op.clone().unwrap_or_else(|| Arc::from("none")),
+            "team_id" => team_label(run.team_id),
+        )
+        .increment(*count);
     }
     info!(
         ?run_id,
+        team_id = run.team_id.0,
         conditions = census.total(),
         event_only = census.count(ConditionClass::EventOnly),
         projectable = census.count(ConditionClass::Projectable),
         full_columns = census.count(ConditionClass::FullColumns),
         unanalyzable = census.count(ConditionClass::Unanalyzable),
-        projectable_fraction = census.projectable_fraction(),
-        reads = %census.render_reads(),
+        property_projectable_fraction = census.property_projectable_fraction(),
+        eligible_events = census.projection_eligible_event_names().len(),
+        blocked_events = %census.render_blocked_events(),
         "condition bytecode analysis census",
     );
+    // The read sets carry customer-defined event names and property keys, and run to several
+    // kilobytes on a large catalog. Values are never included, but the keys alone are enough to
+    // keep this off the default level.
+    debug!(?run_id, reads = %census.render_reads(), "condition bytecode analysis reads");
+}
+
+/// The team a census belongs to, as a metric label. Bounded by
+/// `REALTIME_COHORT_TEAM_ALLOWLIST`: discovery only ever surfaces runs for allowlisted teams, so
+/// this cannot grow with the customer base. It is here because the deliverable is one team's
+/// number, which a blended counter cannot give.
+fn team_label(team_id: TeamId) -> Arc<str> {
+    Arc::from(team_id.0.to_string().as_str())
 }
 
 fn record_pinned_warnings(warnings: &[PinnedWarning]) {

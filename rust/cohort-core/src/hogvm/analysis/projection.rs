@@ -1,47 +1,131 @@
-//! A linear abstract interpreter over decoded instructions, producing the set of globals a
+//! An abstract interpreter over the decoded control-flow graph, producing the set of globals a
 //! condition reads.
 //!
 //! The abstract domain has two values: a compile-time literal string, and everything else. That is
 //! all `GET_GLOBAL` needs, because it builds its path from literal strings the compiler pushed and
 //! nothing else can reach the globals dict.
 //!
-//! The model is linear: instructions run in order with one abstract stack, no branch merging. That
-//! is sound only while no instruction changes the instruction pointer, so every branch, call, and
-//! local-slot opcode is refused rather than approximated. A wrong stack alignment would misread
-//! which literals a later `GET_GLOBAL` pops, and quietly claim the wrong read set.
+//! Branches are followed rather than refused. A worklist carries an abstract stack along each path;
+//! where paths meet, the stacks are joined cell by cell, and the pass repeats until nothing
+//! changes. That matters because the cohort compiler lowers the ordinary operators through jumps:
+//! `null_safe_comparisons` rewrites every `>`/`>=`/`<`/`<=` into an `if`, regex goes through
+//! `ifNull`, and `between` compiles to a local-slot IIFE. Refusing branches would report almost
+//! every date and regex condition as unreadable.
+//!
+//! Only instructions more than one edge can reach hold a stored stack, and a straight-line run is
+//! walked in place with one stack rather than through the worklist. Both matter for cost, not
+//! elegance: a `properties.x IN (...)` leaf pushes every list element before `IN` pops them, and
+//! catalogs hold lists of several thousand. Storing and copying a stack per instruction over that
+//! is quadratic in the program's own length, which on the largest real list size meant seconds of
+//! blocking and over a gigabyte, for a program the VM evaluates in kilobytes.
+//!
+//! The pass stays fail-closed everywhere it is not sure. Two paths that meet at different stack
+//! depths, a jump into the middle of an instruction, a local slot outside the frame, or a `RETURN`
+//! that leaves the stack unbalanced all stop the analysis and widen the condition to every column.
+//! Reads accumulate globally rather than per instruction, so a join can never retract one.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
+use std::sync::Arc;
 
 use hogvm::Operation;
 use serde_json::Value;
 
-use super::decode::{decode, Instr};
+use super::decode::{decode, Decoded, InstrIndex, InstrKind, TokenIndex};
 use super::{FullColumnsReason, GlobalRoot, Projection, ReadPath, UnanalyzableReason};
 
 /// `elements_chain` falls back to this property when the event's own column is empty, so a caller
 /// that projects an `elements_chain` read must carry it too.
 const ELEMENTS_CHAIN_PROPERTY: &str = "$elements_chain";
 
+/// A ceiling on transfer steps, so a program the lattice argument does not cover cannot hang the
+/// caller. The fixpoint is reached far sooner: a merge point's stack can only move upward, one cell
+/// at a time, so the work is quadratic in the program length at worst and this only fires if that
+/// reasoning is wrong.
+const MAX_WORKLIST_STEPS: usize = 1_000_000;
+
+/// A ceiling on the abstract stack cells the pass holds at once, across stored merge-point states
+/// and the worklist together.
+///
+/// The pass would otherwise be quadratic in a shape production already writes: a `properties.x IN
+/// (...)` leaf pushes every list element before `IN` pops them, and catalogs hold lists of several
+/// thousand. Storing one stack per instruction across such a program is cells proportional to the
+/// square of its length. Merge-point gating removes that for straight-line code; this bounds what
+/// is left, so a shape nobody predicted costs a wide answer rather than the process.
+const MAX_RETAINED_CELLS: usize = 1_000_000;
+
+/// Which instructions more than one edge can reach.
+///
+/// The successor sets are the transfer function's, over-approximated: a conditional jump is counted
+/// as reaching both of its edges even where the interpreter later finds only one live, and a refused
+/// opcode is counted as falling through. Over-approximating only turns more instructions into merge
+/// points, which costs memory and never correctness — while under-approximating would drop a join
+/// and let the pass read a stack no path actually produces.
+fn merge_points(decoded: &Decoded, starts: &[TokenIndex]) -> Vec<bool> {
+    let mut in_degree = vec![0_u32; decoded.instrs.len()];
+    if in_degree.is_empty() {
+        return Vec::new();
+    }
+    // The program is entered at its first instruction, which is an edge like any other: a backward
+    // jump onto it must make it a merge point rather than overwrite the entry state.
+    in_degree[0] = 1;
+    for (index, instr) in decoded.instrs.iter().enumerate() {
+        let falls_through = !matches!(
+            instr.kind,
+            InstrKind::Bare(Operation::Return)
+                | InstrKind::Branch {
+                    op: Operation::Jump,
+                    ..
+                }
+        );
+        if falls_through && index + 1 < in_degree.len() {
+            in_degree[index + 1] = in_degree[index + 1].saturating_add(1);
+        }
+        if let InstrKind::Branch {
+            target: Some(target),
+            ..
+        } = instr.kind
+        {
+            if let Ok(landed) = starts.binary_search(&target) {
+                in_degree[landed] = in_degree[landed].saturating_add(1);
+            }
+        }
+    }
+    in_degree.into_iter().map(|degree| degree >= 2).collect()
+}
+
 /// One cell of the abstract stack.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum AbstractValue {
     /// A string literal the compiler pushed, which a `GET_GLOBAL` path may be built from.
-    LiteralString(String),
+    LiteralString(Arc<str>),
     /// A value the model cannot name.
     Opaque,
 }
 
+impl AbstractValue {
+    /// The join of two cells. Two identical literals stay a literal; anything else is the top of
+    /// the two-value lattice, which is what makes the fixpoint terminate.
+    fn join(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::LiteralString(left), Self::LiteralString(right)) if left == right => {
+                Self::LiteralString(Arc::clone(left))
+            }
+            _ => Self::Opaque,
+        }
+    }
+}
+
+type AbstractStack = Vec<AbstractValue>;
+
 pub(super) fn project(bytecode: &[Value]) -> Projection {
-    let instrs = match decode(bytecode) {
-        Ok(instrs) => instrs,
+    let decoded = match decode(bytecode) {
+        Ok(decoded) => decoded,
         Err(error) => return full_columns(UnanalyzableReason::Decode(error)),
     };
-    match Interpreter::default().run(&instrs) {
+    match Interpreter::new(&decoded).run() {
         Ok(reads) => Projection::Reads(reads),
-        Err(stop) => match stop {
-            Stop::Unanalyzable(reason) => full_columns(reason),
-            Stop::BareRoot(reason) => Projection::FullColumns(reason),
-        },
+        Err(Stop::Unanalyzable(reason)) => full_columns(reason),
+        Err(Stop::BareRoot(reason)) => Projection::FullColumns(reason),
     }
 }
 
@@ -56,76 +140,275 @@ enum Stop {
     BareRoot(FullColumnsReason),
 }
 
-#[derive(Default)]
-struct Interpreter {
-    stack: Vec<AbstractValue>,
-    reads: BTreeSet<ReadPath>,
+/// What an instruction does to control flow, after its own stack effect has been applied. Both
+/// conditional jumps produce [`Control::Fork`]: they differ in whether they pop, and that
+/// difference is already spent by the time the successors are computed, so the two edges out of
+/// either one carry the same stack.
+enum Control {
+    /// The program ends on this path.
+    Terminate,
+    /// Continue with the next instruction.
+    Fall,
+    /// Continue at one specific token. `None` is a jump the decoder could not resolve, which
+    /// fails closed here rather than at decode, so a dead one costs nothing.
+    Jump(Option<TokenIndex>),
+    /// Continue at the next instruction and at one specific token.
+    Fork(Option<TokenIndex>),
 }
 
-impl Interpreter {
-    fn run(mut self, instrs: &[Instr]) -> Result<BTreeSet<ReadPath>, Stop> {
-        for (index, instr) in instrs.iter().enumerate() {
-            if self.step(instr)? == Flow::Returned {
-                // The catalog loader appends a `RETURN`, and a program that already ended in one
-                // then carries two. Trailing `RETURN`s are therefore expected; anything else after
-                // the first one means the linear reading was wrong about where the program ends.
-                return match instrs[index + 1..]
-                    .iter()
-                    .all(|rest| matches!(rest, Instr::Bare(Operation::Return)))
-                {
-                    true => Ok(self.reads),
-                    false => Err(Stop::Unanalyzable(UnanalyzableReason::CodeAfterReturn)),
+struct Interpreter<'a> {
+    decoded: &'a Decoded,
+    /// The token each instruction starts at, so a jump target resolves to an instruction. Linear
+    /// rather than a map: programs are short, and this keeps the lookup allocation-free.
+    starts: Vec<TokenIndex>,
+    /// Which instructions more than one edge can reach. Only those need a stored stack to join
+    /// into; the rest have a single predecessor, so their incoming stack is already the joined one
+    /// and is handed straight to them on the worklist.
+    merge_points: Vec<bool>,
+    /// The joined stack every path into a merge point agrees on. Always `None` for the rest, so a
+    /// straight-line program stores nothing at all.
+    entry: Vec<Option<AbstractStack>>,
+    /// Stack cells alive in `entry` and on the worklist together. Bounding this is what keeps the
+    /// pass's memory a function of the program's branching rather than of its length.
+    retained: usize,
+    /// Accumulated across every visit and never retracted. Held outside the per-instruction state
+    /// on purpose: a join that narrowed a read set could make the analysis claim fewer globals
+    /// than the program touches, which is the one failure this module must not have.
+    reads: BTreeSet<ReadPath>,
+    worklist: VecDeque<(InstrIndex, AbstractStack)>,
+}
+
+impl<'a> Interpreter<'a> {
+    fn new(decoded: &'a Decoded) -> Self {
+        let starts: Vec<TokenIndex> = decoded.instrs.iter().map(|instr| instr.start).collect();
+        Self {
+            merge_points: merge_points(decoded, &starts),
+            starts,
+            decoded,
+            entry: vec![None; decoded.instrs.len()],
+            retained: 0,
+            reads: BTreeSet::new(),
+            worklist: VecDeque::new(),
+        }
+    }
+
+    fn run(mut self) -> Result<BTreeSet<ReadPath>, Stop> {
+        if self.decoded.instrs.is_empty() {
+            return Ok(self.reads);
+        }
+        self.enqueue(InstrIndex(0), AbstractStack::new());
+
+        let count = self.decoded.instrs.len();
+        // Every instruction is re-processed once per widening of a merge point upstream of it, and
+        // a merge point widens at most once per stack cell. The quadratic term covers that; the
+        // factor is headroom, so a legitimate program never reports the budget instead of an answer.
+        let budget = count
+            .checked_mul(count + 1)
+            .and_then(|product| product.checked_mul(4))
+            .unwrap_or(MAX_WORKLIST_STEPS)
+            .min(MAX_WORKLIST_STEPS);
+        let mut steps = 0;
+
+        while let Some((InstrIndex(entry_index), stack)) = self.worklist.pop_front() {
+            self.retained -= stack.len();
+            let mut index = entry_index;
+            let mut stack = stack;
+            // Walk the straight-line run out of this instruction in place. Handing each step back
+            // through the worklist would copy the whole stack per instruction, which is a copy per
+            // element of a large `IN` list — quadratic in the program's own length.
+            loop {
+                steps += 1;
+                if steps > budget {
+                    return Err(Stop::Unanalyzable(UnanalyzableReason::IterationBudget));
+                }
+                if self.retained + stack.len() > MAX_RETAINED_CELLS {
+                    return Err(Stop::Unanalyzable(UnanalyzableReason::StateBudget));
+                }
+                let next = match self.transfer(index, &mut stack)? {
+                    Control::Terminate => break,
+                    Control::Fall => self.next_index(index),
+                    Control::Jump(target) => self.target_index(target)?,
+                    Control::Fork(target) => {
+                        // Two live successors, so neither can take the stack by value.
+                        self.propagate_next(index, &stack)?;
+                        self.propagate_token(target, &stack)?;
+                        break;
+                    }
                 };
+                let Some(next) = next else {
+                    break;
+                };
+                if self.merge_points[next] {
+                    self.propagate(InstrIndex(next), &stack)?;
+                    break;
+                }
+                index = next;
             }
         }
         Ok(self.reads)
     }
 
-    fn step(&mut self, instr: &Instr) -> Result<Flow, Stop> {
-        match instr {
-            Instr::String(literal) => {
-                self.stack
-                    .push(AbstractValue::LiteralString(literal.clone()));
-                Ok(Flow::Continue)
-            }
-            Instr::Number(_) => self.push_opaque(),
-            Instr::Counted(op, count) => self.step_counted(op, *count),
-            // Any callee name is projection-safe. A native consumes stack values and cannot reach
-            // the globals dict, which is what keeps `toDateTime(timestamp) > x` projectable.
-            Instr::CallGlobal { argc, .. } => self.reduce(*argc),
-            Instr::Bare(op) => self.step_bare(op),
-            // A branch would make the linear stack wrong from here on, and a callable or closure
-            // introduces a frame the model has no notion of.
-            Instr::Branch(op) => Err(unsupported(op)),
-            Instr::Callable => Err(unsupported(&Operation::Callable)),
-            Instr::Closure => Err(unsupported(&Operation::Closure)),
+    fn enqueue(&mut self, index: InstrIndex, stack: AbstractStack) {
+        self.retained += stack.len();
+        self.worklist.push_back((index, stack));
+    }
+
+    /// The instruction after `index`, or `None` at the end of the program. Running off the end is
+    /// the program stopping, exactly as the VM's step loop stops when its instruction pointer
+    /// leaves the body.
+    fn next_index(&self, index: usize) -> Option<usize> {
+        (index + 1 < self.decoded.instrs.len()).then_some(index + 1)
+    }
+
+    /// The instruction a jump lands on, or `None` when it lands one past the last token — a jump
+    /// off the end, which terminates.
+    fn target_index(&self, target: Option<TokenIndex>) -> Result<Option<usize>, Stop> {
+        let Some(target) = target else {
+            return Err(Stop::Unanalyzable(UnanalyzableReason::BadJumpTarget));
+        };
+        if target == self.decoded.body_end {
+            return Ok(None);
+        }
+        self.starts
+            .binary_search(&target)
+            .map(Some)
+            .map_err(|_| Stop::Unanalyzable(UnanalyzableReason::BadJumpTarget))
+    }
+
+    fn propagate_next(&mut self, index: usize, stack: &AbstractStack) -> Result<(), Stop> {
+        if let Some(next) = self.next_index(index) {
+            self.propagate(InstrIndex(next), stack)?;
+        }
+        Ok(())
+    }
+
+    /// Continue at a jump target. A target that is neither an instruction boundary nor the end of
+    /// the program fails closed: the VM would read an immediate as an opcode there.
+    fn propagate_token(
+        &mut self,
+        target: Option<TokenIndex>,
+        stack: &AbstractStack,
+    ) -> Result<(), Stop> {
+        match self.target_index(target)? {
+            Some(index) => self.propagate(InstrIndex(index), stack),
+            None => Ok(()),
         }
     }
 
-    fn step_counted(&mut self, op: &Operation, count: usize) -> Result<Flow, Stop> {
-        match op {
-            Operation::GetGlobal => self.get_global(count),
-            // A dict consumes a key and a value per entry.
-            Operation::Dict => self.reduce(count.saturating_mul(2)),
-            Operation::And | Operation::Or | Operation::Array | Operation::Tuple => {
-                self.reduce(count)
+    fn propagate(
+        &mut self,
+        InstrIndex(index): InstrIndex,
+        stack: &AbstractStack,
+    ) -> Result<(), Stop> {
+        if self.retained > MAX_RETAINED_CELLS {
+            return Err(Stop::Unanalyzable(UnanalyzableReason::StateBudget));
+        }
+        // A single-predecessor instruction has nothing to join against, so its stack goes straight
+        // onto the worklist and is never stored. That is what keeps a long straight-line program —
+        // the shape a large `IN` list compiles to — from retaining one stack per instruction.
+        if !self.merge_points[index] {
+            self.enqueue(InstrIndex(index), stack.clone());
+            return Ok(());
+        }
+        match &self.entry[index] {
+            None => {
+                self.retained += stack.len();
+                self.entry[index] = Some(stack.clone());
+                self.enqueue(InstrIndex(index), stack.clone());
+                Ok(())
             }
-            // Local and upvalue slots read and write stack positions the linear model does not
-            // track, so their effect on later `GET_GLOBAL` alignment is unknown.
-            Operation::GetLocal
-            | Operation::SetLocal
-            | Operation::GetUpvalue
-            | Operation::SetUpvalue
-            | Operation::CallLocal => Err(unsupported(op)),
+            Some(existing) => {
+                // Two paths reaching one instruction with different stack depths means the model
+                // has lost track of the layout, and every later `GET_GLOBAL` would pop the wrong
+                // cells. There is no join that recovers from it, so the program fails closed.
+                if existing.len() != stack.len() {
+                    return Err(Stop::Unanalyzable(UnanalyzableReason::StackDepthMismatch));
+                }
+                let joined: AbstractStack = existing
+                    .iter()
+                    .zip(stack)
+                    .map(|(left, right)| left.join(right))
+                    .collect();
+                if joined != *existing {
+                    self.entry[index] = Some(joined.clone());
+                    self.enqueue(InstrIndex(index), joined);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn transfer(&mut self, index: usize, stack: &mut AbstractStack) -> Result<Control, Stop> {
+        match &self.decoded.instrs[index].kind {
+            InstrKind::String(literal) => {
+                stack.push(AbstractValue::LiteralString(Arc::clone(literal)));
+                Ok(Control::Fall)
+            }
+            InstrKind::Number(_) => push_opaque(stack),
+            InstrKind::Counted(op, count) => self.counted(*op, *count, stack),
+            // Any callee name is projection-safe. A native consumes stack values and cannot reach
+            // the globals dict, which is what keeps `toDateTime(timestamp) > x` projectable.
+            InstrKind::CallGlobal { argc, .. } => reduce(stack, *argc),
+            InstrKind::Bare(op) => self.bare(*op, stack),
+            InstrKind::Branch { op, target } => branch(*op, *target, stack),
+            // A callable or closure introduces a frame the model has no notion of, and `TRY`
+            // installs a handler that can enter one from anywhere. Refused on visit, so an
+            // occurrence in code no path reaches costs nothing.
+            InstrKind::Callable { .. } => Err(unsupported(Operation::Callable)),
+            InstrKind::Closure => Err(unsupported(Operation::Closure)),
+            InstrKind::Try => Err(unsupported(Operation::Try)),
+        }
+    }
+
+    fn counted(
+        &mut self,
+        op: Operation,
+        count: usize,
+        stack: &mut AbstractStack,
+    ) -> Result<Control, Stop> {
+        match op {
+            Operation::GetGlobal => self.get_global(count, stack),
+            Operation::Dict => reduce(stack, count.saturating_mul(2)),
+            // The compiler emits `AND n` / `OR n` rather than a jump-form short circuit, so these
+            // stay plain reductions.
+            Operation::And | Operation::Or | Operation::Array | Operation::Tuple => {
+                reduce(stack, count)
+            }
+            // The frame base is zero: `CALLABLE`, `CLOSURE`, and `CALL_LOCAL` are all refused, so
+            // no path reaching here has pushed a frame, and a slot offset indexes the stack
+            // directly. That is what makes the `between` IIFE readable.
+            Operation::GetLocal => {
+                let value = stack
+                    .get(count)
+                    .ok_or(Stop::Unanalyzable(UnanalyzableReason::LocalSlotOutOfRange))?
+                    .clone();
+                stack.push(value);
+                Ok(Control::Fall)
+            }
+            Operation::SetLocal => {
+                let value = pop(stack)?;
+                // The VM pops before it indexes, so a slot equal to the post-pop depth is out of
+                // range there too.
+                let slot = stack
+                    .get_mut(count)
+                    .ok_or(Stop::Unanalyzable(UnanalyzableReason::LocalSlotOutOfRange))?;
+                *slot = value;
+                Ok(Control::Fall)
+            }
+            // Upvalue slots address a closure's captured environment, which only the refused frame
+            // opcodes create.
+            Operation::GetUpvalue | Operation::SetUpvalue | Operation::CallLocal => {
+                Err(unsupported(op))
+            }
             // `decode` builds `Counted` only from the opcodes above.
             other => Err(unsupported(other)),
         }
     }
 
-    fn step_bare(&mut self, op: &Operation) -> Result<Flow, Stop> {
+    fn bare(&mut self, op: Operation, stack: &mut AbstractStack) -> Result<Control, Stop> {
         match op {
-            Operation::True | Operation::False | Operation::Null => self.push_opaque(),
-            Operation::Not => self.reduce(1),
+            Operation::True | Operation::False | Operation::Null => push_opaque(stack),
+            Operation::Not => reduce(stack, 1),
             Operation::Plus
             | Operation::Minus
             | Operation::Mult
@@ -148,18 +431,26 @@ impl Interpreter {
             | Operation::Iregex
             | Operation::NotIregex
             | Operation::GetProperty
-            | Operation::GetPropertyNullish => self.reduce(2),
+            | Operation::GetPropertyNullish => reduce(stack, 2),
             Operation::Pop => {
-                self.pop()?;
-                Ok(Flow::Continue)
+                pop(stack)?;
+                Ok(Control::Fall)
             }
             Operation::Return => {
-                self.pop()?;
-                Ok(Flow::Returned)
+                pop(stack)?;
+                // The root frame's `RETURN` leaves nothing behind: the compiler emits one
+                // expression, and every scope pops its own locals first. Junk left here means a
+                // stack effect in the transfer table is wrong, and the next `GET_GLOBAL` would pop
+                // the wrong cells — so this turns a silent misread into a wide answer.
+                if stack.is_empty() {
+                    Ok(Control::Terminate)
+                } else {
+                    Err(Stop::Unanalyzable(UnanalyzableReason::UnbalancedReturn))
+                }
             }
             // `SET_PROPERTY` mutates the heap, which the model does not represent; the cohort
             // opcodes read membership state that is not in the globals dict at all; the exception
-            // opcodes move the instruction pointer.
+            // opcodes move the instruction pointer to a handler this pass does not track.
             Operation::SetProperty
             | Operation::InCohort
             | Operation::NotInCohort
@@ -173,15 +464,20 @@ impl Interpreter {
     }
 
     /// `GET_GLOBAL` pops its path root first, because the compiler pushes the chain reversed.
-    fn get_global(&mut self, count: usize) -> Result<Flow, Stop> {
+    fn get_global(&mut self, count: usize, stack: &mut AbstractStack) -> Result<Control, Stop> {
         if count == 0 {
             return Err(Stop::Unanalyzable(
                 UnanalyzableReason::ZeroLengthGlobalChain,
             ));
         }
+        // Checked before the allocation, not during the pops: `Vec::with_capacity` on an
+        // out-of-range count aborts the process rather than returning.
+        if count > stack.len() {
+            return Err(Stop::Unanalyzable(UnanalyzableReason::StackUnderflow));
+        }
         let mut chain = Vec::with_capacity(count);
         for _ in 0..count {
-            match self.pop()? {
+            match pop(stack)? {
                 AbstractValue::LiteralString(segment) => chain.push(segment),
                 AbstractValue::Opaque => {
                     return Err(Stop::Unanalyzable(UnanalyzableReason::DynamicGlobalPath))
@@ -191,17 +487,18 @@ impl Interpreter {
         let (root_name, segments) = chain.split_first().expect("count is non-zero");
         let Some(root) = GlobalRoot::parse(root_name) else {
             return Err(Stop::Unanalyzable(UnanalyzableReason::UnknownGlobalRoot(
-                root_name.clone(),
+                root_name.to_string(),
             )));
         };
-        // A bare `properties` or `person` hands the whole object to whatever consumes it, so which
-        // keys are read is decided at runtime and cannot be narrowed here.
+        // A bare `properties`, `person`, or `pdi` hands a whole object to whatever consumes it, so
+        // which keys are read is decided at runtime and cannot be narrowed here. `pdi` counts
+        // because the globals build it as a copy of the whole person tree.
         if segments.is_empty() {
             match root {
                 GlobalRoot::Properties => {
                     return Err(Stop::BareRoot(FullColumnsReason::BarePropertiesRoot))
                 }
-                GlobalRoot::Person => {
+                GlobalRoot::Person | GlobalRoot::Pdi => {
                     return Err(Stop::BareRoot(FullColumnsReason::BarePersonRoot))
                 }
                 _ => {}
@@ -215,39 +512,58 @@ impl Interpreter {
                 vec![ELEMENTS_CHAIN_PROPERTY.to_owned()],
             ));
         }
-        self.reads.insert(ReadPath::new(root, segments.to_vec()));
-        self.push_opaque()
+        let segments = segments.iter().map(|segment| segment.to_string()).collect();
+        self.reads.insert(ReadPath::new(root, segments));
+        push_opaque(stack)
     }
+}
 
-    /// Consume `count` operands and leave one unnameable result.
-    fn reduce(&mut self, count: usize) -> Result<Flow, Stop> {
-        for _ in 0..count {
-            self.pop()?;
+fn branch(
+    op: Operation,
+    target: Option<TokenIndex>,
+    stack: &mut AbstractStack,
+) -> Result<Control, Stop> {
+    match op {
+        Operation::Jump => Ok(Control::Jump(target)),
+        // The condition is popped before the branch is taken, so both edges continue from the same
+        // stack.
+        Operation::JumpIfFalse => {
+            pop(stack)?;
+            Ok(Control::Fork(target))
         }
-        self.push_opaque()
-    }
-
-    fn push_opaque(&mut self) -> Result<Flow, Stop> {
-        self.stack.push(AbstractValue::Opaque);
-        Ok(Flow::Continue)
-    }
-
-    fn pop(&mut self) -> Result<AbstractValue, Stop> {
-        self.stack
-            .pop()
-            .ok_or(Stop::Unanalyzable(UnanalyzableReason::StackUnderflow))
+        // This one peeks and never pops, on either edge. On an empty stack the VM cannot read a
+        // top value, so it silently falls through — and modelling the jump anyway would merge two
+        // paths at different depths and fail a program the VM runs fine.
+        Operation::JumpIfStackNotNull => Ok(match stack.is_empty() {
+            true => Control::Fall,
+            false => Control::Fork(target),
+        }),
+        // `decode` builds `Branch` only from the opcodes above.
+        other => Err(unsupported(other)),
     }
 }
 
-/// Whether the program continues after an instruction, or has returned.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Flow {
-    Continue,
-    Returned,
+/// Consume `count` operands and leave one unnameable result.
+fn reduce(stack: &mut AbstractStack, count: usize) -> Result<Control, Stop> {
+    for _ in 0..count {
+        pop(stack)?;
+    }
+    push_opaque(stack)
 }
 
-fn unsupported(op: &Operation) -> Stop {
-    Stop::Unanalyzable(UnanalyzableReason::UnsupportedOp(op.clone()))
+fn push_opaque(stack: &mut AbstractStack) -> Result<Control, Stop> {
+    stack.push(AbstractValue::Opaque);
+    Ok(Control::Fall)
+}
+
+fn pop(stack: &mut AbstractStack) -> Result<AbstractValue, Stop> {
+    stack
+        .pop()
+        .ok_or(Stop::Unanalyzable(UnanalyzableReason::StackUnderflow))
+}
+
+fn unsupported(op: Operation) -> Stop {
+    Stop::Unanalyzable(UnanalyzableReason::UnsupportedOp(op))
 }
 
 #[cfg(test)]
@@ -277,7 +593,11 @@ mod tests {
     }
 
     fn reads(tokens: Vec<Value>) -> Vec<String> {
-        match project(&program(tokens)) {
+        reads_of(&program(tokens))
+    }
+
+    fn reads_of(bytecode: &[Value]) -> Vec<String> {
+        match project(bytecode) {
             Projection::Reads(paths) => paths.iter().map(ReadPath::render).collect(),
             other => panic!("expected reads, got {other:?}"),
         }
@@ -287,6 +607,13 @@ mod tests {
         match project(&program(tokens)) {
             Projection::FullColumns(reason) => reason,
             other => panic!("expected full columns, got {other:?}"),
+        }
+    }
+
+    fn unanalyzable(tokens: Vec<Value>) -> UnanalyzableReason {
+        match full_columns_reason(tokens) {
+            FullColumnsReason::Unanalyzable(reason) => reason,
+            other => panic!("expected an unanalyzable reason, got {other:?}"),
         }
     }
 
@@ -320,16 +647,22 @@ mod tests {
         );
     }
 
-    /// Handing the whole `properties` or `person` object to something decides its keys at runtime.
-    /// These are ordinary programs, so they are reported as bare roots rather than as failures.
+    /// Handing a whole `properties`, `person`, or `pdi` object to something decides its keys at
+    /// runtime. These are ordinary programs, so they are reported as bare roots rather than as
+    /// failures. `pdi` is a copy of the whole person tree, so a claimed read of it alone would look
+    /// narrow while needing every person column.
     #[test]
-    fn a_bare_properties_or_person_root_widens_to_every_column() {
+    fn a_bare_object_root_widens_to_every_column() {
         assert_eq!(
             full_columns_reason(read(&["properties"])),
             FullColumnsReason::BarePropertiesRoot
         );
         assert_eq!(
             full_columns_reason(read(&["person"])),
+            FullColumnsReason::BarePersonRoot
+        );
+        assert_eq!(
+            full_columns_reason(read(&["pdi"])),
             FullColumnsReason::BarePersonRoot
         );
     }
@@ -361,8 +694,8 @@ mod tests {
         assert_eq!(reads(tokens), ["properties.a", "properties.b"]);
     }
 
-    /// A path segment computed at runtime, an unmodeled root, a branch, and garbage all have to
-    /// fail closed, each naming what stopped the analysis.
+    /// A path segment computed at runtime, an unmodeled root, an unmodeled opcode, and garbage all
+    /// have to fail closed, each naming what stopped the analysis.
     #[test]
     fn unmodeled_programs_fail_closed_with_their_reason() {
         // `properties[someValue]`: the segment on the stack is not a literal.
@@ -374,51 +707,247 @@ mod tests {
             json!(1),
             json!(2),
         ];
+        assert_eq!(unanalyzable(dynamic), UnanalyzableReason::DynamicGlobalPath);
         assert_eq!(
-            full_columns_reason(dynamic),
-            FullColumnsReason::Unanalyzable(UnanalyzableReason::DynamicGlobalPath)
+            unanalyzable(read(&["session"])),
+            UnanalyzableReason::UnknownGlobalRoot("session".to_owned())
         );
         assert_eq!(
-            full_columns_reason(read(&["session"])),
-            FullColumnsReason::Unanalyzable(UnanalyzableReason::UnknownGlobalRoot(
-                "session".to_owned()
-            ))
+            unanalyzable(vec![json!(1), json!(0)]),
+            UnanalyzableReason::ZeroLengthGlobalChain
+        );
+        // A `TRY` installs a handler this pass does not follow.
+        assert_eq!(
+            unanalyzable(vec![json!(50), json!(1), json!(29)]),
+            UnanalyzableReason::UnsupportedOp(Operation::Try)
         );
         assert_eq!(
-            full_columns_reason(vec![json!(1), json!(0)]),
-            FullColumnsReason::Unanalyzable(UnanalyzableReason::ZeroLengthGlobalChain)
-        );
-        assert_eq!(
-            full_columns_reason(vec![json!(40), json!(2), json!(29)]),
-            FullColumnsReason::Unanalyzable(UnanalyzableReason::UnsupportedOp(
-                Operation::JumpIfFalse
-            ))
-        );
-        assert_eq!(
-            full_columns_reason(vec![json!(11)]),
-            FullColumnsReason::Unanalyzable(UnanalyzableReason::StackUnderflow)
+            unanalyzable(vec![json!(11)]),
+            UnanalyzableReason::StackUnderflow
         );
         assert!(matches!(
-            full_columns_reason(vec![json!(99)]),
-            FullColumnsReason::Unanalyzable(UnanalyzableReason::Decode(_))
+            unanalyzable(vec![json!(99)]),
+            UnanalyzableReason::Decode(_)
         ));
     }
 
-    /// The loader appends a `RETURN` to bytecode that may already end in one, so a repeated
-    /// trailing `RETURN` is normal. Real instructions after the first `RETURN` are not: reaching
-    /// them means the linear reading was wrong about where the program ends.
+    /// The `if(cond, a, b)` shape the compiler emits for `null_safe_comparisons`. Both arms are
+    /// visited, so a read reachable on either one is claimed. Refusing the branch — as the linear
+    /// model did — reported every `>`/`>=`/`<`/`<=` condition as unreadable.
     #[test]
-    fn trailing_returns_are_tolerated_but_live_code_after_a_return_is_not() {
-        // `program` appends one RETURN, so this program carries two.
-        assert_eq!(reads(read(&["event"])), ["event"]);
+    fn both_arms_of_a_conditional_contribute_their_reads() {
+        // if(<opaque>, properties.a, properties.b)
+        let then = read(&["properties", "a"]);
+        let otherwise = read(&["properties", "b"]);
+        let mut tokens = vec![json!(29)];
+        tokens.push(json!(40));
+        tokens.push(json!(then.len() as i64 + 2));
+        tokens.extend(then);
+        tokens.push(json!(39));
+        tokens.push(json!(otherwise.len() as i64));
+        tokens.extend(otherwise);
+        assert_eq!(reads(tokens), ["properties.a", "properties.b"]);
+    }
 
-        let mut with_code_after = read(&["event"]);
-        with_code_after.push(json!(38));
-        with_code_after.extend(read(&["distinct_id"]));
+    /// The `ifNull(expr, fallback)` shape, which wraps every regex comparison. The peek does not
+    /// pop, and the fall-through arm's `POP` is what balances it, so the two paths meet at the
+    /// same depth.
+    #[test]
+    fn an_ifnull_peek_and_its_pop_arm_meet_at_the_same_depth() {
+        let mut tokens = read(&["properties", "url"]);
+        // JUMP_IF_STACK_NOT_NULL over the POP and the FALSE that replaces the null.
+        tokens.push(json!(47));
+        tokens.push(json!(2));
+        tokens.push(json!(35));
+        tokens.push(json!(30));
+        assert_eq!(reads(tokens), ["properties.url"]);
+    }
+
+    /// The `between` lowering: an IIFE that keeps its operands in local slots, reads them back with
+    /// `GET_LOCAL`, merges two arms, and pops the locals on the way out. The whole shape has to
+    /// stay readable, because a date range is one of the commonest cohort conditions.
+    #[test]
+    fn a_between_iife_over_local_slots_stays_readable() {
+        // NULL (result slot), then the three operands into slots 1-3.
+        let mut tokens = vec![json!(31)];
+        tokens.extend(read(&["properties", "score"]));
+        tokens.push(json!(33));
+        tokens.push(json!(1));
+        tokens.push(json!(33));
+        tokens.push(json!(10));
+        // low != null AND high != null AND expr != null
+        for slot in [2, 3, 1] {
+            tokens.push(json!(36));
+            tokens.push(json!(slot));
+            tokens.push(json!(31));
+            tokens.push(json!(12));
+        }
+        tokens.push(json!(3));
+        tokens.push(json!(3));
+        // expr >= low AND expr <= high
+        let between = vec![
+            json!(36),
+            json!(2),
+            json!(36),
+            json!(1),
+            json!(14),
+            json!(36),
+            json!(3),
+            json!(36),
+            json!(1),
+            json!(16),
+            json!(3),
+            json!(2),
+        ];
+        tokens.push(json!(40));
+        tokens.push(json!(between.len() as i64 + 2));
+        tokens.extend(between);
+        tokens.push(json!(39));
+        tokens.push(json!(1));
+        tokens.push(json!(30));
+        // Store into the result slot, then pop the three locals.
+        tokens.push(json!(37));
+        tokens.push(json!(0));
+        tokens.extend([json!(35), json!(35), json!(35)]);
+        assert_eq!(reads(tokens), ["properties.score"]);
+    }
+
+    /// A backward jump makes the worklist revisit instructions until the joined stacks stop
+    /// changing. Without a fixpoint this would either loop forever or report a program the VM runs.
+    #[test]
+    fn a_backward_jump_converges_on_a_fixpoint() {
+        // properties.a; loop: POP; properties.b; JUMP back to loop.
+        let mut tokens = read(&["properties", "a"]);
+        let loop_body_len: i64 = 1 + read(&["properties", "b"]).len() as i64;
+        tokens.push(json!(35));
+        tokens.extend(read(&["properties", "b"]));
+        tokens.push(json!(39));
+        tokens.push(json!(-(loop_body_len + 2)));
+        assert_eq!(reads(tokens), ["properties.a", "properties.b"]);
+    }
+
+    /// Two paths that meet holding different stack depths mean the transfer table has lost the
+    /// layout, and every later `GET_GLOBAL` would pop the wrong cells.
+    #[test]
+    fn paths_meeting_at_different_depths_fail_closed() {
+        // TRUE; JUMP_IF_FALSE over one push; TRUE; (merge) — the taken edge arrives one shallower.
+        let tokens = vec![json!(29), json!(40), json!(1), json!(29)];
+        assert_eq!(unanalyzable(tokens), UnanalyzableReason::StackDepthMismatch);
+    }
+
+    /// A jump into the middle of an instruction would have the VM read an immediate as an opcode.
+    /// Landing one past the last token is different: that is a jump off the end, and the program
+    /// simply stops there.
+    #[test]
+    fn a_jump_off_a_boundary_fails_closed_but_a_jump_off_the_end_terminates() {
+        // JUMP into the middle of the following STRING instruction.
         assert_eq!(
-            full_columns_reason(with_code_after),
-            FullColumnsReason::Unanalyzable(UnanalyzableReason::CodeAfterReturn)
+            unanalyzable(vec![json!(39), json!(1), json!(32), json!("x"), json!(35)]),
+            UnanalyzableReason::BadJumpTarget
         );
+        // JUMP past `program`'s trailing RETURN, which is one token past the end.
+        assert_eq!(
+            unanalyzable(vec![json!(39), json!(99)]),
+            UnanalyzableReason::BadJumpTarget
+        );
+        // A read, then a jump that lands exactly on the end: the read still counts.
+        let mut off_the_end = read(&["event"]);
+        off_the_end.push(json!(35));
+        off_the_end.push(json!(39));
+        off_the_end.push(json!(1));
+        assert_eq!(reads(off_the_end), ["event"]);
+    }
+
+    /// A local slot outside the frame is what the VM's own bounds check refuses, so the analysis
+    /// must not silently read or write a cell that is not there.
+    #[test]
+    fn a_local_slot_outside_the_frame_fails_closed() {
+        assert_eq!(
+            unanalyzable(vec![json!(36), json!(3), json!(29)]),
+            UnanalyzableReason::LocalSlotOutOfRange
+        );
+        assert_eq!(
+            unanalyzable(vec![json!(29), json!(37), json!(4)]),
+            UnanalyzableReason::LocalSlotOutOfRange
+        );
+    }
+
+    /// A `RETURN` that leaves values behind means a stack effect in the transfer table is wrong.
+    /// Reporting it turns a class of silent misreads into a wide, safe answer.
+    #[test]
+    fn a_return_over_an_unbalanced_stack_fails_closed() {
+        assert_eq!(
+            unanalyzable(vec![json!(29), json!(29)]),
+            UnanalyzableReason::UnbalancedReturn
+        );
+    }
+
+    /// The loader appends a `RETURN` to bytecode that may already end in one, so a repeated
+    /// trailing `RETURN` is normal: the first one terminates every path, and the second is simply
+    /// never reached.
+    #[test]
+    fn a_repeated_trailing_return_is_never_reached() {
+        assert_eq!(reads(read(&["event"])), ["event"]);
+    }
+
+    /// A long straight-line program has no merge point, so the pass stores no per-instruction
+    /// state at all.
+    ///
+    /// This is the shape a large `IN` list compiles to, and catalogs hold lists of several
+    /// thousand. Storing one abstract stack per instruction across such a program is cells
+    /// proportional to the square of its length: at the largest list size production is known to
+    /// carry, that was over a gigabyte and seconds of blocking on the caller's task, for a program
+    /// the VM itself evaluates in kilobytes.
+    #[test]
+    fn a_long_straight_line_program_costs_no_stored_state() {
+        const ELEMENTS: usize = 2_000;
+        let mut tokens = Vec::new();
+        for index in 0..ELEMENTS {
+            tokens.push(json!(32));
+            tokens.push(json!(format!("v{index}")));
+        }
+        tokens.push(json!(44));
+        tokens.push(json!(ELEMENTS));
+        tokens.extend(read(&["properties", "plan"]));
+        tokens.push(json!(21));
+
+        let bytecode = program(tokens);
+        let decoded = decode(&bytecode).expect("an IN list decodes");
+        let starts: Vec<TokenIndex> = decoded.instrs.iter().map(|instr| instr.start).collect();
+        assert!(
+            !merge_points(&decoded, &starts).contains(&true),
+            "an IN list has a merge point, so the pass would store one stack per instruction"
+        );
+        assert_eq!(reads_of(&bytecode), ["properties.plan"]);
+    }
+
+    /// A jump the decoder could not resolve is refused where it is visited, not where it is read.
+    /// A dead one costs nothing, which is the same rule every other unmodeled construct follows.
+    #[test]
+    fn an_unresolvable_jump_fails_closed_only_when_a_path_reaches_it() {
+        assert_eq!(
+            unanalyzable(vec![json!(39), json!(-99)]),
+            UnanalyzableReason::BadJumpTarget
+        );
+        // The same jump, behind an unconditional jump over it.
+        let mut tokens = read(&["properties", "plan"]);
+        tokens.push(json!(39));
+        tokens.push(json!(2));
+        tokens.push(json!(39));
+        tokens.push(json!(-99));
+        assert_eq!(reads(tokens), ["properties.plan"]);
+    }
+
+    /// Refusal happens when an instruction is visited, so an unmodeled opcode no path reaches costs
+    /// nothing. Without that, one dead `CALLABLE` would widen an otherwise readable condition.
+    #[test]
+    fn an_unmodeled_opcode_no_path_reaches_is_harmless() {
+        let mut tokens = read(&["properties", "plan"]);
+        tokens.push(json!(39));
+        // Jump over a CALLABLE with an empty body.
+        tokens.push(json!(5));
+        tokens.extend([json!(52), json!("f"), json!(0), json!(0), json!(0)]);
+        assert_eq!(reads(tokens), ["properties.plan"]);
     }
 
     /// A native call is projection-safe whatever its name, because it only consumes stack values.
@@ -433,5 +962,29 @@ mod tests {
         tokens.push(json!("2026-01-01"));
         tokens.push(json!(13));
         assert_eq!(reads(tokens), ["timestamp"]);
+    }
+
+    /// A hostile count immediate must not reach an allocation. `u64::MAX` is a capacity-overflow
+    /// panic and a merely huge value is an allocation abort; either would take down the caller's
+    /// task, which the fail-closed contract cannot absorb.
+    #[test]
+    fn a_hostile_global_chain_count_never_allocates() {
+        for count in [json!(u64::MAX), json!(4_000_000_000u64)] {
+            assert!(matches!(
+                unanalyzable(vec![json!(1), count.clone()]),
+                UnanalyzableReason::Decode(_)
+            ));
+        }
+        // A count the decoder accepts, still deeper than the stack.
+        let padded = std::iter::repeat_n(json!(29), 8)
+            .chain([json!(1), json!(6)])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            unanalyzable(padded),
+            UnanalyzableReason::DynamicGlobalPath,
+            "eight opaque pushes are enough for a six-deep chain, so this is not an underflow"
+        );
+        let shallow = vec![json!(29), json!(29), json!(1), json!(6)];
+        assert_eq!(unanalyzable(shallow), UnanalyzableReason::StackUnderflow);
     }
 }

@@ -1,9 +1,15 @@
 //! Domain layer: the static analysis of a run's pinned conditions, and the census over it.
 //! Depends on `condition`, `ids`, and `cohort-core`.
 //!
-//! The analysis runs once per run, at validation time, over the pinned payload alone. Nothing in
-//! the scan path consumes it yet: it is published as counters and one log line per run, so the
-//! shape of real catalogs is known before anything is built on it.
+//! Nothing in the scan path consumes the analysis yet: it is published as counters and one log line
+//! per run, so the shape of real catalogs is known before anything is built on it.
+//!
+//! The census is shaped around the question a later projection pass has to answer, which is
+//! per event name rather than per condition. A scan selects columns for a whole event, so one
+//! condition on `$pageview` that cannot be narrowed forces full columns for every `$pageview` row,
+//! however many of its siblings are narrow. Counting conditions alone would report that event as
+//! mostly projectable and overstate what a projection can do — on exactly the fat events where it
+//! matters.
 //!
 //! Being a pure function of the pinned payload is what makes it safe to run per run rather than per
 //! chunk: a re-validated run classifies identically, so a chunk retried on another replica cannot
@@ -14,7 +20,7 @@ use std::sync::Arc;
 
 use cohort_core::filters::TeamFilters;
 use cohort_core::hogvm::analysis::{
-    analyze_condition, ConditionAnalysis, EvaluationClass, Projection, ReadPath,
+    analyze_condition, ConditionAnalysis, EvaluationClass, FullColumnsReason, Projection, ReadPath,
 };
 
 use super::condition::PinnedCondition;
@@ -50,16 +56,24 @@ impl ConditionClass {
         }
     }
 
+    /// Whether this class forces a scan to select every column for its event name.
+    const fn is_unprojectable(self) -> bool {
+        matches!(self, Self::FullColumns | Self::Unanalyzable)
+    }
+
     fn of(analysis: &ConditionAnalysis) -> Self {
         match (&analysis.evaluation, &analysis.projection) {
-            (EvaluationClass::EventOnly { .. }, _) => Self::EventOnly,
-            (EvaluationClass::General, Projection::Reads(_)) => Self::Projectable,
-            (EvaluationClass::General, Projection::FullColumns(reason)) => match reason {
-                cohort_core::hogvm::analysis::FullColumnsReason::Unanalyzable(_) => {
-                    Self::Unanalyzable
-                }
+            // An event-name equality needs no per-row evaluation, so its projection is irrelevant —
+            // except when the projection itself failed, which means the two passes disagree about
+            // what the program is. Classifying by the projection there fails wide rather than
+            // narrow, which is the direction a wrong answer has to fall.
+            (EvaluationClass::EventOnly { .. }, Projection::Reads(_)) => Self::EventOnly,
+            (EvaluationClass::EventOnly { .. }, Projection::FullColumns(reason))
+            | (EvaluationClass::General, Projection::FullColumns(reason)) => match reason {
+                FullColumnsReason::Unanalyzable(_) => Self::Unanalyzable,
                 _ => Self::FullColumns,
             },
+            (EvaluationClass::General, Projection::Reads(_)) => Self::Projectable,
         }
     }
 }
@@ -68,6 +82,11 @@ impl ConditionClass {
 /// analysis outcome: the condition never reached the analyzer.
 pub const MISSING_BYTECODE_REASON: &str = "missing_bytecode";
 
+/// How many blocked event names the per-run log line names before it starts counting instead.
+/// Sized to hold a large team's whole blocked set, so the cap is a ceiling rather than a routine
+/// truncation.
+const MAX_RENDERED_BLOCKED_EVENTS: usize = 50;
+
 /// One analysis per unique pinned condition hash.
 ///
 /// Person runs are deliberately absent. Their conditions read the small person-scope globals rather
@@ -75,7 +94,7 @@ pub const MISSING_BYTECODE_REASON: &str = "missing_bytecode";
 /// wrong vocabulary.
 #[derive(Debug, Default)]
 pub struct ConditionAnalyses {
-    by_hash: HashMap<ConditionHash, Arc<ConditionAnalysis>>,
+    by_hash: HashMap<ConditionHash, ConditionAnalysis>,
 }
 
 impl ConditionAnalyses {
@@ -92,19 +111,13 @@ impl ConditionAnalyses {
             else {
                 continue;
             };
-            by_hash.insert(
-                condition.hash,
-                Arc::new(analyze_condition(bytecode.as_slice())),
-            );
+            by_hash.insert(condition.hash, analyze_condition(bytecode.as_slice()));
         }
         Self { by_hash }
     }
 
-    pub fn get(&self, hash: ConditionHash) -> Option<&Arc<ConditionAnalysis>> {
-        self.by_hash.get(&hash)
-    }
-
-    /// Count the conditions by class and collect what the projectable ones read, per event name.
+    /// Count the conditions by class, and account for each event name what a projection over it
+    /// would have to supply.
     ///
     /// Counted per unique hash, not per pinned condition: the same condition shared by several
     /// cohorts is one piece of work, and counting it twice would overstate the projectable share.
@@ -115,36 +128,113 @@ impl ConditionAnalyses {
             if !seen.insert(condition.hash) {
                 continue;
             }
+            let event = census
+                .per_event
+                .entry(condition.event_name.clone())
+                .or_default();
             let Some(analysis) = self.by_hash.get(&condition.hash) else {
+                // Unreachable today: `resolve_conditions` drops any hash the frozen catalog has no
+                // bytecode for, so every surviving condition has one. Kept because the alternative
+                // to a label here is a condition that silently leaves no trace in the census.
                 *census
                     .by_class
                     .entry(ConditionClass::Unanalyzable)
                     .or_default() += 1;
                 *census
                     .unanalyzable_reasons
-                    .entry(MISSING_BYTECODE_REASON)
+                    .entry(UnanalyzableLabel::missing_bytecode())
                     .or_default() += 1;
+                event.unprojectable += 1;
+                event.blockers.insert(MISSING_BYTECODE_REASON.to_owned());
                 continue;
             };
             let class = ConditionClass::of(analysis);
             *census.by_class.entry(class).or_default() += 1;
+            match class {
+                ConditionClass::EventOnly => event.event_only += 1,
+                ConditionClass::Projectable => event.projectable += 1,
+                _ => event.unprojectable += 1,
+            }
             if let Projection::FullColumns(reason) = &analysis.projection {
                 if class == ConditionClass::Unanalyzable {
                     *census
                         .unanalyzable_reasons
-                        .entry(reason.as_str())
+                        .entry(UnanalyzableLabel::of(reason))
                         .or_default() += 1;
+                }
+                if class.is_unprojectable() {
+                    event
+                        .blockers
+                        .insert(UnanalyzableLabel::of(reason).render());
                 }
             }
             if let Projection::Reads(paths) = &analysis.projection {
-                census
-                    .reads_by_event_name
-                    .entry(condition.event_name.clone())
-                    .or_default()
-                    .extend(paths.iter().map(ReadPath::render));
+                event.reads.extend(paths.iter().map(ReadPath::render));
             }
         }
         census
+    }
+}
+
+/// A reason label pair: the coarse reason, plus the opcode when one is what stopped the analysis.
+///
+/// Both halves are closed vocabularies — the reason by construction, the opcode because
+/// `Operation` is a 57-variant enum — so the pair is safe as a metric dimension. The opcode is
+/// carried because "unsupported_op" alone cannot tell one fixable compiler template apart from a
+/// program nothing will ever narrow, which is the difference the census exists to report.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UnanalyzableLabel {
+    pub reason: &'static str,
+    /// The opcode's variant name, from its `Debug` rendering. `Arc<str>` because the metric layer
+    /// clones a label value per emission and the repo's convention is a refcount bump rather than
+    /// an allocation.
+    pub op: Option<Arc<str>>,
+}
+
+impl UnanalyzableLabel {
+    fn of(reason: &FullColumnsReason) -> Self {
+        Self {
+            reason: reason.as_str(),
+            op: reason.op().map(|op| Arc::from(format!("{op:?}").as_str())),
+        }
+    }
+
+    fn missing_bytecode() -> Self {
+        Self {
+            reason: MISSING_BYTECODE_REASON,
+            op: None,
+        }
+    }
+
+    /// The label as one string, for the log line and the per-event blocker set.
+    pub fn render(&self) -> String {
+        match &self.op {
+            Some(op) => format!("{}:{op}", self.reason),
+            None => self.reason.to_owned(),
+        }
+    }
+}
+
+/// What the conditions on one event name would cost a projection over it.
+///
+/// The counts are per unique condition hash on that event name. `unprojectable` is the one that
+/// decides: a scan selects columns for the whole event, so one unprojectable condition forces full
+/// columns for every row of it.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct EventCensus {
+    pub event_only: u64,
+    pub projectable: u64,
+    pub unprojectable: u64,
+    /// The union of what the narrow conditions on this event name read, rendered dotted.
+    pub reads: BTreeSet<String>,
+    /// Why the unprojectable ones are, as rendered [`UnanalyzableLabel`]s.
+    pub blockers: BTreeSet<String>,
+}
+
+impl EventCensus {
+    /// Whether a projection over this event name is possible at all.
+    pub const fn is_projection_eligible(&self) -> bool {
+        self.unprojectable == 0
     }
 }
 
@@ -153,11 +243,9 @@ impl ConditionAnalyses {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ConditionCensus {
     pub by_class: BTreeMap<ConditionClass, u64>,
-    /// Keyed by [`cohort_core::hogvm::analysis::UnanalyzableReason::as_str`], plus
-    /// [`MISSING_BYTECODE_REASON`].
-    pub unanalyzable_reasons: BTreeMap<&'static str, u64>,
-    /// The union of what the projectable conditions on each event name read, rendered dotted.
-    pub reads_by_event_name: BTreeMap<String, BTreeSet<String>>,
+    pub unanalyzable_reasons: BTreeMap<UnanalyzableLabel, u64>,
+    /// One entry per event name any pinned condition references.
+    pub per_event: BTreeMap<String, EventCensus>,
 }
 
 impl ConditionCensus {
@@ -169,26 +257,80 @@ impl ConditionCensus {
         self.by_class.get(&class).copied().unwrap_or(0)
     }
 
-    /// The share of conditions a later projection pass could narrow. Zero when there is nothing to
-    /// classify, so an empty run reports no misleading fraction.
-    pub fn projectable_fraction(&self) -> f64 {
-        let total = self.total();
-        if total == 0 {
+    /// The share of *property-filtered* conditions a projection could narrow.
+    ///
+    /// Event-only conditions are excluded from both halves rather than counted as wins. They are
+    /// the majority of conditions on a real catalog and a small minority of the rows scanned, so
+    /// including them produces a high number that says nothing about the work a projection would
+    /// save — which is the ranking error this census exists to avoid repeating. Zero when there is
+    /// nothing to classify, so an empty run reports no misleading fraction.
+    pub fn property_projectable_fraction(&self) -> f64 {
+        let projectable = self.count(ConditionClass::Projectable);
+        let denominator = projectable
+            + self.count(ConditionClass::FullColumns)
+            + self.count(ConditionClass::Unanalyzable);
+        if denominator == 0 {
             return 0.0;
         }
-        let narrow =
-            self.count(ConditionClass::EventOnly) + self.count(ConditionClass::Projectable);
-        narrow as f64 / total as f64
+        projectable as f64 / denominator as f64
     }
 
-    /// The read sets as one compact line per event name, for the per-run log.
-    pub fn render_reads(&self) -> String {
-        self.reads_by_event_name
+    /// The event names a projection could narrow, meaning every condition on them is narrow.
+    pub fn projection_eligible_event_names(&self) -> Vec<&str> {
+        self.per_event
             .iter()
-            .map(|(event_name, paths)| {
+            .filter(|(_, event)| event.is_projection_eligible())
+            .map(|(name, _)| name.as_str())
+            .collect()
+    }
+
+    /// The event names a projection could not narrow, each with why. This is the list to join
+    /// against per-event row volume: an event here costs full columns however many of its
+    /// conditions are narrow.
+    pub fn blocked_event_names(&self) -> Vec<(&str, &BTreeSet<String>)> {
+        self.per_event
+            .iter()
+            .filter(|(_, event)| !event.is_projection_eligible())
+            .map(|(name, event)| (name.as_str(), &event.blockers))
+            .collect()
+    }
+
+    /// The blocked event names and their reasons as one compact line, for the per-run log.
+    ///
+    /// Capped at [`MAX_RENDERED_BLOCKED_EVENTS`], with the remainder counted rather than named. The
+    /// names are customer-defined and a catalog's event vocabulary has no ceiling, so an uncapped
+    /// line is a log entry whose size the operator does not control. The head is what gets acted
+    /// on; the full list is in the debug-level read dump.
+    pub fn render_blocked_events(&self) -> String {
+        let blocked = self.blocked_event_names();
+        let mut rendered = blocked
+            .iter()
+            .take(MAX_RENDERED_BLOCKED_EVENTS)
+            .map(|(event_name, blockers)| {
                 format!(
                     "{event_name}=[{}]",
-                    paths.iter().cloned().collect::<Vec<_>>().join(",")
+                    blockers.iter().cloned().collect::<Vec<_>>().join(",")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        if let Some(elided) = blocked.len().checked_sub(MAX_RENDERED_BLOCKED_EVENTS) {
+            if elided > 0 {
+                rendered.push_str(&format!(" (+{elided} more)"));
+            }
+        }
+        rendered
+    }
+
+    /// The read sets as one compact line per event name, for the per-run debug log.
+    pub fn render_reads(&self) -> String {
+        self.per_event
+            .iter()
+            .filter(|(_, event)| !event.reads.is_empty())
+            .map(|(event_name, event)| {
+                format!(
+                    "{event_name}=[{}]",
+                    event.reads.iter().cloned().collect::<Vec<_>>().join(",")
                 )
             })
             .collect::<Vec<_>>()
@@ -274,6 +416,16 @@ mod tests {
         ])
     }
 
+    /// A bare `properties` root: understood, but every column is needed.
+    fn bare_properties() -> serde_json::Value {
+        json!(["_H", 1, 32, "properties", 1, 1, 35])
+    }
+
+    /// A `CALLABLE`, which introduces a frame the model refuses.
+    fn unanalyzable() -> serde_json::Value {
+        json!(["_H", 1, 52, "f", 0, 0, 0])
+    }
+
     #[test]
     fn each_bytecode_shape_lands_in_its_class_with_its_read_set() {
         let conditions = [
@@ -285,18 +437,8 @@ mod tests {
         let catalog = filters(&[
             ("eventonly0000000", "purchase", event_equality("purchase")),
             ("projectable00000", "signup", property_condition()),
-            // A bare `properties` root: understood, but every column is needed.
-            (
-                "fullcolumns00000",
-                "checkout",
-                json!(["_H", 1, 32, "properties", 1, 1, 35]),
-            ),
-            // A branch, which the linear model refuses.
-            (
-                "unanalyzable0000",
-                "refund",
-                json!(["_H", 1, 29, 40, 2, 30]),
-            ),
+            ("fullcolumns00000", "checkout", bare_properties()),
+            ("unanalyzable0000", "refund", unanalyzable()),
         ]);
 
         let census = ConditionAnalyses::build(&conditions, &catalog).census(&conditions);
@@ -305,16 +447,104 @@ mod tests {
         assert_eq!(census.count(ConditionClass::FullColumns), 1);
         assert_eq!(census.count(ConditionClass::Unanalyzable), 1);
         assert_eq!(census.total(), 4);
-        assert_eq!(census.projectable_fraction(), 0.5);
+        // One projectable against one bare-root and one refused: the event-only condition is not a
+        // property filter and takes no part in the ratio.
+        assert_eq!(census.property_projectable_fraction(), 1.0 / 3.0);
         assert_eq!(
             census.unanalyzable_reasons,
-            BTreeMap::from([("unsupported_op", 1)])
+            BTreeMap::from([(
+                UnanalyzableLabel {
+                    reason: "unsupported_op",
+                    op: Some(Arc::from("Callable")),
+                },
+                1
+            )])
+        );
+        assert_eq!(
+            census.projection_eligible_event_names(),
+            ["purchase", "signup"]
+        );
+        assert_eq!(
+            census.render_blocked_events(),
+            "checkout=[bare_properties_root] refund=[unsupported_op:Callable]"
         );
         // The event-only condition is still a narrow read, so its `event` read is reported too.
-        // The two conditions that fell back to every column contribute nothing.
         assert_eq!(
             census.render_reads(),
             "purchase=[event] signup=[event,properties.plan]"
+        );
+    }
+
+    /// One narrow and one wide condition on the same event name. A scan selects columns for the
+    /// whole event, so that event is not projection-eligible however narrow its other condition is.
+    /// Counting conditions alone would report it as half projectable and overstate the win on
+    /// exactly the busy events that carry several conditions.
+    #[test]
+    fn an_event_name_with_one_wide_condition_is_not_projection_eligible() {
+        let conditions = [
+            condition("narrow0000000000", "$pageview"),
+            condition("wide000000000000", "$pageview"),
+        ];
+        let catalog = filters(&[
+            ("narrow0000000000", "$pageview", property_condition()),
+            ("wide000000000000", "$pageview", bare_properties()),
+        ]);
+
+        let census = ConditionAnalyses::build(&conditions, &catalog).census(&conditions);
+        assert_eq!(census.count(ConditionClass::Projectable), 1);
+        assert_eq!(census.count(ConditionClass::FullColumns), 1);
+        let event = &census.per_event["$pageview"];
+        assert_eq!(event.projectable, 1);
+        assert_eq!(event.unprojectable, 1);
+        assert!(!event.is_projection_eligible());
+        assert_eq!(census.projection_eligible_event_names(), Vec::<&str>::new());
+        assert_eq!(
+            census.blocked_event_names(),
+            [(
+                "$pageview",
+                &BTreeSet::from(["bare_properties_root".to_owned()])
+            )]
+        );
+    }
+
+    /// The opcode that stopped the analysis is carried alongside the coarse reason. Without it,
+    /// every branch, frame, and heap write reads as one "unsupported_op" bucket, and the census
+    /// cannot say whether the blocked conditions are one fixable compiler template or many.
+    #[test]
+    fn an_unsupported_opcode_is_reported_with_the_opcode() {
+        let conditions = [
+            condition("callable00000000", "a"),
+            condition("incohort00000000", "b"),
+        ];
+        let catalog = filters(&[
+            ("callable00000000", "a", unanalyzable()),
+            // `IN_COHORT` reads membership state that is not in the globals dict at all.
+            ("incohort00000000", "b", json!(["_H", 1, 29, 29, 27])),
+        ]);
+
+        let census = ConditionAnalyses::build(&conditions, &catalog).census(&conditions);
+        assert_eq!(
+            census.unanalyzable_reasons,
+            BTreeMap::from([
+                (
+                    UnanalyzableLabel {
+                        reason: "unsupported_op",
+                        op: Some(Arc::from("Callable")),
+                    },
+                    1
+                ),
+                (
+                    UnanalyzableLabel {
+                        reason: "unsupported_op",
+                        op: Some(Arc::from("InCohort")),
+                    },
+                    1
+                ),
+            ])
+        );
+        assert_eq!(
+            census.render_blocked_events(),
+            "a=[unsupported_op:Callable] b=[unsupported_op:InCohort]"
         );
     }
 
@@ -327,8 +557,9 @@ mod tests {
         assert_eq!(census.count(ConditionClass::Unanalyzable), 1);
         assert_eq!(
             census.unanalyzable_reasons,
-            BTreeMap::from([(MISSING_BYTECODE_REASON, 1)])
+            BTreeMap::from([(UnanalyzableLabel::missing_bytecode(), 1)])
         );
+        assert!(!census.per_event["purchase"].is_projection_eligible());
     }
 
     /// One condition shared by several cohorts is one piece of work. Counting it per pinned entry
@@ -346,6 +577,7 @@ mod tests {
         let census = ConditionAnalyses::build(&conditions, &catalog).census(&conditions);
         assert_eq!(census.total(), 1);
         assert_eq!(census.count(ConditionClass::EventOnly), 1);
+        assert_eq!(census.per_event["purchase"].event_only, 1);
     }
 
     #[test]
@@ -353,7 +585,8 @@ mod tests {
         let census = ConditionAnalyses::default().census(&[]);
         assert_eq!(census, ConditionCensus::default());
         assert_eq!(census.total(), 0);
-        assert_eq!(census.projectable_fraction(), 0.0);
+        assert_eq!(census.property_projectable_fraction(), 0.0);
         assert_eq!(census.render_reads(), "");
+        assert_eq!(census.render_blocked_events(), "");
     }
 }

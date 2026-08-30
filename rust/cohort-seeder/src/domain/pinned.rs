@@ -16,7 +16,6 @@ use serde_json::Value;
 
 use super::chunk::{ChunkDomainError, ChunkSpec};
 use super::condition::{EventNameSet, Lookback, PinnedCondition};
-use super::condition_analysis::ConditionAnalyses;
 use super::ids::{ConditionHash, ConditionHashError, RunId, UtcMillis};
 use super::window::{Boundary, SeedDomain};
 
@@ -67,9 +66,6 @@ pub struct PinnedRun {
     pub conditions: Vec<PinnedCondition>,
     pub event_names: EventNameSet,
     pub filters: TeamFilters,
-    /// The static analysis of the surviving conditions. Published as a census today; nothing in the
-    /// scan path reads it.
-    pub analyses: ConditionAnalyses,
 }
 
 #[derive(Debug)]
@@ -240,7 +236,6 @@ impl PinnedRun {
         let event_names = EventNameSet::from_conditions(&conditions);
         let uncovered_cohorts = participation.uncovered_cohorts(&conditions);
         // A pure function of the pinned payload, so re-validating the run classifies identically.
-        let analyses = ConditionAnalyses::build(&conditions, participation.filters());
 
         Ok(ValidatedPinnedRun {
             uncovered_cohorts,
@@ -253,7 +248,6 @@ impl PinnedRun {
                 conditions,
                 event_names,
                 filters: participation.into_filters(),
-                analyses,
             },
             warnings,
         })
@@ -509,7 +503,7 @@ fn derive_lookback(
 
 #[cfg(test)]
 mod tests {
-    use super::super::condition_analysis::ConditionClass;
+    use super::super::condition_analysis::{ConditionAnalyses, ConditionClass};
     use chrono::NaiveDate;
     use chrono_tz::UTC;
     use cohort_core::day_idx_of_naive_date;
@@ -984,7 +978,8 @@ mod tests {
         };
 
         let validated = PinnedRun::validate(payload()).unwrap().run;
-        let census = validated.analyses.census(&validated.conditions);
+        let census = ConditionAnalyses::build(&validated.conditions, &validated.filters)
+            .census(&validated.conditions);
         assert_eq!(census.count(ConditionClass::EventOnly), 1);
         assert_eq!(census.count(ConditionClass::Projectable), 1);
         assert_eq!(census.count(ConditionClass::FullColumns), 0);
@@ -995,7 +990,11 @@ mod tests {
         );
 
         let revalidated = PinnedRun::validate(payload()).unwrap().run;
-        assert_eq!(revalidated.analyses.census(&revalidated.conditions), census);
+        assert_eq!(
+            ConditionAnalyses::build(&revalidated.conditions, &revalidated.filters)
+                .census(&revalidated.conditions),
+            census
+        );
     }
 
     #[test]
