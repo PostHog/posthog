@@ -1911,43 +1911,51 @@ describe('runStreamLogic', () => {
         })
     })
 
-    describe('follow-up after the stream ended', () => {
-        // The durable sentinel can land on a run that keeps accepting turns (the successor-run
-        // resume, a proxy that ends its own stream). Nothing else reopens the connection, so
-        // without these the next turn streams into a closed connection and the thread waits on
-        // output that only a page reload surfaces.
-        it('reopens the connection when a follow-up starts a turn on a live run', async () => {
+    describe('follow-up on a dead stream', () => {
+        // A follow-up opens a new turn, and only a live connection delivers it. A stream that failed
+        // retryably can still carry one, so a send reopens it. A stream the durable sentinel closed
+        // cannot: the run's Redis stream holds a completion entry the server stops at and refuses to
+        // write past, so only a successor run carries the next turn.
+        it('reopens after a retryable stream failure so the follow-up has somewhere to stream', async () => {
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
             await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
-            await MockStream.latest().emitMessage(notification('_posthog/turn_complete', {}), '101-0')
-            await MockStream.latest().emitStreamEnd()
-
-            expect(logic.values.sseStatus).toEqual('closed')
+            logic.actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
             const opened = MockStream.connections.length
 
             logic.actions.pushHumanMessage('and one more thing')
 
             expect(MockStream.connections.length).toEqual(opened + 1)
             // Resumes exactly after the last frame the thread carries, so nothing repeats.
-            expect(MockStream.latest().options.lastEventId).toEqual('101-0')
+            expect(MockStream.latest().options.lastEventId).toEqual('100-0')
             expect(logic.values.isThinking).toEqual(true)
         })
 
-        it('leaves a healthy connection alone', async () => {
+        it.each([
+            ['the connection is healthy', async (): Promise<void> => {}],
+            [
+                'the run is terminal',
+                async (): Promise<void> => {
+                    logic.actions.handleTerminalStatus({ status: 'completed' })
+                },
+            ],
+            [
+                'the sentinel closed the stream',
+                async (): Promise<void> => {
+                    await MockStream.latest().emitStreamEnd()
+                },
+            ],
+            [
+                'the stream failed for good',
+                async (): Promise<void> => {
+                    logic.actions.handleStreamError({ errorTitle: 'Task run not found', retryable: false })
+                },
+            ],
+        ])('does not reopen when %s', async (_label, arrive) => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
             await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
-            const opened = MockStream.connections.length
-
-            logic.actions.pushHumanMessage('and one more thing')
-
-            expect(MockStream.connections.length).toEqual(opened)
-        })
-
-        it('does not reopen a terminal run — its follow-up starts a successor run', async () => {
-            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
-            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
-            logic.actions.handleTerminalStatus({ status: 'completed' })
+            await arrive()
             const opened = MockStream.connections.length
 
             logic.actions.pushHumanMessage('and one more thing')

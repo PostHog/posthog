@@ -3077,20 +3077,24 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // stamp the turn start for per-turn duration metrics and append it as a `client`-sourced
             // log entry the projection renders in order.
             cache.turnStartedAtMs = Date.now()
-            // The turn needs a live connection to deliver it, and by now the stream may be gone —
-            // the durable sentinel landed on a run that kept accepting turns, or the reconnect
-            // budget ran out. Nothing else reopens it, so the turn would stream into a closed
-            // connection and the thread would wait on output that never arrives. The reopen resumes
-            // from the last-seen cursor, which is exclusive, so nothing already in the thread
-            // repeats. A terminal run is skipped: its follow-up starts a successor run, and the
-            // consumer opens that one.
+            // The turn needs a live connection to deliver it, and the stream can be gone by now: the
+            // reconnect budget ran out and left a retryable error behind. Nothing else reopens it,
+            // so the turn would stream into a dead connection and the thread would wait on output
+            // that never arrives. The reopen resumes from the last-seen cursor, which is exclusive,
+            // so nothing already in the thread repeats.
+            //
+            // A stream the durable sentinel closed is deliberately NOT reopened. The run's Redis
+            // stream holds a completion entry: a reopened connection reads that entry and ends
+            // again, and the backend refuses to write any further event to that stream. Only a
+            // successor run can carry another turn, which is also why a terminal run is skipped —
+            // its follow-up starts that successor and the consumer opens it.
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
-            const streamRetryable = values.sseStatus === 'error' && values.bootstrapError?.retryable !== false
+            const streamFailedRetryably = values.sseStatus === 'error' && values.bootstrapError?.retryable !== false
             if (
                 !props.replayOnly &&
                 activeRun &&
-                !isTerminalRunStatus(values.currentRunStatus) &&
-                (values.sseStatus === 'closed' || streamRetryable)
+                streamFailedRetryably &&
+                !isTerminalRunStatus(values.currentRunStatus)
             ) {
                 actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: true })
             }

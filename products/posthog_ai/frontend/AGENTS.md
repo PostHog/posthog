@@ -120,8 +120,10 @@ The heart of the surface:
   the last Redis stream id via `Last-Event-ID` (capped exponential backoff + cumulative cap). Connection
   state (the `stream-end` sentinel, the resume cursor, the proxy token budget) belongs to one connection:
   every `openSseForRun` starts it fresh, and the cursor is dropped when the run being opened differs from
-  the one it came from. A run can outlive its stream (the sentinel lands, the reconnect budget runs out),
-  so `pushHumanMessage` reopens a closed connection — a follow-up turn has nothing to stream into otherwise.
+  the one it came from. A run can outlive its stream, so `pushHumanMessage` reopens a connection whose
+  reconnect budget ran out — a follow-up turn has nothing to stream into otherwise. It does **not** reopen
+  after the `stream-end` sentinel: that run's Redis stream holds a completion entry the server stops at and
+  refuses to write past, so only a successor run can carry the next turn.
 - **Ordered, append-only `log` is the single source of truth** — every wire frame (plus a few synthetic
   client entries) is appended, never keyed or per-entry deduped — with one exception: superseded
   `tool_call_update` frames are field-wise merged per `toolCallId` (`appendToRunLog`). Each update carries
