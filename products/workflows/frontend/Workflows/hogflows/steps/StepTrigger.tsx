@@ -426,7 +426,7 @@ function StepTriggerConfigurationEvents({
 
             <LemonField.Pure
                 label="Additional filters"
-                info="These filters apply to every trigger event above. Use them for conditions shared across all events, such as a HogQL expression."
+                info="These filters apply to every trigger event above. Use them for conditions shared across all events, such as a SQL expression."
             >
                 <HogFlowPropertyFilters
                     filters={config.filters ?? {}}

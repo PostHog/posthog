@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Node } from '@xyflow/react'
 import { BindLogic } from 'kea'
 
@@ -66,6 +67,23 @@ describe('StepTriggerConfiguration', () => {
             </BindLogic>
         )
     }
+
+    it('keeps a stored global property filter when the trigger events change', async () => {
+        const properties = [{ type: 'hogql', key: "properties.plan = 'pro'" }] as NonNullable<
+            HogFlowAction['filters']
+        >['properties']
+        renderTrigger(properties)
+
+        await userEvent.click(screen.getByRole('button', { name: 'Add trigger event' }))
+
+        await waitFor(() => {
+            const trigger = workflowLogic(LOGIC_PROPS).values.workflow.trigger as TriggerAction['config']
+            expect(trigger.type).toEqual('event')
+            expect((trigger as Extract<TriggerAction['config'], { type: 'event' }>).filters?.properties).toEqual(
+                properties
+            )
+        })
+    })
 
     it('shows a global HogQL property filter stored on the event trigger', async () => {
         renderTrigger([{ type: 'hogql', key: "properties.plan = 'pro'" }])
