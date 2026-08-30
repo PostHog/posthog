@@ -136,7 +136,7 @@ _RESEARCH_SCRATCHPAD_POINTER = """The fleet also keeps durable memory in a share
 def _research_memory(report_id: str) -> str:
     return f"""### Remember what you worked out
 
-You can write to that scratchpad as well as read it, with `call scout-scratchpad-remember` through `mcp__posthog__exec`. Your entries are attributed to `pipeline:report-research`, so the fleet can tell this stage's memory from a scout's. Write near the end of the run, once your assessments are settled, and never in place of an output the contract asks for.
+You can write to that scratchpad as well as read it, with `call scout-scratchpad-remember` through `mcp__posthog__exec`. A key you open is attributed to `pipeline:report-research`, so the fleet can tell this stage's memory from a scout's. A key you condense keeps the name of whoever opened it, so when you fold your work into someone else's entry, say so in the content: the attribution will not show it. Write near the end of the run, once your assessments are settled, and never in place of an output the contract asks for.
 
 What is worth remembering, and only when you verified it this run:
 
