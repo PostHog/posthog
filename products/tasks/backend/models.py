@@ -2586,6 +2586,9 @@ class TaskRun(models.Model):
                 or self.task.repositories
                 or ([self.task.repository] if self.task.repository else []),
                 "origin_product": self.task.origin_product,
+                # The self-driving pipeline stage (research, implementation, ...); segments
+                # runs that share one origin_product. None for runs a person started.
+                "ai_stage": (self.state or {}).get("ai_stage"),
                 "title": self.task.title,
                 "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "loop_id": (self.state or {}).get("loop_id"),

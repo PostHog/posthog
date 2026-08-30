@@ -1350,6 +1350,7 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
         ai_stage=(ctx.state or {}).get("ai_stage"),
         internal=task.internal,
         distinct_id=ctx.distinct_id,
+        run_id=ctx.run_id,
     )
 
 
@@ -1360,6 +1361,7 @@ def ai_gateway_env_vars(
     ai_stage: str | None = None,
     internal: bool = False,
     distinct_id: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1383,7 +1385,9 @@ def ai_gateway_env_vars(
         if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
             ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
         ):
-            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
+            token = mint_scoped_token(
+                ai_product=ai_product, team_id=team_id, user=distinct_id, run_id=run_id, ai_stage=ai_stage
+            )
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
     return env_vars

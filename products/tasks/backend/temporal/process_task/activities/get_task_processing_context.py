@@ -242,6 +242,16 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     @property
+    def ai_stage(self) -> str | None:
+        """The pipeline stage the signals pipeline stamped on this run (research, implementation, ...).
+
+        Absent from runs a person started, so it segments lifecycle events into the
+        self-driving stages that share one origin_product.
+        """
+        value = (self.state or {}).get("ai_stage")
+        return value if isinstance(value, str) else None
+
+    @property
     def wizard_config(self) -> dict | None:
         """Config for the pre-agent setup-wizard step (set at task creation); None for normal runs."""
         value = (self.state or {}).get("wizard_config")

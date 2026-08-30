@@ -10,11 +10,12 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.error_telemetry import SPEND_CAPPED_ERROR_TYPE, is_spend_cap_failure, truncate_error_message
 from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
+from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
 
 # TaskRun.state marker for runs completed by the inactivity timeout; kept out of
 # error_message so a normal completion never reads as a failure.
@@ -114,6 +115,12 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             non_retryable=True,
             type="TaskRunDeletedError",
         )
+
+    # Give a spend-cap kill a stable reason so counting it never depends on the exact 402
+    # wording (which a readable-terminal-state change would break). Done once here, so both
+    # the terminal analytics and the loop bookkeeping below read the same reason.
+    if input.status == TaskRun.Status.FAILED and is_spend_cap_failure(input.error_message or task_run.error_message):
+        input.error_type = SPEND_CAPPED_ERROR_TYPE
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     task_run.publish_stream_state_event()
@@ -226,6 +233,17 @@ def _is_first_chat_run_of_task(task_run: TaskRun, state: dict[str, Any]) -> bool
     )
 
 
+def _resolve_run_ai_product(task_run: TaskRun) -> str:
+    """The gateway `ai_product` this run resolved to — the cap-hit event's per-product key."""
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    ai_stage = state.get("ai_stage")
+    return resolve_sandbox_ai_product(
+        task_run.task.origin_product,
+        ai_stage if isinstance(ai_stage, str) else None,
+        internal=task_run.task.internal,
+    )
+
+
 def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
     """Emit the terminal analytics event and token-expenditure metrics.
 
@@ -263,6 +281,14 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     **relay_state,
                 },
             )
+            if input.error_type == SPEND_CAPPED_ERROR_TYPE:
+                # First-class cap-hit signal: a run-grain event that alerting can key on
+                # directly, instead of thresholding per-run spend under a moving cap. The
+                # token counts ride along via capture_event's usage properties.
+                task_run.capture_event(
+                    "task_run_spend_capped",
+                    {"ai_product": _resolve_run_ai_product(task_run), "duration_seconds": task_run._duration_seconds()},
+                )
 
         _capture_posthog_ai_chat_analytics(task_run, input, termination_reason=termination_reason)
 

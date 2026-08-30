@@ -481,6 +481,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     "task_id": self.context.task_id,
                     "repository": self.context.repository,
                     "team_id": self.context.team_id,
+                    "origin_product": self.context.origin_product,
+                    "ai_stage": self.context.ai_stage,
                 },
             )
 
@@ -586,6 +588,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                         "task_id": self.context.task_id,
                         "repository": self.context.repository,
                         "team_id": self.context.team_id,
+                        "origin_product": self.context.origin_product,
+                        "ai_stage": self.context.ai_stage,
                     },
                 )
             await self._update_task_run_status("cancelled", run_id=run_id)
@@ -619,6 +623,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                         "task_id": self.context.task_id,
                         "repository": self.context.repository,
                         "origin_product": self.context.origin_product,
+                        "ai_stage": self.context.ai_stage,
                         "environment": self.context.environment,
                         "mode": self.context.mode,
                         "run_source": self.context.run_source,
