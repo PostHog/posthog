@@ -1944,6 +1944,34 @@ class TestCSPMiddleware(APIBaseTest):
         assert "us.i.posthog.com" not in header
         assert f"distinct_id={self.user.distinct_id}" in header
 
+    @parameterized.expand(
+        [
+            ("cloud", {"CLOUD_DEPLOYMENT": "US"}, True),
+            ("self_hosted", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}, False),
+        ]
+    )
+    def test_admin_pages_enforce_the_policy_and_follow_the_reporting_default(self, _name, overrides, expects_reporting):
+        # The admin policy is enforced, not report-only, and builds its own Reporting-Endpoints
+        # header, so it can drift from the app policy unnoticed. A non-staff request redirects but
+        # still carries that policy, because the middleware picks its branch by path.
+        with override_settings(CSP_REPORT_ENDPOINT=None, **overrides):
+            response = self.client.get("/admin/")
+        policy = response["Content-Security-Policy"]
+        # Only the admin policy forbids framing outright; the non-HTML fallback is default-src alone.
+        assert "frame-ancestors 'none'" in policy
+        assert "Content-Security-Policy-Report-Only" not in response
+
+        if expects_reporting:
+            assert "report-uri https://us.i.posthog.com/report/" in policy
+            assert "report-to posthog" in policy
+            # Admin traffic is small enough to report every violation, unlike the sampled app policy.
+            assert "sample_rate" not in policy
+            assert "Reporting-Endpoints" in response
+        else:
+            assert "report-uri" not in policy
+            assert "report-to" not in policy
+            assert "Reporting-Endpoints" not in response
+
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
