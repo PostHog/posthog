@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  JUMP_ATTEMPT_FRAMES,
   useThreadNavigationStore,
   useThreadScrollRequest,
 } from "./threadNavigationStore";
@@ -101,7 +102,7 @@ describe("useThreadScrollRequest", () => {
         .getState()
         .requestScrollToMessage("task-1", "no-such-row");
     });
-    runFrames(120);
+    runFrames(JUMP_ATTEMPT_FRAMES + 2);
 
     expect(useThreadNavigationStore.getState().scrollRequests["task-1"]).toBe(
       null,

@@ -86,7 +86,8 @@ export function ImageDetailPage({
   const openBuilder = async () => {
     try {
       const updated = await builderTaskMutation.mutateAsync(current.id);
-      if (updated.builder_task_id) void handleOpenTask(updated.builder_task_id);
+      if (updated.builder_task_id)
+        void handleOpenTask({ taskId: updated.builder_task_id });
     } catch {
       // The mutation's onError toast already explains the failure.
     }

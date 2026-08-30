@@ -153,7 +153,7 @@ function LoadedSetupFlow({
     }
     onDone(null);
     if (result.created?.builder_task_id) {
-      void handleOpenTask(result.created.builder_task_id);
+      void handleOpenTask({ taskId: result.created.builder_task_id });
     }
   };
 

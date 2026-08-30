@@ -1,3 +1,4 @@
+import { Check, LinkIcon } from "@phosphor-icons/react";
 import {
   cn,
   DropdownMenu,
@@ -8,6 +9,7 @@ import {
   useChatMessageScrollerVisibility,
 } from "@posthog/quill";
 import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
+import { useCopyMessageLink } from "@posthog/ui/features/sessions/components/chat-thread/useCopyMessageLink";
 import {
   OverflowTickerText,
   useOverflowTickerReveal,
@@ -26,7 +28,6 @@ const MIN_TICK_WIDTH_PCT = 34;
 interface MinimapEntry {
   id: string;
   label: string;
-  timestamp: number;
   /** 34–100%: longer messages draw longer ticks, so the rail reads like a document minimap. */
   widthPct: number;
 }
@@ -37,18 +38,14 @@ function truncate(text: string, maxLength: number): string {
   return `${singleLine.slice(0, maxLength)}…`;
 }
 
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 /**
  * One row of the expanded list. The message text is never statically clipped: it fades at the right
  * edge while idle and ticker-scrolls to its end on hover or keyboard focus, matching sidebar items.
+ *
+ * The row's trailing slot is a link affordance rather than the send time: what a reader wants from a
+ * message they cannot scroll to together is a way to send it. It is a sibling of the menu item, not
+ * a child, because the item itself renders a button and buttons do not nest — so it is laid over the
+ * item's trailing padding, and a click on it never reaches the row's jump.
  */
 function MinimapMenuItem({
   entry,
@@ -62,26 +59,43 @@ function MinimapMenuItem({
   onSelect: (id: string) => void;
 }) {
   const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
+  const { copied, copyLink } = useCopyMessageLink(entry.id);
 
   return (
-    <DropdownMenuItem
-      ref={itemRef}
-      // The list is a navigation surface, not a one-shot command: clicking scrolls the thread and
-      // leaves the menu up so the reader can keep hopping between turns.
-      closeOnClick={false}
-      onClick={() => onSelect(entry.id)}
-      {...hoverProps}
-      {...focusProps}
-      data-selected={isCurrent || undefined}
-      className="group/entry h-auto! min-h-7 items-center gap-2 py-1.5 text-left data-selected:bg-fill-selected data-selected:text-gray-12"
-    >
-      <OverflowTickerText reveal={reveal} className="flex-1 text-[13px]">
-        {entry.label}
-      </OverflowTickerText>
-      <span className="shrink-0 text-(--gray-10) text-[11px] tabular-nums opacity-0 transition-opacity group-hover/entry:opacity-100 motion-reduce:transition-none">
-        {formatTime(entry.timestamp)}
-      </span>
-    </DropdownMenuItem>
+    <div className="group/entry relative flex items-center">
+      <DropdownMenuItem
+        ref={itemRef}
+        // The list is a navigation surface, not a one-shot command: clicking scrolls the thread and
+        // leaves the menu up so the reader can keep hopping between turns.
+        closeOnClick={false}
+        onClick={() => onSelect(entry.id)}
+        {...hoverProps}
+        {...focusProps}
+        data-selected={isCurrent || undefined}
+        className={cn(
+          "h-auto! min-h-7 flex-1 items-center py-1.5 text-left data-selected:bg-fill-selected data-selected:text-gray-12",
+          copyLink && "pr-7",
+        )}
+      >
+        <OverflowTickerText reveal={reveal} className="flex-1 text-[13px]">
+          {entry.label}
+        </OverflowTickerText>
+      </DropdownMenuItem>
+      {copyLink && (
+        // Out of the tab order: Tab closes the menu, so the row stays the keyboard target and
+        // copying is a pointer convenience.
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="Copy link to this message"
+          title={copied ? "Link copied" : "Copy link to this message"}
+          onClick={copyLink}
+          className="absolute right-1.5 flex items-center rounded p-0.5 text-(--gray-10) opacity-60 transition-opacity hover:opacity-100 group-hover/entry:opacity-100 motion-reduce:transition-none"
+        >
+          {copied ? <Check size={12} /> : <LinkIcon size={12} />}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -131,7 +145,6 @@ export function MessageMinimap({
       result.push({
         id: item.id,
         label: truncate(fullText, MAX_LABEL_LENGTH),
-        timestamp: item.timestamp,
         widthPct: MIN_TICK_WIDTH_PCT + (100 - MIN_TICK_WIDTH_PCT) * ratio,
       });
     }

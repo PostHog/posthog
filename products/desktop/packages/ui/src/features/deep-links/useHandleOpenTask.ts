@@ -1,5 +1,8 @@
 import type { CommentTarget } from "@posthog/core/comments/anchors";
-import type { TaskLinkCommentAnchor } from "@posthog/core/links/task-link";
+import type {
+  TaskLinkCommentAnchor,
+  TaskLinkPayload,
+} from "@posthog/core/links/task-link";
 import {
   TASK_SERVICE,
   type TaskService,
@@ -9,6 +12,7 @@ import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { useThreadNavigationStore } from "@posthog/ui/features/sessions/threadNavigationStore";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -40,9 +44,7 @@ function commentTargetFromAnchor(
 }
 
 export function useHandleOpenTask(): (
-  taskId: string,
-  taskRunId?: string,
-  comment?: TaskLinkCommentAnchor,
+  payload: TaskLinkPayload,
 ) => Promise<void> {
   const taskService = useService<TaskService>(TASK_SERVICE);
   const { markAsViewed } = useTaskViewed();
@@ -54,11 +56,7 @@ export function useHandleOpenTask(): (
   );
 
   return useCallback(
-    async (
-      taskId: string,
-      taskRunId?: string,
-      comment?: TaskLinkCommentAnchor,
-    ) => {
+    async ({ taskId, taskRunId, comment, messageId }: TaskLinkPayload) => {
       log.info(
         `Opening task from deep link: ${taskId}${taskRunId ? `, run: ${taskRunId}` : ""}`,
       );
@@ -102,6 +100,13 @@ export function useHandleOpenTask(): (
               commentTargetFromAnchor(taskId, comment),
               comment.threadId,
             );
+        }
+        // The transcript mounts after this, and the request is durable until served, so it does
+        // not matter that nothing is listening yet — the retry loop starts when it mounts.
+        if (messageId) {
+          useThreadNavigationStore
+            .getState()
+            .requestScrollToMessage(taskId, messageId);
         }
         log.info(`Opened task from deep link: ${taskId}`);
       } catch (error) {

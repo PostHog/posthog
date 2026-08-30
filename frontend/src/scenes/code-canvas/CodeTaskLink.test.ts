@@ -14,14 +14,17 @@ describe('CodeTaskLink', () => {
         jest.clearAllMocks()
     })
 
-    it('forwards the comment target from the browser URL to PostHog Desktop', () => {
+    it('forwards the comment target and the message anchor from the browser URL to PostHog Desktop', () => {
         expect(
             taskDeepLink('task/1', {
                 comment: 'comment/1',
                 scope: 'task_artifact',
                 item: 'artifact/1',
+                message: 'turn-1/user',
             })
-        ).toBe('posthog-code://task/task%2F1?comment=comment%2F1&scope=task_artifact&item=artifact%2F1')
+        ).toBe(
+            'posthog-code://task/task%2F1?comment=comment%2F1&scope=task_artifact&item=artifact%2F1&message=turn-1%2Fuser'
+        )
     })
 
     it('reads the comment target from the active URL when rendering the bridge', () => {

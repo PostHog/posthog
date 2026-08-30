@@ -2,6 +2,7 @@ import {
   canvasShareUrl,
   errorTrackingIssueUrl,
   parseShareLink,
+  taskShareUrl,
 } from "@posthog/ui/utils/posthogLinks";
 import { describe, expect, it, vi } from "vitest";
 
@@ -13,6 +14,19 @@ describe("canvasShareUrl", () => {
   it("builds an https /code/canvas link with encoded ids", () => {
     expect(canvasShareUrl("chan/1", "dash 2", "us")).toBe(
       "https://us.posthog.com/code/canvas/chan%2F1/dash%202",
+    );
+  });
+});
+
+// The `message` param name is a contract with `TaskLinkService` (which reads it) and the web
+// interstitial (which forwards it), so it is pinned here rather than left to the callers.
+describe("taskShareUrl", () => {
+  it("builds an https /code/task link, with the message as an encoded query param", () => {
+    expect(taskShareUrl("task 1")).toBe(
+      "https://us.posthog.com/code/task/task%201",
+    );
+    expect(taskShareUrl("task1", "turn-1/user")).toBe(
+      "https://us.posthog.com/code/task/task1?message=turn-1%2Fuser",
     );
   });
 });
