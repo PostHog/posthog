@@ -86,8 +86,8 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "skills" };
     case "/mcp-servers":
       return { type: "mcp-servers" };
-    case "/_shell/settings/$category":
-    case "/_shell/settings/":
+    case "/settings/$category":
+    case "/settings/":
       return { type: "settings" };
     default:
       if (last.fullPath.startsWith("/inbox")) {
