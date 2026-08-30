@@ -151,9 +151,9 @@ class TrendsResultsFormatter:
         return humanize_breakdown_label(name)
 
     def _format_results(self, results: list[dict]) -> str:
-        # Get dates and series labels
-        result = results[0]
-        aggregation_applied = result.get("aggregated_value") is not None
+        # Route on any aggregated series rather than the first, because a mixed set can lead
+        # with a time-series series while a later one carries the aggregate.
+        aggregation_applied = any(series.get("aggregated_value") is not None for series in results)
         if aggregation_applied:
             return self._format_aggregated_values(results)
         else:
