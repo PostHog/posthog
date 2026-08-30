@@ -92,8 +92,8 @@ const components: Components = {
           aria-label="Link loading"
         >
           {children}
-          <Spin className="size-3">
-            <CircleNotch aria-hidden="true" />
+          <Spin>
+            <CircleNotch size={12} aria-hidden="true" />
           </Spin>
         </output>
       );
