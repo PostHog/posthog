@@ -495,6 +495,12 @@ export interface ScoutConfig {
    */
   scout_origin?: "canonical" | "custom";
   run_interval_minutes: number;
+  /**
+   * Model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Null keeps
+   * the platform default. Settable only on projects enrolled in the scout model
+   * preview; absent on backends predating the field.
+   */
+  model?: string | null;
   last_run_at: string | null;
   created_at: string;
 }
@@ -2221,6 +2227,11 @@ export class PostHogAPIClient {
       emit?: boolean;
       run_interval_minutes?: number;
       auto_pause_exempt?: boolean;
+      /**
+       * Model id to pin, or null to clear the pin and fall back to the platform
+       * default. The server validates the id against its model catalog.
+       */
+      model?: string | null;
     },
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;

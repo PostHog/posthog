@@ -14,6 +14,7 @@ export interface ScoutConfigUpdate {
   emit?: boolean;
   run_interval_minutes?: number;
   auto_pause_exempt?: boolean;
+  model?: string | null;
 }
 
 const CONFIG_SETTINGS = [
@@ -21,6 +22,7 @@ const CONFIG_SETTINGS = [
   "emit",
   "run_interval_minutes",
   "auto_pause_exempt",
+  "model",
 ] as const;
 
 function trackConfigChange(
