@@ -255,6 +255,7 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual([run["id"] for run in runs.json()["results"]], [str(first_run.id)])
         self.assertEqual([proposal["id"] for proposal in proposals.json()["results"]], [str(first_proposal.id)])
         self.assertEqual(proposals.json()["results"][0]["file_path"], "content/guides/example.md")
+        self.assertEqual(proposals.json()["results"][0]["evidence"][0]["opportunity_kind"], "poor_ctr")
         self.assertNotIn("proposed_markdown", proposals.json()["results"][0])
         self.assertNotIn("content_package", proposals.json()["results"][0])
         proposal_detail = self.client.get(self._proposals_url(f"{first_proposal.id}/"))

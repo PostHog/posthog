@@ -18746,6 +18746,60 @@ export namespace Schemas {
       retryable: boolean;
     }
 
+    /**
+     * * `poor_ctr` - Poor click-through rate
+     * * `content_gap` - Content gap
+     * * `organic_decline` - Organic decline
+     * * `ai_visibility_gap` - AI visibility gap
+     * * `site_hygiene` - Site hygiene
+     */
+    export type OpportunityKindEnum = typeof OpportunityKindEnum[keyof typeof OpportunityKindEnum];
+
+
+    export const OpportunityKindEnum = {
+      PoorCtr: 'poor_ctr',
+      ContentGap: 'content_gap',
+      OrganicDecline: 'organic_decline',
+      AiVisibilityGap: 'ai_visibility_gap',
+      SiteHygiene: 'site_hygiene',
+    } as const;
+
+    export interface ContentAutopilotMetric {
+      /** Google Search impressions in the period. */
+      impressions?: number;
+      /** Google Search clicks in the period. */
+      clicks?: number;
+      /** Google Search click-through rate. */
+      click_through_rate?: number;
+      /** Average Google Search position. */
+      average_position?: number;
+      /** PostHog visitors in the period. */
+      visitors?: number;
+      /** Visits referred by AI assistants. */
+      ai_referrals?: number;
+      /** Requests from recognized AI crawlers. */
+      crawler_requests?: number;
+    }
+
+    export interface ContentAutopilotEvidence {
+      /** Reason the opportunity was selected.
+       *
+       * * `poor_ctr` - Poor click-through rate
+       * * `content_gap` - Content gap
+       * * `organic_decline` - Organic decline
+       * * `ai_visibility_gap` - AI visibility gap
+       * * `site_hygiene` - Site hygiene */
+      opportunity_kind: OpportunityKindEnum;
+      /** Plain-language explanation of the supporting evidence. */
+      explanation: string;
+      /** Page supported by this evidence. */
+      page_url?: string;
+      /** Search query supported by this evidence. */
+      query?: string;
+      /** Observed metrics supporting the opportunity. */
+      metrics?: ContentAutopilotMetric;
+    }
+
     export interface ContentAutopilotFrontmatterEntry {
       /** Frontmatter field name. */
       key: string;
@@ -18876,10 +18930,14 @@ export namespace Schemas {
       readonly target_query: string;
       /** Existing or intended public URL. */
       readonly target_url: string;
+      /** Performance evidence for this proposal. */
+      evidence: ContentAutopilotEvidence[];
       /** Blocking and advisory validation results. */
       validation_report: ContentAutopilotValidationReport;
       /** Canonical package used by every delivery adapter. */
       content_package: ContentAutopilotPackage;
+      /** Existing content for page-improvement diffs. */
+      readonly original_markdown: string;
       /** Full proposed Markdown after edits. */
       readonly proposed_markdown: string;
       /** Current export or pull-request delivery state.
@@ -18916,6 +18974,8 @@ export namespace Schemas {
       readonly lifecycle_status: LifecycleStatusEnum;
       readonly title: string;
       readonly target_query: string;
+      /** Performance evidence for this proposal. */
+      evidence: ContentAutopilotEvidence[];
       /** Blocking and advisory validation results. */
       validation_report: ContentAutopilotValidationReport;
       /** Repository-relative delivery path. */

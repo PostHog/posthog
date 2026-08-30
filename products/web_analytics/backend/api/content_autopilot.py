@@ -81,6 +81,38 @@ class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
             raise PermissionDenied("This feature is not available.")
 
 
+class ContentAutopilotMetricSerializer(serializers.Serializer):
+    impressions = serializers.IntegerField(required=False, help_text="Google Search impressions in the period.")
+    clicks = serializers.IntegerField(required=False, help_text="Google Search clicks in the period.")
+    click_through_rate = serializers.FloatField(required=False, help_text="Google Search click-through rate.")
+    average_position = serializers.FloatField(required=False, help_text="Average Google Search position.")
+    visitors = serializers.IntegerField(required=False, help_text="PostHog visitors in the period.")
+    ai_referrals = serializers.IntegerField(required=False, help_text="Visits referred by AI assistants.")
+    crawler_requests = serializers.IntegerField(required=False, help_text="Requests from recognized AI crawlers.")
+
+
+class ContentAutopilotEvidenceSerializer(serializers.Serializer):
+    opportunity_kind = serializers.ChoiceField(
+        choices=[
+            ("poor_ctr", "Poor click-through rate"),
+            ("content_gap", "Content gap"),
+            ("organic_decline", "Organic decline"),
+            ("ai_visibility_gap", "AI visibility gap"),
+            ("site_hygiene", "Site hygiene"),
+        ],
+        help_text="Reason the opportunity was selected.",
+    )
+    explanation = serializers.CharField(help_text="Plain-language explanation of the supporting evidence.")
+    page_url = serializers.URLField(required=False, allow_blank=True, help_text="Page supported by this evidence.")
+    query = serializers.CharField(
+        required=False, allow_blank=True, help_text="Search query supported by this evidence."
+    )
+    metrics = ContentAutopilotMetricSerializer(
+        required=False,
+        help_text="Observed metrics supporting the opportunity.",
+    )
+
+
 class ContentAutopilotSnapshotSerializer(serializers.Serializer):
     captured_at = serializers.DateTimeField(required=False, help_text="When the run inputs were captured.")
     domain = serializers.URLField(required=False, help_text="Site domain used for the run.")
@@ -382,6 +414,7 @@ class ContentAutopilotRunSerializer(serializers.ModelSerializer):
 
 
 class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
+    evidence = ContentAutopilotEvidenceSerializer(many=True, help_text="Performance evidence for this proposal.")
     validation_report = ContentAutopilotValidationReportSerializer(
         help_text="Blocking and advisory validation results."
     )
@@ -397,8 +430,10 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
             "title",
             "target_query",
             "target_url",
+            "evidence",
             "validation_report",
             "content_package",
+            "original_markdown",
             "proposed_markdown",
             "delivery_state",
             "delivery_reference",
@@ -415,6 +450,7 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
             "title": {"help_text": "Review title for this proposal."},
             "target_query": {"help_text": "Primary query or topic targeted by this proposal."},
             "target_url": {"help_text": "Existing or intended public URL."},
+            "original_markdown": {"help_text": "Existing content for page-improvement diffs."},
             "proposed_markdown": {"help_text": "Full proposed Markdown after edits."},
             "delivery_state": {"help_text": "Current export or pull-request delivery state."},
             "delivery_reference": {"help_text": "Export filename or GitHub branch reference."},
@@ -424,6 +460,7 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
 
 
 class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
+    evidence = ContentAutopilotEvidenceSerializer(many=True, help_text="Performance evidence for this proposal.")
     validation_report = ContentAutopilotValidationReportSerializer(
         help_text="Blocking and advisory validation results."
     )
@@ -438,6 +475,7 @@ class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
             "lifecycle_status",
             "title",
             "target_query",
+            "evidence",
             "validation_report",
             "file_path",
             "delivery_state",
