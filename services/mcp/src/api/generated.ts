@@ -18855,7 +18855,6 @@ export namespace Schemas {
      * * `ready_for_review` - Ready for review
      * * `rejected` - Rejected
      * * `exported` - Exported
-     * * `pr_opened` - Pull request opened
      * * `failed` - Failed
      */
     export type LifecycleStatusEnum = typeof LifecycleStatusEnum[keyof typeof LifecycleStatusEnum];
@@ -18866,7 +18865,6 @@ export namespace Schemas {
       ReadyForReview: 'ready_for_review',
       Rejected: 'rejected',
       Exported: 'exported',
-      PrOpened: 'pr_opened',
       Failed: 'failed',
     } as const;
 
@@ -18921,7 +18919,6 @@ export namespace Schemas {
        * * `ready_for_review` - Ready for review
        * * `rejected` - Rejected
        * * `exported` - Exported
-       * * `pr_opened` - Pull request opened
        * * `failed` - Failed */
       readonly lifecycle_status: LifecycleStatusEnum;
       /** Review title for this proposal. */
@@ -18947,12 +18944,10 @@ export namespace Schemas {
        * * `delivered` - Delivered
        * * `failed` - Failed */
       readonly delivery_state: DeliveryStateEnum;
-      /** Export filename or GitHub branch reference. */
+      /** Exported filename. */
       readonly delivery_reference: string;
       /** Why the last delivery attempt failed. */
       readonly delivery_error: string;
-      /** Created GitHub pull request URL. */
-      readonly pull_request_url: string;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -18981,25 +18976,8 @@ export namespace Schemas {
       /** Repository-relative delivery path. */
       readonly file_path: string;
       readonly delivery_state: DeliveryStateEnum;
-      readonly pull_request_url: string;
       readonly created_at: string;
       readonly updated_at: string;
-    }
-
-    export interface ContentAutopilotPullRequestRequest {
-      /**
-         * One new article or up to five page improvements from the same run.
-         * @minItems 1
-         * @maxItems 5
-         */
-      proposal_ids: string[];
-    }
-
-    export interface ContentAutopilotPullRequestResponse {
-      /** Created GitHub pull request URL. */
-      pull_request_url: string;
-      /** Created content branch. */
-      branch: string;
     }
 
     /**
@@ -19022,18 +19000,6 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
-    /**
-     * * `export_only` - Export only
-     * * `github` - GitHub
-     */
-    export type DeliveryModeEnum = typeof DeliveryModeEnum[keyof typeof DeliveryModeEnum];
-
-
-    export const DeliveryModeEnum = {
-      ExportOnly: 'export_only',
-      Github: 'github',
-    } as const;
-
     export interface ContentAutopilotSnapshot {
       /** When the run inputs were captured. */
       captured_at?: string;
@@ -19052,19 +19018,6 @@ export namespace Schemas {
       content_boundaries?: string[];
       /** Editorial rules captured for this run. */
       brand_rules?: string[];
-      /** Delivery mode captured for this run.
-       *
-       * * `export_only` - Export only
-       * * `github` - GitHub */
-      delivery_mode?: DeliveryModeEnum;
-      /** GitHub repository captured for this run. */
-      github_repository?: string;
-      /** GitHub base branch captured for this run. */
-      base_branch?: string;
-      /** Repository directories authorized for this run. */
-      content_directories?: string[];
-      /** URL-to-file mapping captured for this run. */
-      url_to_file_convention?: string;
     }
 
     export interface ContentAutopilotRun {
@@ -19142,25 +19095,6 @@ export namespace Schemas {
       brand_rules: string[];
       /** Whether to use connected Google Search Console data. */
       search_console_enabled?: boolean;
-      /** Deliver approved work as exports or GitHub pull requests.
-       *
-       * * `export_only` - Export only
-       * * `github` - GitHub */
-      delivery_mode?: DeliveryModeEnum;
-      /**
-         * GitHub repository in owner/name format.
-         * @maxLength 512
-         */
-      github_repository?: string;
-      /**
-         * Base branch for content pull requests.
-         * @maxLength 255
-         */
-      base_branch?: string;
-      /** Repository directories where approved content may be written. */
-      content_directories: string[];
-      /** Rule mapping public URLs to repository file paths. */
-      url_to_file_convention?: string;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -60614,25 +60548,6 @@ export namespace Schemas {
       brand_rules?: string[];
       /** Whether to use connected Google Search Console data. */
       search_console_enabled?: boolean;
-      /** Deliver approved work as exports or GitHub pull requests.
-       *
-       * * `export_only` - Export only
-       * * `github` - GitHub */
-      delivery_mode?: DeliveryModeEnum;
-      /**
-         * GitHub repository in owner/name format.
-         * @maxLength 512
-         */
-      github_repository?: string;
-      /**
-         * Base branch for content pull requests.
-         * @maxLength 255
-         */
-      base_branch?: string;
-      /** Repository directories where approved content may be written. */
-      content_directories?: string[];
-      /** Rule mapping public URLs to repository file paths. */
-      url_to_file_convention?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
     }

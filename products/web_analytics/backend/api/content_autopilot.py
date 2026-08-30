@@ -1,4 +1,3 @@
-import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -17,17 +16,12 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.integration.github import is_safe_github_ref
 from posthog.rate_limit import (
     ContentAutopilotDiscoveryBurstRateThrottle,
     ContentAutopilotDiscoverySustainedRateThrottle,
 )
 
-from products.web_analytics.backend.content_autopilot.delivery import (
-    ContentAutopilotDeliveryError,
-    export_proposal,
-    open_pull_request,
-)
+from products.web_analytics.backend.content_autopilot.delivery import ContentAutopilotDeliveryError, export_proposal
 from products.web_analytics.backend.content_autopilot.lifecycle import (
     MAX_PROPOSAL_MARKDOWN_CHARS,
     ContentAutopilotLifecycleError,
@@ -133,23 +127,6 @@ class ContentAutopilotSnapshotSerializer(serializers.Serializer):
     brand_rules = serializers.ListField(
         child=serializers.CharField(), required=False, help_text="Editorial rules captured for this run."
     )
-    delivery_mode = serializers.ChoiceField(
-        choices=ContentAutopilotSiteProfile.DeliveryMode.choices,
-        required=False,
-        help_text="Delivery mode captured for this run.",
-    )
-    github_repository = serializers.CharField(
-        required=False, allow_blank=True, help_text="GitHub repository captured for this run."
-    )
-    base_branch = serializers.CharField(
-        required=False, allow_blank=True, help_text="GitHub base branch captured for this run."
-    )
-    content_directories = serializers.ListField(
-        child=serializers.CharField(), required=False, help_text="Repository directories authorized for this run."
-    )
-    url_to_file_convention = serializers.CharField(
-        required=False, allow_blank=True, help_text="URL-to-file mapping captured for this run."
-    )
 
 
 class ContentAutopilotErrorSerializer(serializers.Serializer):
@@ -214,10 +191,6 @@ class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
         child=serializers.CharField(),
         help_text="Brand, terminology, and editorial rules applied to every proposal.",
     )
-    content_directories = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Repository directories where approved content may be written.",
-    )
 
     class Meta:
         model = ContentAutopilotSiteProfile
@@ -229,11 +202,6 @@ class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
             "content_boundaries",
             "brand_rules",
             "search_console_enabled",
-            "delivery_mode",
-            "github_repository",
-            "base_branch",
-            "content_directories",
-            "url_to_file_convention",
             "created_at",
             "updated_at",
         ]
@@ -242,10 +210,6 @@ class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
             "name": {"help_text": "Name used to identify this site in the workspace."},
             "domain": {"help_text": "Authorized site origin for this profile."},
             "search_console_enabled": {"help_text": "Whether to use connected Google Search Console data."},
-            "delivery_mode": {"help_text": "Deliver approved work as exports or GitHub pull requests."},
-            "github_repository": {"help_text": "GitHub repository in owner/name format."},
-            "base_branch": {"help_text": "Base branch for content pull requests."},
-            "url_to_file_convention": {"help_text": "Rule mapping public URLs to repository file paths."},
         }
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -306,23 +270,6 @@ class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
         ):
             raise ValidationError({"content_boundaries": "Use same-origin path prefixes beginning with '/'."})
 
-        delivery_mode = values.get("delivery_mode")
-        repository = str(values.get("github_repository") or "")
-        base_branch = str(values.get("base_branch") or "").strip()
-        attrs["base_branch"] = base_branch
-        directories = values.get("content_directories") or []
-        if delivery_mode == ContentAutopilotSiteProfile.DeliveryMode.GITHUB:
-            if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
-                raise ValidationError({"github_repository": "Enter a GitHub repository in owner/name format."})
-            if not directories:
-                raise ValidationError({"content_directories": "Add at least one repository content directory."})
-            if not is_safe_github_ref(base_branch):
-                raise ValidationError({"base_branch": "Enter a valid GitHub branch name."})
-        if any(
-            not path or path.startswith("/") or "\\" in path or any(part in {"", ".", ".."} for part in path.split("/"))
-            for path in directories
-        ):
-            raise ValidationError({"content_directories": "Use repository-relative directories without '..'."})
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> ContentAutopilotSiteProfile:
@@ -438,7 +385,6 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
             "delivery_state",
             "delivery_reference",
             "delivery_error",
-            "pull_request_url",
             "created_at",
             "updated_at",
         ]
@@ -453,9 +399,8 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
             "original_markdown": {"help_text": "Existing content for page-improvement diffs."},
             "proposed_markdown": {"help_text": "Full proposed Markdown after edits."},
             "delivery_state": {"help_text": "Current export or pull-request delivery state."},
-            "delivery_reference": {"help_text": "Export filename or GitHub branch reference."},
+            "delivery_reference": {"help_text": "Exported filename."},
             "delivery_error": {"help_text": "Why the last delivery attempt failed."},
-            "pull_request_url": {"help_text": "Created GitHub pull request URL."},
         }
 
 
@@ -479,7 +424,6 @@ class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
             "validation_report",
             "file_path",
             "delivery_state",
-            "pull_request_url",
             "created_at",
             "updated_at",
         ]
@@ -506,20 +450,6 @@ class ContentAutopilotExportResponseSerializer(serializers.Serializer):
     filename = serializers.CharField(help_text="Suggested export filename.")
     markdown = serializers.CharField(help_text="Validated Markdown content.")
     content_package = ContentAutopilotPackageSerializer(help_text="Structured JSON package for a CMS adapter.")
-
-
-class ContentAutopilotPullRequestRequestSerializer(serializers.Serializer):
-    proposal_ids = serializers.ListField(
-        child=serializers.UUIDField(),
-        min_length=1,
-        max_length=5,
-        help_text="One new article or up to five page improvements from the same run.",
-    )
-
-
-class ContentAutopilotPullRequestResponseSerializer(serializers.Serializer):
-    pull_request_url = serializers.URLField(help_text="Created GitHub pull request URL.")
-    branch = serializers.CharField(help_text="Created content branch.")
 
 
 class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.ModelViewSet):
@@ -642,7 +572,6 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
                 "title",
                 "validation_report",
                 "delivery_state",
-                "pull_request_url",
                 "created_at",
                 "updated_at",
             )
@@ -708,29 +637,3 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
         except (ContentAutopilotDeliveryError, ContentAutopilotLifecycleError) as error:
             raise ValidationError(str(error)) from error
         return Response({"filename": filename, "markdown": markdown, "content_package": content_package})
-
-    @validated_request(
-        request_serializer=ContentAutopilotPullRequestRequestSerializer,
-        operation_id="web_analytics_content_autopilot_proposals_open_pull_request",
-        summary="Open a content pull request",
-        description="Commits approved files to a content-only branch and opens a pull request. It never merges.",
-        responses={201: OpenApiResponse(response=ContentAutopilotPullRequestResponseSerializer)},
-        tags=["web_analytics"],
-    )
-    @action(
-        detail=False,
-        methods=["post"],
-        required_scopes=["web_analytics:write", "integration:write"],
-    )
-    def open_pull_request(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        try:
-            pull_request_url, branch = open_pull_request(
-                team_id=self.team_id,
-                proposal_ids=[str(proposal_id) for proposal_id in request.validated_data["proposal_ids"]],
-            )
-        except (ContentAutopilotDeliveryError, ContentAutopilotLifecycleError) as error:
-            raise ValidationError(str(error)) from error
-        return Response(
-            {"pull_request_url": pull_request_url, "branch": branch},
-            status=status.HTTP_201_CREATED,
-        )

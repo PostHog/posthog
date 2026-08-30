@@ -255,10 +255,6 @@ export const webAnalyticsContentAutopilotProfilesCreateBodyNameMax = 255
 
 export const webAnalyticsContentAutopilotProfilesCreateBodyDomainMax = 2048
 
-export const webAnalyticsContentAutopilotProfilesCreateBodyGithubRepositoryMax = 512
-
-export const webAnalyticsContentAutopilotProfilesCreateBodyBaseBranchMax = 255
-
 export const WebAnalyticsContentAutopilotProfilesCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -275,36 +271,11 @@ export const WebAnalyticsContentAutopilotProfilesCreateBody = /* @__PURE__ */ zo
     content_boundaries: zod.array(zod.string()).describe('Same-origin URL path prefixes allowed for research.'),
     brand_rules: zod.array(zod.string()).describe('Brand, terminology, and editorial rules applied to every proposal.'),
     search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
-    delivery_mode: zod
-        .enum(['export_only', 'github'])
-        .describe('\* `export_only` - Export only\n\* `github` - GitHub')
-        .optional()
-        .describe(
-            'Deliver approved work as exports or GitHub pull requests.\n\n\* `export_only` - Export only\n\* `github` - GitHub'
-        ),
-    github_repository: zod
-        .string()
-        .max(webAnalyticsContentAutopilotProfilesCreateBodyGithubRepositoryMax)
-        .optional()
-        .describe('GitHub repository in owner\/name format.'),
-    base_branch: zod
-        .string()
-        .max(webAnalyticsContentAutopilotProfilesCreateBodyBaseBranchMax)
-        .optional()
-        .describe('Base branch for content pull requests.'),
-    content_directories: zod
-        .array(zod.string())
-        .describe('Repository directories where approved content may be written.'),
-    url_to_file_convention: zod.string().optional().describe('Rule mapping public URLs to repository file paths.'),
 })
 
 export const webAnalyticsContentAutopilotProfilesUpdateBodyNameMax = 255
 
 export const webAnalyticsContentAutopilotProfilesUpdateBodyDomainMax = 2048
-
-export const webAnalyticsContentAutopilotProfilesUpdateBodyGithubRepositoryMax = 512
-
-export const webAnalyticsContentAutopilotProfilesUpdateBodyBaseBranchMax = 255
 
 export const WebAnalyticsContentAutopilotProfilesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -322,36 +293,11 @@ export const WebAnalyticsContentAutopilotProfilesUpdateBody = /* @__PURE__ */ zo
     content_boundaries: zod.array(zod.string()).describe('Same-origin URL path prefixes allowed for research.'),
     brand_rules: zod.array(zod.string()).describe('Brand, terminology, and editorial rules applied to every proposal.'),
     search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
-    delivery_mode: zod
-        .enum(['export_only', 'github'])
-        .describe('\* `export_only` - Export only\n\* `github` - GitHub')
-        .optional()
-        .describe(
-            'Deliver approved work as exports or GitHub pull requests.\n\n\* `export_only` - Export only\n\* `github` - GitHub'
-        ),
-    github_repository: zod
-        .string()
-        .max(webAnalyticsContentAutopilotProfilesUpdateBodyGithubRepositoryMax)
-        .optional()
-        .describe('GitHub repository in owner\/name format.'),
-    base_branch: zod
-        .string()
-        .max(webAnalyticsContentAutopilotProfilesUpdateBodyBaseBranchMax)
-        .optional()
-        .describe('Base branch for content pull requests.'),
-    content_directories: zod
-        .array(zod.string())
-        .describe('Repository directories where approved content may be written.'),
-    url_to_file_convention: zod.string().optional().describe('Rule mapping public URLs to repository file paths.'),
 })
 
 export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyNameMax = 255
 
 export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyDomainMax = 2048
-
-export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyGithubRepositoryMax = 512
-
-export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyBaseBranchMax = 255
 
 export const WebAnalyticsContentAutopilotProfilesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -377,28 +323,6 @@ export const WebAnalyticsContentAutopilotProfilesPartialUpdateBody = /* @__PURE_
         .optional()
         .describe('Brand, terminology, and editorial rules applied to every proposal.'),
     search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
-    delivery_mode: zod
-        .enum(['export_only', 'github'])
-        .describe('\* `export_only` - Export only\n\* `github` - GitHub')
-        .optional()
-        .describe(
-            'Deliver approved work as exports or GitHub pull requests.\n\n\* `export_only` - Export only\n\* `github` - GitHub'
-        ),
-    github_repository: zod
-        .string()
-        .max(webAnalyticsContentAutopilotProfilesPartialUpdateBodyGithubRepositoryMax)
-        .optional()
-        .describe('GitHub repository in owner\/name format.'),
-    base_branch: zod
-        .string()
-        .max(webAnalyticsContentAutopilotProfilesPartialUpdateBodyBaseBranchMax)
-        .optional()
-        .describe('Base branch for content pull requests.'),
-    content_directories: zod
-        .array(zod.string())
-        .optional()
-        .describe('Repository directories where approved content may be written.'),
-    url_to_file_convention: zod.string().optional().describe('Rule mapping public URLs to repository file paths.'),
 })
 
 /**
@@ -446,20 +370,6 @@ export const WebAnalyticsContentAutopilotProposalsEditBody = /* @__PURE__ */ zod
             source_notes: zod.array(zod.string()).describe('Portable source notes included with the export.'),
         })
         .describe('Updated canonical delivery package.'),
-})
-
-/**
- * Commits approved files to a content-only branch and opens a pull request. It never merges.
- * @summary Open a content pull request
- */
-export const webAnalyticsContentAutopilotProposalsOpenPullRequestBodyProposalIdsMax = 5
-
-export const WebAnalyticsContentAutopilotProposalsOpenPullRequestBody = /* @__PURE__ */ zod.object({
-    proposal_ids: zod
-        .array(zod.uuid())
-        .min(1)
-        .max(webAnalyticsContentAutopilotProposalsOpenPullRequestBodyProposalIdsMax)
-        .describe('One new article or up to five page improvements from the same run.'),
 })
 
 /**

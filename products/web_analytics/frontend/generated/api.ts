@@ -16,8 +16,6 @@ import type {
     ContentAutopilotExportResponseApi,
     ContentAutopilotProposalApi,
     ContentAutopilotProposalEditRequestApi,
-    ContentAutopilotPullRequestRequestApi,
-    ContentAutopilotPullRequestResponseApi,
     ContentAutopilotRunApi,
     ContentAutopilotRunStartRequestApi,
     ContentAutopilotSiteDiscoveryRequestApi,
@@ -841,30 +839,6 @@ export const webAnalyticsContentAutopilotProposalsReject = async (
         ...options,
         method: 'POST',
     })
-}
-
-export const getWebAnalyticsContentAutopilotProposalsOpenPullRequestUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/open_pull_request/`
-}
-
-/**
- * Commits approved files to a content-only branch and opens a pull request. It never merges.
- * @summary Open a content pull request
- */
-export const webAnalyticsContentAutopilotProposalsOpenPullRequest = async (
-    projectId: string,
-    contentAutopilotPullRequestRequestApi: ContentAutopilotPullRequestRequestApi,
-    options?: RequestInit
-): Promise<ContentAutopilotPullRequestResponseApi> => {
-    return apiMutator<ContentAutopilotPullRequestResponseApi>(
-        getWebAnalyticsContentAutopilotProposalsOpenPullRequestUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(contentAutopilotPullRequestRequestApi),
-        }
-    )
 }
 
 export const getWebAnalyticsContentAutopilotRunsListUrl = (

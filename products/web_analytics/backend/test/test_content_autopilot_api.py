@@ -45,11 +45,6 @@ class TestContentAutopilotAPI(APIBaseTest):
             "content_boundaries": ["/blog"],
             "brand_rules": ["Use sentence case"],
             "search_console_enabled": False,
-            "delivery_mode": "export_only",
-            "github_repository": "",
-            "base_branch": "main",
-            "content_directories": [],
-            "url_to_file_convention": "",
         }
         payload.update(overrides)
         return payload
@@ -82,18 +77,10 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertIn(response.status_code, {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN})
 
-    def test_profile_validates_site_and_delivery_boundaries(self) -> None:
+    def test_profile_validates_site_boundaries(self) -> None:
         invalid_payloads = [
             (self._profile_payload(source_urls=["https://other.example/sitemap.xml"]), "source_urls"),
             (self._profile_payload(content_boundaries=["/docs/../private"]), "content_boundaries"),
-            (
-                self._profile_payload(
-                    delivery_mode="github",
-                    github_repository="example/site",
-                    content_directories=["../content"],
-                ),
-                "content_directories",
-            ),
         ]
 
         for payload, field in invalid_payloads:
@@ -112,21 +99,6 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(response.json()["source_urls"], ["https://example.com:443/sitemap.xml?page=1"])
-
-    def test_profile_rejects_an_unsafe_github_base_branch(self) -> None:
-        response = self.client.post(
-            self._profiles_url(),
-            self._profile_payload(
-                delivery_mode="github",
-                github_repository="example/site",
-                base_branch="../../pulls",
-                content_directories=["content"],
-            ),
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "base_branch")
 
     def test_project_can_configure_and_list_multiple_sites(self) -> None:
         first = self.client.post(self._profiles_url(), self._profile_payload(), format="json")
@@ -302,59 +274,6 @@ class TestContentAutopilotAPI(APIBaseTest):
         proposal.refresh_from_db()
         self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.EXPORTED)
         self.assertEqual(proposal.delivery_state, ContentAutopilotProposal.DeliveryState.DELIVERED)
-
-    def test_open_pull_request_writes_only_the_approved_content_file(self) -> None:
-        profile = create_content_autopilot_profile(
-            self.team,
-            delivery_mode="github",
-            github_repository="example/site",
-            content_directories=["content"],
-        )
-        proposal = create_content_autopilot_proposal(
-            self.team,
-            create_content_autopilot_run(self.team, profile),
-        )
-        github = MagicMock()
-        github.organization.return_value = "example"
-        github.commit_files_to_branch.return_value = {
-            "success": True,
-            "commit_sha": "abc123",
-            "created_branch": True,
-        }
-        github.create_pull_request.return_value = {
-            "success": True,
-            "pr_url": "https://github.com/example/site/pull/7",
-        }
-
-        with patch(
-            "products.web_analytics.backend.content_autopilot.delivery.GitHubIntegration.first_for_team_repository",
-            return_value=github,
-        ):
-            response = self.client.post(
-                self._proposals_url("open_pull_request/"),
-                {"proposal_ids": [str(proposal.id)]},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-        self.assertEqual(
-            github.commit_files_to_branch.call_args.args[3],
-            {"content/guides/example.md": proposal.proposed_markdown},
-        )
-
-    def test_open_pull_request_requires_integration_write_scope(self) -> None:
-        key = self.create_personal_api_key_with_scopes(["web_analytics:write"])
-        self.client.logout()
-
-        response = self.client.post(
-            self._proposals_url("open_pull_request/"),
-            {"proposal_ids": ["00000000-0000-4000-8000-000000000001"]},
-            format="json",
-            headers={"authorization": f"Bearer {key}"},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("integration:write", response.json()["detail"])
 
     def test_other_team_records_are_not_exposed(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))

@@ -702,17 +702,6 @@ export interface RecordVisitResponseApi {
     recorded: boolean
 }
 
-/**
- * * `export_only` - Export only
- * * `github` - GitHub
- */
-export type DeliveryModeEnumApi = (typeof DeliveryModeEnumApi)[keyof typeof DeliveryModeEnumApi]
-
-export const DeliveryModeEnumApi = {
-    ExportOnly: 'export_only',
-    Github: 'github',
-} as const
-
 export interface ContentAutopilotSiteProfileApi {
     readonly id: string
     /**
@@ -733,25 +722,6 @@ export interface ContentAutopilotSiteProfileApi {
     brand_rules: string[]
     /** Whether to use connected Google Search Console data. */
     search_console_enabled?: boolean
-    /** Deliver approved work as exports or GitHub pull requests.
-     *
-     * * `export_only` - Export only
-     * * `github` - GitHub */
-    delivery_mode?: DeliveryModeEnumApi
-    /**
-     * GitHub repository in owner/name format.
-     * @maxLength 512
-     */
-    github_repository?: string
-    /**
-     * Base branch for content pull requests.
-     * @maxLength 255
-     */
-    base_branch?: string
-    /** Repository directories where approved content may be written. */
-    content_directories: string[]
-    /** Rule mapping public URLs to repository file paths. */
-    url_to_file_convention?: string
     readonly created_at: string
     readonly updated_at: string
 }
@@ -785,25 +755,6 @@ export interface PatchedContentAutopilotSiteProfileApi {
     brand_rules?: string[]
     /** Whether to use connected Google Search Console data. */
     search_console_enabled?: boolean
-    /** Deliver approved work as exports or GitHub pull requests.
-     *
-     * * `export_only` - Export only
-     * * `github` - GitHub */
-    delivery_mode?: DeliveryModeEnumApi
-    /**
-     * GitHub repository in owner/name format.
-     * @maxLength 512
-     */
-    github_repository?: string
-    /**
-     * Base branch for content pull requests.
-     * @maxLength 255
-     */
-    base_branch?: string
-    /** Repository directories where approved content may be written. */
-    content_directories?: string[]
-    /** Rule mapping public URLs to repository file paths. */
-    url_to_file_convention?: string
     readonly created_at?: string
     readonly updated_at?: string
 }
@@ -844,7 +795,6 @@ export const ProposalTypeEnumApi = {
  * * `ready_for_review` - Ready for review
  * * `rejected` - Rejected
  * * `exported` - Exported
- * * `pr_opened` - Pull request opened
  * * `failed` - Failed
  */
 export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeof LifecycleStatusEnumApi]
@@ -854,7 +804,6 @@ export const LifecycleStatusEnumApi = {
     ReadyForReview: 'ready_for_review',
     Rejected: 'rejected',
     Exported: 'exported',
-    PrOpened: 'pr_opened',
     Failed: 'failed',
 } as const
 
@@ -960,7 +909,6 @@ export interface ContentAutopilotProposalListApi {
     /** Repository-relative delivery path. */
     readonly file_path: string
     readonly delivery_state: DeliveryStateEnumApi
-    readonly pull_request_url: string
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1018,7 +966,6 @@ export interface ContentAutopilotProposalApi {
      * * `ready_for_review` - Ready for review
      * * `rejected` - Rejected
      * * `exported` - Exported
-     * * `pr_opened` - Pull request opened
      * * `failed` - Failed */
     readonly lifecycle_status: LifecycleStatusEnumApi
     /** Review title for this proposal. */
@@ -1044,12 +991,10 @@ export interface ContentAutopilotProposalApi {
      * * `delivered` - Delivered
      * * `failed` - Failed */
     readonly delivery_state: DeliveryStateEnumApi
-    /** Export filename or GitHub branch reference. */
+    /** Exported filename. */
     readonly delivery_reference: string
     /** Why the last delivery attempt failed. */
     readonly delivery_error: string
-    /** Created GitHub pull request URL. */
-    readonly pull_request_url: string
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1071,22 +1016,6 @@ export interface ContentAutopilotExportResponseApi {
     markdown: string
     /** Structured JSON package for a CMS adapter. */
     content_package: ContentAutopilotPackageApi
-}
-
-export interface ContentAutopilotPullRequestRequestApi {
-    /**
-     * One new article or up to five page improvements from the same run.
-     * @minItems 1
-     * @maxItems 5
-     */
-    proposal_ids: string[]
-}
-
-export interface ContentAutopilotPullRequestResponseApi {
-    /** Created GitHub pull request URL. */
-    pull_request_url: string
-    /** Created content branch. */
-    branch: string
 }
 
 /**
@@ -1138,19 +1067,6 @@ export interface ContentAutopilotSnapshotApi {
     content_boundaries?: string[]
     /** Editorial rules captured for this run. */
     brand_rules?: string[]
-    /** Delivery mode captured for this run.
-     *
-     * * `export_only` - Export only
-     * * `github` - GitHub */
-    delivery_mode?: DeliveryModeEnumApi
-    /** GitHub repository captured for this run. */
-    github_repository?: string
-    /** GitHub base branch captured for this run. */
-    base_branch?: string
-    /** Repository directories authorized for this run. */
-    content_directories?: string[]
-    /** URL-to-file mapping captured for this run. */
-    url_to_file_convention?: string
 }
 
 export interface ContentAutopilotErrorApi {
