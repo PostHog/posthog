@@ -53,14 +53,21 @@ class ResumableSourceManager(Generic[ResumableData]):
         yield redis
 
     @property
+    def _schema_key_prefix(self) -> str:
+        # Version-neutral identity of this schema's checkpoints. Reads and writes scope tighter, by
+        # API version (see `_base_key`), so a resume never mixes versions. Cleanup keys off this
+        # prefix instead so it reaches every version's checkpoint at once (see `clear_all_state`).
+        return (
+            "posthog:data_warehouse:resumable_source:"
+            f"{self._inputs.team_id}:{self._inputs.source_id}:{self._inputs.schema_id}"
+        )
+
+    @property
     def _base_key(self) -> str:
         # Keyed by the stable (team, source, endpoint) identity, not the per-run job id. A
         # restarted sync gets a fresh job id, so a job-scoped key orphaned the previous run's
         # checkpoint and forced a full re-walk. `schema_id` is the endpoint: one schema per table.
-        base = (
-            "posthog:data_warehouse:resumable_source:"
-            f"{self._inputs.team_id}:{self._inputs.source_id}:{self._inputs.schema_id}"
-        )
+        base = self._schema_key_prefix
         # The vendor API version is part of the identity: a repinned version cancels the running
         # job, so resuming its cursor against the new version would mix two versions in one table.
         if self._inputs.api_version:
@@ -116,18 +123,20 @@ class ResumableSourceManager(Generic[ResumableData]):
             redis.delete(self._key)
 
     def clear_all_state(self) -> None:
-        """Drop this schema's checkpoint and every `with_namespace` sibling of it.
+        """Drop every checkpoint for this schema: all API versions and every `with_namespace` sibling.
 
         The stable key outlives a run, so a checkpoint left by a completed or killed walk stays
-        readable by the next run. When the pipeline finishes a walk, it must delete every key for the
-        schema, including the namespaced siblings a source writes through `with_namespace` (Convex)
-        that `clear_state` on the base manager would miss. Otherwise a later run resumes stale rows
-        onto a fresh table and the sync truncates silently.
+        readable by the next run. Reads and writes are version-scoped so a resume never mixes
+        versions, but cleanup must reach every version. A walk clears only the version pinned now, so
+        a checkpoint left under a prior pin survives a repin from A to B and back to A within the TTL,
+        and the return-to-A run resumes its stale cursor onto a table it should full-refresh, keeping
+        only the tail. Keying off the version-neutral prefix also catches the namespaced siblings a
+        source writes through `with_namespace` (Convex) that a version-scoped scan would miss.
         """
         with self._get_redis() as redis:
-            self._logger.debug(f"Clearing all resumable source state. base={self._base_key}")
-            redis.delete(self._base_key)
-            for key in redis.scan_iter(match=f"{self._base_key}:*", count=100):
+            self._logger.debug(f"Clearing all resumable source state. prefix={self._schema_key_prefix}")
+            redis.delete(self._schema_key_prefix)
+            for key in redis.scan_iter(match=f"{self._schema_key_prefix}:*", count=100):
                 redis.delete(key)
 
     def discard_stale_state_on_reset(self) -> None:

@@ -159,3 +159,14 @@ class TestResumableSourceManager:
 
         # A repin cancels the running job; resuming its cursor against the new version is unsafe.
         assert _manager(_inputs(api_version="2025-01-01")).can_resume() is False
+
+    def test_clear_all_state_removes_other_api_versions(self, redis: _FakeRedis) -> None:
+        # A repin leaves version A's cursor behind. When a later run under version B walks to
+        # completion and clears, version A's checkpoint must go too: otherwise a repin back to A
+        # within the TTL resumes the stale cursor onto a table the run should full-refresh, silently
+        # keeping only the tail. A version-scoped clear would leave the other version's key behind.
+        _manager(_inputs(api_version="2024-01-01")).save_state(_Cursor(next_url="old"))
+
+        _manager(_inputs(api_version="2025-01-01")).clear_all_state()
+
+        assert _manager(_inputs(api_version="2024-01-01")).can_resume() is False
