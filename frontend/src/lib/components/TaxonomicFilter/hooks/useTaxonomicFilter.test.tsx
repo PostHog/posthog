@@ -501,7 +501,7 @@ describe('useTaxonomicFilter', () => {
                 item: { name: 'Power users' },
                 timestamp: 0,
             },
-        ] as any)
+        ])
 
         const { result } = renderHook(
             () => useTaxonomicFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] }),
