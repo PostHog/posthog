@@ -13,6 +13,7 @@ export type MCPAnalyticsTab =
     | 'sessions'
     | 'tool-quality'
     | 'intent-clustering'
+    | 'missing-capabilities'
     | 'notifications'
 
 export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
@@ -22,6 +23,7 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
     'tool-quality': 'Understand how reliably your MCP tools support user workflows.',
     'intent-clustering':
         'Cluster semantically similar user intents and see which tools each cluster routes to. Highlights inconsistent routing.',
+    'missing-capabilities': 'What agents asked your server for and could not get, in their own words, newest first.',
     notifications:
         'Recurring summaries of what agents are doing, plus instant alerts for the things you need to know about right away.',
 }
@@ -38,6 +40,8 @@ export const TAB_AI_PROMPTS: Record<MCPAnalyticsTab, string> = {
         'Which of my MCP tools are least reliable? Break down $mcp_tool_call error rate and p95 $mcp_duration_ms by $mcp_tool_name.',
     'intent-clustering':
         "What's the biggest unmet need agents have that my MCP tools don't cover? Look at $mcp_intent on failing tool calls.",
+    'missing-capabilities':
+        'What capabilities have agents asked my MCP server for and not got? Summarize the $mcp_intent text on $mcp_missing_capability events and group the asks into themes.',
     notifications:
         'What MCP events should I be notified about? Summarize what agents were trying to do on failing $mcp_tool_call events.',
 }
@@ -48,6 +52,7 @@ const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
     mcpAnalyticsSessions: 'sessions',
     mcpAnalyticsToolQuality: 'tool-quality',
     mcpAnalyticsIntentClustering: 'intent-clustering',
+    mcpAnalyticsMissingCapabilities: 'missing-capabilities',
     mcpAnalyticsNotifications: 'notifications',
 }
 
