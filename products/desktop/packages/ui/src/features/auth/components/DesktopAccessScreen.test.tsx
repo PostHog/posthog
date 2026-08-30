@@ -85,6 +85,25 @@ describe("DesktopAccessScreen", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
+  it("makes selecting another organization the primary action for a policy block", async () => {
+    const user = userEvent.setup();
+    renderScreen({ projectId: 1, status: "blocked", reason: "startup_plan" });
+
+    // A recheck cannot clear a policy block, so the primary CTA opens the
+    // organization list rather than rechecking.
+    await user.click(screen.getByText("Select another organization"));
+    expect(await screen.findByText("Second organization")).toBeInTheDocument();
+  });
+
+  it("keeps recheck the primary action for a technical error", () => {
+    renderScreen({ projectId: 1, status: "error", reason: null });
+
+    expect(
+      screen.queryByText("Select another organization"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Try again")).toBeInTheDocument();
+  });
+
   it("lets the user select another project", async () => {
     const user = userEvent.setup();
     const { container, onSelectProject } = renderScreen({

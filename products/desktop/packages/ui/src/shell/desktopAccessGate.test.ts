@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   isBackgroundAccessRecheck,
+  isBlockedAccessRecheck,
   nextLastAllowedProjectId,
+  nextLastBlockedProjectId,
 } from "./desktopAccessGate";
 
 describe("desktopAccessGate", () => {
@@ -161,6 +163,137 @@ describe("desktopAccessGate", () => {
       expect(isBackgroundAccessRecheck(afterBlocked, 42, "checking")).toBe(
         false,
       );
+    });
+  });
+
+  describe("isBlockedAccessRecheck", () => {
+    it.each([
+      {
+        name: "recheck of the project the app already showed as blocked",
+        lastBlockedProjectId: 42,
+        currentProjectId: 42,
+        accessStatus: "checking" as const,
+        expected: true,
+      },
+      {
+        name: "recheck after a project change",
+        lastBlockedProjectId: 42,
+        currentProjectId: 7,
+        accessStatus: "checking" as const,
+        expected: false,
+      },
+      {
+        name: "first check with no previously blocked project",
+        lastBlockedProjectId: null,
+        currentProjectId: 42,
+        accessStatus: "checking" as const,
+        expected: false,
+      },
+      {
+        name: "settled blocked result",
+        lastBlockedProjectId: 42,
+        currentProjectId: 42,
+        accessStatus: "blocked" as const,
+        expected: false,
+      },
+      {
+        name: "settled allowed result",
+        lastBlockedProjectId: 42,
+        currentProjectId: 42,
+        accessStatus: "allowed" as const,
+        expected: false,
+      },
+    ])(
+      "$name",
+      ({ lastBlockedProjectId, currentProjectId, accessStatus, expected }) => {
+        expect(
+          isBlockedAccessRecheck(
+            lastBlockedProjectId,
+            currentProjectId,
+            accessStatus,
+          ),
+        ).toBe(expected);
+      },
+    );
+  });
+
+  describe("nextLastBlockedProjectId", () => {
+    it.each([
+      {
+        name: "records the project on a blocked result",
+        previous: null,
+        state: {
+          isAuthenticated: true,
+          currentProjectId: 42,
+          accessIsCurrent: true,
+          accessStatus: "blocked" as const,
+        },
+        expected: 42,
+      },
+      {
+        name: "records the project on an error result",
+        previous: null,
+        state: {
+          isAuthenticated: true,
+          currentProjectId: 42,
+          accessIsCurrent: true,
+          accessStatus: "error" as const,
+        },
+        expected: 42,
+      },
+      {
+        name: "clears on a settled allowed result",
+        previous: 42,
+        state: {
+          isAuthenticated: true,
+          currentProjectId: 42,
+          accessIsCurrent: true,
+          accessStatus: "allowed" as const,
+        },
+        expected: null,
+      },
+      {
+        name: "clears on sign-out",
+        previous: 42,
+        state: {
+          isAuthenticated: false,
+          currentProjectId: 42,
+          accessIsCurrent: true,
+          accessStatus: "blocked" as const,
+        },
+        expected: null,
+      },
+      {
+        name: "keeps the marker through a recheck",
+        previous: 42,
+        state: {
+          isAuthenticated: true,
+          currentProjectId: 42,
+          accessIsCurrent: true,
+          accessStatus: "checking" as const,
+        },
+        expected: 42,
+      },
+    ])("$name", ({ previous, state, expected }) => {
+      expect(nextLastBlockedProjectId(previous, state)).toBe(expected);
+    });
+
+    it("holds the denial screen through a retry instead of flashing onboarding", () => {
+      // blocked -> retry publishes "checking" for the same project. The marker
+      // must survive that flip so the recheck keeps the denial screen up.
+      const afterBlocked = nextLastBlockedProjectId(null, {
+        isAuthenticated: true,
+        currentProjectId: 42,
+        accessIsCurrent: true,
+        accessStatus: "blocked",
+      });
+      const afterRetry = nextLastBlockedProjectId(afterBlocked, {
+        isAuthenticated: true,
+        currentProjectId: 42,
+        accessIsCurrent: true,
+        accessStatus: "checking",
+      });
+      expect(isBlockedAccessRecheck(afterRetry, 42, "checking")).toBe(true);
     });
   });
 });

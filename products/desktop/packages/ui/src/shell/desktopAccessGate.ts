@@ -47,3 +47,48 @@ export function nextLastAllowedProjectId(
   }
   return previous;
 }
+
+/**
+ * True while the access check re-runs for a project the app already showed on
+ * the denial screen. A retry ("Check again"), a token refresh, or an org or
+ * project switch flips the status back to "checking"; without this grace the
+ * app drops the denial screen for the onboarding flow until the check settles
+ * again. It mirrors isBackgroundAccessRecheck, but holds the denial screen
+ * rather than the running app.
+ */
+export function isBlockedAccessRecheck(
+  lastBlockedProjectId: number | null,
+  currentProjectId: number | null,
+  accessStatus: DesktopAccessStatus,
+): boolean {
+  return (
+    accessStatus === "checking" &&
+    lastBlockedProjectId !== null &&
+    lastBlockedProjectId === currentProjectId
+  );
+}
+
+/**
+ * The next value of the last-blocked-project marker after an auth state
+ * change. The marker holds the project the app already showed on the denial
+ * screen, which is what lets isBlockedAccessRecheck keep that screen up
+ * through a recheck. A settled "allowed" result clears it, and sign-out
+ * clears it; a "checking" flip carries it so the recheck keeps the screen.
+ */
+export function nextLastBlockedProjectId(
+  previous: number | null,
+  state: {
+    isAuthenticated: boolean;
+    currentProjectId: number | null;
+    accessIsCurrent: boolean;
+    accessStatus: DesktopAccessStatus;
+  },
+): number | null {
+  if (!state.isAuthenticated) return null;
+  if (!state.accessIsCurrent) return previous;
+  if (state.accessStatus === "blocked" || state.accessStatus === "error") {
+    return state.currentProjectId;
+  }
+  if (state.accessStatus === "allowed") return null;
+  return previous;
+}
