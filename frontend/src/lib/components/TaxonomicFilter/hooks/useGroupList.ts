@@ -438,8 +438,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         if (!trimmedSearch || isLoading) {
             return false
         }
-        // A name this picker excludes is not an uncaptured event: offering it would commit the value
-        // the exclusion forbids. Mirrors legacy infiniteListLogic's `showNonCapturedEventOption`.
+        // Offering an excluded name would let it be selected as a non-captured event, committing the
+        // value the exclusion forbids. Mirrors legacy infiniteListLogic's `showNonCapturedEventOption`.
         if (group.excludedProperties?.includes(trimmedSearch)) {
             return false
         }

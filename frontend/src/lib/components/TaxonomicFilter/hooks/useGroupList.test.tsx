@@ -353,7 +353,7 @@ describe('useGroupList', () => {
         it.each([
             ['unseen', true],
             ['$exception', false],
-        ])('allowNonCapturedEvents offers %p for an empty Events search: %p', async (query, expected) => {
+        ])('allowNonCapturedEvents offers %p when nothing matches: %p', async (query, expected) => {
             apiGet.mockResolvedValueOnce({ results: [], count: 0 })
             const group = makeGroup({
                 type: TaxonomicFilterGroupType.Events,
@@ -365,6 +365,8 @@ describe('useGroupList', () => {
             )
             await waitFor(() => expect(result.current.isLoading).toBe(false))
             expect(result.current.showNonCapturedEventOption).toBe(expected)
+            // No rebuild renderer draws the offer row yet, so the empty state is what a person sees.
+            expect(result.current.showEmptyState).toBe(!expected)
         })
     })
 })
