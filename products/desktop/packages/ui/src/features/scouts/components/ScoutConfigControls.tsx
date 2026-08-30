@@ -127,7 +127,11 @@ export function ScoutConfigForm({
           }
         />
       </Flex>
-      {modelConfigEnabled ? (
+      {/* Undefined means the backend never sent the field, so a PATCH carrying
+          it could not persist; offer the control only where it writes. Null is
+          the writable "use the default" state, so it stays. Mirrors the
+          inactivity guard below. */}
+      {modelConfigEnabled && config.model !== undefined ? (
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 flex-col">
             <QuillText size="xs" className="text-gray-12">
