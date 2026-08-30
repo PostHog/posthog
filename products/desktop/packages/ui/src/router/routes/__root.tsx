@@ -64,6 +64,7 @@ import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailab
 import { WhatsNewModal } from "@posthog/ui/features/updates/WhatsNewModal";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { AnimatedLogo } from "@posthog/ui/primitives/AnimatedLogo";
+import { isSettingsRouteId } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
@@ -283,7 +284,7 @@ function RootLayout() {
   // Settings is a full-page route — drop the app chrome (header/sidebar/
   // space-switcher) so the panel occupies the full window.
   const isSettingsRoute = useRouterState({
-    select: (s) => s.matches.some((m) => m.routeId.includes("/settings/")),
+    select: (s) => s.matches.some((m) => isSettingsRouteId(m.routeId)),
   });
 
   // ShellLayout draws the in-pane header under `_shell`, so the shared
