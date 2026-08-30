@@ -1,4 +1,4 @@
-import { Pause, Spinner, Warning } from "@phosphor-icons/react";
+import { Pause, Warning } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
 import { hasSessionPromptEvent } from "@posthog/core/sessions/sessionEvents";
 import {
@@ -87,6 +87,7 @@ import type { Plan } from "@posthog/ui/features/sessions/types";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { captureException, track } from "@posthog/ui/shell/analytics";
 import {
@@ -728,7 +729,7 @@ export function SessionView({
                         >
                           {isRestoring ? (
                             <>
-                              <Spinner size={14} className="animate-spin" />
+                              <Spinner size={14} />
                               Restoring...
                             </>
                           ) : (
@@ -757,7 +758,7 @@ export function SessionView({
                   justify="center"
                   className="absolute inset-0 bg-background"
                 >
-                  <Spinner size={32} className="animate-spin text-gray-9" />
+                  <Spinner size={32} className="text-gray-9" />
                 </Flex>
               )
             ) : (
@@ -858,7 +859,7 @@ export function SessionView({
                           : "opacity-100"
                       }`}
                     >
-                      <ConnectingToAgent />
+                      <ConnectingToAgent spinning={!isRunning} />
                     </Box>
                     <Box
                       className={`transition-all duration-300 ease-out ${
