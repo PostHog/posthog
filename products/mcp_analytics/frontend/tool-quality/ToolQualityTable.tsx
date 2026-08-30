@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     Badge,
     Button,
@@ -127,7 +128,13 @@ function ToolRows(): JSX.Element {
         return (
             <TableBody>
                 <TableRow>
-                    <TableCell colSpan={COLUMN_COUNT} className="h-32" />
+                    <TableCell colSpan={COLUMN_COUNT}>
+                        <div className="space-y-2 py-1">
+                            {Array.from({ length: 6 }).map((_, i) => (
+                                <LemonSkeleton key={i} className="h-3.5 w-full" />
+                            ))}
+                        </div>
+                    </TableCell>
                 </TableRow>
             </TableBody>
         )
