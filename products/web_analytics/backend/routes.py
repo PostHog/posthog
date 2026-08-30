@@ -2,7 +2,6 @@ from posthog.api.routing import RouterRegistry
 
 from products.web_analytics.backend.api import WebAnalyticsViewSet
 from products.web_analytics.backend.api.content_autopilot import (
-    ContentAutopilotMeasurementViewSet,
     ContentAutopilotProposalViewSet,
     ContentAutopilotRunViewSet,
     ContentAutopilotSiteProfileViewSet,
@@ -50,12 +49,6 @@ def register_routes(routers: RouterRegistry) -> None:
         r"web_analytics_content_autopilot_proposals",
         ContentAutopilotProposalViewSet,
         "project_web_analytics_content_autopilot_proposals",
-        ["team_id"],
-    )
-    routers.projects.register(
-        r"web_analytics_content_autopilot_measurements",
-        ContentAutopilotMeasurementViewSet,
-        "project_web_analytics_content_autopilot_measurements",
         ["team_id"],
     )
     routers.projects.register(

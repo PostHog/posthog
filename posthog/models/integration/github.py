@@ -890,36 +890,6 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
-    def find_pull_request_for_branch(
-        self, repository: str, head_branch: str, base_branch: str | None = None
-    ) -> dict[str, Any]:
-        org = self.organization()
-        if not _is_safe_github_repo_path(f"{org}/{repository}"):
-            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
-        if not is_safe_github_ref(head_branch) or (base_branch is not None and not is_safe_github_ref(base_branch)):
-            return {"success": False, "error": "Invalid pull request branch.", "status_code": 400}
-
-        response = self.api_request(
-            "GET",
-            f"/repos/{org}/{repository}/pulls",
-            endpoint="/repos/{owner}/{repo}/pulls",
-            params={
-                "head": f"{org}:{head_branch}",
-                "state": "open",
-                **({"base": base_branch} if base_branch else {}),
-            },
-        )
-        if response.status_code != 200:
-            return {
-                "success": False,
-                "error": f"Failed to find pull request: {response.text}",
-                "status_code": response.status_code,
-            }
-        pull_requests = response.json()
-        if not isinstance(pull_requests, list) or not pull_requests:
-            return {"success": True, "pr_url": ""}
-        return {"success": True, "pr_url": str(pull_requests[0].get("html_url") or "")}
-
     def get_branch_info(self, repository: str, branch_name: str) -> dict[str, Any]:
         """Get information about a specific branch."""
         org = self.organization()

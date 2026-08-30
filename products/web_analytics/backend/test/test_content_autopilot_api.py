@@ -37,9 +37,6 @@ class TestContentAutopilotAPI(APIBaseTest):
     def _proposals_url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/web_analytics_content_autopilot_proposals/{suffix}"
 
-    def _measurements_url(self, suffix: str = "") -> str:
-        return f"/api/projects/{self.team.id}/web_analytics_content_autopilot_measurements/{suffix}"
-
     def _profile_payload(self, **overrides: object) -> dict[str, object]:
         payload: dict[str, object] = {
             "name": "Example",
@@ -289,9 +286,6 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertFalse(edited.json()["validation_report"]["passed"])
         self.assertEqual(rejected.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.REJECTED)
         self.assertEqual(regenerated.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.GENERATING)
-        self.assertEqual(
-            regenerated.json()["generation_history"][0]["proposed_markdown"], "# Improved guide\n\nUseful content."
-        )
 
     def test_export_returns_markdown_and_updates_delivery_state(self) -> None:
         profile = create_content_autopilot_profile(self.team)
@@ -330,7 +324,6 @@ class TestContentAutopilotAPI(APIBaseTest):
             "success": True,
             "pr_url": "https://github.com/example/site/pull/7",
         }
-        github.find_pull_request_for_branch.return_value = {"success": True, "pr_url": ""}
 
         with patch(
             "products.web_analytics.backend.content_autopilot.delivery.GitHubIntegration.first_for_team_repository",
@@ -369,8 +362,8 @@ class TestContentAutopilotAPI(APIBaseTest):
         other_proposal = create_content_autopilot_proposal(other_team, other_run)
 
         proposal_response = self.client.get(self._proposals_url(f"{other_proposal.id}/"))
-        measurements_response = self.client.get(self._measurements_url())
+        runs_response = self.client.get(self._runs_url())
 
         self.assertEqual(proposal_response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(measurements_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(measurements_response.json()["results"], [])
+        self.assertEqual(runs_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(runs_response.json()["results"], [])

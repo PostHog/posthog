@@ -43,7 +43,6 @@ from products.web_analytics.backend.content_autopilot.site_discovery import (
     normalize_site_origin,
 )
 from products.web_analytics.backend.models import (
-    ContentAutopilotMeasurement,
     ContentAutopilotProposal,
     ContentAutopilotRun,
     ContentAutopilotSiteProfile,
@@ -80,18 +79,6 @@ class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
         )
         if len(flag_results) != len(CONTENT_AUTOPILOT_FEATURE_FLAGS) or not all(flag_results):
             raise PermissionDenied("This feature is not available.")
-
-
-class ContentAutopilotMetricSerializer(serializers.Serializer):
-    impressions = serializers.IntegerField(required=False, help_text="Google Search impressions in the period.")
-    clicks = serializers.IntegerField(required=False, help_text="Google Search clicks in the period.")
-    click_through_rate = serializers.FloatField(required=False, help_text="Google Search click-through rate.")
-    average_position = serializers.FloatField(required=False, help_text="Average Google Search position.")
-    visitors = serializers.IntegerField(required=False, help_text="PostHog visitors in the period.")
-    ai_referrals = serializers.IntegerField(required=False, help_text="Visits referred by AI assistants.")
-    crawler_requests = serializers.IntegerField(required=False, help_text="Requests from recognized AI crawlers.")
-    engagement_rate = serializers.FloatField(required=False, help_text="Engaged visitors divided by visitors.")
-    conversions = serializers.IntegerField(required=False, help_text="Configured conversions in the period.")
 
 
 class ContentAutopilotSnapshotSerializer(serializers.Serializer):
@@ -133,41 +120,10 @@ class ContentAutopilotSnapshotSerializer(serializers.Serializer):
     )
 
 
-class ContentAutopilotEvidenceSerializer(serializers.Serializer):
-    opportunity_kind = serializers.ChoiceField(
-        choices=[
-            ("poor_ctr", "Poor click-through rate"),
-            ("content_gap", "Content gap"),
-            ("organic_decline", "Organic decline"),
-            ("ai_visibility_gap", "AI visibility gap"),
-            ("site_hygiene", "Site hygiene"),
-        ],
-        help_text="Reason the opportunity was selected.",
-    )
-    explanation = serializers.CharField(help_text="Plain-language explanation of the supporting evidence.")
-    page_url = serializers.URLField(required=False, allow_blank=True, help_text="Page supported by this evidence.")
-    query = serializers.CharField(
-        required=False, allow_blank=True, help_text="Search query supported by this evidence."
-    )
-    metrics = ContentAutopilotMetricSerializer(
-        required=False,
-        help_text="Observed metrics supporting the opportunity.",
-    )
-
-
 class ContentAutopilotErrorSerializer(serializers.Serializer):
     error_code = serializers.CharField(help_text="Stable machine-readable error code.")
     message = serializers.CharField(help_text="Error explanation suitable for the review workspace.")
     retryable = serializers.BooleanField(help_text="Whether the failed step can be retried.")
-
-
-class ContentAutopilotSourceSerializer(serializers.Serializer):
-    url = serializers.URLField(help_text="Public source URL used for factual claims.")
-    title = serializers.CharField(help_text="Source page title.")
-    supported_claims = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Claims in the proposal supported by this source.",
-    )
 
 
 class ContentAutopilotValidationCheckSerializer(serializers.Serializer):
@@ -398,10 +354,6 @@ class ContentAutopilotRunListQuerySerializer(serializers.Serializer):
 
 class ContentAutopilotRunSerializer(serializers.ModelSerializer):
     input_snapshot = ContentAutopilotSnapshotSerializer(help_text="Immutable inputs captured at run start.")
-    selected_opportunities = ContentAutopilotEvidenceSerializer(
-        many=True,
-        help_text="Ranked opportunities selected for generation.",
-    )
     errors = ContentAutopilotErrorSerializer(  # type: ignore[assignment]  # API field intentionally shadows Serializer.errors.
         many=True, help_text="Inspectable workflow errors and retryability."
     )
@@ -413,13 +365,11 @@ class ContentAutopilotRunSerializer(serializers.ModelSerializer):
             "profile_id",
             "run_status",
             "input_snapshot",
-            "selected_opportunities",
             "errors",
             "workflow_id",
             "triggered_by_id",
             "created_at",
             "updated_at",
-            "started_at",
             "completed_at",
         ]
         read_only_fields = fields
@@ -431,32 +381,11 @@ class ContentAutopilotRunSerializer(serializers.ModelSerializer):
         }
 
 
-class ContentAutopilotGenerationHistoryEntrySerializer(serializers.Serializer):
-    archived_at = serializers.DateTimeField(help_text="When this generation attempt was archived.")
-    lifecycle_status = serializers.ChoiceField(
-        choices=ContentAutopilotProposal.LifecycleStatus.choices,
-        help_text="Proposal state when this attempt was archived.",
-    )
-    proposed_markdown = serializers.CharField(help_text="Markdown produced by this generation attempt.")
-    content_package = ContentAutopilotPackageSerializer(help_text="Delivery package produced by this attempt.")
-    source_ledger = ContentAutopilotSourceSerializer(many=True, help_text="Sources used by this attempt.")
-    validation_report = ContentAutopilotValidationReportSerializer(help_text="Validation result for this attempt.")
-
-
 class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
-    evidence = ContentAutopilotEvidenceSerializer(many=True, help_text="Performance evidence for this proposal.")
-    source_ledger = ContentAutopilotSourceSerializer(
-        many=True,
-        help_text="Public sources supporting factual claims.",
-    )
     validation_report = ContentAutopilotValidationReportSerializer(
         help_text="Blocking and advisory validation results."
     )
     content_package = ContentAutopilotPackageSerializer(help_text="Canonical package used by every delivery adapter.")
-    generation_history = ContentAutopilotGenerationHistoryEntrySerializer(
-        many=True,
-        help_text="Previous generation attempts retained for review.",
-    )
 
     class Meta:
         model = ContentAutopilotProposal
@@ -468,20 +397,13 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
             "title",
             "target_query",
             "target_url",
-            "audience",
-            "search_intent",
-            "expected_outcome",
-            "evidence",
-            "source_ledger",
             "validation_report",
-            "generation_history",
             "content_package",
-            "original_markdown",
             "proposed_markdown",
             "delivery_state",
             "delivery_reference",
+            "delivery_error",
             "pull_request_url",
-            "live_url",
             "created_at",
             "updated_at",
         ]
@@ -489,24 +411,19 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "run_id": {"help_text": "Run that generated this proposal."},
             "proposal_type": {"help_text": "New article or bounded page improvement."},
-            "lifecycle_status": {"help_text": "Review, delivery, publication, and measurement lifecycle status."},
+            "lifecycle_status": {"help_text": "Review and delivery lifecycle status."},
             "title": {"help_text": "Review title for this proposal."},
             "target_query": {"help_text": "Primary query or topic targeted by this proposal."},
             "target_url": {"help_text": "Existing or intended public URL."},
-            "audience": {"help_text": "Intended reader."},
-            "search_intent": {"help_text": "Reader need this proposal addresses."},
-            "expected_outcome": {"help_text": "Opportunity statement without a guaranteed forecast."},
-            "original_markdown": {"help_text": "Existing content for page-improvement diffs."},
             "proposed_markdown": {"help_text": "Full proposed Markdown after edits."},
             "delivery_state": {"help_text": "Current export or pull-request delivery state."},
             "delivery_reference": {"help_text": "Export filename or GitHub branch reference."},
+            "delivery_error": {"help_text": "Why the last delivery attempt failed."},
             "pull_request_url": {"help_text": "Created GitHub pull request URL."},
-            "live_url": {"help_text": "Verified public URL after publication."},
         }
 
 
 class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
-    evidence = ContentAutopilotEvidenceSerializer(many=True, help_text="Performance evidence for this proposal.")
     validation_report = ContentAutopilotValidationReportSerializer(
         help_text="Blocking and advisory validation results."
     )
@@ -520,10 +437,6 @@ class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
             "proposal_type",
             "lifecycle_status",
             "title",
-            "audience",
-            "search_intent",
-            "expected_outcome",
-            "evidence",
             "validation_report",
             "file_path",
             "delivery_state",
@@ -541,37 +454,6 @@ class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
 class ContentAutopilotProposalListQuerySerializer(serializers.Serializer):
     run_id = serializers.UUIDField(required=False, help_text="Only return proposals from this content run.")
     profile_id = serializers.UUIDField(required=False, help_text="Only return proposals for this site profile.")
-
-
-class ContentAutopilotMeasurementSerializer(serializers.ModelSerializer):
-    baseline = ContentAutopilotMetricSerializer(help_text="Metrics captured before publication.")
-    day_28 = ContentAutopilotMetricSerializer(help_text="Metrics captured 28 days after publication.")
-    day_56 = ContentAutopilotMetricSerializer(help_text="Metrics captured 56 days after publication.")
-    site_wide_controls = ContentAutopilotMetricSerializer(help_text="Site-wide metrics over the same windows.")
-
-    class Meta:
-        model = ContentAutopilotMeasurement
-        fields = [
-            "id",
-            "proposal_id",
-            "baseline",
-            "day_28",
-            "day_56",
-            "site_wide_controls",
-            "outcome_classification",
-            "is_confounded",
-            "baseline_at",
-            "day_28_at",
-            "day_56_at",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = fields
-        extra_kwargs = {
-            "proposal_id": {"help_text": "Proposal being measured."},
-            "outcome_classification": {"help_text": "Improved, inconclusive, declined, or pending."},
-            "is_confounded": {"help_text": "Whether another page change overlapped the measurement window."},
-        }
 
 
 class ContentAutopilotProposalEditRequestSerializer(serializers.Serializer):
@@ -719,10 +601,6 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
                 "proposal_type",
                 "lifecycle_status",
                 "title",
-                "audience",
-                "search_intent",
-                "expected_outcome",
-                "evidence",
                 "validation_report",
                 "delivery_state",
                 "pull_request_url",
@@ -817,13 +695,3 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
             {"pull_request_url": pull_request_url, "branch": branch},
             status=status.HTTP_201_CREATED,
         )
-
-
-class ContentAutopilotMeasurementViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    serializer_class = ContentAutopilotMeasurementSerializer
-    queryset = ContentAutopilotMeasurement.objects.unscoped()
-
-    def safely_get_queryset(
-        self, queryset: QuerySet[ContentAutopilotMeasurement]
-    ) -> QuerySet[ContentAutopilotMeasurement]:
-        return ContentAutopilotMeasurement.objects.for_team(self.team_id).order_by("-created_at")

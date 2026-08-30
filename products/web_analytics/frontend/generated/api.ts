@@ -14,7 +14,6 @@ import type {
     AcknowledgeCelebrationResponseApi,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
-    ContentAutopilotMeasurementApi,
     ContentAutopilotProposalApi,
     ContentAutopilotProposalEditRequestApi,
     ContentAutopilotPullRequestRequestApi,
@@ -36,7 +35,6 @@ import type {
     HeatmapsResponseApi,
     LlmsTxtFetchRequestApi,
     LlmsTxtFetchResponseApi,
-    PaginatedContentAutopilotMeasurementListApi,
     PaginatedContentAutopilotProposalListListApi,
     PaginatedContentAutopilotRunListApi,
     PaginatedContentAutopilotSiteProfileListApi,
@@ -52,7 +50,6 @@ import type {
     SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
-    WebAnalyticsContentAutopilotMeasurementsListParams,
     WebAnalyticsContentAutopilotProfilesListParams,
     WebAnalyticsContentAutopilotProposalsListParams,
     WebAnalyticsContentAutopilotRunsListParams,
@@ -580,57 +577,6 @@ export const webAnalyticsAchievementsRecordVisit = async (
         ...options,
         method: 'POST',
     })
-}
-
-export const getWebAnalyticsContentAutopilotMeasurementsListUrl = (
-    projectId: string,
-    params?: WebAnalyticsContentAutopilotMeasurementsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/web_analytics_content_autopilot_measurements/?${stringifiedParams}`
-        : `/api/projects/${projectId}/web_analytics_content_autopilot_measurements/`
-}
-
-export const webAnalyticsContentAutopilotMeasurementsList = async (
-    projectId: string,
-    params?: WebAnalyticsContentAutopilotMeasurementsListParams,
-    options?: RequestInit
-): Promise<PaginatedContentAutopilotMeasurementListApi> => {
-    return apiMutator<PaginatedContentAutopilotMeasurementListApi>(
-        getWebAnalyticsContentAutopilotMeasurementsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getWebAnalyticsContentAutopilotMeasurementsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/web_analytics_content_autopilot_measurements/${id}/`
-}
-
-export const webAnalyticsContentAutopilotMeasurementsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ContentAutopilotMeasurementApi> => {
-    return apiMutator<ContentAutopilotMeasurementApi>(
-        getWebAnalyticsContentAutopilotMeasurementsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
 }
 
 export const getWebAnalyticsContentAutopilotProfilesListUrl = (

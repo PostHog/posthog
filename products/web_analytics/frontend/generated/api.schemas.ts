@@ -702,83 +702,6 @@ export interface RecordVisitResponseApi {
     recorded: boolean
 }
 
-export interface ContentAutopilotMetricApi {
-    /** Google Search impressions in the period. */
-    impressions?: number
-    /** Google Search clicks in the period. */
-    clicks?: number
-    /** Google Search click-through rate. */
-    click_through_rate?: number
-    /** Average Google Search position. */
-    average_position?: number
-    /** PostHog visitors in the period. */
-    visitors?: number
-    /** Visits referred by AI assistants. */
-    ai_referrals?: number
-    /** Requests from recognized AI crawlers. */
-    crawler_requests?: number
-    /** Engaged visitors divided by visitors. */
-    engagement_rate?: number
-    /** Configured conversions in the period. */
-    conversions?: number
-}
-
-/**
- * * `pending` - Pending
- * * `improved` - Improved
- * * `inconclusive` - Inconclusive
- * * `declined` - Declined
- */
-export type OutcomeClassificationEnumApi =
-    (typeof OutcomeClassificationEnumApi)[keyof typeof OutcomeClassificationEnumApi]
-
-export const OutcomeClassificationEnumApi = {
-    Pending: 'pending',
-    Improved: 'improved',
-    Inconclusive: 'inconclusive',
-    Declined: 'declined',
-} as const
-
-export interface ContentAutopilotMeasurementApi {
-    readonly id: string
-    /** Proposal being measured. */
-    readonly proposal_id: string
-    /** Metrics captured before publication. */
-    baseline: ContentAutopilotMetricApi
-    /** Metrics captured 28 days after publication. */
-    day_28: ContentAutopilotMetricApi
-    /** Metrics captured 56 days after publication. */
-    day_56: ContentAutopilotMetricApi
-    /** Site-wide metrics over the same windows. */
-    site_wide_controls: ContentAutopilotMetricApi
-    /** Improved, inconclusive, declined, or pending.
-     *
-     * * `pending` - Pending
-     * * `improved` - Improved
-     * * `inconclusive` - Inconclusive
-     * * `declined` - Declined */
-    readonly outcome_classification: OutcomeClassificationEnumApi
-    /** Whether another page change overlapped the measurement window. */
-    readonly is_confounded: boolean
-    /** @nullable */
-    readonly baseline_at: string | null
-    /** @nullable */
-    readonly day_28_at: string | null
-    /** @nullable */
-    readonly day_56_at: string | null
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedContentAutopilotMeasurementListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ContentAutopilotMeasurementApi[]
-}
-
 /**
  * * `export_only` - Export only
  * * `github` - GitHub
@@ -922,9 +845,6 @@ export const ProposalTypeEnumApi = {
  * * `rejected` - Rejected
  * * `exported` - Exported
  * * `pr_opened` - Pull request opened
- * * `published` - Published
- * * `measuring` - Measuring
- * * `completed` - Completed
  * * `failed` - Failed
  */
 export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeof LifecycleStatusEnumApi]
@@ -935,47 +855,8 @@ export const LifecycleStatusEnumApi = {
     Rejected: 'rejected',
     Exported: 'exported',
     PrOpened: 'pr_opened',
-    Published: 'published',
-    Measuring: 'measuring',
-    Completed: 'completed',
     Failed: 'failed',
 } as const
-
-/**
- * * `poor_ctr` - Poor click-through rate
- * * `content_gap` - Content gap
- * * `organic_decline` - Organic decline
- * * `ai_visibility_gap` - AI visibility gap
- * * `site_hygiene` - Site hygiene
- */
-export type OpportunityKindEnumApi = (typeof OpportunityKindEnumApi)[keyof typeof OpportunityKindEnumApi]
-
-export const OpportunityKindEnumApi = {
-    PoorCtr: 'poor_ctr',
-    ContentGap: 'content_gap',
-    OrganicDecline: 'organic_decline',
-    AiVisibilityGap: 'ai_visibility_gap',
-    SiteHygiene: 'site_hygiene',
-} as const
-
-export interface ContentAutopilotEvidenceApi {
-    /** Reason the opportunity was selected.
-     *
-     * * `poor_ctr` - Poor click-through rate
-     * * `content_gap` - Content gap
-     * * `organic_decline` - Organic decline
-     * * `ai_visibility_gap` - AI visibility gap
-     * * `site_hygiene` - Site hygiene */
-    opportunity_kind: OpportunityKindEnumApi
-    /** Plain-language explanation of the supporting evidence. */
-    explanation: string
-    /** Page supported by this evidence. */
-    page_url?: string
-    /** Search query supported by this evidence. */
-    query?: string
-    /** Observed metrics supporting the opportunity. */
-    metrics?: ContentAutopilotMetricApi
-}
 
 export interface ContentAutopilotValidationCheckApi {
     /** Stable identifier for the validation gate. */
@@ -1018,11 +899,6 @@ export interface ContentAutopilotProposalListApi {
     readonly proposal_type: ProposalTypeEnumApi
     readonly lifecycle_status: LifecycleStatusEnumApi
     readonly title: string
-    readonly audience: string
-    readonly search_intent: string
-    readonly expected_outcome: string
-    /** Performance evidence for this proposal. */
-    evidence: ContentAutopilotEvidenceApi[]
     /** Blocking and advisory validation results. */
     validation_report: ContentAutopilotValidationReportApi
     /** Repository-relative delivery path. */
@@ -1040,15 +916,6 @@ export interface PaginatedContentAutopilotProposalListListApi {
     /** @nullable */
     previous?: string | null
     results: ContentAutopilotProposalListApi[]
-}
-
-export interface ContentAutopilotSourceApi {
-    /** Public source URL used for factual claims. */
-    url: string
-    /** Source page title. */
-    title: string
-    /** Claims in the proposal supported by this source. */
-    supported_claims: string[]
 }
 
 export interface ContentAutopilotFrontmatterEntryApi {
@@ -1080,31 +947,6 @@ export interface ContentAutopilotPackageApi {
     source_notes: string[]
 }
 
-export interface ContentAutopilotGenerationHistoryEntryApi {
-    /** When this generation attempt was archived. */
-    archived_at: string
-    /** Proposal state when this attempt was archived.
-     *
-     * * `generating` - Generating
-     * * `ready_for_review` - Ready for review
-     * * `rejected` - Rejected
-     * * `exported` - Exported
-     * * `pr_opened` - Pull request opened
-     * * `published` - Published
-     * * `measuring` - Measuring
-     * * `completed` - Completed
-     * * `failed` - Failed */
-    lifecycle_status: LifecycleStatusEnumApi
-    /** Markdown produced by this generation attempt. */
-    proposed_markdown: string
-    /** Delivery package produced by this attempt. */
-    content_package: ContentAutopilotPackageApi
-    /** Sources used by this attempt. */
-    source_ledger: ContentAutopilotSourceApi[]
-    /** Validation result for this attempt. */
-    validation_report: ContentAutopilotValidationReportApi
-}
-
 export interface ContentAutopilotProposalApi {
     readonly id: string
     /** Run that generated this proposal. */
@@ -1114,16 +956,13 @@ export interface ContentAutopilotProposalApi {
      * * `new_content` - New content
      * * `page_improvement` - Page improvement */
     readonly proposal_type: ProposalTypeEnumApi
-    /** Review, delivery, publication, and measurement lifecycle status.
+    /** Review and delivery lifecycle status.
      *
      * * `generating` - Generating
      * * `ready_for_review` - Ready for review
      * * `rejected` - Rejected
      * * `exported` - Exported
      * * `pr_opened` - Pull request opened
-     * * `published` - Published
-     * * `measuring` - Measuring
-     * * `completed` - Completed
      * * `failed` - Failed */
     readonly lifecycle_status: LifecycleStatusEnumApi
     /** Review title for this proposal. */
@@ -1132,24 +971,10 @@ export interface ContentAutopilotProposalApi {
     readonly target_query: string
     /** Existing or intended public URL. */
     readonly target_url: string
-    /** Intended reader. */
-    readonly audience: string
-    /** Reader need this proposal addresses. */
-    readonly search_intent: string
-    /** Opportunity statement without a guaranteed forecast. */
-    readonly expected_outcome: string
-    /** Performance evidence for this proposal. */
-    evidence: ContentAutopilotEvidenceApi[]
-    /** Public sources supporting factual claims. */
-    source_ledger: ContentAutopilotSourceApi[]
     /** Blocking and advisory validation results. */
     validation_report: ContentAutopilotValidationReportApi
-    /** Previous generation attempts retained for review. */
-    generation_history: ContentAutopilotGenerationHistoryEntryApi[]
     /** Canonical package used by every delivery adapter. */
     content_package: ContentAutopilotPackageApi
-    /** Existing content for page-improvement diffs. */
-    readonly original_markdown: string
     /** Full proposed Markdown after edits. */
     readonly proposed_markdown: string
     /** Current export or pull-request delivery state.
@@ -1161,10 +986,10 @@ export interface ContentAutopilotProposalApi {
     readonly delivery_state: DeliveryStateEnumApi
     /** Export filename or GitHub branch reference. */
     readonly delivery_reference: string
+    /** Why the last delivery attempt failed. */
+    readonly delivery_error: string
     /** Created GitHub pull request URL. */
     readonly pull_request_url: string
-    /** Verified public URL after publication. */
-    readonly live_url: string
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1292,8 +1117,6 @@ export interface ContentAutopilotRunApi {
     readonly run_status: ContentAutopilotRunRunStatusEnumApi
     /** Immutable inputs captured at run start. */
     input_snapshot: ContentAutopilotSnapshotApi
-    /** Ranked opportunities selected for generation. */
-    selected_opportunities: ContentAutopilotEvidenceApi[]
     /** Inspectable workflow errors and retryability. */
     errors: ContentAutopilotErrorApi[]
     /** Temporal workflow identifier for this run. */
@@ -1305,8 +1128,6 @@ export interface ContentAutopilotRunApi {
     readonly triggered_by_id: number | null
     readonly created_at: string
     readonly updated_at: string
-    /** @nullable */
-    readonly started_at: string | null
     /** @nullable */
     readonly completed_at: string | null
 }
@@ -1644,17 +1465,6 @@ export type WebAnalyticsWeeklyDigestParams = {
      * Lookback window in days (1–90). Defaults to 7.
      */
     days?: number
-}
-
-export type WebAnalyticsContentAutopilotMeasurementsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type WebAnalyticsContentAutopilotProfilesListParams = {

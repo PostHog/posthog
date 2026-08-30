@@ -18746,64 +18746,6 @@ export namespace Schemas {
       retryable: boolean;
     }
 
-    /**
-     * * `poor_ctr` - Poor click-through rate
-     * * `content_gap` - Content gap
-     * * `organic_decline` - Organic decline
-     * * `ai_visibility_gap` - AI visibility gap
-     * * `site_hygiene` - Site hygiene
-     */
-    export type OpportunityKindEnum = typeof OpportunityKindEnum[keyof typeof OpportunityKindEnum];
-
-
-    export const OpportunityKindEnum = {
-      PoorCtr: 'poor_ctr',
-      ContentGap: 'content_gap',
-      OrganicDecline: 'organic_decline',
-      AiVisibilityGap: 'ai_visibility_gap',
-      SiteHygiene: 'site_hygiene',
-    } as const;
-
-    export interface ContentAutopilotMetric {
-      /** Google Search impressions in the period. */
-      impressions?: number;
-      /** Google Search clicks in the period. */
-      clicks?: number;
-      /** Google Search click-through rate. */
-      click_through_rate?: number;
-      /** Average Google Search position. */
-      average_position?: number;
-      /** PostHog visitors in the period. */
-      visitors?: number;
-      /** Visits referred by AI assistants. */
-      ai_referrals?: number;
-      /** Requests from recognized AI crawlers. */
-      crawler_requests?: number;
-      /** Engaged visitors divided by visitors. */
-      engagement_rate?: number;
-      /** Configured conversions in the period. */
-      conversions?: number;
-    }
-
-    export interface ContentAutopilotEvidence {
-      /** Reason the opportunity was selected.
-       *
-       * * `poor_ctr` - Poor click-through rate
-       * * `content_gap` - Content gap
-       * * `organic_decline` - Organic decline
-       * * `ai_visibility_gap` - AI visibility gap
-       * * `site_hygiene` - Site hygiene */
-      opportunity_kind: OpportunityKindEnum;
-      /** Plain-language explanation of the supporting evidence. */
-      explanation: string;
-      /** Page supported by this evidence. */
-      page_url?: string;
-      /** Search query supported by this evidence. */
-      query?: string;
-      /** Observed metrics supporting the opportunity. */
-      metrics?: ContentAutopilotMetric;
-    }
-
     export interface ContentAutopilotFrontmatterEntry {
       /** Frontmatter field name. */
       key: string;
@@ -18843,14 +18785,23 @@ export namespace Schemas {
     }
 
     /**
+     * * `new_content` - New content
+     * * `page_improvement` - Page improvement
+     */
+    export type ProposalTypeEnum = typeof ProposalTypeEnum[keyof typeof ProposalTypeEnum];
+
+
+    export const ProposalTypeEnum = {
+      NewContent: 'new_content',
+      PageImprovement: 'page_improvement',
+    } as const;
+
+    /**
      * * `generating` - Generating
      * * `ready_for_review` - Ready for review
      * * `rejected` - Rejected
      * * `exported` - Exported
      * * `pr_opened` - Pull request opened
-     * * `published` - Published
-     * * `measuring` - Measuring
-     * * `completed` - Completed
      * * `failed` - Failed
      */
     export type LifecycleStatusEnum = typeof LifecycleStatusEnum[keyof typeof LifecycleStatusEnum];
@@ -18862,20 +18813,8 @@ export namespace Schemas {
       Rejected: 'rejected',
       Exported: 'exported',
       PrOpened: 'pr_opened',
-      Published: 'published',
-      Measuring: 'measuring',
-      Completed: 'completed',
       Failed: 'failed',
     } as const;
-
-    export interface ContentAutopilotSource {
-      /** Public source URL used for factual claims. */
-      url: string;
-      /** Source page title. */
-      title: string;
-      /** Claims in the proposal supported by this source. */
-      supported_claims: string[];
-    }
 
     export interface ContentAutopilotValidationCheck {
       /** Stable identifier for the validation gate. */
@@ -18896,90 +18835,6 @@ export namespace Schemas {
       /** Factual, brand, intent, originality, linking, crawlability, and schema checks. */
       checks: ContentAutopilotValidationCheck[];
     }
-
-    export interface ContentAutopilotGenerationHistoryEntry {
-      /** When this generation attempt was archived. */
-      archived_at: string;
-      /** Proposal state when this attempt was archived.
-       *
-       * * `generating` - Generating
-       * * `ready_for_review` - Ready for review
-       * * `rejected` - Rejected
-       * * `exported` - Exported
-       * * `pr_opened` - Pull request opened
-       * * `published` - Published
-       * * `measuring` - Measuring
-       * * `completed` - Completed
-       * * `failed` - Failed */
-      lifecycle_status: LifecycleStatusEnum;
-      /** Markdown produced by this generation attempt. */
-      proposed_markdown: string;
-      /** Delivery package produced by this attempt. */
-      content_package: ContentAutopilotPackage;
-      /** Sources used by this attempt. */
-      source_ledger: ContentAutopilotSource[];
-      /** Validation result for this attempt. */
-      validation_report: ContentAutopilotValidationReport;
-    }
-
-    /**
-     * * `pending` - Pending
-     * * `improved` - Improved
-     * * `inconclusive` - Inconclusive
-     * * `declined` - Declined
-     */
-    export type OutcomeClassificationEnum = typeof OutcomeClassificationEnum[keyof typeof OutcomeClassificationEnum];
-
-
-    export const OutcomeClassificationEnum = {
-      Pending: 'pending',
-      Improved: 'improved',
-      Inconclusive: 'inconclusive',
-      Declined: 'declined',
-    } as const;
-
-    export interface ContentAutopilotMeasurement {
-      readonly id: string;
-      /** Proposal being measured. */
-      readonly proposal_id: string;
-      /** Metrics captured before publication. */
-      baseline: ContentAutopilotMetric;
-      /** Metrics captured 28 days after publication. */
-      day_28: ContentAutopilotMetric;
-      /** Metrics captured 56 days after publication. */
-      day_56: ContentAutopilotMetric;
-      /** Site-wide metrics over the same windows. */
-      site_wide_controls: ContentAutopilotMetric;
-      /** Improved, inconclusive, declined, or pending.
-       *
-       * * `pending` - Pending
-       * * `improved` - Improved
-       * * `inconclusive` - Inconclusive
-       * * `declined` - Declined */
-      readonly outcome_classification: OutcomeClassificationEnum;
-      /** Whether another page change overlapped the measurement window. */
-      readonly is_confounded: boolean;
-      /** @nullable */
-      readonly baseline_at: string | null;
-      /** @nullable */
-      readonly day_28_at: string | null;
-      /** @nullable */
-      readonly day_56_at: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    /**
-     * * `new_content` - New content
-     * * `page_improvement` - Page improvement
-     */
-    export type ProposalTypeEnum = typeof ProposalTypeEnum[keyof typeof ProposalTypeEnum];
-
-
-    export const ProposalTypeEnum = {
-      NewContent: 'new_content',
-      PageImprovement: 'page_improvement',
-    } as const;
 
     /**
      * * `not_delivered` - Not delivered
@@ -19006,16 +18861,13 @@ export namespace Schemas {
        * * `new_content` - New content
        * * `page_improvement` - Page improvement */
       readonly proposal_type: ProposalTypeEnum;
-      /** Review, delivery, publication, and measurement lifecycle status.
+      /** Review and delivery lifecycle status.
        *
        * * `generating` - Generating
        * * `ready_for_review` - Ready for review
        * * `rejected` - Rejected
        * * `exported` - Exported
        * * `pr_opened` - Pull request opened
-       * * `published` - Published
-       * * `measuring` - Measuring
-       * * `completed` - Completed
        * * `failed` - Failed */
       readonly lifecycle_status: LifecycleStatusEnum;
       /** Review title for this proposal. */
@@ -19024,24 +18876,10 @@ export namespace Schemas {
       readonly target_query: string;
       /** Existing or intended public URL. */
       readonly target_url: string;
-      /** Intended reader. */
-      readonly audience: string;
-      /** Reader need this proposal addresses. */
-      readonly search_intent: string;
-      /** Opportunity statement without a guaranteed forecast. */
-      readonly expected_outcome: string;
-      /** Performance evidence for this proposal. */
-      evidence: ContentAutopilotEvidence[];
-      /** Public sources supporting factual claims. */
-      source_ledger: ContentAutopilotSource[];
       /** Blocking and advisory validation results. */
       validation_report: ContentAutopilotValidationReport;
-      /** Previous generation attempts retained for review. */
-      generation_history: ContentAutopilotGenerationHistoryEntry[];
       /** Canonical package used by every delivery adapter. */
       content_package: ContentAutopilotPackage;
-      /** Existing content for page-improvement diffs. */
-      readonly original_markdown: string;
       /** Full proposed Markdown after edits. */
       readonly proposed_markdown: string;
       /** Current export or pull-request delivery state.
@@ -19053,10 +18891,10 @@ export namespace Schemas {
       readonly delivery_state: DeliveryStateEnum;
       /** Export filename or GitHub branch reference. */
       readonly delivery_reference: string;
+      /** Why the last delivery attempt failed. */
+      readonly delivery_error: string;
       /** Created GitHub pull request URL. */
       readonly pull_request_url: string;
-      /** Verified public URL after publication. */
-      readonly live_url: string;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -19077,11 +18915,6 @@ export namespace Schemas {
       readonly proposal_type: ProposalTypeEnum;
       readonly lifecycle_status: LifecycleStatusEnum;
       readonly title: string;
-      readonly audience: string;
-      readonly search_intent: string;
-      readonly expected_outcome: string;
-      /** Performance evidence for this proposal. */
-      evidence: ContentAutopilotEvidence[];
       /** Blocking and advisory validation results. */
       validation_report: ContentAutopilotValidationReport;
       /** Repository-relative delivery path. */
@@ -19188,8 +19021,6 @@ export namespace Schemas {
       readonly run_status: ContentAutopilotRunRunStatusEnum;
       /** Immutable inputs captured at run start. */
       input_snapshot: ContentAutopilotSnapshot;
-      /** Ranked opportunities selected for generation. */
-      selected_opportunities: ContentAutopilotEvidence[];
       /** Inspectable workflow errors and retryability. */
       errors: ContentAutopilotError[];
       /** Temporal workflow identifier for this run. */
@@ -19201,8 +19032,6 @@ export namespace Schemas {
       readonly triggered_by_id: number | null;
       readonly created_at: string;
       readonly updated_at: string;
-      /** @nullable */
-      readonly started_at: string | null;
       /** @nullable */
       readonly completed_at: string | null;
     }
@@ -54027,15 +53856,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: CommunitySkillList[];
-    }
-
-    export interface PaginatedContentAutopilotMeasurementList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ContentAutopilotMeasurement[];
     }
 
     export interface PaginatedContentAutopilotProposalListList {
@@ -99869,17 +99689,6 @@ export namespace Schemas {
      * Lookback window in days (1–90). Defaults to 7.
      */
     days?: number;
-    };
-
-    export type WebAnalyticsContentAutopilotMeasurementsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type WebAnalyticsContentAutopilotProfilesListParams = {
