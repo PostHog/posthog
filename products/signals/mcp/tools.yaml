@@ -845,8 +845,9 @@ tools:
             Return `SignalScratchpad` entries for this project, newest first. The keyspace is shared by every agent that
             runs here — the scouts and the report pipeline's research and implementation stages — so search the identity
             of the thing you care about (an error id, a flag key, a page path, a file path, an event name) and not only
-            your own key prefix. Each result carries `created_by_skill`, naming the scout that wrote it or the pipeline
-            stage (`pipeline:report-research`, `pipeline:implementation`). Pass `text` for a case-insensitive substring
+            your own key prefix. Each result carries `created_by_skill`, naming the entry's original creator — a scout's
+            skill name or a pipeline stage (`pipeline:report-research`, `pipeline:implementation`); an upsert keeps
+            the creator, so the last writer can differ. Pass `text` for a case-insensitive substring
             match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower /
             exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the
             oldest entry from the prior page to walk past the cap. Entries whose `expires_at` has passed are excluded
