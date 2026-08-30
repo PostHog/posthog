@@ -68,6 +68,9 @@ jobs:
             # app for the smoke test. Notarization runs only in the tag release
             # (code-release.yml), where Apple's notary service and agreements apply.
             SKIP_NOTARIZE: '1'
+            # electron-builder skips signing on pull_request builds unless told
+            # otherwise; the job condition already limits those to same-repo PRs.
+            CSC_FOR_PULL_REQUEST: 'true'
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
