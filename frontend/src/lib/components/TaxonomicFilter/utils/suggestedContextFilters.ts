@@ -9,11 +9,8 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 
 /*
- * The legacy `infiniteListLogic` picker and the rebuild both call
- * `filterPinnedForContext`, so a change to pinned behaviour reaches both.
- * `filterRecentsForContext` is not shared: `infiniteListLogic` holds its own
- * copy of the same rule in `contextFilteredRecentItems`, so a change to recents
- * behaviour must be made in both places until the legacy picker is retired.
+ * The legacy `infiniteListLogic` picker and the rebuild both call these helpers,
+ * so a change to recent or pinned behavior reaches both.
  */
 
 /** Recents whose source group is one of the picker's groups, with operators the
@@ -36,7 +33,8 @@ export function filterRecentsForContext(
             return false
         }
         // A group's excluded values (e.g. `message` for the logs group-by picker) must be dropped
-        // from the Recent tab too, not just the group's own option list.
+        // from the Recent tab too, not just the group's own option list. Otherwise an excluded key
+        // recorded elsewhere leaks back in as a selectable recent.
         const excludedValues = excludedProperties?.[item._recentContext.sourceGroupType]
         if (excludedValues?.length && excludedValues.includes(item._recentContext.sourceValue)) {
             return false
