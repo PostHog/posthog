@@ -1052,3 +1052,9 @@ CH_TRANSIENT_ERRORS = (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
 )
+
+# Transient ClickHouse connection failures: the socket resets, or the server drops the connection
+# during the handshake or while a result streams back. These are raised below the ServerException
+# layer, so wrap_clickhouse_query_error passes them through unchanged and CH_TRANSIENT_ERRORS does
+# not cover them. The connection self-heals, so callers that retry or skip on these lose nothing.
+CH_TRANSIENT_CONNECTION_ERRORS = (ConnectionResetError, EOFError)

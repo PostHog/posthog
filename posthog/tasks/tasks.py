@@ -23,7 +23,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
+from posthog.errors import CH_TRANSIENT_CONNECTION_ERRORS, CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
@@ -1038,6 +1038,11 @@ def find_flags_with_enriched_analytics() -> None:
         # Expected on self-hosted instances with an incomplete ClickHouse schema (e.g. missing
         # migrations) - not worth capturing as an exception, just skip this run.
         logger.warning("Find flags with enriched analytics skipped, table missing", error=e)
+    except CH_TRANSIENT_CONNECTION_ERRORS as e:
+        # A ClickHouse connection dropped at connect time or mid-read. This covers both round-trips
+        # in the task: the materialized-column registry lookup and the main analytics query. The
+        # next 12-hourly run recovers, so skip this one instead of minting an error-tracking issue.
+        logger.warning("Find flags with enriched analytics skipped, transient connection error", error=e)
     except Exception as e:
         logger.exception("Find flags with enriched analytics failed", error=e)
         capture_exception(
