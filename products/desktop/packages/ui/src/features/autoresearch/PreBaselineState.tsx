@@ -26,7 +26,7 @@ export function PreBaselineState({
         {live && (
           <span className="relative mt-0.5 size-5 shrink-0">
             <Spin className="size-5 motion-reduce:animate-none">
-              <Spinner />
+              <Spinner className="size-5 animate-none" />
             </Spin>
           </span>
         )}
