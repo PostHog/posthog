@@ -42,6 +42,7 @@ import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import {
   type ComponentPropsWithRef,
   type MouseEventHandler,
+  memo,
   type ReactElement,
   type ReactNode,
   useState,
@@ -178,7 +179,7 @@ function ActivityNavItem({
  * The app's leftmost column. Sits outside the resizable sidebar, so collapsing
  * that sidebar leaves the destinations reachable.
  */
-export function NavRail() {
+function NavRailImpl() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const contextEnabled = useContextLayerFlag();
@@ -322,3 +323,6 @@ export function NavRail() {
     </TooltipProvider>
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const NavRail = memo(NavRailImpl);
