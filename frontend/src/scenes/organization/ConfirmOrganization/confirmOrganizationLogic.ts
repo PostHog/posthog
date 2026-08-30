@@ -27,6 +27,7 @@ export interface confirmOrganizationLogicValues {
     confirmOrganizationTouches: Record<string, boolean>
     confirmOrganizationValidationErrors: DeepPartialMap<ConfirmOrganizationFormValues, ValidationErrorType>
     email: string
+    hasPrefilled: boolean
     isConfirmOrganizationSubmitting: boolean
     isConfirmOrganizationValid: boolean
     showConfirmOrganizationErrors: boolean
@@ -53,6 +54,9 @@ export interface confirmOrganizationLogicActions {
     }
     setEmail: (email: string) => {
         email: string
+    }
+    setHasPrefilled: () => {
+        value: true
     }
     setShowNewOrgWarning: (show: boolean) => {
         show: boolean
@@ -90,6 +94,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
         setEmail: (email: string) => ({
             email,
         }),
+        setHasPrefilled: true,
         setShowNewOrgWarning: (show: boolean) => ({ show }),
     }),
 
@@ -106,11 +111,24 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                 setEmail: (_, { email }) => email,
             },
         ],
+        hasPrefilled: [
+            false,
+            {
+                setHasPrefilled: () => true,
+            },
+        ],
     }),
 
     forms(() => ({
         confirmOrganization: {
-            defaults: {} as ConfirmOrganizationFormValues,
+            showErrorsOnTouch: true,
+            defaults: {
+                organization_name: '',
+                first_name: '',
+                role_at_organization: '',
+                referral_source: '',
+                referral_source_ai_prompt: '',
+            } as ConfirmOrganizationFormValues,
             errors: ({ organization_name, first_name }) => ({
                 first_name: !first_name ? 'Please enter your name' : undefined,
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
@@ -136,10 +154,29 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
         },
     })),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/organization/confirm-creation': (_, { email, organization_name, first_name }) => {
-            actions.setConfirmOrganizationValues({ organization_name, first_name })
-            actions.setEmail(email)
+            // Prefill from the URL once. Later location changes on this same page (for example
+            // opening the docs side panel) re-fire this handler with empty params, which would
+            // otherwise wipe what the user has typed.
+            if (values.hasPrefilled) {
+                return
+            }
+            actions.setHasPrefilled()
+
+            if (email) {
+                actions.setEmail(email)
+            }
+            const prefill: DeepPartial<ConfirmOrganizationFormValues> = {}
+            if (organization_name) {
+                prefill.organization_name = organization_name
+            }
+            if (first_name) {
+                prefill.first_name = first_name
+            }
+            if (Object.keys(prefill).length > 0) {
+                actions.setConfirmOrganizationValues(prefill)
+            }
         },
     })),
 ])

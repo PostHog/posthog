@@ -15,24 +15,35 @@ describe('confirmOrganizationLogic', () => {
     })
 
     describe('query params', () => {
-        it('set the default values', async () => {
+        it('prefills the form from the URL', async () => {
             router.actions.push('/organization/confirm-creation', {
                 email: 'spike@spike.com',
                 first_name: 'Spike',
                 organization_name: 'Spikes Inc',
-                role_at_organization: 'engineering',
             })
 
-            expectLogic(logic)
+            await expectLogic(logic)
                 .toDispatchActions(['setEmail', 'setConfirmOrganizationValues'])
                 .toMatchValues({
-                    confirmOrganization: {
+                    confirmOrganization: expect.objectContaining({
                         first_name: 'Spike',
                         organization_name: 'Spikes Inc',
-                        role_at_organization: 'engineering',
-                    },
+                    }),
                     email: 'spike@spike.com',
                 })
+        })
+
+        it('keeps user input when a later location change re-fires the handler', async () => {
+            router.actions.push('/organization/confirm-creation', { email: 'spike@spike.com' })
+
+            logic.actions.setConfirmOrganizationValue('organization_name', 'Spikes Inc')
+
+            // The docs side panel and similar links change the URL without the prefill params.
+            router.actions.push('/organization/confirm-creation', { panel: 'docs' })
+
+            await expectLogic(logic).toMatchValues({
+                confirmOrganization: expect.objectContaining({ organization_name: 'Spikes Inc' }),
+            })
         })
     })
 
