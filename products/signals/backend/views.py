@@ -64,6 +64,7 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
@@ -178,6 +179,14 @@ tracer = trace.get_tracer(__name__)
 # old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
 REVIEWER_PAGINATION_THRESHOLD = 1200
 PR_GITHUB_CACHE_SECONDS = 15
+# The refund summary powers a polled billing widget and does three reads per request. Cache the
+# whole payload per org so repeated polls skip those reads; creating a refund clears the entry so
+# the widget still reacts to a fresh refund at once.
+REFUND_SUMMARY_CACHE_SECONDS = 30
+
+
+def _refund_summary_cache_key(organization_id: str | uuid.UUID) -> str:
+    return f"signals:refund-summary:{organization_id}"
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -2306,6 +2315,11 @@ class SignalReportViewSet(
                     raise
                 return self._refund_response(existing, already_refunded=True)
 
+            # Drop the cached summary after the refund commits, so the widget reflects it on the
+            # next poll. On commit and best-effort: a Redis blip must not roll the refund back.
+            org_id = self.organization.id
+            transaction.on_commit(lambda: safe_cache_delete(_refund_summary_cache_key(org_id)))
+
             # Refund doubles as archive: suppress the report so it leaves the inbox, and so the
             # dismissal receiver closes the implementation PR that was paid for and then refunded.
             # The one exception is a report resolved by a merged PR: that PR shipped, so the report
@@ -2396,6 +2410,11 @@ class SignalReportViewSet(
         if not (self._signals_pr_refunds_enabled() or self_driving_quota_enforcement_enabled(self.team)):
             raise NotFound("PR refunds are not enabled for this organization.")
 
+        cache_key = _refund_summary_cache_key(self.organization.id)
+        cached = get_safe_cache(cache_key)
+        if cached is not None:
+            return Response(cached)
+
         period = current_billing_period_bounds(self.organization)
         aggregates = (
             # Org-wide on purpose (unscoped + org filter): the usage this offsets is org-level.
@@ -2408,14 +2427,14 @@ class SignalReportViewSet(
             )
             .aggregate(credited_refund_count=Count("id"), credited_credits=Sum("credits"))
         )
-        return Response(
-            {
-                "credited_refund_count": aggregates["credited_refund_count"] or 0,
-                "credited_credits": aggregates["credited_credits"] or 0,
-                "period_billable_credits": period_billable_credits_for_org(self.organization.id, period=period),
-                "quota_limited": self_driving_quota_gate(self.team).enforced,
-            }
-        )
+        payload = {
+            "credited_refund_count": aggregates["credited_refund_count"] or 0,
+            "credited_credits": aggregates["credited_credits"] or 0,
+            "period_billable_credits": period_billable_credits_for_org(self.organization.id, period=period),
+            "quota_limited": self_driving_quota_gate(self.team).enforced,
+        }
+        safe_cache_set(cache_key, payload, REFUND_SUMMARY_CACHE_SECONDS)
+        return Response(payload)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])

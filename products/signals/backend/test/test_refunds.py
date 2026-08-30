@@ -496,7 +496,9 @@ class TestSignalReportRefundAPI(APIBaseTest):
         url = f"/api/projects/{self.team.id}/signals/reports/refund-summary/"
 
         assert self.client.get(url).json()["period_billable_credits"] == 1500
-        assert self._refund(report).json()["billing_path"] == "excluded"
+        # The refund clears the cached summary on commit, so run the on_commit callbacks here.
+        with self.captureOnCommitCallbacks(execute=True):
+            assert self._refund(report).json()["billing_path"] == "excluded"
         assert self.client.get(url).json()["period_billable_credits"] == 0
 
     @freeze_time(_NOW)
@@ -511,6 +513,18 @@ class TestSignalReportRefundAPI(APIBaseTest):
             return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
         ):
             assert self.client.get(url).json()["quota_limited"] is True
+
+    @freeze_time(_NOW)
+    def test_refund_summary_is_cached_within_the_window(self, _flag):
+        # The endpoint holds a pooled connection for three reads, so repeated widget polls serve a
+        # cached payload. A credited refund written out-of-band (past the endpoint's own cache
+        # clear) stays invisible until the entry expires.
+        url = f"/api/projects/{self.team.id}/signals/reports/refund-summary/"
+        assert self.client.get(url).json()["credited_refund_count"] == 0
+
+        _make_refund(_make_report(self.team), pr_run_created_at=datetime(2026, 6, 12, tzinfo=UTC))
+
+        assert self.client.get(url).json()["credited_refund_count"] == 0
 
 
 class TestSignalReportRefundFlagGate(APIBaseTest):
