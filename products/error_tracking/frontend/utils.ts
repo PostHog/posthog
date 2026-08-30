@@ -111,9 +111,10 @@ export function isThirdPartyScriptError(value: ErrorTrackingException['value']):
     return value === THIRD_PARTY_SCRIPT_ERROR
 }
 
-// Recordings match on session start time, so pad past first_seen to catch a session that began
-// before the exception fired, and past last_seen so a single-occurrence issue isn't a zero-width window.
-// The selected event keeps the range valid when the user clicks before the last_seen query finishes.
+// Recordings match on session start time, so pad past first_seen by a full day, the maximum
+// session length, to catch a session that began well before the exception fired. Pad past
+// last_seen so a single-occurrence issue isn't a zero-width window. The selected event keeps
+// the range valid when the user clicks before the last_seen query finishes.
 export function getIssueReplayDateRange(
     firstSeen: string | null | undefined,
     lastSeen: Dayjs | null,
@@ -134,7 +135,7 @@ export function getIssueReplayDateRange(
     const to = latestKnownSeenAt?.isAfter(from) ? latestKnownSeenAt : from
 
     return {
-        date_from: from.subtract(1, 'hour').toISOString(),
+        date_from: from.subtract(24, 'hour').toISOString(),
         date_to: to.add(1, 'hour').toISOString(),
     }
 }
