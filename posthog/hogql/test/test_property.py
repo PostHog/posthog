@@ -450,7 +450,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0"),
+            self._parse_expr("ifNull(multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']), 0) = 0"),
         )
         a = self._property_to_expr(
             {
@@ -611,7 +611,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) = 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "arrayExists(v -> ifNull(multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']), 0) = 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
 
@@ -1602,7 +1602,7 @@ class TestProperty(BaseTest):
 
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
-            self._parse_expr("(properties.score < 0 OR properties.score > 100)"),
+            self._parse_expr("(properties.score < 0 OR properties.score > 100 OR isNull(properties.score))"),
         )
 
     def test_property_to_expr_between_operator_validation(self):
@@ -2445,3 +2445,79 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
 
         count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
         assert count == expected_count
+
+
+class TestNegativeOperatorNullParityWithData(APIBaseTest):
+    """A property missing from a row extracts to NULL, which a WHERE clause discards.
+
+    Every negative operator must still keep such a row, so "plan is not free or trial" does not
+    silently drop events that carry no plan at all. The NULL default is applied in the printer, not
+    the AST, so these run the printed SQL against ClickHouse rather than asserting AST shape. The
+    events carry no person, so their person_properties is '{}', the personless case that a person
+    scoped filter must also keep.
+    """
+
+    EVENT = "purchase"
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        PropertyDefinition.objects.create(
+            team=cls.team,
+            name="score",
+            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Numeric,
+        )
+        _create_event(
+            team=cls.team,
+            event=cls.EVENT,
+            distinct_id="present_nonmatch",
+            properties={"plan": "enterprise", "score": 50},
+        )
+        _create_event(
+            team=cls.team, event=cls.EVENT, distinct_id="present_match", properties={"plan": "free", "score": 500}
+        )
+        _create_event(team=cls.team, event=cls.EVENT, distinct_id="missing", properties={})
+
+    def _count(self, filter: dict) -> int:
+        expr = property_to_expr(filter, team=self.team, scope="event")
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=self.EVENT),
+                    ),
+                    expr,
+                ]
+            ),
+        )
+        return execute_hogql_query(team=self.team, query=query_ast).results[0][0]
+
+    @parameterized.expand(
+        [
+            # event property: enterprise kept, free dropped, missing kept
+            (
+                "event_multi_value_not_icontains",
+                {"type": "event", "key": "plan", "value": ["free", "trial"], "operator": "not_icontains"},
+                2,
+            ),
+            # event property: score 50 dropped (in range), 500 kept, missing kept
+            ("event_not_between", {"type": "event", "key": "score", "value": [0, 100], "operator": "not_between"}, 2),
+            # event property: only the event with no plan matches
+            ("event_is_not_set", {"type": "event", "key": "plan", "operator": "is_not_set"}, 1),
+            # person property on personless events: none carry an email, so all three are kept
+            (
+                "person_multi_value_not_icontains_personless",
+                {"type": "person", "key": "email", "value": ["@a.com", "@b.com"], "operator": "not_icontains"},
+                3,
+            ),
+            # person property on personless events: is_not_set matches every personless row
+            ("person_is_not_set_personless", {"type": "person", "key": "email", "operator": "is_not_set"}, 3),
+        ]
+    )
+    def test_negative_operator_keeps_row_when_property_is_missing(self, _name: str, filter: dict, expected_count: int):
+        assert self._count(filter) == expected_count

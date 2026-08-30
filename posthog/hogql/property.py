@@ -562,8 +562,15 @@ def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
 
 
 def _multi_search_not_found(search_call: ast.Call) -> ast.CompareOperation:
-    """Create comparison operation to check if multiSearchAnyCaseInsensitive did not find a match."""
-    return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=search_call, right=ast.Constant(value=0))
+    """Create comparison operation to check if multiSearchAnyCaseInsensitive did not find a match.
+
+    A missing property makes the search return NULL. Coalescing to 0 before the comparison keeps
+    that row, matching single-value not_icontains, which the printer already passes on NULL."""
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Call(name="ifNull", args=[search_call, ast.Constant(value=0)]),
+        right=ast.Constant(value=0),
+    )
 
 
 def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
@@ -748,6 +755,9 @@ def _expr_to_compare_op(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
                 ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])),
+                # A missing property makes both comparisons NULL and drops the row; keep it, matching
+                # every other negative operator.
+                ast.Call(name="isNull", args=[expr]),
             ]
         )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
