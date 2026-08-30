@@ -15,6 +15,13 @@ pub const RUN_VALIDATION_FAILURES: &str = "seeder_run_validation_failures_total"
 pub const TZ_FALLBACK: &str = "seeder_tz_fallback_total";
 pub const CONDITIONS_DROPPED: &str = "seeder_conditions_dropped_total";
 pub const LOOKBACK_TRUNCATED: &str = "seeder_lookback_truncated_total";
+/// Pinned behavioral conditions by what a static read of their bytecode found, labelled by `class`
+/// (counter). Counted once per run per unique condition hash. Dark: nothing reads the analysis yet,
+/// so this reports what real catalogs look like before anything is built on it.
+pub const CONDITIONS_CLASSIFIED: &str = "seeder_conditions_classified_total";
+/// Conditions the static read could not narrow, labelled by a closed `reason` (counter). The label
+/// never carries bytecode text.
+pub const CONDITIONS_UNANALYZABLE: &str = "seeder_conditions_unanalyzable_total";
 pub const CHUNKS_PLANNED: &str = "seeder_chunks_planned_total";
 pub const CHUNKS_CLAIMED: &str = "seeder_chunks_claimed_total";
 pub const CHUNKS_RECLAIMED: &str = "seeder_chunks_reclaimed_total";

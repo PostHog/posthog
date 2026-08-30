@@ -15,17 +15,17 @@ use cohort_core::filters::CohortId;
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, gauge};
 use sqlx::PgPool;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::domain::{
-    plan_days, Lookback, PersonRunValidation, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps,
-    RunId,
+    plan_days, ConditionClass, Lookback, PersonRunValidation, PinnedPersonRun, PinnedRun,
+    PinnedWarning, PlanCaps, RunId,
 };
 use crate::observability::metrics::{
-    BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_DROPPED,
-    LOOKBACK_TRUNCATED, RUNS_DISCOVERED, RUNS_PLANNING_STAMPED, RUNS_PLANNING_WITHHELD,
-    RUNS_WAITING_BOUNDARY, RUNS_WITHOUT_CHUNKS, RUN_CHUNKS_REMAINING, RUN_VALIDATION_FAILURES,
-    TZ_FALLBACK, WINDOW_DAYS_MISMATCH,
+    BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_CLASSIFIED,
+    CONDITIONS_DROPPED, CONDITIONS_UNANALYZABLE, LOOKBACK_TRUNCATED, RUNS_DISCOVERED,
+    RUNS_PLANNING_STAMPED, RUNS_PLANNING_WITHHELD, RUNS_WAITING_BOUNDARY, RUNS_WITHOUT_CHUNKS,
+    RUN_CHUNKS_REMAINING, RUN_VALIDATION_FAILURES, TZ_FALLBACK, WINDOW_DAYS_MISMATCH,
 };
 use crate::store::chunks::{PgChunkStore, PlanOutcome};
 use crate::store::completion::{mark_chunks_planned, read_planning_stamp, PlanningStampOutcome};
@@ -199,6 +199,7 @@ async fn prepare_behavioral(
     let lookback_truncated = lookback_was_truncated(&validated.run, plan_caps);
     if reported_runs.insert(run_id) {
         record_pinned_warnings(&validated.warnings);
+        record_condition_census(run_id, &validated.run);
         if lookback_truncated {
             counter!(LOOKBACK_TRUNCATED).increment(1);
         }
@@ -395,6 +396,39 @@ async fn persist_run_warning(pool: &PgPool, run_id: RunId, note: RunWarningNote)
     if let Err(error) = record_run_warning(pool, run_id, note).await {
         warn!(run_id = ?run_id, error = %error, "persisting run warning failed");
     }
+}
+
+/// Publish what a static read of the run's condition bytecode found. Emitted once per run per
+/// stretch, alongside the pinned warnings, so the counters track runs rather than poll ticks.
+///
+/// Nothing consumes the analysis yet. The point is to learn the shape of real catalogs, in
+/// particular what fraction of conditions could be narrowed to a few columns and why the rest
+/// cannot, before any scan is built on it.
+fn record_condition_census(run_id: RunId, run: &PinnedRun) {
+    let census = run.analyses.census(&run.conditions);
+    if census.total() == 0 {
+        return;
+    }
+    for class in ConditionClass::ALL {
+        let count = census.count(class);
+        if count > 0 {
+            counter!(CONDITIONS_CLASSIFIED, "class" => class.as_str()).increment(count);
+        }
+    }
+    for (reason, count) in &census.unanalyzable_reasons {
+        counter!(CONDITIONS_UNANALYZABLE, "reason" => *reason).increment(*count);
+    }
+    info!(
+        ?run_id,
+        conditions = census.total(),
+        event_only = census.count(ConditionClass::EventOnly),
+        projectable = census.count(ConditionClass::Projectable),
+        full_columns = census.count(ConditionClass::FullColumns),
+        unanalyzable = census.count(ConditionClass::Unanalyzable),
+        projectable_fraction = census.projectable_fraction(),
+        reads = %census.render_reads(),
+        "condition bytecode analysis census",
+    );
 }
 
 fn record_pinned_warnings(warnings: &[PinnedWarning]) {
