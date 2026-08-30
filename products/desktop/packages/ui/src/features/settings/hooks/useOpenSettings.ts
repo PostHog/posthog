@@ -76,6 +76,6 @@ export function useCloseSettings(): typeof closeSettings {
  */
 export function useIsSettingsOpen(): boolean {
   return useRouterState({
-    select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
+    select: (s) => s.matches.some((m) => nav.isSettingsRouteId(m.routeId)),
   });
 }

@@ -77,9 +77,31 @@ class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSear
             "401 Client Error: Unauthorized for url: https://api.ads.apple.com": "Apple rejected the access token. Your API client may have been removed. Create a new one in Apple Ads and reconnect this source.",
             "403 Client Error: Forbidden for url: https://api.ads.apple.com": "Apple denied access to this ad account. Check that the API client has the API Account Read Only role for the ad account ID you entered.",
             "404 Client Error: Not Found for url: https://api.ads.apple.com": "Apple could not find this ad account. Check the ad account ID, which you can read from `adAccount.id` in Apple's Get User ACL endpoint.",
+            "400 Client Error: Bad Request for url: https://api.searchads.apple.com": "Apple rejected a reporting request. Some campaign types don't support keyword reporting. If the error persists, remove the keyword_report table or check your campaign types in Apple Ads.",
+            # Apple occasionally returns an empty HTTP reason phrase for the same 400 condition.
+            "400 Client Error:  for url: https://api.searchads.apple.com": "Apple rejected a reporting request. Some campaign types don't support keyword reporting. If the error persists, remove the keyword_report table or check your campaign types in Apple Ads.",
             "401 Client Error: Unauthorized for url: https://api.searchads.apple.com": "Apple Search Ads rejected the access token. Your API key may have been revoked. Generate a new one and reconnect this source.",
             "403 Client Error: Forbidden for url: https://api.searchads.apple.com": "Apple Search Ads denied access to this organization. Check that the API user has at least read access to the organization ID you entered.",
             "Could not sign the Apple Ads client secret": "The private key isn't a valid unencrypted EC (P-256) PEM. Paste the key you generated for your Apple Ads API client and reconnect.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Apple's transport already retries these statuses in-process (see the
+        # `status_forcelist` on `APPLE_SEARCH_ADS_RETRY`) with backoff, so one only reaches
+        # here once that budget is exhausted — Apple is rate-limiting us (429) or its API is
+        # briefly unavailable (5xx). Both are transient and self-recovering, so let Temporal
+        # retry the whole activity. Unlike the shared REST engine, this source has its own
+        # client, so `raise_for_status()` surfaces a plain `requests.HTTPError` that no
+        # `RESTClientRetryableError` type-check catches; without this classification the
+        # benign, self-recovering failure is logged at `exception` and reported as an
+        # unclassified error every run. Match the code-anchored fragment, not the volatile
+        # reason phrase or per-request URL.
+        return {
+            "429 Client Error",
+            "500 Server Error",
+            "502 Server Error",
+            "503 Server Error",
+            "504 Server Error",
         }
 
     @property

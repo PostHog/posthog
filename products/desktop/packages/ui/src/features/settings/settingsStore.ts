@@ -146,6 +146,7 @@ interface SettingsStore {
   lastUsedContextWindow: "200k" | "1m" | null;
   lastUsedFastMode: boolean | null;
   lastUsedCloudRepository: string | null;
+  favoriteCloudTargetKey: string | null;
   cachedCloudRepositoryMap: Record<string, UserRepositoryIntegrationRef>;
   // Last-known default ("trunk") branch per cloud repo, keyed by lowercased
   // "owner/repo". Persisted so a cold start can pre-select trunk in the branch
@@ -173,6 +174,7 @@ interface SettingsStore {
   setLastUsedContextWindow: (value: "200k" | "1m") => void;
   setLastUsedFastMode: (enabled: boolean) => void;
   setLastUsedCloudRepository: (repo: string | null) => void;
+  setFavoriteCloudTargetKey: (key: string | null) => void;
   setCachedCloudRepositoryMap: (
     map: Record<string, UserRepositoryIntegrationRef>,
   ) => void;
@@ -372,6 +374,7 @@ export const useSettingsStore = create<SettingsStore>()(
       lastUsedContextWindow: null,
       lastUsedFastMode: null,
       lastUsedCloudRepository: null,
+      favoriteCloudTargetKey: null,
       cachedCloudRepositoryMap: {},
       cachedCloudDefaultBranchMap: {},
       lastUsedEnvironments: {},
@@ -398,6 +401,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setLastUsedFastMode: (enabled) => set({ lastUsedFastMode: enabled }),
       setLastUsedCloudRepository: (repo) =>
         set({ lastUsedCloudRepository: repo }),
+      setFavoriteCloudTargetKey: (key) => set({ favoriteCloudTargetKey: key }),
       setCachedCloudRepositoryMap: (map) =>
         set({ cachedCloudRepositoryMap: map }),
       setCachedCloudDefaultBranch: (repo, branch) =>
