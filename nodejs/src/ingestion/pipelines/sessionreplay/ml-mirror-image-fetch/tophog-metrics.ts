@@ -44,7 +44,11 @@ export class ImageFetchTopHogMetrics {
         )
     }
 
-    public recordConcurrencyLimitedUrls(candidates: FetchCandidate[], concurrencyLimit: number): void {
+    public recordConcurrencyLimitedUrls(
+        candidates: FetchCandidate[],
+        concurrencyLimit: number,
+        availableConnections: (registrableDomain: string) => number
+    ): void {
         const candidateCounts = new Map<string, number>()
         for (const candidate of deduplicateFetchCandidates(candidates).candidates) {
             candidateCounts.set(
@@ -53,7 +57,7 @@ export class ImageFetchTopHogMetrics {
             )
         }
         for (const [registrableDomain, candidateCount] of candidateCounts) {
-            const limitedUrls = Math.max(0, candidateCount - concurrencyLimit)
+            const limitedUrls = Math.max(0, candidateCount - availableConnections(registrableDomain))
             if (limitedUrls > 0) {
                 this.concurrencyLimitedUrls.record(
                     {

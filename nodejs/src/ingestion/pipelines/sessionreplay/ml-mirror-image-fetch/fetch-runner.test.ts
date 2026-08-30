@@ -271,6 +271,12 @@ describe('FetchRunner', () => {
         await harness.runner.run(candidates, new Map())
 
         expect(observeCapacity).toHaveBeenCalledWith(3, 3)
+        expect(harness.topHogRecords.get('ml_image_fetch_concurrency_limited_urls_by_registrable_domain')).toEqual([
+            {
+                key: { registrable_domain: 'example.com', concurrency_limit: '2' },
+                value: 2,
+            },
+        ])
         harness.budget.releaseConnection('example.com', 'https://cdn.example.com')
     })
 

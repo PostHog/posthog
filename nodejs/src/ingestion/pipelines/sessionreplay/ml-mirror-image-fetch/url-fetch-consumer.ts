@@ -186,11 +186,10 @@ export class UrlFetchConsumer {
                 await this.runCrawlHistoryOperation('write', updates.length, () => this.crawlHistory.write(updates))
             }
             const republishResult = await republishBatch.flush()
-            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
-            if (lost > 0) {
-                throw new Error(`the image fetch lane could not account for ${lost} URLs`)
-            }
             for (const attempt of attempts) {
+                if (attempt.lost || (!attempt.finished && republishResult.failedUrls > 0)) {
+                    continue
+                }
                 for (const sourcePartition of attempt.candidate.sourcePartitions ?? []) {
                     ImageFetchRequestMetrics.incPartitionAttempt(
                         sourcePartition,
@@ -202,6 +201,10 @@ export class UrlFetchConsumer {
                 if (!attempt.finished && isTransientOutcome(attempt.outcome)) {
                     ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
                 }
+            }
+            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
+            if (lost > 0) {
+                throw new Error(`the image fetch lane could not account for ${lost} URLs`)
             }
             await this.parkRejectedRecords(rejectedRecords, drops)
         } finally {

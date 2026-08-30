@@ -587,19 +587,26 @@ describe('UrlFetchConsumer', () => {
     it('throws when the fetch pass reports a lost URL', async () => {
         const harness = build()
         harness.run.mockImplementation((candidates) =>
-            Promise.resolve(
-                candidates.map((item) => ({
-                    candidate: item,
+            Promise.resolve([
+                {
+                    candidate: candidates[0],
                     outcome: 'timeout',
                     finished: false,
                     lost: true,
                     configurationUpdates: [],
-                }))
-            )
+                },
+                terminal(candidates[1]),
+            ])
         )
 
-        await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow(
+        await expect(harness.consumer.handleBatch([message([candidate('a'), candidate('b')])], NOW_MS)).rejects.toThrow(
             'account for 1 URLs'
         )
+        expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
+            {
+                key: { registrable_domain: 'example.com', disposition: 'completed', outcome: 'ok' },
+                value: 1,
+            },
+        ])
     })
 })

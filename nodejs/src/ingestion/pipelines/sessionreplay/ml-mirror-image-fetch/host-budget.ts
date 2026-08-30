@@ -203,9 +203,9 @@ export class HostBudget {
         return true
     }
 
-    public availableConnections(registrableDomain: string): number {
+    public availableConnections(registrableDomain: string, connectionLimit = this.options.maxConcurrent): number {
         const inFlight = this.registrableDomains.get(registrableDomain)?.inFlight ?? 0
-        return Math.max(0, this.options.maxConcurrent - inFlight)
+        return Math.max(0, Math.min(this.options.maxConcurrent, connectionLimit) - inFlight)
     }
 
     public releaseConnection(registrableDomain: string, origin: string): void {
