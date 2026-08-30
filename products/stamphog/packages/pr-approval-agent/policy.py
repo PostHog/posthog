@@ -186,9 +186,7 @@ class ScopeBudget:
 
     `path` is the nearest granting AGENT_APPROVALS.md (repo-relative); None is
     the global pool, which absorbs every file whose chain grants nothing so
-    splitting files across pseudo-scopes can never inflate the allowance. Each
-    ceiling comes from the nearest grant of that key on the chain, falling back
-    to the global value when no folder on the chain grants it.
+    splitting files across pseudo-scopes can never inflate the allowance.
     """
 
     path: str | None
@@ -599,7 +597,6 @@ def _parse_folder_policy(path: Path, contract: dict[str, OverrideContract]) -> _
 
 
 def _read_delegated_size_gate(stamphog: dict[str, Any], contract: dict[str, OverrideContract]) -> dict[str, int] | None:
-    """Return the delegated size_gate grants if every key is delegated and within its ceiling, else None (invalid)."""
     if set(stamphog) - {"size_gate"}:
         return None
     size_gate = stamphog.get("size_gate")
@@ -624,8 +621,7 @@ def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
     Every AGENT_APPROVALS.md at or above a changed file governs it. A file's size
     budget comes from the nearest folder on its chain with a valid size_gate
     grant, and each ceiling in that budget is the nearest grant of that key on
-    the chain (a child granting only max_lines still rides its parent's
-    max_files); files whose chain grants nothing (no folder file, prose-only, or
+    the chain; files whose chain grants nothing (no folder file, prose-only, or
     only invalid grants) pool into the global budget. Advisory prose accumulates from
     every valid folder file on the chain of at least one changed file, outermost
     first so general guidance precedes specific. An invalid folder file is
@@ -645,7 +641,8 @@ def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
     # Files sharing a granting AGENT_APPROVALS.md pool into one budget; the folder
     # files touched by any chain feed the prose and invalid-file reporting.
     grant_files: dict[str, list[str]] = {}
-    grant_budget: dict[str, tuple[int, int]] = {}  # rel path -> (max_files, max_lines)
+    grant_max_files: dict[str, int] = {}
+    grant_max_lines: dict[str, int] = {}
     global_files: list[str] = []
     on_chain: dict[str, _FolderOverride] = {}  # rel path -> parse, each file once
     for file_path in changed_files:
@@ -667,16 +664,14 @@ def resolve(policy: Policy, changed_files: list[str]) -> EffectivePolicy:
             global_files.append(file_path)
             continue
         grant_files.setdefault(scope_path, []).append(file_path)
-        grant_budget[scope_path] = (
-            policy.size_gate.max_files if max_files is None else max_files,
-            policy.size_gate.max_lines if max_lines is None else max_lines,
-        )
+        grant_max_files[scope_path] = policy.size_gate.max_files if max_files is None else max_files
+        grant_max_lines[scope_path] = policy.size_gate.max_lines if max_lines is None else max_lines
 
     override_scopes = [
         ScopeBudget(
             path=rel_path,
-            max_files=grant_budget[rel_path][0],
-            max_lines=grant_budget[rel_path][1],
+            max_files=grant_max_files[rel_path],
+            max_lines=grant_max_lines[rel_path],
             files=tuple(files),
         )
         for rel_path, files in sorted(grant_files.items())

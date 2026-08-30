@@ -503,8 +503,6 @@ def test_resolve_nearest_grant_wins_across_siblings(fake_repo: Path) -> None:
 
 
 def test_resolve_child_inherits_ungranted_key_from_parent(fake_repo: Path) -> None:
-    # A child granting only max_lines refines its parent's max_files grant: its
-    # files ride the nearest grant of each key on the chain.
     _write_agent_policy(fake_repo, "products", _grant(max_files=50), "parent guidance")
     _write_agent_policy(fake_repo, "products/visual_review", _grant(max_lines=1000), "child guidance")
     eff = resolve(gates.POLICY, ["products/visual_review/a.py", "products/foo.py"])
