@@ -51,7 +51,7 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { shouldHandleBrowserTabSwitch } from "./browserTabShortcuts";
 import {
@@ -126,7 +126,7 @@ type TabRef = {
   appView: string | null;
 };
 
-export function BrowserTabStrip() {
+function BrowserTabStripImpl() {
   const spacesLayout = useChannelsLayout();
   const snapshot = useTabsSnapshot();
   const navigate = useNavigate();
@@ -944,3 +944,6 @@ export function BrowserTabStrip() {
     />
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const BrowserTabStrip = memo(BrowserTabStripImpl);

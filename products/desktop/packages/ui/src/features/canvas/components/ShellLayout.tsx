@@ -347,7 +347,10 @@ function CanvasBreadcrumb({
 
 export function ShellLayout() {
   const spacesLayout = useChannelsLayout();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pathname = useRouterState({
+    select: (s) =>
+      s.location.pathname.startsWith("/spaces/") ? s.location.pathname : "",
+  });
   const selectedCanvasId = useSelectedCanvasId();
   const params = useParams({ strict: false });
 
