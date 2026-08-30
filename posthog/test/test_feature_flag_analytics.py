@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from parameterized import parameterized
 
 from posthog import redis
@@ -1098,6 +1099,8 @@ class TestFindFlagsWithEnrichedAnalyticsTask(BaseTest):
             ("unknown_table", CHQueryErrorUnknownTable("Table default.events doesn't exist", code=60)),
             ("connection_reset", ConnectionResetError(104, "Connection reset by peer")),
             ("eof", EOFError("Unexpected EOF while reading bytes")),
+            ("network_error", NetworkError("Connection refused (localhost:9000)")),
+            ("socket_timeout", SocketTimeoutError("Socket timeout while connecting (localhost:9000)")),
         ]
     )
     @patch("products.feature_flags.backend.flag_analytics.find_flags_with_enriched_analytics")

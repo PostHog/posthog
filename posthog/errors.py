@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -1053,8 +1053,10 @@ CH_TRANSIENT_ERRORS = (
     ClickHouseClusterMemoryLimitExceeded,
 )
 
-# Transient ClickHouse connection failures: the socket resets, or the server drops the connection
-# during the handshake or while a result streams back. These are raised below the ServerException
-# layer, so wrap_clickhouse_query_error passes them through unchanged and CH_TRANSIENT_ERRORS does
-# not cover them. The connection self-heals, so callers that retry or skip on these lose nothing.
-CH_TRANSIENT_CONNECTION_ERRORS = (ConnectionResetError, EOFError)
+# Transient ClickHouse connection failures. The driver raises these below the ServerException layer,
+# so wrap_clickhouse_query_error passes them through unchanged and CH_TRANSIENT_ERRORS does not cover
+# them. The driver converts a connect-time socket error or timeout - including a reset during the
+# handshake - into NetworkError or SocketTimeoutError. A reset or EOF while a result streams back
+# arrives as the raw ConnectionResetError or EOFError. The connection self-heals, so callers that
+# retry or skip on these lose nothing.
+CH_TRANSIENT_CONNECTION_ERRORS = (ConnectionResetError, EOFError, NetworkError, SocketTimeoutError)
