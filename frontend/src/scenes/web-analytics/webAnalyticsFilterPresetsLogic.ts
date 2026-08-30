@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -26,10 +27,11 @@ export interface webAnalyticsFilterPresetsLogicValues {
     pinnedPresets: WebAnalyticsFilterPresetType[]
     presetFormDescription: string
     presetFormName: string
+    presetSearchTerm: string
     presetToDelete: WebAnalyticsFilterPresetType | null
     presets: PaginatedResponse<WebAnalyticsFilterPresetType>
     presetsLoading: boolean
-    recentPresets: WebAnalyticsFilterPresetType[]
+    unpinnedPresets: WebAnalyticsFilterPresetType[]
     saveModalOpen: boolean
     savedPreset: WebAnalyticsFilterPresetType | null
     savedPresetLoading: boolean
@@ -151,6 +153,9 @@ export interface webAnalyticsFilterPresetsLogicActions {
     setPresetFormName: (name: string) => {
         name: string
     }
+    setPresetSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
     updateAppliedPresetFilters: () => {
         value: true
     }
@@ -187,7 +192,7 @@ export interface webAnalyticsFilterPresetsLogicActions {
 export interface webAnalyticsFilterPresetsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         pinnedPresets: (presets: PaginatedResponse<WebAnalyticsFilterPresetType>) => WebAnalyticsFilterPresetType[]
-        recentPresets: (presets: PaginatedResponse<WebAnalyticsFilterPresetType>) => WebAnalyticsFilterPresetType[]
+        unpinnedPresets: (presets: PaginatedResponse<WebAnalyticsFilterPresetType>) => WebAnalyticsFilterPresetType[]
         hasPresets: (presets: PaginatedResponse<WebAnalyticsFilterPresetType>) => boolean
         canSavePreset: (presetFormName: string) => boolean
         activePreset: (appliedPreset: WebAnalyticsFilterPresetType | null) => WebAnalyticsFilterPresetType | null
@@ -229,6 +234,7 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
         openSaveModal: true,
         closeSaveModal: true,
         setPresetFormName: (name: string) => ({ name }),
+        setPresetSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setPresetFormDescription: (description: string) => ({ description }),
         resetPresetForm: true,
         openDeleteModal: (preset: WebAnalyticsFilterPresetType) => ({ preset }),
@@ -269,6 +275,12 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
                 saveCurrentFiltersAsPresetSuccess: () => '',
             },
         ],
+        presetSearchTerm: [
+            '',
+            {
+                setPresetSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
         presetToDelete: [
             null as WebAnalyticsFilterPresetType | null,
             {
@@ -293,7 +305,8 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
             loadPresets: async () => {
                 const params = {
                     order: '-last_modified_at',
-                    limit: 20,
+                    limit: 100,
+                    ...(values.presetSearchTerm ? { search: values.presetSearchTerm } : {}),
                 }
                 return await api.webAnalyticsFilterPresets.list(toParams(params))
             },
@@ -322,11 +335,20 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
         },
     })),
     listeners(({ actions, values }) => ({
+        setPresetSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadPresets()
+        },
         applyPreset: ({ preset }) => {
             if (values.appliedPreset?.short_id === preset.short_id) {
                 actions.clearPreset()
                 return
             }
+
+            posthog.capture('web analytics filter preset applied', {
+                preset_id: preset.short_id,
+                pinned: preset.pinned,
+            })
 
             actions.loadPreset(preset.filters)
             actions.setAppliedPreset(preset)
@@ -394,10 +416,10 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
                 return presets.results.filter((p) => p.pinned)
             },
         ],
-        recentPresets: [
+        unpinnedPresets: [
             (s) => [s.presets],
             (presets: PaginatedResponse<WebAnalyticsFilterPresetType>): WebAnalyticsFilterPresetType[] => {
-                return presets.results.filter((p) => !p.pinned).slice(0, 5)
+                return presets.results.filter((p) => !p.pinned)
             },
         ],
         hasPresets: [

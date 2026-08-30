@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import {
@@ -32,12 +33,13 @@ export const FilterPresetsDropdown = (): JSX.Element => {
     const [dropdownOpen, setDropdownOpen] = useState(false)
     const {
         pinnedPresets,
-        recentPresets,
+        unpinnedPresets,
         presetsLoading,
         activePreset,
         hasPresets,
         presetToDelete,
         hasUnsavedChanges,
+        presetSearchTerm,
     } = useValues(webAnalyticsFilterPresetsLogic)
     const {
         applyPreset,
@@ -49,6 +51,7 @@ export const FilterPresetsDropdown = (): JSX.Element => {
         closeDeleteModal,
         openEditModal,
         updateAppliedPresetFilters,
+        setPresetSearchTerm,
     } = useActions(webAnalyticsFilterPresetsLogic)
 
     const handleTogglePin = (preset: WebAnalyticsFilterPresetType, e: React.MouseEvent): void => {
@@ -158,17 +161,34 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                 )}
             </div>
 
+            {(hasPresets || presetSearchTerm) && (
+                <div className="px-2 pb-1">
+                    <LemonInput
+                        type="search"
+                        size="small"
+                        fullWidth
+                        placeholder="Search presets"
+                        value={presetSearchTerm}
+                        onChange={setPresetSearchTerm}
+                    />
+                </div>
+            )}
+
             {presetsLoading ? (
                 <div className="p-3 space-y-2">
                     <LemonSkeleton className="h-8" />
                     <LemonSkeleton className="h-8" />
                 </div>
             ) : !hasPresets ? (
-                <div className="px-3 pb-3 text-center text-muted text-sm">
-                    No saved presets yet.
-                    <br />
-                    Save your current filters to create one.
-                </div>
+                presetSearchTerm ? (
+                    <div className="px-3 pb-3 text-center text-muted text-sm">No presets match your search.</div>
+                ) : (
+                    <div className="px-3 pb-3 text-center text-muted text-sm">
+                        No saved presets yet.
+                        <br />
+                        Save your current filters to create one.
+                    </div>
+                )
             ) : (
                 <>
                     {pinnedPresets.length > 0 && (
@@ -181,12 +201,12 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                         </>
                     )}
 
-                    {recentPresets.length > 0 && (
+                    {unpinnedPresets.length > 0 && (
                         <>
                             <LemonDivider />
                             <div className="px-2 py-1">
-                                <div className="text-xs font-semibold text-muted uppercase px-2 py-1">Recent</div>
-                                {recentPresets.map(renderPresetItem)}
+                                <div className="text-xs font-semibold text-muted uppercase px-2 py-1">All presets</div>
+                                {unpinnedPresets.map(renderPresetItem)}
                             </div>
                         </>
                     )}
@@ -209,7 +229,12 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                     type="secondary"
                     size="small"
                     icon={bookmarkIcon}
-                    onClick={() => setDropdownOpen(!dropdownOpen)}
+                    onClick={() => {
+                        if (!dropdownOpen) {
+                            posthog.capture('web analytics filter presets opened')
+                        }
+                        setDropdownOpen(!dropdownOpen)
+                    }}
                     data-attr="web-analytics-filter-presets"
                     active={!!activePreset}
                     sideAction={
