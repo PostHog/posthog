@@ -3401,7 +3401,9 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
         github_integration: zod
             .number()
             .nullish()
-            .describe("Primary key of the team's GitHub integration to clone with when a repository is selected."),
+            .describe(
+                "Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it."
+            ),
         branch: zod
             .string()
             .max(tasksWarmCreateBodyBranchMax)
