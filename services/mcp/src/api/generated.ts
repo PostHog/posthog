@@ -18915,6 +18915,7 @@ export namespace Schemas {
       readonly proposal_type: ProposalTypeEnum;
       readonly lifecycle_status: LifecycleStatusEnum;
       readonly title: string;
+      readonly target_query: string;
       /** Blocking and advisory validation results. */
       validation_report: ContentAutopilotValidationReport;
       /** Repository-relative delivery path. */

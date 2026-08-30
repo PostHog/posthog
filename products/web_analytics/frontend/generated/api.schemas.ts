@@ -899,6 +899,7 @@ export interface ContentAutopilotProposalListApi {
     readonly proposal_type: ProposalTypeEnumApi
     readonly lifecycle_status: LifecycleStatusEnumApi
     readonly title: string
+    readonly target_query: string
     /** Blocking and advisory validation results. */
     validation_report: ContentAutopilotValidationReportApi
     /** Repository-relative delivery path. */

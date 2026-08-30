@@ -437,6 +437,7 @@ class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
             "proposal_type",
             "lifecycle_status",
             "title",
+            "target_query",
             "validation_report",
             "file_path",
             "delivery_state",
