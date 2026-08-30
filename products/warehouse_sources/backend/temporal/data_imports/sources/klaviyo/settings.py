@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
@@ -24,7 +26,7 @@ class KlaviyoFanOutConfig:
     grandparent: Optional["KlaviyoFanOutConfig"] = None
 
 
-@dataclass
+@frozen
 class KlaviyoValuesReportConfig:
     """A Klaviyo reporting query: POST a statistics request, get one row back per grouping.
 
