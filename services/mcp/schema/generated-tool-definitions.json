@@ -9329,7 +9329,7 @@
         "feature": "signals",
         "summary": "Forget a scratchpad entry by key",
         "title": "Forget a scratchpad entry by key",
-        "required_scopes": ["signal_scout_internal:write"],
+        "required_scopes": ["signal_scratchpad_internal:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -9343,7 +9343,7 @@
         "feature": "signals",
         "summary": "Remember a scratchpad entry",
         "title": "Remember a scratchpad entry",
-        "required_scopes": ["signal_scout_internal:write"],
+        "required_scopes": ["signal_scratchpad_internal:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -9693,7 +9693,7 @@
         "feature": "signals",
         "summary": "Forget a scratchpad entry by key (deprecated)",
         "title": "Forget a scratchpad entry by key (deprecated)",
-        "required_scopes": ["signal_scout_internal:write"],
+        "required_scopes": ["signal_scratchpad_internal:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -9707,7 +9707,7 @@
         "feature": "signals",
         "summary": "Remember a scratchpad entry (deprecated)",
         "title": "Remember a scratchpad entry (deprecated)",
-        "required_scopes": ["signal_scout_internal:write"],
+        "required_scopes": ["signal_scratchpad_internal:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
