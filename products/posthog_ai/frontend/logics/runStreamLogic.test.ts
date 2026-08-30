@@ -1911,58 +1911,10 @@ describe('runStreamLogic', () => {
         })
     })
 
-    describe('follow-up on a dead stream', () => {
-        // A follow-up opens a new turn, and only a live connection delivers it. A stream that failed
-        // retryably can still carry one, so a send reopens it. A stream the durable sentinel closed
-        // cannot: the run's Redis stream holds a completion entry the server stops at and refuses to
-        // write past, so only a successor run carries the next turn.
-        it('reopens after a retryable stream failure so the follow-up has somewhere to stream', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
-            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
-            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
-            logic.actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
-            const opened = MockStream.connections.length
-
-            logic.actions.pushHumanMessage('and one more thing')
-
-            expect(MockStream.connections.length).toEqual(opened + 1)
-            // Resumes exactly after the last frame the thread carries, so nothing repeats.
-            expect(MockStream.latest().options.lastEventId).toEqual('100-0')
-            expect(logic.values.isThinking).toEqual(true)
-        })
-
-        it.each([
-            ['the connection is healthy', async (): Promise<void> => {}],
-            [
-                'the run is terminal',
-                async (): Promise<void> => {
-                    logic.actions.handleTerminalStatus({ status: 'completed' })
-                },
-            ],
-            [
-                'the sentinel closed the stream',
-                async (): Promise<void> => {
-                    await MockStream.latest().emitStreamEnd()
-                },
-            ],
-            [
-                'the stream failed for good',
-                async (): Promise<void> => {
-                    logic.actions.handleStreamError({ errorTitle: 'Task run not found', retryable: false })
-                },
-            ],
-        ])('does not reopen when %s', async (_label, arrive) => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
-            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
-            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
-            await arrive()
-            const opened = MockStream.connections.length
-
-            logic.actions.pushHumanMessage('and one more thing')
-
-            expect(MockStream.connections.length).toEqual(opened)
-        })
-
+    describe('connection state across runs', () => {
+        // A follow-up on a finished run opens a successor with a stream of its own. The finished
+        // run's sentinel flag and resume cursor must not carry into it: the flag gates the drop
+        // handler, and the cursor addresses a different Redis stream.
         it("opens a successor run on fresh connection state, not the finished run's", async () => {
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
@@ -1971,12 +1923,9 @@ describe('runStreamLogic', () => {
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2', startLatest: false })
 
-            // The cursor addresses the finished run's Redis stream — resuming from it in the
-            // successor's stream can skip that run's opening frames.
             expect(MockStream.latest().options.lastEventId).toBeUndefined()
             await MockStream.latest().emitOpen()
 
-            // The finished run's sentinel must not suppress this connection's drop handling.
             const opened = MockStream.connections.length
             jest.useFakeTimers()
             await MockStream.latest().emitClose()
@@ -1985,6 +1934,19 @@ describe('runStreamLogic', () => {
             jest.advanceTimersByTime(2000)
             expect(MockStream.connections.length).toEqual(opened + 1)
             jest.useRealTimers()
+        })
+
+        it('leaves a dead stream closed when a follow-up starts a turn', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitStreamEnd()
+            expect(logic.values.sseStatus).toEqual('closed')
+            const opened = MockStream.connections.length
+
+            logic.actions.pushHumanMessage('and one more thing')
+
+            expect(MockStream.connections.length).toEqual(opened)
         })
     })
 

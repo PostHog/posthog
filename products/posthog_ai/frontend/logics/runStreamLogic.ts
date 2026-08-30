@@ -3077,27 +3077,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // stamp the turn start for per-turn duration metrics and append it as a `client`-sourced
             // log entry the projection renders in order.
             cache.turnStartedAtMs = Date.now()
-            // The turn needs a live connection to deliver it, and the stream can be gone by now: the
-            // reconnect budget ran out and left a retryable error behind. Nothing else reopens it,
-            // so the turn would stream into a dead connection and the thread would wait on output
-            // that never arrives. The reopen resumes from the last-seen cursor, which is exclusive,
-            // so nothing already in the thread repeats.
-            //
-            // A stream the durable sentinel closed is deliberately NOT reopened. The run's Redis
-            // stream holds a completion entry: a reopened connection reads that entry and ends
-            // again, and the backend refuses to write any further event to that stream. Only a
-            // successor run can carry another turn, which is also why a terminal run is skipped —
-            // its follow-up starts that successor and the consumer opens it.
-            const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
-            const streamFailedRetryably = values.sseStatus === 'error' && values.bootstrapError?.retryable !== false
-            if (
-                !props.replayOnly &&
-                activeRun &&
-                streamFailedRetryably &&
-                !isTerminalRunStatus(values.currentRunStatus)
-            ) {
-                actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: true })
-            }
+            // A send does NOT revive a dead stream, and reviving one is harder than it looks:
+            // `sseStatus: 'error'` covers a failed history bootstrap as well as an exhausted
+            // reconnect budget, and the bootstrap case has already dropped buffered frames whose
+            // ids advanced the resume cursor, so reopening from it silently skips them; a reopen
+            // also inherits the spent reconnect budgets, so the next drop gives up at once. A
+            // stream the durable sentinel closed cannot be revived at all — its Redis stream holds
+            // a completion entry the server stops at and refuses to write past.
             actions.appendEntries([
                 {
                     entry: {
