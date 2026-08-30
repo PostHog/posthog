@@ -184,6 +184,33 @@ def test_implementation_memory_protocol_follows_the_write_posture(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("memory_writable", [True, False])
+def test_research_memory_protocol_follows_the_write_posture(team, memory_writable):
+    # Same gate as the implementation run, over a different section: this one keys its entries on
+    # the entities a report names, and it keeps the search pointer that the implementation protocol
+    # replaces. A rewrite that unified the two stages would break here rather than silently give
+    # the research run one search instruction addressed to a repository it never touches.
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+
+    steering = load_research_steering(team.id, str(report.id), memory_writable=memory_writable)
+
+    assert steering.memory_protocol is memory_writable
+    assert ("scout-scratchpad-remember" in steering.section) is memory_writable
+    assert ("Describe, never quote" in steering.section) is memory_writable
+    assert ("Search the key first, then condense" in steering.section) is memory_writable
+    assert ("Always set `expires_at`" in steering.section) is memory_writable
+    # The prompt names a report id only on a re-research, so an entry that has to cite its source
+    # report gets the id from here or invents one.
+    assert (str(report.id) in steering.section) is memory_writable
+    # The pointer carries the per-entity sweep this protocol depends on, so it ships next to the
+    # write half even though this team's scratchpad is still empty.
+    assert steering.scratchpad_available is False
+    assert ("scout-scratchpad-search" in steering.section) is memory_writable
+
+
+@pytest.mark.django_db
 def test_research_steering_read_failure_costs_steering_not_the_run(team, monkeypatch):
     # Steering is a best-effort enrichment on the path that researches every promoted report, so a
     # note read that raises has to degrade to no steering. Letting it propagate would turn any
