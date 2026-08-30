@@ -10,13 +10,12 @@ import type {
     ContentAutopilotExportResponseApi,
     ContentAutopilotProposalApi,
     ContentAutopilotProposalListApi,
-    ContentAutopilotPullRequestResponseApi,
     ContentAutopilotRunApi,
     ContentAutopilotSiteDiscoveryResponseApi,
     ContentAutopilotSiteProfileApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
-export type ContentAutopilotOnboardingStep = 'site' | 'sources' | 'delivery'
+export type ContentAutopilotOnboardingStep = 'site' | 'sources'
 export type ContentAutopilotWorkspaceResource = 'profiles' | 'runs' | 'proposals'
 export type ContentAutopilotWorkspaceErrors = Partial<Record<ContentAutopilotWorkspaceResource, string>>
 export type ContentAutopilotWorkspaceSettled = Record<ContentAutopilotWorkspaceResource, boolean>
@@ -28,11 +27,6 @@ export interface ContentAutopilotProfileDraft {
     contentBoundaries: string
     brandRules: string
     searchConsoleEnabled: boolean
-    deliveryMode: 'export_only' | 'github'
-    githubRepository: string
-    baseBranch: string
-    contentDirectories: string
-    urlToFileConvention: string
 }
 
 const EMPTY_PROFILE_DRAFT: ContentAutopilotProfileDraft = {
@@ -42,11 +36,6 @@ const EMPTY_PROFILE_DRAFT: ContentAutopilotProfileDraft = {
     contentBoundaries: '/',
     brandRules: '',
     searchConsoleEnabled: true,
-    deliveryMode: 'export_only',
-    githubRepository: '',
-    baseBranch: 'main',
-    contentDirectories: 'contents/docs',
-    urlToFileConvention: '',
 }
 
 const WORKSPACE_POLL_INTERVAL_MS = 10_000
@@ -79,11 +68,6 @@ const draftFromProfile = (profile: ContentAutopilotSiteProfileApi): ContentAutop
     contentBoundaries: profile.content_boundaries.join('\n'),
     brandRules: profile.brand_rules.join('\n'),
     searchConsoleEnabled: profile.search_console_enabled ?? true,
-    deliveryMode: profile.delivery_mode ?? 'export_only',
-    githubRepository: profile.github_repository ?? '',
-    baseBranch: profile.base_branch ?? 'main',
-    contentDirectories: profile.content_directories.join('\n'),
-    urlToFileConvention: profile.url_to_file_convention ?? '',
 })
 
 const getErrorMessage = (error: unknown): string => {
@@ -118,8 +102,6 @@ export interface contentAutopilotLogicValues {
     proposals: ContentAutopilotProposalListApi[]
     proposalsLoading: boolean
     proposedMarkdown: string
-    pullRequest: ContentAutopilotPullRequestResponseApi | null
-    pullRequestLoading: boolean
     runMutation: ContentAutopilotRunApi | null
     runMutationLoading: boolean
     runs: ContentAutopilotRunApi[]
@@ -272,21 +254,6 @@ export interface contentAutopilotLogicActions {
     }
     loadWorkspace: () => {
         value: true
-    }
-    openPullRequest: (proposalIds: string[]) => string[]
-    openPullRequestFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    openPullRequestSuccess: (
-        pullRequest: ContentAutopilotPullRequestResponseApi,
-        payload?: string[]
-    ) => {
-        pullRequest: ContentAutopilotPullRequestResponseApi
-        payload?: string[]
     }
     regenerateProposal: (proposalId: string) => string
     regenerateProposalFailure: (
@@ -593,11 +560,6 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         content_boundaries: splitLines(values.profileDraft.contentBoundaries),
                         brand_rules: splitLines(values.profileDraft.brandRules),
                         search_console_enabled: values.profileDraft.searchConsoleEnabled,
-                        delivery_mode: values.profileDraft.deliveryMode,
-                        github_repository: values.profileDraft.githubRepository.trim(),
-                        base_branch: values.profileDraft.baseBranch.trim(),
-                        content_directories: splitLines(values.profileDraft.contentDirectories),
-                        url_to_file_convention: values.profileDraft.urlToFileConvention.trim(),
                     }
                     const profile = values.onboardingOpen ? null : values.profile
                     if (profile) {
@@ -677,24 +639,6 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                     )
                     downloadBlob(new Blob([exported.markdown], { type: 'text/markdown' }), exported.filename)
                     return exported
-                },
-            },
-        ],
-        pullRequest: [
-            null as ContentAutopilotPullRequestResponseApi | null,
-            {
-                openPullRequest: async (proposalIds: string[]) => {
-                    if (
-                        values.selectedProposalId !== null &&
-                        proposalIds.includes(values.selectedProposalId) &&
-                        values.proposalHasUnsavedChanges
-                    ) {
-                        throw new Error('Save or discard your changes before opening a pull request')
-                    }
-                    return await webAnalyticsApi.webAnalyticsContentAutopilotProposalsOpenPullRequest(
-                        String(values.currentTeamIdStrict),
-                        { proposal_ids: proposalIds }
-                    )
                 },
             },
         ],
@@ -867,14 +811,6 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             actions.loadProposals()
         },
         exportProposalFailure: ({ errorObject }) => {
-            lemonToast.error(getErrorMessage(errorObject))
-        },
-        openPullRequestSuccess: ({ pullRequest }) => {
-            lemonToast.success('Pull request opened')
-            window.open(pullRequest.pull_request_url, '_blank', 'noopener,noreferrer')
-            actions.loadProposals()
-        },
-        openPullRequestFailure: ({ errorObject }) => {
             lemonToast.error(getErrorMessage(errorObject))
         },
     })),

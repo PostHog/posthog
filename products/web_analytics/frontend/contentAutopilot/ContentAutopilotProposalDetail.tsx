@@ -17,23 +17,14 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
     const {
         selectedProposal,
         selectedProposalId,
-        profile,
         proposedMarkdown,
         proposalDetailLoading,
         proposalHasUnsavedChanges,
         proposalMutationLoading,
         exportedProposalLoading,
-        pullRequestLoading,
     } = useValues(contentAutopilotLogic)
-    const {
-        selectProposal,
-        setProposedMarkdown,
-        saveProposal,
-        rejectProposal,
-        regenerateProposal,
-        exportProposal,
-        openPullRequest,
-    } = useActions(contentAutopilotLogic)
+    const { selectProposal, setProposedMarkdown, saveProposal, rejectProposal, regenerateProposal, exportProposal } =
+        useActions(contentAutopilotLogic)
 
     if (!selectedProposalId) {
         return null
@@ -82,7 +73,7 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
         : selectedProposal.lifecycle_status !== 'ready_for_review'
           ? 'Only proposals ready for review can be delivered'
           : undefined
-    const deliveryMutationLoading = exportedProposalLoading || pullRequestLoading
+    const deliveryMutationLoading = exportedProposalLoading
     const deliveryDisabledReason =
         deliveryBlocked ??
         (proposalHasUnsavedChanges ? 'Save or discard your changes before delivery' : undefined) ??
@@ -126,25 +117,10 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                             type="secondary"
                             onClick={() => exportProposal(selectedProposal.id)}
                             loading={exportedProposalLoading}
-                            disabledReason={
-                                deliveryDisabledReason ?? (pullRequestLoading ? 'Opening a pull request' : undefined)
-                            }
+                            disabledReason={deliveryDisabledReason}
                         >
                             Export Markdown
                         </LemonButton>
-                        {profile?.delivery_mode === 'github' ? (
-                            <LemonButton
-                                type="primary"
-                                onClick={() => openPullRequest([selectedProposal.id])}
-                                loading={pullRequestLoading}
-                                disabledReason={
-                                    deliveryDisabledReason ??
-                                    (exportedProposalLoading ? 'Exporting Markdown' : undefined)
-                                }
-                            >
-                                Open pull request
-                            </LemonButton>
-                        ) : null}
                     </div>
                 </div>
             }

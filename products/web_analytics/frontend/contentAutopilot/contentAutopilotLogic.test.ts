@@ -13,7 +13,6 @@ import {
     webAnalyticsContentAutopilotProposalsEdit,
     webAnalyticsContentAutopilotProposalsExport,
     webAnalyticsContentAutopilotProposalsList,
-    webAnalyticsContentAutopilotProposalsOpenPullRequest,
     webAnalyticsContentAutopilotProposalsRegenerate,
     webAnalyticsContentAutopilotProposalsReject,
     webAnalyticsContentAutopilotProposalsRetrieve,
@@ -39,7 +38,6 @@ jest.mock('../generated/api', () => ({
     webAnalyticsContentAutopilotProposalsEdit: jest.fn(),
     webAnalyticsContentAutopilotProposalsExport: jest.fn(),
     webAnalyticsContentAutopilotProposalsList: jest.fn(),
-    webAnalyticsContentAutopilotProposalsOpenPullRequest: jest.fn(),
     webAnalyticsContentAutopilotProposalsRegenerate: jest.fn(),
     webAnalyticsContentAutopilotProposalsReject: jest.fn(),
     webAnalyticsContentAutopilotProposalsRetrieve: jest.fn(),
@@ -57,7 +55,6 @@ const mockProfilesCreate = jest.mocked(webAnalyticsContentAutopilotProfilesCreat
 const mockProfilesList = jest.mocked(webAnalyticsContentAutopilotProfilesList)
 const mockProposalsEdit = jest.mocked(webAnalyticsContentAutopilotProposalsEdit)
 const mockProposalsList = jest.mocked(webAnalyticsContentAutopilotProposalsList)
-const mockProposalsOpenPullRequest = jest.mocked(webAnalyticsContentAutopilotProposalsOpenPullRequest)
 const mockProposalsRetrieve = jest.mocked(webAnalyticsContentAutopilotProposalsRetrieve)
 const mockRunsList = jest.mocked(webAnalyticsContentAutopilotRunsList)
 const mockRunsStart = jest.mocked(webAnalyticsContentAutopilotRunsStart)
@@ -106,10 +103,6 @@ describe('contentAutopilotLogic', () => {
             markdown: EXAMPLE_PROPOSAL.proposed_markdown,
             content_package: EXAMPLE_PROPOSAL.content_package,
         })
-        mockProposalsOpenPullRequest.mockResolvedValue({
-            pull_request_url: 'https://github.com/example/docs/pull/7',
-            branch: 'posthog/content-autopilot-example',
-        })
         jest.mocked(webAnalyticsContentAutopilotProposalsRegenerate).mockResolvedValue(EXAMPLE_PROPOSAL)
         jest.mocked(webAnalyticsContentAutopilotProposalsReject).mockResolvedValue(EXAMPLE_PROPOSAL)
         jest.mocked(webAnalyticsContentAutopilotRunsCancel).mockResolvedValue(EXAMPLE_RUN)
@@ -146,11 +139,6 @@ describe('contentAutopilotLogic', () => {
             contentBoundaries: '/blog',
             brandRules: 'Use sentence case',
             searchConsoleEnabled: false,
-            deliveryMode: 'github',
-            githubRepository: 'example/blog',
-            baseBranch: 'main',
-            contentDirectories: 'content/blog',
-            urlToFileConvention: '/blog/topic maps to content/blog/topic.mdx',
         })
 
         await expectLogic(mountedLogic, () => mountedLogic.actions.saveProfile()).toFinishAllListeners()
@@ -162,11 +150,6 @@ describe('contentAutopilotLogic', () => {
             content_boundaries: ['/blog'],
             brand_rules: ['Use sentence case'],
             search_console_enabled: false,
-            delivery_mode: 'github',
-            github_repository: 'example/blog',
-            base_branch: 'main',
-            content_directories: ['content/blog'],
-            url_to_file_convention: '/blog/topic maps to content/blog/topic.mdx',
         })
     })
 
@@ -272,7 +255,6 @@ describe('contentAutopilotLogic', () => {
 
     it('refreshes proposals after edits and pull-request delivery', async () => {
         const mountedLogic = await mountWorkspace()
-        const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null)
         mockProposalsList.mockClear()
 
         await expectLogic(mountedLogic, () =>
@@ -293,17 +275,6 @@ describe('contentAutopilotLogic', () => {
         })
         expect(mockProposalsList).toHaveBeenCalledTimes(1)
         expect(mountedLogic.values.selectedProposalId).toBeNull()
-
-        await expectLogic(mountedLogic, () =>
-            mountedLogic.actions.openPullRequest([EXAMPLE_PROPOSAL.id])
-        ).toFinishAllListeners()
-
-        expect(mockProposalsOpenPullRequest).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            proposal_ids: [EXAMPLE_PROPOSAL.id],
-        })
-        expect(mockProposalsList).toHaveBeenCalledTimes(2)
-        expect(openSpy).toHaveBeenCalledWith('https://github.com/example/docs/pull/7', '_blank', 'noopener,noreferrer')
-        openSpy.mockRestore()
     })
 
     it('does not deliver Markdown that has not been saved', async () => {
@@ -317,13 +288,9 @@ describe('contentAutopilotLogic', () => {
         await expectLogic(mountedLogic, () =>
             mountedLogic.actions.exportProposal(EXAMPLE_PROPOSAL.id)
         ).toFinishAllListeners()
-        await expectLogic(mountedLogic, () =>
-            mountedLogic.actions.openPullRequest([EXAMPLE_PROPOSAL.id])
-        ).toFinishAllListeners()
         resumeKeaLoadersErrors()
 
         expect(webAnalyticsContentAutopilotProposalsExport).not.toHaveBeenCalled()
-        expect(mockProposalsOpenPullRequest).not.toHaveBeenCalled()
     })
 
     it('keeps load failures distinct from an empty workspace and clears them on retry', async () => {

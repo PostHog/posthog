@@ -5,7 +5,6 @@ import type { ContentAutopilotOnboardingStep } from './contentAutopilotLogic'
 const STEPS: { key: ContentAutopilotOnboardingStep; label: string }[] = [
     { key: 'site', label: 'Site' },
     { key: 'sources', label: 'Sources' },
-    { key: 'delivery', label: 'Delivery' },
 ]
 
 export const ContentAutopilotSetupStepIndicator = ({

@@ -12,7 +12,6 @@ const statusLabel: Record<ContentAutopilotProposalListApi['lifecycle_status'], s
     ready_for_review: 'Ready for review',
     rejected: 'Rejected',
     exported: 'Exported',
-    pr_opened: 'Pull request opened',
     failed: 'Failed',
 }
 

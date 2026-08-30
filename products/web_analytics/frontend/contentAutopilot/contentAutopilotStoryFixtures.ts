@@ -13,11 +13,6 @@ export const EXAMPLE_PROFILE: ContentAutopilotSiteProfileApi = {
     content_boundaries: ['/docs'],
     brand_rules: ['Use sentence case for headings'],
     search_console_enabled: true,
-    delivery_mode: 'github',
-    github_repository: 'example/docs',
-    base_branch: 'main',
-    content_directories: ['contents/docs'],
-    url_to_file_convention: '/docs/topic maps to contents/docs/topic.mdx',
     created_at: '2026-08-26T12:00:00Z',
     updated_at: '2026-08-26T12:00:00Z',
 }
@@ -29,9 +24,6 @@ export const EXAMPLE_SECOND_PROFILE: ContentAutopilotSiteProfileApi = {
     domain: 'https://blog.example.com',
     source_urls: ['https://blog.example.com/sitemap.xml'],
     content_boundaries: ['/blog'],
-    delivery_mode: 'export_only',
-    github_repository: '',
-    content_directories: [],
 }
 
 export const EXAMPLE_RUN: ContentAutopilotRunApi = {
@@ -97,7 +89,6 @@ export const EXAMPLE_PROPOSAL: ContentAutopilotProposalApi = {
     delivery_state: 'not_delivered',
     delivery_reference: '',
     delivery_error: '',
-    pull_request_url: '',
     created_at: '2026-08-26T12:08:00Z',
     updated_at: '2026-08-26T12:08:00Z',
 }
@@ -113,7 +104,6 @@ export const EXAMPLE_PROPOSAL_LIST: ContentAutopilotProposalListApi = {
     validation_report: EXAMPLE_PROPOSAL.validation_report,
     file_path: EXAMPLE_PROPOSAL.content_package.file_path,
     delivery_state: EXAMPLE_PROPOSAL.delivery_state,
-    pull_request_url: EXAMPLE_PROPOSAL.pull_request_url,
     created_at: EXAMPLE_PROPOSAL.created_at,
     updated_at: EXAMPLE_PROPOSAL.updated_at,
 }

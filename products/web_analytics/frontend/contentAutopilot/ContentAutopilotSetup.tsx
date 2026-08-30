@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
 
-import { ContentAutopilotDeliveryFields } from './ContentAutopilotDeliveryFields'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSetupStepIndicator } from './ContentAutopilotSetupStepIndicator'
 import { ContentAutopilotSiteFields } from './ContentAutopilotSiteFields'
@@ -13,26 +12,22 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
     const { siteProfiles, profileDraft, onboardingStep, discoveredSite, discoveredSiteLoading, savedProfileLoading } =
         useValues(contentAutopilotLogic)
     const { cancelOnboarding, discoverSite, saveProfile, setOnboardingStep } = useActions(contentAutopilotLogic)
-    const isGitHub = profileDraft.deliveryMode === 'github'
     const saveDisabledReason = !profileDraft.domain.trim()
         ? 'Enter a site URL'
         : splitHasNoValues(profileDraft.sourceUrls)
           ? 'Add at least one sitemap or source URL'
-          : isGitHub && !profileDraft.githubRepository.trim()
-            ? 'Enter a GitHub repository'
-            : undefined
+          : undefined
 
     if (!onboarding) {
         return (
             <LemonCard hoverEffect={false} className="p-4">
                 <div className="mb-4">
-                    <h2 className="m-0">Site and delivery settings</h2>
-                    <p className="m-0 mt-1 text-muted">Change this site's sources, boundaries, and delivery path.</p>
+                    <h2 className="m-0">Site settings</h2>
+                    <p className="m-0 mt-1 text-muted">Change this site's sources and research boundaries.</p>
                 </div>
                 <div className="flex flex-col gap-5">
                     <ContentAutopilotSiteFields draft={profileDraft} />
                     <ContentAutopilotSourceFields draft={profileDraft} />
-                    <ContentAutopilotDeliveryFields draft={profileDraft} />
                 </div>
                 <div className="mt-4 flex justify-end">
                     <LemonButton
@@ -81,7 +76,7 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
                         </LemonButton>
                     </div>
                 </>
-            ) : onboardingStep === 'sources' ? (
+            ) : (
                 <>
                     <div className="mb-5">
                         <h2 className="m-0">Review sources</h2>
@@ -102,38 +97,6 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
                             type="secondary"
                             onClick={() => setOnboardingStep('site')}
                             icon={<IconArrowLeft />}
-                        >
-                            Back
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => setOnboardingStep('delivery')}
-                            disabledReason={
-                                splitHasNoValues(profileDraft.sourceUrls)
-                                    ? 'Add at least one sitemap or source URL'
-                                    : undefined
-                            }
-                            sideIcon={<IconArrowRight />}
-                        >
-                            Continue
-                        </LemonButton>
-                    </div>
-                </>
-            ) : (
-                <>
-                    <div className="mb-5">
-                        <h2 className="m-0">Choose a delivery path</h2>
-                        <p className="m-0 mt-1 text-muted">
-                            Export Markdown or let PostHog open review-only pull requests. It never merges or publishes.
-                        </p>
-                    </div>
-                    <ContentAutopilotDeliveryFields draft={profileDraft} />
-                    <div className="mt-6 flex justify-between">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => setOnboardingStep('sources')}
-                            icon={<IconArrowLeft />}
-                            disabled={savedProfileLoading}
                         >
                             Back
                         </LemonButton>
