@@ -82,6 +82,8 @@ The research variant includes **every** note origin, unlike the implementation r
 
 `signals_research_steering_attached` fires once per run with `notes_attached`, `dismissal_notes_attached`, `pipeline_notes_attached`, and `scratchpad_available`. Join it to `signal_report_completed` on `report_id` to read whether steering moved the outcome; there is deliberately no self-reported "steering applied" artefact, because the agent's own claim is weaker evidence than that join.
 
+Both stages point at the fleet scratchpad, but only one writes to it today. The autostarted implementation run holds `signals_implementation`, so `load_report_steering(..., memory_writable=True)` gives it a read-and-write memory protocol instead of the search-only pointer (see "Fleet memory the implementation run writes back" in `products/signals/ARCHITECTURE.md`). This stage holds `signals_research`, which carries the same scratchpad scope, so it can write; the protocol that tells it what to write is still to come. Keep the two prompt sections consistent when it lands, and keep the rules that make a pipeline write safe: describe never quote, search the key then condense, always set `expires_at`.
+
 ## Local debug commands
 
 These commands are debug-only local-dev tools.
