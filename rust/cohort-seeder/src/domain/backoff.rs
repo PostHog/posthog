@@ -10,8 +10,13 @@ use std::time::Duration;
 
 use rand::Rng;
 
-/// How many times a chunk has been claimed, as the claim `RETURNING` reports it. One is the first
-/// attempt, so the first retry waits exactly [`RetryBackoffPolicy::base`].
+/// The chunk's `attempts` column, as the claim `RETURNING` reports it. One is the first attempt, so
+/// the first retry waits exactly [`RetryBackoffPolicy::base`].
+///
+/// This tracks claims only while the chunk is under the attempt cap. The claim `CASE` stops
+/// incrementing at the cap, so a `produced` chunk that keeps being reclaimed there is claimed more
+/// times than this counts — deliberately, since it retries a Kafka write that is already done and
+/// must not be spaced out further.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AttemptCount(u32);
 
@@ -20,7 +25,7 @@ impl AttemptCount {
     /// is always at least one; a zero or negative value can only come from a hand-edited row, and
     /// is read as the first attempt rather than as "no wait at all".
     pub fn from_row(attempts: i32) -> Self {
-        Self(u32::try_from(attempts).unwrap_or(0).max(1))
+        Self(u32::try_from(attempts).map_or(1, |count| count.max(1)))
     }
 
     pub const fn get(self) -> u32 {
@@ -41,6 +46,11 @@ pub struct RetryBackoffPolicy {
 /// would make the store's `fail` write throw, and a failed `fail` leaves the chunk holding its lease
 /// in `scanning` until the poisoned-chunk sweep reaches it at the attempt cap, so every failure
 /// fleet-wide would look like a crashed worker.
+///
+/// A configured cap above 6 hours would collide with the Django inventory's stall detector, which
+/// classifies a run untouched for that long as `seeding-stalled` and terminalizes it by default. A
+/// run merely waiting out one backoff would then be a cancel target. The shipped 1800s is far
+/// inside that; anything approaching 6 h needs the detector's side changed first.
 pub const MAX_RETRY_BACKOFF_CAP: Duration = Duration::from_secs(24 * 60 * 60);
 
 impl RetryBackoffPolicy {

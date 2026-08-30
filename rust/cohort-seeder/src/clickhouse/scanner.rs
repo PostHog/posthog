@@ -108,7 +108,11 @@ impl ChunkScanner {
             .query(&scan_sql(&scan_spec))
             .with_option(
                 LOG_COMMENT_OPTION,
-                ScanLogComment::BehavioralChunk(spec).to_string(),
+                ScanLogComment::BehavioralChunk {
+                    spec,
+                    cohort_id: run.sole_cohort_id(),
+                }
+                .to_string(),
             )
             .fetch::<EventRow>()
             .map_err(ScanError::Query)?;
@@ -145,8 +149,8 @@ enum RowsSeen {
     Some,
 }
 
-/// Drive the cursor into the accumulator until it is exhausted, cancelled, or fails. Split out of
-/// [`ChunkScanner::scan_tiles`] so that function has a single exit to meter the cursor from.
+/// Drive the cursor into the accumulator until it is exhausted, cancelled, or fails. Returns rather
+/// than metering, so the caller owns the single recording site.
 async fn fold_cursor(
     cursor: &mut RowCursor<EventRow>,
     accumulator: &mut ChunkAccumulator,

@@ -252,6 +252,19 @@ impl PinnedRun {
         })
     }
 
+    /// The one cohort every surviving condition belongs to, or `None` when the run spans several.
+    ///
+    /// A save-triggered run carries exactly one cohort, and naming it lets `query_log_archive`
+    /// attribute the scan's cost to that cohort. A team-enablement run spans the team's cohorts,
+    /// where any single id would be a misattribution rather than a partial one.
+    pub fn sole_cohort_id(&self) -> Option<CohortId> {
+        let mut cohort_ids = self.conditions.iter().map(|condition| condition.cohort_id);
+        let first = cohort_ids.next()?;
+        cohort_ids
+            .all(|cohort_id| cohort_id == first)
+            .then_some(first)
+    }
+
     /// The seed domain for a claimed chunk, after proving the chunk belongs to this run/team. Named
     /// here (not in the store) so the store never references a scan/ClickHouse type — cycle break.
     pub fn domain_for(&self, spec: &ChunkSpec) -> Result<SeedDomain, ChunkDomainError> {

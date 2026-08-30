@@ -18,7 +18,8 @@ use cohort_seeder::app::reconcile_dispatch::{
     RegisterBackfillConfirmation,
 };
 use cohort_seeder::domain::{
-    tile_ranges, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms, ScanVolume, ScopeKind,
+    tile_ranges, AttemptCount, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms,
+    RetryBackoffPolicy, ScanVolume, ScopeKind,
 };
 use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome, NO_ERROR_RECORDED};
 use cohort_seeder::store::lease::LeaseFailure;
@@ -748,6 +749,78 @@ async fn a_failed_chunk_waits_out_its_backoff_before_it_is_claimable_again() -> 
     .await
 }
 
+/// The recovery path sizes the wait from the chunk's own attempt count, and that wait is what
+/// reaches `next_attempt_at`.
+///
+/// The store's `fail` takes the delay as an argument, so every other test here supplies its own and
+/// proves nothing about where a real one comes from. A recovery path that always asked for the
+/// first attempt's wait would hold every chunk a flat `base` forever — defeating the whole feature
+/// — while the policy's own unit tests and the gate test above all stayed green.
+///
+/// The chunks start one attempt below the cap, so the claim reports an attempt whose ceiling has
+/// saturated at 1800s while a first attempt's is 1s. Full jitter draws from `[0, ceiling]`, so one
+/// sample could still land low; over four chunks the chance that all four fall inside the first
+/// attempt's 1s bound is about (1/1800)^4, which does not flake.
+#[tokio::test]
+async fn the_recovery_path_draws_its_wait_from_the_chunks_attempt_count() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts50 = MaxAttempts::new(50)?;
+        let run_ids = [seeding_run];
+        let policy =
+            RetryBackoffPolicy::new(Duration::from_secs(1), Duration::from_secs(1800)).unwrap();
+
+        let days = [100, 101, 102, 103];
+        ensure!(planned_count(store.plan_chunks(seeding_run, days, ONE_BAND).await?)? == 4);
+        sqlx::query("UPDATE cohort_backfill_chunks SET attempts = 48 WHERE run_id = $1")
+            .bind(seeding_run)
+            .execute(&pool)
+            .await?;
+
+        let mut longest_wait = Duration::ZERO;
+        for day in days {
+            let claimed = store
+                .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts50)
+                .await?
+                .context("a chunk under the cap was not claimable")?;
+            let chunk = claimed.chunk;
+            let lease = claimed.lease;
+            let chunk_id = chunk.spec().lease.chunk_id();
+            ensure!(chunk.spec().attempt.get() == 49, "day {day}");
+            let drawn =
+                test_support::fail_via_recovery(&store, chunk, "clickhouse memory limit", policy)
+                    .await
+                    .context("the recovery path did not fail the chunk")?;
+            drop(lease);
+
+            // The stamp is `now() + delay`, so the remaining wait is the delay minus test runtime.
+            let remaining_secs: f64 = sqlx::query_scalar(
+                "SELECT extract(epoch FROM next_attempt_at - now())::float8
+                 FROM cohort_backfill_chunks WHERE id = $1",
+            )
+            .bind(chunk_id)
+            .fetch_one(&pool)
+            .await?;
+            ensure!(
+                remaining_secs <= drawn.as_secs_f64(),
+                "day {day} stamped {remaining_secs}s, more than the {drawn:?} the path drew"
+            );
+            longest_wait = longest_wait.max(drawn);
+        }
+
+        ensure!(
+            longest_wait > policy.ceiling(AttemptCount::from_row(1)),
+            "the longest of four near-cap waits was {longest_wait:?}, inside the first attempt's \
+             ceiling — the recovery path is not reading the attempt count"
+        );
+        Ok(())
+    })
+    .await
+}
+
 /// Only the failed→claim transition reads the backoff stamp. A `pending` chunk has not failed, and
 /// an expired `produced` lease must reclaim immediately because its tiles are already in Kafka and
 /// the run cannot complete until it reaches `confirmed`. Gating either would stall a run on a
@@ -933,6 +1006,10 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
                 .fetch_one(&pool)
                 .await?;
         ensure!(active_reclaim_attempts == 5);
+        // The claim `CASE` stops incrementing at the cap, so this is the arm where the count the
+        // spec reports and the number of claims diverge. The spec must still carry the column, not
+        // the claim tally: the retry backoff is sized from it.
+        ensure!(observed.chunk.spec().attempt.get() == 5);
         Ok(())
     })
     .await

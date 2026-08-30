@@ -164,8 +164,7 @@ async fn stream_chunk(
 }
 
 /// Drive the person cursor into the evaluator and the paced producer until it is exhausted,
-/// cancelled, or fails. Split out of [`stream_chunk`] so that function has a single exit to meter
-/// the cursor from.
+/// cancelled, or fails. Returns rather than metering, so the caller owns the single recording site.
 #[allow(clippy::too_many_arguments)]
 async fn fold_person_rows(
     cursor: &mut RowCursor<PersonRow>,

@@ -100,6 +100,10 @@ pub const PERSON_NONMATCHERS_SKIPPED: &str = "seeder_person_nonmatchers_skipped_
 pub const PERSON_ROWS_SKIPPED: &str = "seeder_person_rows_skipped_total";
 pub const PERSON_HOGVM_ERRORS: &str = "seeder_person_hogvm_errors_total";
 pub const PERSON_BOUNDARIES_PLANNED: &str = "seeder_person_boundaries_planned_total";
+/// One run's person planning pass, end to end: the ClickHouse boundaries scan plus the Postgres
+/// `plan_person_chunks` insert. Two databases under one timer, so a slow reading names neither on
+/// its own — read it with `seeder_scan_received_bytes_total{kind="person_boundaries"}` to tell a
+/// heavy scan from a slow insert.
 pub const PERSON_PLANNING_DURATION_SECONDS: &str = "seeder_person_planning_duration_seconds";
 /// Deliberately its own metric rather than [`CHUNK_SCAN_DURATION_SECONDS`] under a `kind` label:
 /// the person path interleaves scan, evaluation, and paced enqueue into one inseparable loop, so
@@ -148,13 +152,23 @@ const DEFAULT_SECONDS_BUCKETS: &[f64] = &[
     0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
 ];
 
-/// Bucket ladder for the three ClickHouse-bound scan spans. The top bucket is the default
+/// Bucket ladder for the two ClickHouse-bound chunk scan spans. The top bucket is the default
 /// `SEEDER_CH_MAX_EXECUTION_TIME_SECS` (14400), because a scan cannot outlive the server-side
 /// execution-time budget: a chunk that reaches the last bucket was killed by ClickHouse. The value
 /// is repeated here rather than read from `Config` so this module stays a leaf that no other seeder
 /// module can pull a dependency through.
 const SCAN_DURATION_SECONDS_BUCKETS: &[f64] = &[
     1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, 7200.0, 14400.0,
+];
+
+/// Bucket ladder for [`PERSON_PLANNING_DURATION_SECONDS`], which spans two databases: the
+/// ClickHouse boundaries scan and the Postgres `plan_person_chunks` insert. ClickHouse's
+/// execution-time budget governs only the first, so the top bucket is not the scan ceiling — an
+/// operator reading `+Inf` here must be able to suspect either database. The floor is milliseconds
+/// because a small team's planning finishes well inside a second, and the scan ladder's 1.0s floor
+/// erased that whole range.
+const PERSON_PLANNING_SECONDS_BUCKETS: &[f64] = &[
+    0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 15.0, 60.0, 300.0, 900.0, 1800.0, 3600.0, 14400.0,
 ];
 
 /// Bucket ladder for [`AGGREGATE_ENTRIES`], which counts `(person, condition)` pairs held in one
@@ -175,6 +189,24 @@ const AGGREGATE_ENTRIES_BUCKETS: &[f64] = &[
     10_000_000.0,
 ];
 
+/// Every seeder histogram that overrides the recorder-wide default, paired with its ladder. This is
+/// the single source: [`configured_builder`] installs from it and the test iterates it, so a
+/// histogram cannot be given a ladder in one place and checked against another. A histogram absent
+/// from this table inherits [`DEFAULT_SECONDS_BUCKETS`], which is correct only if it measures a
+/// short span in seconds.
+const HISTOGRAM_LADDERS: &[(&str, &[f64])] = &[
+    (CHUNK_SCAN_DURATION_SECONDS, SCAN_DURATION_SECONDS_BUCKETS),
+    (
+        PERSON_CHUNK_SCAN_DURATION_SECONDS,
+        SCAN_DURATION_SECONDS_BUCKETS,
+    ),
+    (
+        PERSON_PLANNING_DURATION_SECONDS,
+        PERSON_PLANNING_SECONDS_BUCKETS,
+    ),
+    (AGGREGATE_ENTRIES, AGGREGATE_ENTRIES_BUCKETS),
+];
+
 /// The recorder configuration shared by [`install_recorder`] and its test.
 ///
 /// Without `set_buckets` the exporter renders every histogram as a rolling-window summary, whose
@@ -184,24 +216,11 @@ const AGGREGATE_ENTRIES_BUCKETS: &[f64] = &[
 /// The two `seeder_reconcile_*` lag and age metrics take no entry on purpose: they are gauges, and
 /// a bucket ladder would not apply to them.
 fn configured_builder() -> Result<PrometheusBuilder, BuildError> {
-    PrometheusBuilder::new()
-        .set_buckets(DEFAULT_SECONDS_BUCKETS)?
-        .set_buckets_for_metric(
-            Matcher::Full(CHUNK_SCAN_DURATION_SECONDS.to_owned()),
-            SCAN_DURATION_SECONDS_BUCKETS,
-        )?
-        .set_buckets_for_metric(
-            Matcher::Full(PERSON_CHUNK_SCAN_DURATION_SECONDS.to_owned()),
-            SCAN_DURATION_SECONDS_BUCKETS,
-        )?
-        .set_buckets_for_metric(
-            Matcher::Full(PERSON_PLANNING_DURATION_SECONDS.to_owned()),
-            SCAN_DURATION_SECONDS_BUCKETS,
-        )?
-        .set_buckets_for_metric(
-            Matcher::Full(AGGREGATE_ENTRIES.to_owned()),
-            AGGREGATE_ENTRIES_BUCKETS,
-        )
+    let mut builder = PrometheusBuilder::new().set_buckets(DEFAULT_SECONDS_BUCKETS)?;
+    for (name, ladder) in HISTOGRAM_LADDERS {
+        builder = builder.set_buckets_for_metric(Matcher::Full((*name).to_owned()), ladder)?;
+    }
+    Ok(builder)
 }
 
 pub fn install_recorder() -> Result<PrometheusHandle, BuildError> {
@@ -214,15 +233,13 @@ mod tests {
 
     use super::*;
 
-    /// Every histogram the seeder records, paired with the top bucket its ladder must end on.
-    const HISTOGRAM_LADDERS: [(&str, &str); 7] = [
-        (CHUNK_SCAN_DURATION_SECONDS, "14400"),
-        (PERSON_CHUNK_SCAN_DURATION_SECONDS, "14400"),
-        (PERSON_PLANNING_DURATION_SECONDS, "14400"),
-        (AGGREGATE_ENTRIES, "10000000"),
-        (PRODUCE_ACK_SECONDS, "60"),
-        (PACER_WAIT_SECONDS, "60"),
-        (RECONCILE_OBSERVATION_PASS_SECONDS, "60"),
+    /// The histograms that deliberately take no [`HISTOGRAM_LADDERS`] entry, because
+    /// [`DEFAULT_SECONDS_BUCKETS`] already describes them. Listed so the test still proves they
+    /// render as histograms rather than summaries.
+    const DEFAULT_LADDER_HISTOGRAMS: &[&str] = &[
+        PRODUCE_ACK_SECONDS,
+        PACER_WAIT_SECONDS,
+        RECONCILE_OBSERVATION_PASS_SECONDS,
     ];
 
     /// Renders one sample per histogram through the configured recorder.
@@ -233,10 +250,22 @@ mod tests {
         let handle = recorder.handle();
         metrics::with_local_recorder(&recorder, || {
             for (name, _) in HISTOGRAM_LADDERS {
-                histogram!(name).record(1.0);
+                histogram!(*name).record(1.0);
+            }
+            for name in DEFAULT_LADDER_HISTOGRAMS {
+                histogram!(*name).record(1.0);
             }
         });
         handle.render()
+    }
+
+    /// The exporter renders bucket bounds with `f64::to_string`, so an integral bound loses its
+    /// fractional part: 14400.0 is `le="14400"`.
+    fn top_bucket_label(ladder: &[f64]) -> String {
+        ladder
+            .last()
+            .expect("every ladder has at least one bucket")
+            .to_string()
     }
 
     /// A histogram with no ladder renders as a summary, so its rare long recordings age out of the
@@ -248,7 +277,15 @@ mod tests {
     #[test]
     fn every_histogram_renders_with_its_own_bucket_ladder() {
         let rendered = render_one_sample_each();
-        for (name, top_bucket) in HISTOGRAM_LADDERS {
+        let expected = HISTOGRAM_LADDERS
+            .iter()
+            .map(|(name, ladder)| (*name, top_bucket_label(ladder)))
+            .chain(
+                DEFAULT_LADDER_HISTOGRAMS
+                    .iter()
+                    .map(|name| (*name, top_bucket_label(DEFAULT_SECONDS_BUCKETS))),
+            );
+        for (name, top_bucket) in expected {
             assert!(
                 rendered.contains(&format!("{name}_bucket{{le=\"{top_bucket}\"}}")),
                 "{name} is missing its le={top_bucket} bucket:\n{rendered}"
@@ -258,5 +295,26 @@ mod tests {
                 "{name} rendered as a summary instead of a histogram:\n{rendered}"
             );
         }
+    }
+
+    /// The person planning timer spans a ClickHouse scan and a Postgres insert, so it must not
+    /// share the scan ladder, whose 1.0s floor erases every sub-second planning pass. Two teams
+    /// apart in size have to land in different buckets for the metric to say anything.
+    #[test]
+    fn person_planning_resolves_spans_below_the_scan_ladders_floor() {
+        let floor = PERSON_PLANNING_SECONDS_BUCKETS[0];
+        let scan_floor = SCAN_DURATION_SECONDS_BUCKETS[0];
+        assert!(
+            floor < scan_floor,
+            "the planning ladder starts at {floor}, no finer than the scan ladder's {scan_floor}"
+        );
+        let sub_second = PERSON_PLANNING_SECONDS_BUCKETS
+            .iter()
+            .filter(|bound| **bound < 1.0)
+            .count();
+        assert!(
+            sub_second >= 3,
+            "only {sub_second} sub-second buckets; a fast planning pass has nowhere to land"
+        );
     }
 }

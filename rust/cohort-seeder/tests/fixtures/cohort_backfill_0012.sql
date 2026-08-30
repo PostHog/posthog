@@ -3,6 +3,11 @@
 -- migration that changed this DDL. 0010 alters only `marker_watch`'s help_text, which emits no SQL,
 -- and 0011 touches posthog_cohort columns this projection does not carry.
 -- External Team/Cohort foreign keys are omitted so the contract test stays schema-local.
+--
+-- Nothing enforces this snapshot against Django. No test diffs it with `sqlmigrate`, and the
+-- filename appears at one call site, so a later migration that changes these tables and forgets
+-- this file passes CI and diverges from production. Re-derive it by hand when you touch the
+-- `cohort_backfill_*` DDL.
 
 CREATE TABLE cohort_backfill_runs (
     id uuid PRIMARY KEY,

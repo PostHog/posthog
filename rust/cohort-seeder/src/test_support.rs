@@ -14,6 +14,10 @@ use crate::domain::{
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::{Claimant, LeaseDuration, RenderedError};
 
+/// Drive the executor's recovery path, so a test exercises the wiring that sizes a retry wait from
+/// the chunk's attempt count rather than supplying a delay of its own.
+pub use crate::app::fail_via_recovery;
+
 pub fn claimed(spec: ChunkSpec) -> ClaimedChunk {
     ClaimedChunk::new(spec)
 }

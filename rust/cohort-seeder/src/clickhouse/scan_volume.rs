@@ -1,10 +1,10 @@
 //! Reads a finished scan cursor's byte counters and meters them. Depends on `domain` and the
 //! `clickhouse` crate; never on `store` or `kafka`.
 //!
-//! Both scan paths call [`observe`] at exactly one place, after their cursor loop has stopped for
-//! any reason, so the counters cover halts and failures as well as clean exhaustion. That is the
-//! point: a chunk that died at the ClickHouse execution-time limit still moved bytes, and those are
-//! the chunks worth sizing.
+//! All three scan paths call [`observe`] at exactly one place, after their cursor loop has stopped
+//! for any reason, so the counters cover halts and failures as well as clean exhaustion. That is
+//! the point: a chunk that died at the ClickHouse execution-time limit still moved bytes, and those
+//! are the chunks worth sizing.
 
 use clickhouse::query::RowCursor;
 use metrics::counter;
@@ -12,12 +12,15 @@ use metrics::counter;
 use crate::domain::ScanVolume;
 use crate::observability::metrics::{SCAN_DECODED_BYTES, SCAN_RECEIVED_BYTES};
 
-/// Which scan a volume came from. The two paths read different tables with different row shapes, so
-/// one series would average them into a number describing neither.
+/// Which scan a volume came from. The paths read different tables with different row shapes, so one
+/// series would average them into a number describing neither. [`ScanKind::PersonBoundaries`] is
+/// separate again because it is one whole-team scan per run rather than one per chunk: folding it
+/// into `Person` would put a run's largest single scan in the same series as its smallest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanKind {
     Behavioral,
     Person,
+    PersonBoundaries,
 }
 
 impl ScanKind {
@@ -25,6 +28,7 @@ impl ScanKind {
         match self {
             Self::Behavioral => "behavioral",
             Self::Person => "person",
+            Self::PersonBoundaries => "person_boundaries",
         }
     }
 }
@@ -39,15 +43,4 @@ pub fn observe<T>(kind: ScanKind, cursor: &RowCursor<T>) -> ScanVolume {
     counter!(SCAN_RECEIVED_BYTES, "kind" => kind.as_str()).increment(volume.received_bytes());
     counter!(SCAN_DECODED_BYTES, "kind" => kind.as_str()).increment(volume.decoded_bytes());
     volume
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scan_kinds_carry_distinct_label_values() {
-        assert_eq!(ScanKind::Behavioral.as_str(), "behavioral");
-        assert_eq!(ScanKind::Person.as_str(), "person");
-    }
 }

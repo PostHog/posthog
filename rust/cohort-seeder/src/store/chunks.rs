@@ -417,8 +417,10 @@ impl PgChunkStore {
     /// A post-mark failure is stamped too, so a chunk whose `confirm` lost a race waits before it
     /// retries. The wait is not free: it is added to the run's wall-clock, and the run cannot
     /// complete until every chunk is `confirmed`. It is charged anyway because the retry re-scans
-    /// from the start rather than re-running the failed write, so the wait is small next to the
-    /// work it spaces out, and a `confirm` that failed once is likely to fail again immediately.
+    /// from the start rather than re-running the failed write, and a `confirm` that failed once is
+    /// likely to fail again immediately. At the first attempts the wait is small next to the day
+    /// band it spaces out; by the time it reaches the cap it plausibly exceeds that scan, which is
+    /// the point at which the attempt budget, not the wait, is what should stop the chunk.
     pub async fn fail(
         &self,
         lease: ChunkLease,
@@ -541,6 +543,12 @@ impl PgChunkStore {
     /// Only this transition writes the byte columns, matching `tiles_produced`: a failed or
     /// cancelled chunk is re-scanned from the start, so persisting a partial volume against it
     /// would double-count once the retry succeeds. The counters still cover those scans.
+    ///
+    /// A retry that turns out vacuous — every referencing window slid past the day, or the plan
+    /// resolved to no scan at all — reports zero and overwrites whatever the earlier attempt
+    /// measured. The ledger row then reads like a chunk that never moved anything. That is the same
+    /// trade `tiles_produced` already makes, and the counters keep the real bytes; only the
+    /// per-chunk column loses them.
     pub(crate) async fn mark_produced_raw(
         &self,
         lease: ChunkLease,

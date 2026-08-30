@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::person_sql::{person_boundaries_sql, person_scan_sql, PersonScanSpec};
+use super::scan_volume::{self, ScanKind};
 use crate::domain::{ChunkSpec, RunId, UtcMillis, MAX_PERSON_CHUNKS};
 
 /// One scanned person's latest row: the id and its `argMax(properties, version)` payload.
@@ -60,24 +61,12 @@ impl PersonScanner {
             .fetch::<PersonIdRow>()
             .map_err(PersonScanError::Query)?;
         let mut keeper = BoundaryKeeper::new(persons_per_chunk);
-        loop {
-            let row = tokio::select! {
-                biased;
-                _ = shutdown.cancelled() => return Err(PersonScanError::Cancelled),
-                row = cursor.next() => row.map_err(PersonScanError::Cursor)?,
-            };
-            let Some(row) = row else {
-                break;
-            };
-            if keeper.observe(row.id)? == BoundaryScanStep::Saturated {
-                warn!(
-                    team_id = team_id.0,
-                    persons_per_chunk = persons_per_chunk.get(),
-                    "person chunk ceiling saturated; the final chunk absorbs the remainder"
-                );
-                break;
-            }
-        }
+        // Every way out of the fold funnels back here, so the volume is metered once whether the
+        // scan finished, saturated, or failed mid-stream. This is a whole-team scan, so a run that
+        // dies planning still reports what it moved.
+        let folded = fold_boundaries(&mut cursor, &mut keeper, team_id, shutdown).await;
+        scan_volume::observe(ScanKind::PersonBoundaries, &cursor);
+        folded?;
         Ok(keeper.into_boundaries())
     }
 
@@ -96,6 +85,34 @@ impl PersonScanner {
             )
             .fetch::<PersonRow>()
             .map_err(PersonScanError::Query)
+    }
+}
+
+/// Drive the boundary cursor into the keeper until it is exhausted, saturated, cancelled, or fails.
+/// Returns rather than metering, so the caller owns the single recording site.
+async fn fold_boundaries(
+    cursor: &mut RowCursor<PersonIdRow>,
+    keeper: &mut BoundaryKeeper,
+    team_id: TeamId,
+    shutdown: &CancellationToken,
+) -> Result<(), PersonScanError> {
+    loop {
+        let row = tokio::select! {
+            biased;
+            _ = shutdown.cancelled() => return Err(PersonScanError::Cancelled),
+            row = cursor.next() => row.map_err(PersonScanError::Cursor)?,
+        };
+        let Some(row) = row else {
+            return Ok(());
+        };
+        if keeper.observe(row.id)? == BoundaryScanStep::Saturated {
+            warn!(
+                team_id = team_id.0,
+                persons_per_chunk = keeper.stride,
+                "person chunk ceiling saturated; the final chunk absorbs the remainder"
+            );
+            return Ok(());
+        }
     }
 }
 
