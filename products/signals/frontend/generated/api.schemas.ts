@@ -3808,12 +3808,12 @@ export interface ScratchpadEntryApi {
      */
     expires_at?: string | null
     /**
-     * Run that wrote this entry, or null if human-authored.
+     * Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.
      * @nullable
      */
     created_by_run_id: string | null
     /**
-     * Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.
+     * Who created this entry: the canonical skill name of the scout that wrote it (e.g. `signals-scout-apm`), or the report-pipeline stage that did (`pipeline:report-research`, `pipeline:implementation`). Null if human-authored.
      * @nullable
      */
     created_by_skill?: string | null

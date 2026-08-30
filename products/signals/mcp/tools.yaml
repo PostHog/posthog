@@ -799,7 +799,7 @@ tools:
         operation: signals_scout_scratchpad_forget
         enabled: true
         scopes:
-            - signal_scout_internal:write
+            - signal_scratchpad_internal:write
         annotations:
             readOnly: false
             destructive: true
@@ -811,7 +811,7 @@ tools:
         operation: signals_scout_scratchpad_remember
         enabled: true
         scopes:
-            - signal_scout_internal:write
+            - signal_scratchpad_internal:write
         annotations:
             readOnly: false
             destructive: false
@@ -1112,7 +1112,7 @@ tools:
         operation: signals_scout_scratchpad_forget
         enabled: true
         scopes:
-            - signal_scout_internal:write
+            - signal_scratchpad_internal:write
         annotations:
             readOnly: false
             destructive: true
@@ -1125,7 +1125,7 @@ tools:
         operation: signals_scout_scratchpad_remember
         enabled: true
         scopes:
-            - signal_scout_internal:write
+            - signal_scratchpad_internal:write
         annotations:
             readOnly: false
             destructive: false

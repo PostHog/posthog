@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -39,6 +39,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
@@ -55,16 +56,22 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
 
-def _authenticate_as_scout(test: APIBaseTest, *, scopes: PosthogMcpScopes = "signals_scout") -> None:
+def _authenticate_as_scout(
+    test: APIBaseTest, *, scopes: PosthogMcpScopes = "signals_scout", sandbox_task_id: UUID | None = None
+) -> None:
     """Auth the test client with a scout-internal token, mirroring how the harness sandbox
-    reaches these endpoints in production. The emit / scratchpad write actions require
-    `signal_scout_internal:write`, which is server-mint-only and rejects session auth, so the
-    default `APIBaseTest` force-login isn't enough for the write surface — only reads pass on
-    a session. `logout()` first so the token is the sole credential on every request.
+    reaches these endpoints in production. The emit action requires `signal_scout_internal:write`
+    and the scratchpad writes `signal_scratchpad_internal:write` — both are server-mint-only and
+    reject session auth, so the default `APIBaseTest` force-login isn't enough for the write
+    surface — only reads pass on a session. `logout()` first so the token is the sole credential
+    on every request.
 
     `scopes` selects the posture: the default `signals_scout` covers emit-signal / scratchpad;
     pass `signals_scout_reports` (the report-channel posture, which adds `signal_scout_report:write`)
     to exercise the emit-report / edit-report surface.
+
+    `sandbox_task_id` binds the token to a task, which is how a report-pipeline run is minted and
+    the only way the scratchpad write path can resolve its writer identity.
     """
     # `create_oauth_access_token_for_user` resolves the Array app by `get_instance_region()`,
     # which isn't deterministic across test contexts — create the app for every region client
@@ -81,7 +88,9 @@ def _authenticate_as_scout(test: APIBaseTest, *, scopes: PosthogMcpScopes = "sig
                 "algorithm": "RS256",
             },
         )
-    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=scopes, include_internal_scopes=True)
+    token = create_oauth_access_token_for_user(
+        test.user, test.team.id, scopes=scopes, include_internal_scopes=True, sandbox_task_id=sandbox_task_id
+    )
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -1217,7 +1226,7 @@ class TestScoutHarnessConfigModelAPI(APIBaseTest):
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # remember (create) and forget require `signal_scout_internal:write` — session auth
+        # remember (create) and forget require `signal_scratchpad_internal:write` — session auth
         # is rejected, so authenticate with the scout-internal token like the harness does.
         _authenticate_as_scout(self)
 
@@ -1234,6 +1243,30 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         data = response.json()
         assert data["key"] == "k1"
         assert data["content"] == "checkout regression noise — already tracked"
+
+    def test_remember_stamps_the_pipeline_stage_behind_the_token(self) -> None:
+        # The wiring guard for writer identity: the stage is derived from the token's bound task,
+        # so a research run's memory has to come back attributed without the body saying anything.
+        # A scout's write is unaffected — `test_remember_creates_entry` covers that path.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team,
+            title="Research: checkout 500s",
+            description="research",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        TaskRun.objects.create(task=task, team=self.team, state={"ai_stage": AI_STAGE_RESEARCH})
+        _authenticate_as_scout(self, scopes="signals_research", sandbox_task_id=task.id)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "payments team owns checkout"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["created_by_skill"] == PIPELINE_AUDIENCE
 
     def test_remember_idempotent_upsert_on_team_key(self) -> None:
         first = self.client.post(self._list_url(), data={"key": "k1", "content": "v1"}, format="json")
