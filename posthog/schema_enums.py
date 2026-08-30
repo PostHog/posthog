@@ -2613,6 +2613,7 @@ class ExternalDataSourceType(StrEnum):
     ANVIL = "Anvil"
     COOLIFY = "Coolify"
     SOCIAL_PILOT = "SocialPilot"
+    ROKT_ADS = "RoktAds"
 
 
 class ExternalQueryErrorCode(StrEnum):

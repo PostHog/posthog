@@ -9443,6 +9443,7 @@ export const externalDataSources = [
     'Anvil',
     'Coolify',
     'SocialPilot',
+    'RoktAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

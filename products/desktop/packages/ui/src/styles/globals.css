@@ -84,30 +84,28 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 50%;
+  width: 33.333%;
   height: 100%;
   content: "";
   background: var(--primary);
-  animation: quill-section-loading-swoop 1.5s linear infinite;
+  transform: translateX(-100%);
 }
 
 .quill-section-loading--active {
   height: 0.125rem;
 }
 
+.quill-section-loading--active::after {
+  animation: quill-section-loading-swoop 1.5s linear infinite;
+}
+
+/* Transform only: animating `left`/`width` forced a layout on every frame. */
 @keyframes quill-section-loading-swoop {
-  0% {
-    left: 0;
-    width: 33.333%;
+  from {
     transform: translateX(-100%);
   }
-  50% {
-    width: 50%;
-  }
-  100% {
-    left: 100%;
-    width: 33.333%;
-    transform: translateX(100%);
+  to {
+    transform: translateX(400%);
   }
 }
 
@@ -131,7 +129,7 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 50%;
+  width: 33.333%;
   height: 100%;
   content: "";
   border-radius: 9999px;
@@ -174,11 +172,24 @@
  *   pointer events on the dialog DismissableLayer. Quill portals are separate
  *   body children, so they stay inert unless we set pointer-events here.
  *   (Radix Select/Popover add their own DismissableLayer; Quill does not.)
+ *
+ * The `:has()` rule keeps `body` as its subject and only sets custom properties
+ * there. Chromium re-checks a `:has()` anchored on body after mutations anywhere
+ * in the document, and a descendant rule (`body:has(...) [data-quill-portal]`)
+ * made each re-check restyle the whole document.
  */
-body:has([data-overlay="settings"]) [data-quill-portal],
-body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
-  z-index: 101;
-  pointer-events: auto;
+body:has([data-overlay="settings"]),
+body:has(.rt-DialogOverlay[data-state="open"]) {
+  --quill-z-popover: 101;
+  --quill-z-tooltip: 101;
+  --quill-z-modal: 101;
+  --quill-z-overlay: 101;
+  --quill-z-toast: 101;
+  --quill-portal-pointer-events: auto;
+}
+
+[data-quill-portal] {
+  pointer-events: var(--quill-portal-pointer-events, inherit);
 }
 
 @config "../../tailwind.config.js";
