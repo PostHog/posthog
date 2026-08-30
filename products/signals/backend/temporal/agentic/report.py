@@ -10,6 +10,7 @@ import posthoganalytics
 from pydantic import BaseModel, ValidationError
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
@@ -41,6 +42,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_unresolved,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -504,6 +506,39 @@ def _team_report_charts_enabled(team_id: int) -> bool:
         return False
 
 
+def _capture_research_steering_attached(*, team_id: int, report_id: str, steering: ReportSteering) -> None:
+    """`signals_research_steering_attached` — fired for every research run, so the share that carried
+    the team's steering is readable against the share that carried none, and against how those
+    reports were judged afterwards (join `signal_report_completed` on `report_id`).
+
+    `dismissal_notes_attached` is the one that answers whether a reviewer's "stop flagging this"
+    reaches the stage that decides whether to flag it again. `pipeline_notes_attached` answers
+    whether anyone addresses notes to this stage at all.
+
+    Delivery is at-least-once, because an activity retry re-fires an identical payload, so read
+    report state as the latest event per `report_id` rather than by counting raw events.
+    """
+    try:
+        team = Team.objects.select_related("organization").get(id=team_id)
+        posthoganalytics.capture(
+            event="signals_research_steering_attached",
+            distinct_id=str(team.uuid),
+            properties={
+                "team_id": team.id,
+                "organization_id": str(team.organization.id),
+                "report_id": report_id,
+                "notes_attached": steering.notes_attached,
+                "dismissal_notes_attached": steering.dismissal_notes_attached,
+                "pipeline_notes_attached": steering.pipeline_notes_attached,
+                "scratchpad_available": steering.scratchpad_available,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        # Analytics must never break research.
+        logger.exception("Failed to capture signals_research_steering_attached", report_id=report_id)
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -546,6 +581,14 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
                 input.team_id, input.report_id
             )
+            # 2c. Load what the team already told the scout fleet, so a reviewer's verdict on an
+            # earlier report reaches the stage that judges this one.
+            steering = await database_sync_to_async(load_research_steering, thread_sensitive=False)(
+                input.team_id, input.report_id
+            )
+            await database_sync_to_async(_capture_research_steering_attached, thread_sensitive=False)(
+                team_id=input.team_id, report_id=input.report_id, steering=steering
+            )
             # 3. Run the agentic research in the sandbox
             result = await run_multi_turn_research(
                 input.signals,
@@ -557,6 +600,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
                 charts_enabled=charts_enabled,
+                steering_section=steering.section,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

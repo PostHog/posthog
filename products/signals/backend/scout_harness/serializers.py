@@ -35,6 +35,7 @@ from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import (
@@ -63,6 +64,7 @@ from products.signals.backend.scout_harness.tools.structured_output import (
 from products.signals.backend.serializers import ReportChartSerializer
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
+    SPEC_DESCRIPTION_MAX_LENGTH,
     LLMSkillFileInputSerializer,
     validate_skill_body_size,
     validate_skill_name_value,
@@ -760,6 +762,9 @@ class ForgetResponseSerializer(serializers.Serializer):
 
 # --- Scout notes -----------------------------------------------------------
 
+# Rendered into the create help_text so the documented audiences follow the allowlist itself.
+_PIPELINE_AUDIENCE_LIST = ", ".join(f"`{audience}`" for audience in sorted(PIPELINE_AUDIENCES))
+
 
 class ScoutNoteSerializer(serializers.Serializer):
     """`SignalScoutNote` projection used by `notes-list` and `notes-create`."""
@@ -768,10 +773,11 @@ class ScoutNoteSerializer(serializers.Serializer):
     skill_name = serializers.CharField(
         allow_blank=True,
         help_text=(
-            "Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet."
+            "Who the note is addressed to: a scout skill (`signals-scout-*`), a pipeline audience "
+            "(`pipeline:*`, e.g. `pipeline:report-research`), or blank for a general note every scout sees."
         ),
     )
-    content = serializers.CharField(help_text="The note's prose, read verbatim by scout runs.")
+    content = serializers.CharField(help_text="The note's prose, read verbatim by the run that picks it up.")
     created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
     expires_at = serializers.CharField(
         allow_null=True,
@@ -808,8 +814,9 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
     skill_name = serializers.CharField(
         required=False,
         help_text=(
-            "Return the notes addressed to this scout (`signals-scout-*`) plus the general "
-            "(blank-target) notes for the whole fleet. Omit to browse every note on the project."
+            "Return the notes addressed to this target plus the general (blank-target) notes for "
+            "the whole fleet. Pass a scout skill (`signals-scout-*`) or a pipeline audience "
+            "(`pipeline:report-research`). Omit to browse every note on the project."
         ),
     )
     include_general = serializers.BooleanField(
@@ -817,7 +824,7 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
         default=True,
         help_text=(
             "Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes "
-            "and return the skill's own notes only."
+            "and return the target's own notes only."
         ),
     )
     include_expired = serializers.BooleanField(
@@ -860,7 +867,7 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         help_text=(
             "The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their "
             "next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', "
-            "'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim."
+            "'stop flagging the staging traffic spike'). Write it in Markdown; the run reads it verbatim."
         ),
     )
     skill_name = serializers.CharField(
@@ -869,8 +876,11 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         max_length=200,
         help_text=(
             "Address the note to one scout by its skill name (`signals-scout-*`, exact match against "
-            "an existing scout skill on the project — check `scout-config-list` for the roster). "
-            "Omit or leave blank for a general note every scout sees."
+            "an existing scout skill on the project — check `scout-config-list` for the roster), or to "
+            "one stage of the report pipeline by its reserved audience "
+            f"({_PIPELINE_AUDIENCE_LIST}). Use a pipeline audience for guidance about how "
+            "reports get researched rather than about what the scouts watch, so it reaches that stage "
+            "and no scout. Omit or leave blank for a general note every scout sees."
         ),
     )
     expires_at = serializers.DateTimeField(
@@ -2838,7 +2848,7 @@ class SignalScoutCreateSerializer(serializers.Serializer):
         ),
     )
     description = serializers.CharField(
-        max_length=4096,
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
         help_text="Short description of the signal or behavior this scout investigates.",
     )
     body = serializers.CharField(
