@@ -185,7 +185,7 @@ Submitting feedback is **not** a way to end your turn or skip work. It's a side 
 
 ### Examples
 
-Before writing any queries, read the PostHog's skill `querying-posthog-data` to see if there are any relevant query examples and follow them.
+Before writing any queries, read the `querying-posthog-data` skill when it is installed in your environment, and follow any relevant query examples. It is a built-in PostHog skill, not a team skill in the skills store, so do not fetch it with `skill-get`. When it is not installed, the `execute-sql` tool description carries the same core guidance.
 
 #### Creating an insight with segmentation
 

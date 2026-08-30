@@ -405,6 +405,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         scopes=scopes,
         interaction_origin=ctx.interaction_origin,
         task_id=str(ctx.task_id),
+        origin_product=task.origin_product,
     )
     include_personal = _include_personal_mcp_for_task(task)
     user_mcp_configs = get_user_mcp_server_configs(

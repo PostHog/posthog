@@ -69,6 +69,7 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     ATTRIBUTION = 'attribution',
+    RETENTION = 'retention',
     // Still the tab key when Setup's flag is off, which is everywhere until it rolls
     // out. Removing it would change the URL and the header copy for every user of the
     // audit — which is fully rolled out — for no gain.
