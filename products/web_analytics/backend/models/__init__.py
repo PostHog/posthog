@@ -1,9 +1,4 @@
-from .content_autopilot import (
-    ContentAutopilotMeasurement,
-    ContentAutopilotProposal,
-    ContentAutopilotRun,
-    ContentAutopilotSiteProfile,
-)
+from .content_autopilot import ContentAutopilotProposal, ContentAutopilotRun, ContentAutopilotSiteProfile
 from .heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from .web_analytics_achievement_progress import WebAnalyticsAchievementProgress
 from .web_analytics_filter_preset import WebAnalyticsFilterPreset
@@ -14,7 +9,6 @@ from .web_analytics_visit import WebAnalyticsVisit
 __all__ = [
     "HeatmapSnapshot",
     "SavedHeatmap",
-    "ContentAutopilotMeasurement",
     "ContentAutopilotProposal",
     "ContentAutopilotRun",
     "ContentAutopilotSiteProfile",

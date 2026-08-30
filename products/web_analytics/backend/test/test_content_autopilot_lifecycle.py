@@ -1,12 +1,11 @@
 from posthog.test.base import BaseTest
 
-from django.utils import timezone
+from parameterized import parameterized
 
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
 
 from products.web_analytics.backend.content_autopilot.lifecycle import (
-    DELIVERY_CLAIM_LEASE,
     ContentAutopilotLifecycleError,
     cancel_run,
     claim_proposals_for_delivery,
@@ -16,7 +15,6 @@ from products.web_analytics.backend.content_autopilot.lifecycle import (
     start_run,
 )
 from products.web_analytics.backend.models import (
-    ContentAutopilotMeasurement,
     ContentAutopilotProposal,
     ContentAutopilotRun,
     ContentAutopilotSiteProfile,
@@ -32,8 +30,7 @@ class TestContentAutopilotLifecycle(BaseTest):
     def test_models_fail_closed_and_explicit_scopes_do_not_cross_teams(self) -> None:
         profile = create_content_autopilot_profile(self.team)
         run = create_content_autopilot_run(self.team, profile)
-        proposal = create_content_autopilot_proposal(self.team, run)
-        ContentAutopilotMeasurement.objects.for_team(self.team.id).create(team=self.team, proposal=proposal)
+        create_content_autopilot_proposal(self.team, run)
 
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         create_content_autopilot_profile(other_team, domain="https://other.example")
@@ -42,7 +39,6 @@ class TestContentAutopilotLifecycle(BaseTest):
             ContentAutopilotSiteProfile,
             ContentAutopilotRun,
             ContentAutopilotProposal,
-            ContentAutopilotMeasurement,
         ]:
             with self.subTest(model=model.__name__), self.assertRaises(TeamScopeError):
                 model.objects.count()
@@ -104,53 +100,30 @@ class TestContentAutopilotLifecycle(BaseTest):
         self.assertEqual(edited.delivery_state, ContentAutopilotProposal.DeliveryState.NOT_DELIVERED)
         self.assertEqual(edited.delivery_reference, "")
 
-    def test_regeneration_archives_the_previous_attempt_and_caps_history(self) -> None:
+    @parameterized.expand(
+        [
+            ("ready_for_review", ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW, True),
+            ("failed", ContentAutopilotProposal.LifecycleStatus.FAILED, True),
+            ("rejected", ContentAutopilotProposal.LifecycleStatus.REJECTED, False),
+            ("generating", ContentAutopilotProposal.LifecycleStatus.GENERATING, False),
+        ]
+    )
+    def test_regeneration_accepts_only_reviewed_or_failed_drafts(
+        self, _name: str, lifecycle_status: str, is_allowed: bool
+    ) -> None:
         profile = create_content_autopilot_profile(self.team)
         proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
-        proposal.generation_history = [{"attempt": attempt} for attempt in range(20)]
-        proposal.save(update_fields=["generation_history"])
+        proposal.lifecycle_status = lifecycle_status
+        proposal.save(update_fields=["lifecycle_status"])
+
+        if not is_allowed:
+            with self.assertRaises(ContentAutopilotLifecycleError):
+                regenerate_proposal(proposal=proposal)
+            return
 
         regenerated = regenerate_proposal(proposal=proposal)
-
         self.assertEqual(regenerated.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.GENERATING)
-        self.assertEqual(len(regenerated.generation_history), 20)
-        self.assertEqual(regenerated.generation_history[0], {"attempt": 1})
-        self.assertEqual(regenerated.generation_history[-1]["proposed_markdown"], proposal.proposed_markdown)
-        self.assertEqual(regenerated.generation_history[-1]["content_package"]["markdown"], "")
-        self.assertTrue(regenerated.generation_history[-1]["validation_report"]["passed"])
-
-    def test_regeneration_bounds_archived_markdown(self) -> None:
-        profile = create_content_autopilot_profile(self.team)
-        proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
-        proposal.generation_history = [{"proposed_markdown": str(index) * 400_000} for index in range(3)]
-        proposal.save(update_fields=["generation_history"])
-
-        regenerated = regenerate_proposal(proposal=proposal)
-
-        self.assertLessEqual(
-            sum(len(str(entry.get("proposed_markdown") or "")) for entry in regenerated.generation_history),
-            1_000_000,
-        )
-        self.assertEqual(regenerated.generation_history[-1]["proposed_markdown"], proposal.proposed_markdown)
-
-    def test_delivery_claim_can_recover_after_its_lease_expires(self) -> None:
-        profile = create_content_autopilot_profile(self.team)
-        proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
-        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
-            delivery_state=ContentAutopilotProposal.DeliveryState.DELIVERING,
-            updated_at=timezone.now(),
-        )
-
-        with self.assertRaises(ContentAutopilotLifecycleError):
-            claim_proposals_for_delivery(team_id=self.team.id, proposal_ids=[str(proposal.id)])
-
-        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
-            updated_at=timezone.now() - DELIVERY_CLAIM_LEASE,
-        )
-
-        claimed = claim_proposals_for_delivery(team_id=self.team.id, proposal_ids=[str(proposal.id)])
-
-        self.assertEqual(claimed[0].delivery_state, ContentAutopilotProposal.DeliveryState.DELIVERING)
+        self.assertEqual(regenerated.validation_report, {"passed": False, "checks": []})
 
     def test_delivery_claim_accepts_five_improvements_from_one_run(self) -> None:
         profile = create_content_autopilot_profile(self.team)
@@ -186,7 +159,14 @@ class TestContentAutopilotLifecycle(BaseTest):
                 proposal_ids=[str(new_content.id), str(improvement.id)],
             )
 
+        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=improvement.id).update(
+            delivery_state=ContentAutopilotProposal.DeliveryState.DELIVERING,
+        )
+        with self.assertRaises(ContentAutopilotLifecycleError, msg="a claimed proposal must not be claimed twice"):
+            claim_proposals_for_delivery(team_id=self.team.id, proposal_ids=[str(improvement.id)])
+
+        improvement.delivery_state = ContentAutopilotProposal.DeliveryState.NOT_DELIVERED
         improvement.validation_report = {"passed": False, "checks": []}
-        improvement.save(update_fields=["validation_report"])
+        improvement.save(update_fields=["delivery_state", "validation_report"])
         with self.assertRaises(ContentAutopilotLifecycleError):
             claim_proposals_for_delivery(team_id=self.team.id, proposal_ids=[str(improvement.id)])

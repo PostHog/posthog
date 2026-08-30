@@ -1,5 +1,4 @@
 from collections.abc import Iterable
-from datetime import timedelta
 
 from django.db import transaction
 from django.utils import timezone
@@ -19,20 +18,9 @@ class ContentAutopilotLifecycleError(Exception):
 
 
 MAX_PROPOSAL_MARKDOWN_CHARS = 500_000
-MAX_GENERATION_HISTORY_MARKDOWN_CHARS = 1_000_000
-DELIVERY_CLAIM_LEASE = timedelta(minutes=15)
+MAX_PROPOSALS_PER_PULL_REQUEST = 5
 
-
-def _bounded_generation_history(entries: list[dict[str, object]]) -> list[dict[str, object]]:
-    retained: list[dict[str, object]] = []
-    markdown_chars = 0
-    for entry in reversed(entries[-20:]):
-        proposed_markdown = str(entry.get("proposed_markdown") or "")
-        if markdown_chars + len(proposed_markdown) > MAX_GENERATION_HISTORY_MARKDOWN_CHARS:
-            continue
-        retained.append(entry)
-        markdown_chars += len(proposed_markdown)
-    return list(reversed(retained))
+ACTIVE_RUN_STATUSES = {ContentAutopilotRun.RunStatus.PENDING, ContentAutopilotRun.RunStatus.GENERATING}
 
 
 def start_run(*, team: Team, profile_id: str, triggered_by_id: int | None) -> ContentAutopilotRun:
@@ -42,19 +30,11 @@ def start_run(*, team: Team, profile_id: str, triggered_by_id: int | None) -> Co
         except ContentAutopilotSiteProfile.DoesNotExist as error:
             raise ContentAutopilotLifecycleError("Select a site before starting a content run.") from error
 
-        active_run = (
+        if (
             ContentAutopilotRun.objects.for_team(team.id)
-            .filter(
-                profile=profile,
-                run_status__in=[
-                    ContentAutopilotRun.RunStatus.PENDING,
-                    ContentAutopilotRun.RunStatus.GENERATING,
-                ],
-            )
-            .order_by("-created_at")
-            .first()
-        )
-        if active_run is not None:
+            .filter(profile=profile, run_status__in=ACTIVE_RUN_STATUSES)
+            .exists()
+        ):
             raise ContentAutopilotLifecycleError("A content run is already in progress for this site.")
 
         return ContentAutopilotRun.objects.for_team(team.id).create(
@@ -82,10 +62,7 @@ def start_run(*, team: Team, profile_id: str, triggered_by_id: int | None) -> Co
 def cancel_run(*, run: ContentAutopilotRun) -> ContentAutopilotRun:
     with transaction.atomic():
         locked_run = ContentAutopilotRun.objects.for_team(run.team_id).select_for_update().get(id=run.id)
-        if locked_run.run_status not in {
-            ContentAutopilotRun.RunStatus.PENDING,
-            ContentAutopilotRun.RunStatus.GENERATING,
-        }:
+        if locked_run.run_status not in ACTIVE_RUN_STATUSES:
             raise ContentAutopilotLifecycleError("Only a pending or generating run can be canceled.")
         locked_run.run_status = ContentAutopilotRun.RunStatus.CANCELED
         locked_run.completed_at = timezone.now()
@@ -105,6 +82,14 @@ def reject_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopilotPr
         return locked_proposal
 
 
+def _reset_for_regeneration(proposal: ContentAutopilotProposal) -> None:
+    proposal.lifecycle_status = ContentAutopilotProposal.LifecycleStatus.GENERATING
+    proposal.validation_report = default_content_autopilot_validation_report()
+    proposal.delivery_state = ContentAutopilotProposal.DeliveryState.NOT_DELIVERED
+    proposal.delivery_reference = ""
+    proposal.delivery_error = ""
+
+
 def regenerate_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopilotProposal:
     with transaction.atomic():
         locked_proposal = (
@@ -115,31 +100,14 @@ def regenerate_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopil
             ContentAutopilotProposal.LifecycleStatus.FAILED,
         }:
             raise ContentAutopilotLifecycleError("This proposal cannot be regenerated in its current state.")
-        archived_content_package = {**locked_proposal.content_package, "markdown": ""}
-        locked_proposal.generation_history = _bounded_generation_history(
-            [
-                *locked_proposal.generation_history,
-                {
-                    "archived_at": timezone.now().isoformat(),
-                    "lifecycle_status": locked_proposal.lifecycle_status,
-                    "proposed_markdown": locked_proposal.proposed_markdown,
-                    "content_package": archived_content_package,
-                    "source_ledger": locked_proposal.source_ledger,
-                    "validation_report": locked_proposal.validation_report,
-                },
-            ]
-        )
-        locked_proposal.lifecycle_status = ContentAutopilotProposal.LifecycleStatus.GENERATING
-        locked_proposal.delivery_state = ContentAutopilotProposal.DeliveryState.NOT_DELIVERED
-        locked_proposal.delivery_reference = ""
-        locked_proposal.validation_report = default_content_autopilot_validation_report()
+        _reset_for_regeneration(locked_proposal)
         locked_proposal.save(
             update_fields=[
                 "lifecycle_status",
+                "validation_report",
                 "delivery_state",
                 "delivery_reference",
-                "generation_history",
-                "validation_report",
+                "delivery_error",
                 "updated_at",
             ]
         )
@@ -162,10 +130,7 @@ def edit_proposal(
             raise ContentAutopilotLifecycleError("Only a proposal ready for review can be edited.")
         locked_proposal.proposed_markdown = proposed_markdown
         locked_proposal.content_package = {**content_package, "markdown": proposed_markdown}
-        locked_proposal.lifecycle_status = ContentAutopilotProposal.LifecycleStatus.GENERATING
-        locked_proposal.validation_report = default_content_autopilot_validation_report()
-        locked_proposal.delivery_state = ContentAutopilotProposal.DeliveryState.NOT_DELIVERED
-        locked_proposal.delivery_reference = ""
+        _reset_for_regeneration(locked_proposal)
         locked_proposal.save(
             update_fields=[
                 "proposed_markdown",
@@ -174,6 +139,7 @@ def edit_proposal(
                 "validation_report",
                 "delivery_state",
                 "delivery_reference",
+                "delivery_error",
                 "updated_at",
             ]
         )
@@ -184,7 +150,7 @@ def claim_proposals_for_delivery(*, team_id: int, proposal_ids: Iterable[str]) -
     ids = list(dict.fromkeys(proposal_ids))
     if not ids:
         raise ContentAutopilotLifecycleError("Select at least one proposal.")
-    if len(ids) > 5:
+    if len(ids) > MAX_PROPOSALS_PER_PULL_REQUEST:
         raise ContentAutopilotLifecycleError("Select no more than five proposals.")
 
     with transaction.atomic():
@@ -204,25 +170,20 @@ def claim_proposals_for_delivery(*, team_id: int, proposal_ids: Iterable[str]) -
             raise ContentAutopilotLifecycleError("Every selected proposal must be ready for review.")
         if any(proposal.validation_report.get("passed") is not True for proposal in proposals):
             raise ContentAutopilotLifecycleError("Every selected proposal must pass blocking validation.")
-        now = timezone.now()
-        stale_before = now - DELIVERY_CLAIM_LEASE
-        if any(
-            proposal.delivery_state == ContentAutopilotProposal.DeliveryState.DELIVERING
-            and proposal.updated_at > stale_before
-            for proposal in proposals
-        ):
+        if any(proposal.delivery_state == ContentAutopilotProposal.DeliveryState.DELIVERING for proposal in proposals):
             raise ContentAutopilotLifecycleError("One or more selected proposals are already being delivered.")
-
-        run_ids = {proposal.run_id for proposal in proposals}
-        if len(run_ids) != 1:
+        if len({proposal.run_id for proposal in proposals}) != 1:
             raise ContentAutopilotLifecycleError("Selected proposals must come from the same run.")
-        if any(proposal.proposal_type == ContentAutopilotProposal.ProposalType.NEW_CONTENT for proposal in proposals):
-            if len(proposals) != 1:
-                raise ContentAutopilotLifecycleError("New content must be delivered in its own pull request.")
+        if len(proposals) > 1 and any(
+            proposal.proposal_type == ContentAutopilotProposal.ProposalType.NEW_CONTENT for proposal in proposals
+        ):
+            raise ContentAutopilotLifecycleError("New content must be delivered in its own pull request.")
 
+        now = timezone.now()
         ContentAutopilotProposal.objects.for_team(team_id).filter(id__in=ids).update(
             delivery_state=ContentAutopilotProposal.DeliveryState.DELIVERING,
             delivery_reference="",
+            delivery_error="",
             updated_at=now,
         )
         for proposal in proposals:
@@ -234,6 +195,6 @@ def claim_proposals_for_delivery(*, team_id: int, proposal_ids: Iterable[str]) -
 def mark_delivery_failed(*, team_id: int, proposal_ids: Iterable[str], message: str) -> None:
     ContentAutopilotProposal.objects.for_team(team_id).filter(id__in=list(proposal_ids)).update(
         delivery_state=ContentAutopilotProposal.DeliveryState.FAILED,
-        delivery_reference=message[:1024],
+        delivery_error=message[:1024],
         updated_at=timezone.now(),
     )
