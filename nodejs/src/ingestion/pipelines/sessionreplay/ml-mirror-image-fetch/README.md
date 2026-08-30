@@ -469,11 +469,13 @@ It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `serv
 
 **11.12** The fetch deployment writes three high-cardinality metrics to TopHog. It does not export registrable domains as Prometheus labels.
 
-`ml_image_fetch_attempts_by_registrable_domain` counts durable URL attempts by registrable domain, completed or republished disposition, and outcome.
+`ml_image_fetch_attempts_by_registrable_domain` counts durable URL attempts by partition, registrable domain, completed or republished disposition, and outcome.
 
-`ml_image_fetch_concurrency_limited_urls_by_registrable_domain` counts URLs that cannot start when a fetch pass begins because their registrable domain reached its configured concurrency limit. Its key includes that limit.
+`ml_image_fetch_block_events_by_registrable_domain` counts blocking observations by partition, registrable domain, and exact reason. Reasons distinguish concurrency, scheduler waits, configuration failures, response backoff, and deadlines.
 
-`ml_image_fetch_scheduler_wait_ms_by_registrable_domain` sums positive scheduler wait milliseconds for image requests by registrable domain and wait scope. It excludes configuration requests and zero-duration waits.
+`ml_image_fetch_blocked_ms_by_registrable_domain` sums positive wait milliseconds spent or imposed for the same keys. Domain concurrency contributes events because it has no measured wait duration.
+
+The frontier retains an exact block reason across delay topics. Records created before this field existed use `unknown_backoff` when they return early.
 
 Each metric returns the top 20 domain-factor keys per flush and tracks at most 2,000 keys in pod memory.
 

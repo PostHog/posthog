@@ -227,11 +227,21 @@ describe('UrlFetchConsumer', () => {
         ])
         expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
             {
-                key: { registrable_domain: 'example.com', disposition: 'completed', outcome: 'ok' },
+                key: {
+                    registrable_domain: 'example.com',
+                    disposition: 'completed',
+                    outcome: 'ok',
+                    partition: '7',
+                },
                 value: 1,
             },
             {
-                key: { registrable_domain: 'other.net', disposition: 'completed', outcome: 'ok' },
+                key: {
+                    registrable_domain: 'other.net',
+                    disposition: 'completed',
+                    outcome: 'ok',
+                    partition: '42',
+                },
                 value: 1,
             },
         ])
@@ -332,13 +342,16 @@ describe('UrlFetchConsumer', () => {
 
     it('republishes a job that arrives before its durable not-before time', async () => {
         const harness = build()
-        const early = candidate('a', { notBeforeMs: NOW_MS + 30_000 })
+        const early = candidate('a', {
+            notBeforeMs: NOW_MS + 30_000,
+            lastBlockReason: 'configuration_unreachable',
+        })
 
         await harness.consumer.handleBatch([message([early])], NOW_MS)
 
         expect(harness.run.mock.calls[0][0]).toEqual([])
         expect(harness.republish).toHaveBeenCalledWith(
-            { ...early, sourcePartitions: [0] },
+            { ...early, sourcePartitions: [0], lastBlockReason: 'configuration_unreachable' },
             {
                 currentUrl: early.currentUrl,
                 host: early.host,
@@ -351,8 +364,33 @@ describe('UrlFetchConsumer', () => {
         expect(harness.history.writes).toEqual([])
         expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
             {
-                key: { registrable_domain: 'example.com', disposition: 'republished', outcome: 'backoff' },
+                key: {
+                    registrable_domain: 'example.com',
+                    disposition: 'republished',
+                    outcome: 'backoff',
+                    partition: '0',
+                },
                 value: 1,
+            },
+        ])
+        expect(harness.topHogRecords.get('ml_image_fetch_block_events_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    reason: 'configuration_unreachable',
+                    partition: '0',
+                },
+                value: 1,
+            },
+        ])
+        expect(harness.topHogRecords.get('ml_image_fetch_blocked_ms_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    reason: 'configuration_unreachable',
+                    partition: '0',
+                },
+                value: 30_000,
             },
         ])
     })
@@ -604,7 +642,12 @@ describe('UrlFetchConsumer', () => {
         )
         expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
             {
-                key: { registrable_domain: 'example.com', disposition: 'completed', outcome: 'ok' },
+                key: {
+                    registrable_domain: 'example.com',
+                    disposition: 'completed',
+                    outcome: 'ok',
+                    partition: '0',
+                },
                 value: 1,
             },
         ])

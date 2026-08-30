@@ -344,8 +344,10 @@ export class UrlFetchConsumer {
             return this.terminalAttempt(candidate, HOPS_EXHAUSTED, nowMs)
         }
         const waitMs = candidate.notBeforeMs - nowMs
+        const blockingReason = candidate.lastBlockReason ?? 'unknown_backoff'
+        const republishedCandidate: FetchCandidate = { ...candidate, lastBlockReason: blockingReason }
         const result = await republishBatch.republish(
-            candidate,
+            republishedCandidate,
             {
                 currentUrl: candidate.currentUrl,
                 host: candidate.host,
@@ -359,10 +361,11 @@ export class UrlFetchConsumer {
             return this.terminalAttempt(candidate, DELAY_TOO_LONG, nowMs)
         }
         return {
-            candidate,
+            candidate: republishedCandidate,
             outcome: 'backoff',
             finished: false,
             lost: false,
+            block: { reason: blockingReason, waitMs },
             configurationUpdates: [],
         }
     }

@@ -170,14 +170,16 @@ describe('FetchRunner', () => {
                     releaseFirst = () => resolve({ outcome: 'ok', redirects: 0, currentUrl: url })
                 })
         )
+        const first = candidate({ sourcePartitions: [110] })
         const sibling = candidate({
             originalRef: `imageurl:${'b'.repeat(22)}`,
             currentUrl: 'https://images.example.com/b.png',
             host: 'images.example.com',
             origin: 'https://images.example.com',
+            sourcePartitions: [110],
         })
 
-        const run = harness.runner.run([candidate(), sibling], new Map())
+        const run = harness.runner.run([first, sibling], new Map())
         await Promise.resolve()
         await Promise.resolve()
 
@@ -186,9 +188,9 @@ describe('FetchRunner', () => {
         releaseFirst?.()
         await run
         expect(harness.fetch).toHaveBeenCalledTimes(2)
-        expect(harness.topHogRecords.get('ml_image_fetch_concurrency_limited_urls_by_registrable_domain')).toEqual([
+        expect(harness.topHogRecords.get('ml_image_fetch_block_events_by_registrable_domain')).toEqual([
             {
-                key: { registrable_domain: 'example.com', concurrency_limit: '1' },
+                key: { registrable_domain: 'example.com', reason: 'domain_concurrency', partition: '110' },
                 value: 1,
             },
         ])
@@ -240,11 +242,12 @@ describe('FetchRunner', () => {
             maxInFlightRequests: 3,
         })
         const candidates = [
-            candidate(),
+            candidate({ sourcePartitions: [110] }),
             ...Array.from({ length: 2 }, (_, index) =>
                 candidate({
                     originalRef: `imageurl:${String(index + 1).repeat(22)}`,
                     currentUrl: `https://cdn.example.com/image-${index}.png`,
+                    sourcePartitions: [110],
                 })
             ),
             ...Array.from({ length: 2 }, (_, index) =>
@@ -254,6 +257,7 @@ describe('FetchRunner', () => {
                     host: `origin-${index}.other.net`,
                     origin: `https://origin-${index}.other.net`,
                     registrableDomain: 'other.net',
+                    sourcePartitions: [42],
                 })
             ),
         ]
@@ -271,9 +275,9 @@ describe('FetchRunner', () => {
         await harness.runner.run(candidates, new Map())
 
         expect(observeCapacity).toHaveBeenCalledWith(3, 3)
-        expect(harness.topHogRecords.get('ml_image_fetch_concurrency_limited_urls_by_registrable_domain')).toEqual([
+        expect(harness.topHogRecords.get('ml_image_fetch_block_events_by_registrable_domain')).toEqual([
             {
-                key: { registrable_domain: 'example.com', concurrency_limit: '2' },
+                key: { registrable_domain: 'example.com', reason: 'domain_concurrency', partition: '110' },
                 value: 2,
             },
         ])
@@ -467,7 +471,10 @@ describe('FetchRunner', () => {
         const [attempt] = await harness.runner.run([candidate()], new Map())
 
         expect(harness.republish).toHaveBeenCalledWith(
-            candidate(),
+            expect.objectContaining({
+                originalRef: candidate().originalRef,
+                lastBlockReason: 'configuration_unreachable',
+            }),
             {
                 currentUrl: candidate().currentUrl,
                 host: candidate().host,
@@ -477,7 +484,12 @@ describe('FetchRunner', () => {
             'not_ready',
             3_600_000
         )
-        expect(attempt).toMatchObject({ outcome: 'backoff', finished: false, lost: false })
+        expect(attempt).toMatchObject({
+            outcome: 'backoff',
+            finished: false,
+            lost: false,
+            block: { reason: 'configuration_unreachable', waitMs: 3_600_000 },
+        })
         expect(attempt.history).toBeUndefined()
     })
 
@@ -501,7 +513,11 @@ describe('FetchRunner', () => {
             'retry',
             120_000
         )
-        expect(attempt).toMatchObject({ outcome: 'server_error', finished: false })
+        expect(attempt).toMatchObject({
+            outcome: 'server_error',
+            finished: false,
+            block: { reason: 'retry_after', waitMs: 120_000 },
+        })
     })
 
     it('republishes an unfollowed redirect target with the original ref', async () => {
