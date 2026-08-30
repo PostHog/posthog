@@ -329,7 +329,7 @@ posthogNodeAnalytics.initialize();
 // native fetch and silently drops network.log capture.
 installMainFetchLogging();
 
-app.whenReady().then(async () => {
+async function boot(): Promise<void> {
   if (
     process.platform === "darwin" &&
     app.isPackaged &&
@@ -380,16 +380,12 @@ app.whenReady().then(async () => {
     container.get<DevNetworkService>(DEV_NETWORK_SERVICE),
   );
   installYoutubeEmbedReferrer(session.fromPartition("persist:main").webRequest);
-  createWindow();
-  setupQuickAsk();
-  // The hidden quick-ask panel must not keep the app alive after the main
-  // window closes.
-  onMainWindowClosed(destroyQuickAskWindow);
-
   const wsServer = container.get<WorkspaceServerService>(
     WORKSPACE_SERVER_SERVICE,
   );
-  await wsServer.start();
+  await wsServer.start().catch((error: unknown) => {
+    log.error("workspace-server failed to start", error);
+  });
   // The workspace-server child respawns on a new port/secret after a crash;
   // a reconnecting client follows the current connection so main-process
   // callers don't keep hitting the dead port for the rest of the session.
@@ -447,6 +443,11 @@ app.whenReady().then(async () => {
   };
   container.bind(MAIN_FS_SERVICE).toConstantValue(fsCapability);
   container.bind(FS_SERVICE).toService(MAIN_FS_SERVICE);
+  createWindow();
+  setupQuickAsk();
+  // The hidden quick-ask panel must not keep the app alive after the main
+  // window closes.
+  onMainWindowClosed(destroyQuickAskWindow);
   await initializeServices();
   initializeDeepLinks();
 
@@ -463,7 +464,9 @@ app.whenReady().then(async () => {
     });
     log.info("E2E update hook installed on globalThis.__e2eUpdates");
   }
-});
+}
+
+app.whenReady().then(boot);
 
 app.on("window-all-closed", () => {
   app.quit();

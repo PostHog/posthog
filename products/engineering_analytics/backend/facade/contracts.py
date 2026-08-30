@@ -1232,13 +1232,13 @@ class DeploymentFrequencyBucket:
 
 
 @dataclass(frozen=True)
-class MergeToDeployBucket:
-    """One time bucket of per-PR merge-to-deploy seconds — the box-plot distribution of how long
-    merged PRs waited until the first successful deployment containing their merge (resolved
-    through the deploy's head commit; bots and drafts excluded, per the locked cycle-time
-    recipe). Keyed on deploy time: a PR lands in the bucket its deploy succeeded in. The measure
-    is named for exactly what it is: merge to deploy, not the full commit-to-deploy DORA lead
-    time (pre-merge time is on the other cards).
+class LeadTimeBucket:
+    """One time bucket of a per-PR duration distribution over deployed PRs — the box-plot shape
+    behind the three lead-time stages (open to merge, merge to deploy, open to deploy). All
+    three series measure the SAME population: merged PRs attributed to a successful deployment
+    (containment resolved through the deploy's head commit; bots and drafts excluded, per the
+    locked cycle-time recipe), keyed on deploy time — a PR lands in the bucket its deploy
+    succeeded in, so the stages decompose against each other bucket by bucket.
     Buckets where nothing deployed carry ``deployed_pr_count`` 0 and null stats (a gap).
     """
 
@@ -1246,8 +1246,8 @@ class MergeToDeployBucket:
     bucket_start: datetime
     # PRs whose first post-merge successful deployment landed in this bucket.
     deployed_pr_count: int
-    # Distribution of merged_at → first successful deploy, in seconds, over those PRs — the
-    # six-number summary a box plot draws (box p25→p75, median line, mean marker, whiskers).
+    # Distribution of the stage's duration, in seconds, over those PRs — the six-number
+    # summary a box plot draws (box p25→p75, median line, mean marker, whiskers).
     min_seconds: float | None
     p25_seconds: float | None
     p50_seconds: float | None
@@ -1330,8 +1330,14 @@ class DoraOverview:
     # Successful deployments per bucket across the window, oldest first, zero-filled.
     deployment_frequency_series: list[DeploymentFrequencyBucket]
     # Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series.
-    merge_to_deploy_series: list[MergeToDeployBucket]
-    # Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'.
+    merge_to_deploy_series: list[LeadTimeBucket]
+    # Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series,
+    # so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time.
+    open_to_merge_series: list[LeadTimeBucket]
+    # Open-to-deploy distribution over the same deployed PRs and buckets: the full open → first
+    # successful deploy span the two stages above compose into.
+    open_to_deploy_series: list[LeadTimeBucket]
+    # Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'.
     series_granularity: str
 
 

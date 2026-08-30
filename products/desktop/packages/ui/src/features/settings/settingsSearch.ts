@@ -20,6 +20,11 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   },
   {
     category: "general",
+    label: "Profile picture",
+    keywords: ["gravatar", "avatar", "photo", "picture", "account"],
+  },
+  {
+    category: "general",
     label: "PostHog account",
     keywords: ["billing", "manage account", "email"],
   },

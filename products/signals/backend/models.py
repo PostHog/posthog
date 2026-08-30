@@ -1999,7 +1999,10 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     steering channel for feedback and pointers that don't warrant editing a scout's skill
     body — "look into X", "stop flagging Y", "we shipped Z on Tuesday". A note targets one
     scout (`skill_name`) or the whole fleet (blank `skill_name`); each run lists the notes
-    addressed to it as prior context and weighs them like any other input.
+    addressed to it as prior context and weighs them like any other input. A stage of the
+    report pipeline can be addressed too, through a reserved `pipeline:*` audience that rides
+    the same column (see `PIPELINE_AUDIENCES` in `scout_harness/note_targets.py`); no scout ever
+    reads one, because the run-time list matches `skill_name` exactly.
 
     Trust model: scouts read note content verbatim while holding privileged sandbox tools,
     so writing a note is gated to skill-authoring-level authorization — API keys need
@@ -2047,8 +2050,9 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         related_name="signal_scout_notes",
     )
-    # Target scout's skill name (`signals-scout-*`). Blank = a general note addressed to the
-    # whole fleet — every scout's run sees it alongside its own skill-scoped notes.
+    # Who the note is addressed to: a scout's skill name (`signals-scout-*`), a reserved
+    # pipeline audience (`pipeline:*`), or blank for the whole fleet. A blank target is seen by
+    # every reader alongside its own targeted notes.
     skill_name = models.CharField(max_length=200, blank=True, default="", db_default="")
     # Prose the scout reads verbatim. Bounded by the create serializer, not the column.
     content = models.TextField()
