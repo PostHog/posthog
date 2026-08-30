@@ -1,3 +1,5 @@
+import json
+import hashlib
 import datetime
 import dataclasses
 from abc import ABC, abstractmethod
@@ -39,6 +41,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
 logger = structlog.get_logger(__name__)
+
+# Top-level job_input fields that name the connection target. Changing any of them
+# repoints the source at a different server, so preserved credentials must not be
+# reused without re-entry (e.g. ServiceNow's `instance_url` could otherwise be swapped
+# to an attacker host that then receives the stored API key / password — VERIA-311).
+CONNECTION_TARGET_FIELDS = ("host", "instance_url")
+
+# Fields whose change could redirect the database connection to a different server
+# (and therefore exfiltrate credentials via a poisoned SSH tunnel — VERIA-311).
+SSH_TUNNEL_CONNECTION_FIELDS = ("enabled", "host", "port")
 
 MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP = "Required for Marketing analytics to work with this source."
 
@@ -370,6 +382,35 @@ class _BaseSource(ABC, Generic[ConfigType]):
         the SSH tunnel target are handled separately, so sources whose connection target lives in
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
+
+    def connection_target_fingerprint(self, job_inputs: Mapping[str, Any] | None) -> str | None:
+        """Digest of where this source sends its requests, or ``None`` if it names no target.
+
+        Resume checkpoints key off it, so repointing a source starts a fresh walk instead of
+        replaying a cursor — often a whole URL — captured against the previous target. It covers
+        exactly the fields the update API treats as the connection target, which keeps two
+        properties: an edit that forces credential re-entry also retires the checkpoint, and an
+        edit that touches anything else (a refreshed token, a renamed source) leaves it alone.
+        """
+        inputs: Mapping[str, Any] = job_inputs or {}
+        target: dict[str, Any] = {
+            field: inputs[field]
+            for field in (*CONNECTION_TARGET_FIELDS, *self.connection_host_fields)
+            if inputs.get(field) is not None
+        }
+
+        tunnel = inputs.get("ssh_tunnel")
+        if isinstance(tunnel, Mapping):
+            target["ssh_tunnel"] = {field: tunnel.get(field) for field in SSH_TUNNEL_CONNECTION_FIELDS}
+
+        if not target:
+            return None
+
+        # Truncated: this only has to separate one target from another within a single schema's
+        # checkpoints, and it lands in a Redis key. `default=str` keeps an unexpected value type
+        # (a stored int port, say) from raising on a path that must never break a sync.
+        digest = json.dumps(target, sort_keys=True, default=str).encode()
+        return hashlib.sha256(digest).hexdigest()[:16]
 
     def server_managed_job_input_fields(
         self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]

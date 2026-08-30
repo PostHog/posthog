@@ -177,6 +177,10 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    CONNECTION_TARGET_FIELDS,
+    SSH_TUNNEL_CONNECTION_FIELDS,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -513,17 +517,6 @@ def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set
     return result
 
 
-# Fields whose change could redirect the database connection to a different server
-# (and therefore exfiltrate credentials via a poisoned SSH tunnel — VERIA-311).
-_SSH_TUNNEL_CONNECTION_FIELDS = ("enabled", "host", "port")
-
-# Top-level job_input fields that name the connection target. Changing any of them
-# repoints the source at a different server, so preserved credentials must not be
-# reused without re-entry (e.g. ServiceNow's `instance_url` could otherwise be swapped
-# to an attacker host that then receives the stored API key / password — VERIA-311).
-_CONNECTION_TARGET_FIELDS = ("host", "instance_url")
-
-
 def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
     """True if the SSH tunnel's connection target (enabled/host/port) changed.
 
@@ -538,7 +531,7 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
     def _coerce(value: Any) -> str:
         return "" if value is None else str(value)
 
-    return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
+    return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in SSH_TUNNEL_CONNECTION_FIELDS)
 
 
 # Nested containers that keep their secrets one level down, not at the top level: the
@@ -1292,7 +1285,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # `instance_url`, so a stored credential can't be redirected to a new host.
         connection_host_changed = any(
             field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
-            for field in _CONNECTION_TARGET_FIELDS
+            for field in CONNECTION_TARGET_FIELDS
         )
 
         # Some sources keep their connection target in a differently named field (e.g. Okta's

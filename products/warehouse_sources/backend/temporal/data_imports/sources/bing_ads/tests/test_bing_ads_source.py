@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
     BingAdsSourceConfig,
 )
@@ -376,10 +377,20 @@ class TestBingAdsSource:
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = "test-job-id"
-        inputs.logger = mock.MagicMock()
+        inputs = SourceInputs(
+            schema_name="ad_performance_report",
+            schema_id="test-schema-id",
+            source_id="test-source-id",
+            team_id=self.team_id,
+            job_id="test-job-id",
+            logger=mock.MagicMock(),
+            reset_pipeline=False,
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            db_incremental_field_earliest_value=None,
+        )
 
         manager = self.source.get_resumable_source_manager(inputs)
 
@@ -389,6 +400,8 @@ class TestBingAdsSource:
         fake_redis = mock.MagicMock()
         fake_redis.set.side_effect = lambda key, value, ex=None: store.__setitem__(key, value)
         fake_redis.get.side_effect = lambda key: store.get(key)
+        # The manager batches its writes, so route the pipeline back at the same double.
+        fake_redis.pipeline.return_value = fake_redis
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable.get_client",

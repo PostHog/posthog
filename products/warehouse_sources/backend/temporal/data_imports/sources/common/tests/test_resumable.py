@@ -1,3 +1,4 @@
+import builtins
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
@@ -26,6 +27,7 @@ def _inputs(
     job_id: str = "job-1",
     reset_pipeline: bool = False,
     api_version: str | None = None,
+    connection_target: str | None = None,
 ) -> SourceInputs:
     return SourceInputs(
         schema_name="quiz_attempts",
@@ -41,11 +43,34 @@ def _inputs(
         logger=MagicMock(),
         reset_pipeline=reset_pipeline,
         api_version=api_version,
+        connection_target=connection_target,
     )
 
 
+class _FakePipeline:
+    """Buffers commands until `execute`, so a forgotten `execute()` shows up as unwritten state."""
+
+    def __init__(self, redis: "_FakeRedis") -> None:
+        self._redis = redis
+        self._queued: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        def queue(*args: Any, **kwargs: Any) -> "_FakePipeline":
+            self._queued.append((name, args, kwargs))
+            return self
+
+        return queue
+
+    def execute(self) -> list[Any]:
+        return [getattr(self._redis, name)(*args, **kwargs) for name, args, kwargs in self._queued]
+
+
 class _FakeRedis:
-    """In-memory stand-in that records the TTL passed to the last `set`."""
+    """In-memory stand-in that records the TTL passed to the last `set`.
+
+    Deliberately offers no `scan_iter`: cleanup that walks the keyspace instead of the schema's own
+    key index fails here rather than passing quietly.
+    """
 
     def __init__(self) -> None:
         self.store: dict[str, Any] = {}
@@ -53,6 +78,9 @@ class _FakeRedis:
 
     def ping(self) -> None:
         return None
+
+    def pipeline(self) -> _FakePipeline:
+        return _FakePipeline(self)
 
     def set(self, key: str, value: Any, ex: int | None = None) -> None:
         self.store[key] = value
@@ -64,14 +92,33 @@ class _FakeRedis:
     def exists(self, key: str) -> int:
         return 1 if key in self.store else 0
 
-    def delete(self, key: str) -> None:
-        self.store.pop(key, None)
+    def delete(self, *keys: str) -> int:
+        return sum(1 for key in keys if self.store.pop(key, None) is not None)
 
-    def scan_iter(self, match: str, count: int = 100) -> list[str]:
-        # Only the trailing-`*` glob the manager uses is supported.
-        assert match.endswith("*")
-        prefix = match[:-1]
-        return [key for key in list(self.store) if key.startswith(prefix)]
+    def expire(self, key: str, seconds: int) -> bool:
+        return key in self.store
+
+    def sadd(self, key: str, *values: str) -> int:
+        members: set[str] = self.store.setdefault(key, set())
+        before = len(members)
+        members.update(values)
+        return len(members) - before
+
+    def srem(self, key: str, *values: str) -> int:
+        members = self.store.get(key)
+        if not isinstance(members, set):
+            return 0
+        removed = len(members & set(values))
+        members -= set(values)
+        # Redis drops a set key once its last member is removed.
+        if not members:
+            del self.store[key]
+        return removed
+
+    # Qualified because this class defines a `set` method, shadowing the builtin in the class body.
+    def smembers(self, key: str) -> builtins.set[str]:
+        members = self.store.get(key)
+        return set(members) if isinstance(members, set) else set()
 
 
 @pytest.fixture
@@ -170,3 +217,23 @@ class TestResumableSourceManager:
         _manager(_inputs(api_version="2025-01-01")).clear_all_state()
 
         assert _manager(_inputs(api_version="2024-01-01")).can_resume() is False
+
+    def test_connection_target_isolates_the_key(self, redis: _FakeRedis) -> None:
+        # Repointing a source at another host keeps the same team, source, and schema ids, so
+        # without the target in the key the next run would replay the old host's cursor — usually a
+        # whole URL — and stitch two upstreams into one table while skipping the new host's start.
+        _manager(_inputs(connection_target="old-host")).save_state(_Cursor(next_url="https://old/page-2"))
+
+        assert _manager(_inputs(connection_target="new-host")).can_resume() is False
+
+    def test_clear_all_state_leaves_other_schemas_alone(self, redis: _FakeRedis) -> None:
+        # Cleanup runs on every completed sync, so it must reach only the keys this schema owns. A
+        # cleanup scoped any wider — a keyspace walk, or an index shared between schemas — would
+        # drop a sibling schema's live cursor and silently restart its walk from the first page.
+        _manager(_inputs(schema_id="schema-a")).save_state(_Cursor(next_url="a"))
+        _manager(_inputs(schema_id="schema-b")).save_state(_Cursor(next_url="b"))
+
+        _manager(_inputs(schema_id="schema-a")).clear_all_state()
+
+        assert _manager(_inputs(schema_id="schema-a")).can_resume() is False
+        assert _manager(_inputs(schema_id="schema-b")).load_state() == _Cursor(next_url="b")

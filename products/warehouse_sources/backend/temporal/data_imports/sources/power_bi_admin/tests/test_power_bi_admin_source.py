@@ -1,6 +1,3 @@
-from types import SimpleNamespace
-from typing import cast
-
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -21,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_a
     POWER_BI_ADMIN_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.source import PowerBiAdminSource
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.source"
 
@@ -34,19 +32,19 @@ def _inputs(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: object = None,
 ) -> SourceInputs:
-    return cast(
-        SourceInputs,
-        SimpleNamespace(
-            schema_name=schema_name,
-            schema_id="schema-1",
-            source_id="source-1",
-            team_id=123,
-            job_id="job-1",
-            logger=mock.MagicMock(),
-            should_use_incremental_field=should_use_incremental_field,
-            incremental_field="CreationTime" if should_use_incremental_field else None,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+    return SourceInputs(
+        schema_name=schema_name,
+        schema_id="schema-1",
+        source_id="source-1",
+        team_id=123,
+        job_id="job-1",
+        logger=mock.MagicMock(),
+        reset_pipeline=False,
+        should_use_incremental_field=should_use_incremental_field,
+        incremental_field="CreationTime" if should_use_incremental_field else None,
+        incremental_field_type=IncrementalFieldType.DateTime if should_use_incremental_field else None,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+        db_incremental_field_earliest_value=None,
     )
 
 

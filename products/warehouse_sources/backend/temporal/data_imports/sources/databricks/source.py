@@ -166,7 +166,7 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `host` already triggers the credential re-entry gate via `_CONNECTION_TARGET_FIELDS`;
+        # `host` already triggers the credential re-entry gate via `CONNECTION_TARGET_FIELDS`;
         # declared here too so the intent survives if that framework list ever changes.
         return ["host"]
 

@@ -53,14 +53,22 @@ class ResumableSourceManager(Generic[ResumableData]):
         yield redis
 
     @property
+    def _schema_identity(self) -> str:
+        return f"{self._inputs.team_id}:{self._inputs.source_id}:{self._inputs.schema_id}"
+
+    @property
     def _schema_key_prefix(self) -> str:
         # Version-neutral identity of this schema's checkpoints. Reads and writes scope tighter, by
-        # API version (see `_base_key`), so a resume never mixes versions. Cleanup keys off this
-        # prefix instead so it reaches every version's checkpoint at once (see `clear_all_state`).
-        return (
-            "posthog:data_warehouse:resumable_source:"
-            f"{self._inputs.team_id}:{self._inputs.source_id}:{self._inputs.schema_id}"
-        )
+        # API version (see `_base_key`), so a resume never mixes versions.
+        return f"posthog:data_warehouse:resumable_source:{self._schema_identity}"
+
+    @property
+    def _index_key(self) -> str:
+        # Set naming every checkpoint key this schema owns, across API versions and `with_namespace`
+        # siblings, so `clear_all_state` can reach them all without walking the Redis keyspace.
+        # Deliberately outside `_schema_key_prefix`: a sibling appends its namespace to that prefix,
+        # so an index stored under it could collide with a namespace of the same name.
+        return f"posthog:data_warehouse:resumable_source_index:{self._schema_identity}"
 
     @property
     def _base_key(self) -> str:
@@ -72,6 +80,11 @@ class ResumableSourceManager(Generic[ResumableData]):
         # job, so resuming its cursor against the new version would mix two versions in one table.
         if self._inputs.api_version:
             base = f"{base}:v={self._inputs.api_version}"
+        # So is the connection target. Repointing a source keeps the same ids, so without this the
+        # next run would replay a cursor — often a whole URL — captured against the old target,
+        # landing two upstreams' rows in one table with the new target's early pages never fetched.
+        if self._inputs.connection_target:
+            base = f"{base}:c={self._inputs.connection_target}"
         return base
 
     @property
@@ -110,7 +123,14 @@ class ResumableSourceManager(Generic[ResumableData]):
             json_data = self._dump_json(data)
             self._logger.debug(f"Saving resumable source state. key={self._key}, data={json_data}")
 
-            redis.set(self._key, json_data, ex=RESUMABLE_STATE_TTL_SECONDS)
+            pipeline = redis.pipeline()
+            pipeline.set(self._key, json_data, ex=RESUMABLE_STATE_TTL_SECONDS)
+            pipeline.sadd(self._index_key, self._key)
+            # Refreshed on every write, so the index always outlives the keys it names — each was
+            # written no later than this, under the same TTL. An index that expired first would
+            # strand its checkpoints past a cleanup that can no longer see them.
+            pipeline.expire(self._index_key, RESUMABLE_STATE_TTL_SECONDS)
+            pipeline.execute()
 
     def clear_state(self) -> None:
         """Drop any saved resume state so a subsequent attempt starts from scratch.
@@ -120,7 +140,10 @@ class ResumableSourceManager(Generic[ResumableData]):
         """
         with self._get_redis() as redis:
             self._logger.debug(f"Clearing resumable source state. key={self._key}")
-            redis.delete(self._key)
+            pipeline = redis.pipeline()
+            pipeline.delete(self._key)
+            pipeline.srem(self._index_key, self._key)
+            pipeline.execute()
 
     def clear_all_state(self) -> None:
         """Drop every checkpoint for this schema: all API versions and every `with_namespace` sibling.
@@ -130,14 +153,18 @@ class ResumableSourceManager(Generic[ResumableData]):
         versions, but cleanup must reach every version. A walk clears only the version pinned now, so
         a checkpoint left under a prior pin survives a repin from A to B and back to A within the TTL,
         and the return-to-A run resumes its stale cursor onto a table it should full-refresh, keeping
-        only the tail. Keying off the version-neutral prefix also catches the namespaced siblings a
-        source writes through `with_namespace` (Convex) that a version-scoped scan would miss.
+        only the tail. Working off the index also catches the namespaced siblings a source writes
+        through `with_namespace` (Convex) that a version-scoped clear would miss.
+
+        This runs on every completed resumable sync and every reset, so it reads the schema's own
+        index rather than matching a prefix: a `SCAN` visits every key in the database, which on a
+        deployment sharing Redis with the rest of PostHog costs far more than the handful of
+        checkpoints a schema actually owns.
         """
         with self._get_redis() as redis:
-            self._logger.debug(f"Clearing all resumable source state. prefix={self._schema_key_prefix}")
-            redis.delete(self._schema_key_prefix)
-            for key in redis.scan_iter(match=f"{self._schema_key_prefix}:*", count=100):
-                redis.delete(key)
+            keys = redis.smembers(self._index_key)
+            self._logger.debug(f"Clearing all resumable source state. index={self._index_key}, keys={len(keys)}")
+            redis.delete(*keys, self._index_key)
 
     def discard_stale_state_on_reset(self) -> None:
         """Drop every saved checkpoint when this run is a reset, called before the reset wipes the table.
