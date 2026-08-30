@@ -1839,7 +1839,7 @@ export function useTaxonomicAutocompleteShortcutItems(): {
     pinned: TaxonomicAutocompleteEntry[]
     suggested: TaxonomicAutocompleteEntry[]
 } {
-    const { groups } = useTaxonomicFilterContext()
+    const { groups, excludedProperties } = useTaxonomicFilterContext()
     const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
 
     return useMemo<{ pinned: TaxonomicAutocompleteEntry[]; suggested: TaxonomicAutocompleteEntry[] }>(() => {
@@ -1866,10 +1866,18 @@ export function useTaxonomicAutocompleteShortcutItems(): {
             >
         )
             .map((item) => {
-                const entry = buildEntry(item, item._pinnedContext?.sourceGroupType)
+                const sourceGroupType = item._pinnedContext?.sourceGroupType
+                const pinnedValue = item._pinnedContext?.value
+                const entry = buildEntry(item, sourceGroupType)
                 // A value the source group excludes must not be offered as a shortcut, the same way
-                // `filterPinnedForContext` drops it from the Pinned tab.
-                if (entry?.group.excludedProperties?.includes(item._pinnedContext?.value as string)) {
+                // `filterPinnedForContext` drops it from the Pinned tab. Groups like Logs, Issues, and
+                // Revenue analytics filter their own options from the root `excludedProperties` map and
+                // never set `group.excludedProperties`, so read that root map keyed by the source group too.
+                const rootExcluded = sourceGroupType ? excludedProperties?.[sourceGroupType] : undefined
+                const isExcluded =
+                    entry?.group.excludedProperties?.includes(pinnedValue as string) ||
+                    rootExcluded?.includes(pinnedValue as string)
+                if (isExcluded) {
                     return null
                 }
                 return entry
@@ -1885,7 +1893,7 @@ export function useTaxonomicAutocompleteShortcutItems(): {
             .filter((e): e is TaxonomicAutocompleteEntry => e != null)
 
         return { pinned, suggested }
-    }, [groups, pinnedFilterItems])
+    }, [groups, pinnedFilterItems, excludedProperties])
 }
 
 const DEFAULT_MENU_SHORTCUT_GROUPS: readonly TaxonomicFilterGroupType[] = [
