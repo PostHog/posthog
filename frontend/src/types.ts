@@ -7615,7 +7615,7 @@ export type ReplayTemplateType = {
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
 
 export type ReplayTemplateVariableType = {
-    type: 'event' | 'flag' | 'pageview' | 'person-property' | 'snapshot_source'
+    type: 'event' | 'pageview' | 'person-property' | 'snapshot_source'
     name: string
     key: string
     touched?: boolean
