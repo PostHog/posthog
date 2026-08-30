@@ -18,15 +18,15 @@ _LAZY = {
     "LOCK_TAKEOVER_LATEST_ERROR": "metrics",
     "TERMINAL_JOB_STATUSES": "metrics",
     "emit_data_import_app_metrics": "metrics",
-    "BatchQueue": "pipelines.pipeline_v3.postgres_queue.jobs_db",
+    "BatchQueue": "products.warehouse_sources_queue.backend.core.jobs_db",
     "mark_job_failed_if_not_terminal": "pipelines.pipeline_v3.postgres_queue.consumer",
     "release_v3_pipeline_lock": "pipelines.pipeline_v3.sync_lock",
     "CDCExtractionInput": "cdc.workflows",
     "is_pipeline_v3_enabled": "workflow_activities.create_job_model",
     "SyncNewSchemasActivityInputs": "workflow_activities.sync_new_schemas",
     "finish_row_tracking": "row_tracking",
-    "HealthState": "pipelines.pipeline_v3.load.health",
-    "start_health_server": "pipelines.pipeline_v3.load.health",
+    "HealthState": "products.warehouse_sources_queue.backend.core.health",
+    "start_health_server": "products.warehouse_sources_queue.backend.core.health",
     "ensure_bucket": "pipelines.pipeline_v3.s3.common",
     "strip_s3_protocol": "pipelines.pipeline_v3.s3.common",
     "CDPProducer": "pipelines.core.cdp_producer",
@@ -41,4 +41,7 @@ def __getattr__(name: str):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     import importlib
 
-    return getattr(importlib.import_module(_B + module), name)
+    # Queue-engine names live in the warehouse_sources_queue package and are
+    # mapped by absolute path; everything else is relative to this product.
+    target = module if module.startswith("products.") else _B + module
+    return getattr(importlib.import_module(target), name)

@@ -351,9 +351,7 @@ class TestProcessMessageOwnershipGate:
         mock_analytics: MagicMock,
     ) -> None:
         # Fencing abandons are benign; counting them as load failures pollutes the metric.
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-            OwnershipLostError,
-        )
+        from products.warehouse_sources_queue.backend.core.batch_consumer import OwnershipLostError
 
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 

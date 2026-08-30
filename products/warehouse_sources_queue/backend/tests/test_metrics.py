@@ -4,7 +4,7 @@ import pytest
 
 import psycopg
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+from products.warehouse_sources_queue.backend.core.metrics import (
     QUEUE_QUERY_DURATION_SECONDS,
     QUEUE_QUERY_FAILURES_TOTAL,
     observe_queue_query,

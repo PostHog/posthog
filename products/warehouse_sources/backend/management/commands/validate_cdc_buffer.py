@@ -47,10 +47,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     get_buffer_prefix,
     parse_buffer_file_name,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BATCH_TABLE,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import strip_s3_protocol
+from products.warehouse_sources_queue.backend.sdk import BATCH_TABLE
 
 
 class Command(BaseCommand):

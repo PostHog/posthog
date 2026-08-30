@@ -77,9 +77,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
 )
@@ -88,6 +85,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import NonRet
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _build_schema_snapshot,
 )
+from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 logger = structlog.get_logger(__name__)
 
