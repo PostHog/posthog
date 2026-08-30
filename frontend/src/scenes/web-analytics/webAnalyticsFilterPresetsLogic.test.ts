@@ -53,14 +53,22 @@ describe('webAnalyticsFilterPresetsLogic', () => {
         expect(logic.values.pinnedPresets).toHaveLength(1)
     })
 
-    it('sends the search term to the backend when filtering presets', async () => {
+    it.each([
+        ['a plain term', 'mobile', 'search=mobile', true],
+        ['surrounding whitespace', '  mobile  ', 'search=mobile', true],
+        ['a whitespace-only term', '   ', 'search=', false],
+    ])('normalizes %s before querying the backend', async (_label, term, fragment, shouldSend) => {
         await expectLogic(logic).toFinishAllListeners()
         api.get.mockClear()
 
-        logic.actions.setPresetSearchTerm('mobile')
+        logic.actions.setPresetSearchTerm(term)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(api.get).toHaveBeenCalledWith(expect.stringContaining('search=mobile'), undefined)
+        if (shouldSend) {
+            expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining(fragment), undefined)
+        } else {
+            expect(api.get).toHaveBeenLastCalledWith(expect.not.stringContaining(fragment), undefined)
+        }
     })
 
     it('keeps the latest response when an earlier request resolves last', async () => {

@@ -180,7 +180,7 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                     <LemonSkeleton className="h-8" />
                 </div>
             ) : !hasPresets ? (
-                presetSearchTerm ? (
+                presetSearchTerm.trim() ? (
                     <div className="px-3 pb-3 text-center text-muted text-sm">No presets match your search.</div>
                 ) : (
                     <div className="px-3 pb-3 text-center text-muted text-sm">
