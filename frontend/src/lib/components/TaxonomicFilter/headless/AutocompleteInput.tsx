@@ -1860,10 +1860,20 @@ export function useTaxonomicAutocompleteShortcutItems(): {
 
         const pinned: TaxonomicAutocompleteEntry[] = (
             pinnedFilterItems as Array<
-                TaxonomicDefinitionTypes & { _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType } }
+                TaxonomicDefinitionTypes & {
+                    _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: TaxonomicFilterValue }
+                }
             >
         )
-            .map((item) => buildEntry(item, item._pinnedContext?.sourceGroupType))
+            .map((item) => {
+                const entry = buildEntry(item, item._pinnedContext?.sourceGroupType)
+                // A value the source group excludes must not be offered as a shortcut, the same way
+                // `filterPinnedForContext` drops it from the Pinned tab.
+                if (entry?.group.excludedProperties?.includes(item._pinnedContext?.value as string)) {
+                    return null
+                }
+                return entry
+            })
             .filter((e): e is TaxonomicAutocompleteEntry => e != null)
 
         const suggestedGroup = findGroup(TaxonomicFilterGroupType.SuggestedFilters)

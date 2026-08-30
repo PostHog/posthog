@@ -519,7 +519,8 @@ export interface infiniteListLogicMeta {
         ) => TaxonomicDefinitionTypes[]
         contextFilteredPinnedItems: (
             pinnedFilterItems: TaxonomicDefinitionTypes[],
-            taxonomicGroupTypes: TaxonomicFilterGroupType[]
+            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            excludedProperties: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined
         ) => TaxonomicDefinitionTypes[]
         isSoleSubstantiveGroup: (
             listGroupType: TaxonomicFilterGroupType,
@@ -1135,11 +1136,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 ),
         ],
         contextFilteredPinnedItems: [
-            (s) => [s.pinnedFilterItems, s.taxonomicGroupTypes],
+            (s) => [
+                s.pinnedFilterItems,
+                s.taxonomicGroupTypes,
+                (_, props: InfiniteListLogicProps) => props.excludedProperties,
+            ],
             (
                 pinnedFilterItems: TaxonomicDefinitionTypes[],
-                taxonomicGroupTypes: TaxonomicFilterGroupType[]
-            ): TaxonomicDefinitionTypes[] => filterPinnedForContext(pinnedFilterItems, taxonomicGroupTypes),
+                taxonomicGroupTypes: TaxonomicFilterGroupType[],
+                excludedProperties: ExcludedProperties | undefined
+            ): TaxonomicDefinitionTypes[] =>
+                filterPinnedForContext(pinnedFilterItems, taxonomicGroupTypes, excludedProperties),
         ],
         // This list is the filter's only substantive (non-meta) group. There are no separate
         // Recent/Pinned tabs leading the filter, so this list floats recent/pinned items to
