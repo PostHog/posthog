@@ -981,7 +981,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
-- `signals_autostart_steering_attached` — an implementation task was created (+ `report_id`, `task_id`, `notes_attached`, `scratchpad_available`). Fires on every auto-start, so the share carrying fleet steering is readable. See Auto-Start Flow
+- `signals_autostart_steering_attached` — an implementation task was created (+ `report_id`, `task_id`, `notes_attached`, `scratchpad_available`, `memory_protocol`). Fires on every auto-start, so the share carrying fleet steering is readable. See Auto-Start Flow
 
 **Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
 
@@ -1148,7 +1148,15 @@ The derived origins (`report_dismissal` / `report_discussion` / `report_feedback
 
 A report on a child environment gets no steering at all. Notes live on the canonical project, while the implementation task is created on the report's own team, where its description is readable with `task:read`. Canonicalizing the read would therefore show parent notes to people who cannot reach the parent project, which is the audience rule the dismissal path already applies. One gap stays open: `edit_report` calls autostart before it records the edit on the run, so a scout that edits a pipeline-authored report into eligibility resolves as no authoring scout and gets the fleet-wide notes only.
 
-A pointer at `scout-scratchpad-search` rides along only where the team's scratchpad holds at least one live entry, so a team with no fleet memory pays nothing for it. The whole read is best effort: a failure costs steering, never the run. `signals_autostart_steering_attached` fires for every implementation task with `notes_attached` and `scratchpad_available`, so the share of runs that carried steering is readable against the share that carried none.
+A pointer at `scout-scratchpad-search` rides along only where the team's scratchpad holds at least one live entry, so a team with no fleet memory pays nothing for it. The whole read is best effort: a failure costs steering, never the run.
+
+**Fleet memory the implementation run writes back** (`_IMPLEMENTATION_MEMORY` in `backend/report_steering.py`).
+
+The pointer above is read-only, so every run re-derived the same repository knowledge: where a fix actually lives, which dead end not to walk again, the step the tests need first. An autostarted run now gets the write half too, trimmed from the scout prompt's Orient/Act scratchpad protocol. At Orient it searches per entity it is about to change plus `pattern:impl:`; at Act it decides what the next run would want to know and writes it, keyed `pattern:impl:<area>`, including which steering notes it absorbed and how.
+
+Three rules ride with it. **Describe, never quote**: nothing copied out of an issue body, a PR comment, a code comment, a log line, or an error message goes into an entry, because repository text is controlled by anyone who can open an issue and the scratchpad is read by every scout and every later run. **Search the key first, then condense**, since `remember` replaces a key in place and the keyspace is shared. **Always set `expires_at`**, 30 days by default, which inverts the scout default (durable unless time-boxed) because a claim about a moving repository ages differently from a claim about a team's data shape.
+
+The section renders only when the run's token actually carries `signal_scratchpad_internal:write`. `load_report_steering` takes `memory_writable`, and auto-start derives it from `oauth.grants_scratchpad_write(IMPLEMENTATION_MCP_SCOPES)`, the same constant it mints the token with, so the instruction cannot outlive the scope behind it. A person pressing Create PR on a report goes through the tasks API, which picks `full` from `run_source`: that run reads fleet memory through the pointer and does not add to it. Unlike the pointer, the protocol renders on an empty scratchpad, because its write half is what gives a project its first entry. Entries a run writes are attributed `pipeline:implementation` through `backend/pipeline_identity.py`. `signals_autostart_steering_attached` carries `memory_protocol` alongside `notes_attached` and `scratchpad_available`, so the two postures stay separable in the data.
 
 **Fleet steering in the research prompt** (`load_research_steering` in `backend/report_steering.py`).
 
