@@ -81,8 +81,8 @@ describe('webAnalyticsFilterPresetsLogic', () => {
         logic.actions.loadPresets()
 
         // The newer request settles first; the earlier one lands afterwards and must not overwrite it.
-        resolveNewer({ results: [makePreset('newer', false)], count: 1 })
-        resolveEarlier({ results: [makePreset('earlier', false)], count: 1 })
+        resolveNewer({ results: [makePreset('newer', false)] })
+        resolveEarlier({ results: [makePreset('earlier', false)] })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.presets.results).toHaveLength(1)
