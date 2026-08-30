@@ -110,3 +110,14 @@ For ad-hoc inspection (state summaries, active runs, leases, force-release), use
 
 - **Partition health**: monitor that the `warehouse-sources-queue-partition-management` Temporal schedule is running. Alert on rows landing in DEFAULT partitions (means partition creation failed).
 - **Poll duration vs lease TTL**: leases are claimed when the poll query starts, so a poll slower than half the 300s TTL hands groups over mostly expired; the consumer logs `poll_duration_approaching_lease_ttl` when this starts happening.
+
+## Generic jobs (phase 1)
+
+`queuejob` / `queuejobstatus` / `queuejoblease` carry heterogeneous work items on the same physics as the batch tables: denormalized state on the row, an append-only status log written in the same statement, and lease-based group ownership. Two additions over the batch layer:
+
+- **`kind`** names the work; a consumer claims only the kinds it has handlers for (`sdk.JobConsumer`).
+- **`lane`** partitions leases, so one `group_key` can hold an extract-lane lease and a load-lane lease at the same time — extraction and loading run on separate fleets without contending.
+
+Followers returned by a successful handler (`sdk.Success(followers=...)`) are enqueued in the same transaction as the terminal status write. Dedup of live `(kind, dedup_key)` pairs is enforced by the insert statement's `NOT EXISTS` guard rather than a unique index — a partitioned table cannot carry a unique index that omits the partition key.
+
+SQL lives in `core/generic_jobs.py`; the SDK wiring (`JobHandler`, `Outcome`, `GenericJobAdapter`, `JobConsumer`) in `sdk/jobs.py`. Nothing produces or consumes these tables yet; the run orchestrator lands on them in later phases.

@@ -14,6 +14,7 @@ from products.warehouse_sources_queue.backend.core.batch_consumer import (
     OwnershipLostError,
     PermanentBatchApplyError,
 )
+from products.warehouse_sources_queue.backend.core.generic_jobs import Job, JobsTable
 from products.warehouse_sources_queue.backend.core.health import HealthState, start_health_server
 from products.warehouse_sources_queue.backend.core.jobs_db import (
     BATCH_TABLE,
@@ -32,6 +33,17 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     ConsumerMetrics,
     make_consumer_metrics,
 )
+from products.warehouse_sources_queue.backend.sdk.jobs import (
+    Fail,
+    FollowerSpec,
+    GenericJobAdapter,
+    JobConsumer,
+    JobContext,
+    JobHandler,
+    Outcome,
+    Retry,
+    Success,
+)
 
 __all__ = [
     "BATCH_TABLE",
@@ -48,11 +60,22 @@ __all__ = [
     "BatchConsumerConfig",
     "BatchQueue",
     "ConsumerMetrics",
+    "Fail",
+    "FollowerSpec",
+    "GenericJobAdapter",
     "HealthState",
+    "Job",
+    "JobConsumer",
+    "JobContext",
+    "JobHandler",
+    "JobsTable",
+    "Outcome",
     "OwnershipLostError",
     "PendingBatch",
     "PermanentBatchApplyError",
+    "Retry",
     "RunActivitySummary",
+    "Success",
     "latest_status_lateral",
     "make_consumer_metrics",
     "start_health_server",

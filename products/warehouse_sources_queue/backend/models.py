@@ -161,3 +161,127 @@ class SourceGroupLease(models.Model):
         indexes = [
             models.Index(fields=["expires_at"], name="sgl_expires_at_idx"),
         ]
+
+
+class QueueJob(UUIDModel):
+    """One unit of work on the generic job queue (phase 1 of the run orchestrator).
+
+    ``kind`` names the work (``sync.extract``, ``post.table-size``, ...); ``lane``
+    partitions leases so one ``group_key`` (e.g. ``team:schema``) can hold an
+    extract-lane lease and a load-lane lease at the same time. All access is via
+    raw SQL in ``core/generic_jobs.py`` — this model exists for migration and
+    introspection. Nothing produces or consumes these rows yet.
+    """
+
+    class LatestState(models.TextChoices):
+        # 'pending' means "no status row yet", mirroring SourceBatch semantics.
+        PENDING = "pending", "pending"
+        WAITING = "waiting", "waiting"
+        EXECUTING = "executing", "executing"
+        SUCCEEDED = "succeeded", "succeeded"
+        WAITING_RETRY = "waiting_retry", "waiting_retry"
+        FAILED = "failed", "failed"
+
+    kind = models.CharField(max_length=100)
+    lane = models.CharField(max_length=16)
+    group_key = models.CharField(max_length=400)
+    team_id = models.BigIntegerField()
+    run_id = models.CharField(max_length=200, null=True, blank=True)
+    sequence = models.IntegerField(default=0)
+    payload = models.JSONField(default=dict, blank=True)
+    priority = models.SmallIntegerField(default=0)
+    dedup_key = models.CharField(max_length=400, null=True, blank=True)
+    latest_state = models.CharField(max_length=32, default="pending")
+    latest_attempt = models.SmallIntegerField(default=0)
+    state_changed_at = models.DateTimeField(null=True, blank=True)
+    superseded = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    __repr__ = sane_repr("kind", "lane", "group_key", "team_id", "latest_state")
+
+    class Meta:
+        db_table = "queuejob"
+        indexes = [
+            models.Index(
+                fields=["lane", "kind", "team_id", "created_at", "sequence"],
+                name="qj_claimable_idx",
+                condition=models.Q(latest_state__in=["pending", "waiting_retry"]),
+            ),
+            models.Index(
+                fields=["run_id", "latest_state", "sequence"],
+                name="qj_run_gate_idx",
+                condition=models.Q(latest_state__in=["executing", "waiting_retry", "failed"]),
+            ),
+            models.Index(
+                fields=["lane", "group_key"],
+                name="qj_group_busy_idx",
+                condition=models.Q(latest_state="executing"),
+            ),
+            models.Index(
+                fields=["state_changed_at"],
+                name="qj_failed_changed_idx",
+                condition=models.Q(latest_state="failed"),
+            ),
+            models.Index(
+                fields=["kind", "dedup_key"],
+                name="qj_dedup_idx",
+                condition=models.Q(dedup_key__isnull=False),
+            ),
+        ]
+
+
+class QueueJobStatus(UUIDModel):
+    """Append-only state log for QueueJob, mirroring SourceBatchStatus."""
+
+    class State(models.TextChoices):
+        WAITING = "waiting", "waiting"
+        EXECUTING = "executing", "executing"
+        SUCCEEDED = "succeeded", "succeeded"
+        WAITING_RETRY = "waiting_retry", "waiting_retry"
+        FAILED = "failed", "failed"
+
+    job_id = models.UUIDField()
+    job_state = models.CharField(max_length=32, choices=State.choices)
+    attempt = models.SmallIntegerField(default=0)
+    exec_time = models.DateTimeField(null=True, blank=True)
+    error_response = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    __repr__ = sane_repr("job_id", "job_state", "attempt")
+
+    class Meta:
+        db_table = "queuejobstatus"
+        indexes = [
+            models.Index(
+                fields=["job_id", "-created_at", "-id", "job_state"],
+                name="qjs_job_id_desc_state_idx",
+            ),
+        ]
+
+
+class QueueJobLease(models.Model):
+    """Lease-based mutual exclusion for a (lane, group_key) pair.
+
+    The lane dimension is what lets extraction and loading run on separate pods
+    for the same group without contending: each fleet leases its own lane. Same
+    physics as SourceGroupLease — claimed by conditional upsert, renewed by
+    heartbeat, reclaimable on expiry.
+    """
+
+    lane = models.CharField(max_length=16)
+    group_key = models.CharField(max_length=400)
+    owner_token = models.CharField(max_length=64, help_text="Per-pod identity (uuid4) of the current lease holder.")
+    expires_at = models.DateTimeField()
+    acquired_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    __repr__ = sane_repr("lane", "group_key", "owner_token", "expires_at")
+
+    class Meta:
+        db_table = "queuejoblease"
+        constraints = [
+            models.UniqueConstraint(fields=["lane", "group_key"], name="qjl_lane_group_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["expires_at"], name="qjl_expires_at_idx"),
+        ]
