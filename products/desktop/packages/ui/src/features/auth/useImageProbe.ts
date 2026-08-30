@@ -14,9 +14,6 @@ const INITIAL_PROBE: ImageProbe = {
   loading: false,
 };
 
-// Loads `url` off-screen and reports whether it exists. The previous outcome
-// stays in place while a new URL loads, so a surface can keep showing the last
-// good image instead of dropping to a placeholder between checks.
 export function useImageProbe(url: string | undefined): ImageProbe {
   const [probe, setProbe] = useState<ImageProbe>(INITIAL_PROBE);
 

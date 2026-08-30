@@ -22,8 +22,6 @@ import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useCallback, useState } from "react";
 
 const GRAVATAR_MANAGE_URL = "https://gravatar.com/profile/avatars";
-
-// The avatar renders at 72px; ask Gravatar for 2x so it stays sharp on retina.
 const GRAVATAR_IMAGE_SIZE = 144;
 
 export type ProfilePictureStatus = "unknown" | "found" | "missing";
@@ -197,8 +195,6 @@ export function AccountSection() {
   const gravatarUrl = useGravatarUrl(user?.email, GRAVATAR_IMAGE_SIZE);
   const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
 
-  // A new query string forces the browser past its cached 404 or stale image
-  // after the person uploads a picture on Gravatar.
   const candidateUrl =
     gravatarUrl && refreshedAt
       ? `${gravatarUrl}&_=${refreshedAt}`
