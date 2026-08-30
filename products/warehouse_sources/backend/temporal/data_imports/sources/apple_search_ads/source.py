@@ -110,19 +110,24 @@ class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSear
             name=SchemaExternalDataSourceType.APPLE_SEARCH_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Apple Ads",
+            # Two actors, in this order, because Apple splits the job: an account admin grants the
+            # API role in User Management, and only the user holding that role sees the public key
+            # field on the API tab. Collapsing this into one "an admin creates a client" step reads
+            # tidier and strands every reader who is an admin without an API role.
             caption="""Connect your Apple Ads account, formerly Apple Search Ads, to pull campaigns, ad groups, keywords and daily performance into the PostHog Data warehouse.
 
-Apple does not generate an API key for you. An account admin creates an API client, and you supply your own key pair:
+Apple does not generate an API key for you. You supply your own key pair, and only a user with an API role can register it. An account admin who holds no API role will not see the public key field.
 
-1. Generate an EC P-256 key pair. On macOS or Linux, run `openssl ecparam -genkey -name prime256v1 -noout -out private-key.pem` and then `openssl ec -in private-key.pem -pubout -out public-key.pem`.
-2. In [Apple Ads](https://ads.apple.com), open **Account settings > API** and add an API client. Paste the contents of `public-key.pem` into the public key field and save it.
-3. Apple then shows the client ID, team ID and key ID. Enter those below, along with the contents of `private-key.pem`.
-4. Read your ad account ID from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`, under `adAccount.id`. This is not the same value as your organization ID.
+1. In [Apple Ads](https://ads.apple.com), an account admin opens **Account settings > User management** and gives the person setting this up the **API Account Read Only** role.
+2. Generate an EC P-256 key pair. On macOS or Linux, run `openssl ecparam -genkey -name prime256v1 -noout -out private-key.pem` and then `openssl ec -in private-key.pem -pubout -out public-key.pem`.
+3. Signed in as that user, open **Account settings > API**, paste the contents of `public-key.pem` into the public key field and save. Saving the key creates the client.
+4. Apple then shows the client ID, team ID and key ID above the field. Enter those below, along with the contents of `private-key.pem`.
+5. Read your ad account ID from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`, under `adAccount.id`. This is not the same value as your organization ID. The endpoint needs an access token, so follow [Apple's OAuth guide](https://developer.apple.com/documentation/apple_ads/implementing-oauth-for-the-apple-search-ads-api) to exchange the credentials from step 4 for one.
 
 PostHog stores the private key encrypted and uses it to sign a short-lived token on every sync. The token itself is never stored.
 
 Reporting tables use daily granularity, which Apple serves for the last 90 days only.""",
-            permissionsCaption="""Give the API client the **API Account Read Only** role, which grants read access to the campaign data these tables are built from. The **API Account Manager** role also works if you already use it.""",
+            permissionsCaption="""Assign the **API Account Read Only** role to the user who sets up the connection, under **Account settings > User management**. Apple attaches API roles to users, not to clients. That role grants read access to the campaign data these tables are built from. Pick it rather than the campaign group **API Read Only**, which covers a single campaign group. The **API Account Manager** role also works if you already use it.""",
             iconPath="/static/services/apple_search_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/apple-search-ads",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -141,7 +146,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
                         # requires whichever one the source's API version uses.
                         required=False,
                         placeholder="123456789",
-                        caption="Read this from `adAccount.id` in the response from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`.",
+                        caption="Read this from `adAccount.id` in the response from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`. That call needs an access token signed with the credentials above, not the credentials themselves.",
                         secret=False,
                     ),
                     SourceFieldInputConfig(
