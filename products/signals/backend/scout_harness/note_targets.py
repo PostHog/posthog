@@ -17,9 +17,23 @@ from products.skills.backend.models.skills import LLMSkill
 # notes plus the blank-target ones, and a scout never sees a pipeline note.
 PIPELINE_AUDIENCE_PREFIX = "pipeline:"
 PIPELINE_AUDIENCE_REPORT_RESEARCH = f"{PIPELINE_AUDIENCE_PREFIX}report-research"
+PIPELINE_AUDIENCE_IMPLEMENTATION = f"{PIPELINE_AUDIENCE_PREFIX}implementation"
 # Allowlisted, not free-form: an unrecognized `pipeline:*` target steers no one, which is the same
 # silent failure a typo'd scout name would cause. Add a stage here when it starts reading notes.
+# The implementation stage is deliberately absent: it takes its steering from the task
+# description `report_steering.load_report_steering` builds, so a note left for it would sit unread.
 PIPELINE_AUDIENCES: frozenset[str] = frozenset({PIPELINE_AUDIENCE_REPORT_RESEARCH})
+
+# The same strings in their other role — what a pipeline stage stamps on a scratchpad entry it
+# writes, so a search result attributes the entry the way a scout's run FK does. Kept as its own
+# set because reading notes and writing memory are separate capabilities: a stage can remember
+# what it learned without being addressable.
+PIPELINE_WRITER_IDENTITIES: frozenset[str] = frozenset(
+    {
+        PIPELINE_AUDIENCE_REPORT_RESEARCH,
+        PIPELINE_AUDIENCE_IMPLEMENTATION,
+    }
+)
 
 
 class InvalidNoteError(ValueError):
