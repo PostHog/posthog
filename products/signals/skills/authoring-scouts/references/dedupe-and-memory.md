@@ -43,7 +43,7 @@ And only ever forget keys you wrote: `scout-scratchpad-forget` deletes by exact 
 | `reviewer:`   | A resolved owner (bare lowercase GitHub login), keyed `reviewer:<domain>:<area>`, so the next run sets `suggested_reviewers` without re-resolving.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 Format: `<prefix>:<domain>:<entity>` — e.g. `pattern:error_tracking:baseline`, `noise:logs:rabbitmq-deploy-window`, `dedupe:csp_violations:a1b2c3d4`.
-The self-driving implementation run writes here too, under `pattern:impl:<area>`, recording what it worked out about the repository while acting on a report.
+The self-driving implementation run writes here too, under `pattern:impl:<repository>:<area>`, recording what it worked out about that repository while acting on a report.
 Each canonical specialist has its own `<domain>` label (`error_tracking`, `logs`, `llm_analytics`, `experiments`, `feature-flags`, `session-replay`, `web-analytics`, `pipelines`, `health`, …) — not a closed set.
 A new scout introduces its own domain label and reuses the prefixes; match the label a surface's existing entries already use.
 

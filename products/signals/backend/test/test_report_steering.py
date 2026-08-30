@@ -163,6 +163,12 @@ def test_implementation_memory_protocol_follows_the_write_posture(
     assert ("Describe, never quote" in steering.section) is memory_writable
     assert ("Search the key first, then condense" in steering.section) is memory_writable
     assert ("Always set `expires_at`" in steering.section) is memory_writable
+    # A sweep without `keys_only` returns 20 entries whose bodies run to 50,000 characters each, so
+    # dropping this spends the run's context before it has read the report.
+    assert ("`keys_only=true`" in steering.section) is memory_writable
+    # A rerun of an autostarted task reuses this description but is minted `full`, which strips the
+    # write tool, so the write half has to open with its own skip clause.
+    assert ("this run cannot write memory" in steering.section) is memory_writable
     # Without the scope the run still reads the fleet's memory: the search-only pointer, and none
     # of the write protocol. The two never render together, so the run gets one search instruction.
     assert ("Entries keyed `noise:`" in steering.section) is not memory_writable
