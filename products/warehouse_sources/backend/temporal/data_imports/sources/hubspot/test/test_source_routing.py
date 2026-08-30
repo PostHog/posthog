@@ -396,9 +396,13 @@ class TestApiVersion:
 @pytest.mark.parametrize(
     "error_msg",
     [
-        # Raised by fetch_data when a token refresh succeeds but the retried request is still rejected
-        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/companies",
-        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/deals",
+        # Each fetch loop refreshes the token on a 401 and re-raises this after tenacity's 5 attempts
+        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/properties/companies",
+        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/objects/deals",
+        "Hubspot v4 associations 401 - refreshed token, retrying: "
+        "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
+        "Hubspot search 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/objects/contacts/search",
+        # raise_for_hubspot_status maps a 403 to this verbatim
         "403 Client Error: Forbidden for url: https://api.hubapi.com/crm/v3/objects/contacts",
     ],
 )
