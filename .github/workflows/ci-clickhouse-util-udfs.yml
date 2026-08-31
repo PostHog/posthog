@@ -39,6 +39,8 @@ jobs:
                   cache: false
             - name: Build and test
               run: ./scripts/build.sh
+            - name: Verify checked binaries
+              run: git diff --exit-code -- ../../posthog/user_scripts
             - name: Smoke benchmarks
               run: go test -run '^$' -bench=. -benchtime=1x ./...
             - name: Run ClickHouse integration tests

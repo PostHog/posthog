@@ -20,6 +20,6 @@ for goarch in amd64 arm64; do
 
     for udf in "${UDFS[@]}"; do
         CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" \
-            go build -trimpath -ldflags "-s -w" -o "$OUT_DIR/${udf}_${suffix}" "./cmd/$udf"
+            go build -buildvcs=false -trimpath -ldflags "-s -w" -o "$OUT_DIR/${udf}_${suffix}" "./cmd/$udf"
     done
 done
