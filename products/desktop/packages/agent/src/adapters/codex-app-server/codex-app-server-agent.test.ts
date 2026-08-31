@@ -644,6 +644,33 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it("reports a steered goal command as accepted so the host does not redeliver it", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "thr_1" } },
+      "thread/goal/get": {
+        goal: { objective: "Ship the fix", status: "active" },
+      },
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/bundle/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+
+    const result = await agent.prompt({
+      sessionId: "thr_1",
+      prompt: [{ type: "text", text: "/goal" }],
+      _meta: { steer: true },
+    } as unknown as PromptRequest);
+
+    expect(result).toMatchObject({ _meta: { steer: true } });
+    expect(stub.requests).toContainEqual({
+      method: "thread/goal/get",
+      params: { threadId: "thr_1" },
+    });
+  });
+
   it("restores a persisted goal when starting a replacement thread", async () => {
     const restoredGoal = { objective: "Ship the fix", status: "paused" };
     const stub = makeStubRpc({
@@ -2944,12 +2971,62 @@ describe("CodexAppServerAgent", () => {
     } as unknown as PromptRequest);
     await agent.cancel({ sessionId: "t" } as unknown as CancelNotification);
     await expect(first).resolves.toMatchObject({ stopReason: "cancelled" });
-    await expect(steer).resolves.toMatchObject({ _meta: { steer: false } });
+    await expect(steer).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "cancelled" },
+    });
 
     const interrupted = stub.requests
       .filter((r) => r.method === "turn/interrupt")
       .map((r) => (r.params as { turnId?: string }).turnId);
     expect(interrupted).toContain("turn_2");
+  });
+
+  it("declines a steer that arrives while a cancel is still interrupting", async () => {
+    let starts = 0;
+    let releaseInterrupt: (() => void) | undefined;
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "t" } },
+      "turn/start": () => {
+        starts += 1;
+        return { turn: { id: `turn_${starts}` } };
+      },
+      "turn/interrupt": () =>
+        new Promise((resolve) => {
+          releaseInterrupt = () => resolve({});
+        }),
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const first = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "write a long poem" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { threadId: "t", turn: { id: "turn_1" } });
+
+    const cancelling = agent.cancel({
+      sessionId: "t",
+    } as unknown as CancelNotification);
+    await vi.waitFor(() => expect(releaseInterrupt).toBeDefined());
+
+    await expect(
+      agent.prompt({
+        sessionId: "t",
+        prompt: [{ type: "text", text: "do this instead" }],
+        _meta: { steer: true },
+      } as unknown as PromptRequest),
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "cancelled" },
+    });
+    expect(starts).toBe(1);
+
+    releaseInterrupt?.();
+    await cancelling;
+    await expect(first).resolves.toMatchObject({ stopReason: "cancelled" });
   });
 
   it("declines a second steer that overlaps the first's interrupt window", async () => {
@@ -2982,7 +3059,9 @@ describe("CodexAppServerAgent", () => {
     } as unknown as PromptRequest);
 
     await expect(steerA).resolves.toMatchObject({ _meta: { steer: true } });
-    await expect(steerB).resolves.toMatchObject({ _meta: { steer: false } });
+    await expect(steerB).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "steer_in_flight" },
+    });
     expect(stub.requests.filter((r) => r.method === "turn/start")).toHaveLength(
       2,
     );
@@ -3131,7 +3210,9 @@ describe("CodexAppServerAgent", () => {
         prompt: [{ type: "text", text: "lost steer" }],
         _meta: { steer: true },
       } as unknown as PromptRequest),
-    ).resolves.toMatchObject({ _meta: { steer: false } });
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "continuation_failed" },
+    });
     expect(sessionUpdates).not.toContainEqual(
       expect.objectContaining({
         update: expect.objectContaining({
@@ -3234,7 +3315,9 @@ describe("CodexAppServerAgent", () => {
         prompt: [{ type: "text", text: "too late" }],
         _meta: { steer: true },
       } as unknown as PromptRequest),
-    ).resolves.toMatchObject({ _meta: { steer: false } });
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "no_in_flight_turn" },
+    });
     expect(
       stub.requests.filter((request) => request.method === "turn/start"),
     ).toHaveLength(0);

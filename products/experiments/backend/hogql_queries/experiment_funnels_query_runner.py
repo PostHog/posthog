@@ -23,7 +23,6 @@ from posthog.hogql import ast
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
@@ -33,6 +32,7 @@ from products.experiments.backend.hogql_queries.funnels_statistics_v2 import (
     calculate_probabilities_v2,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.product_analytics.backend.facade.queries import FunnelsQueryRunner
 
 
 class ExperimentFunnelsQueryRunner(QueryRunner):

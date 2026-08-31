@@ -1,6 +1,6 @@
 export const PERSONAL_CHANNEL_NAME = "me";
 
-export const GENERAL_CHANNEL_NAME = "general";
+const GENERAL_CHANNEL_NAME = "general";
 
 export interface ChannelIdentity {
   system_role?: "personal" | "general" | null;
@@ -70,7 +70,7 @@ export function channelDisplayReference(
 
 // The server normalizes a name to this shape (`normalize_channel_name`), so anything
 // else would be stored as something other than what the field showed.
-export const CHANNEL_NAME_PATTERN = /^[a-z0-9-]+$/;
+const CHANNEL_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 function replaceChannelNameSeparators(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-");

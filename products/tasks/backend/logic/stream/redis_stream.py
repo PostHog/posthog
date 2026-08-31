@@ -105,6 +105,14 @@ def get_task_run_stream_heartbeat_key(stream_key: str) -> str:
     return f"{stream_key}:ingest-heartbeat"
 
 
+def get_task_run_stream_first_command_key(stream_key: str) -> str:
+    return f"{stream_key}:ingest-first-agent-command"
+
+
+def get_task_run_stream_first_activity_key(stream_key: str) -> str:
+    return f"{stream_key}:ingest-first-agent-activity"
+
+
 def get_task_run_stream_side_effect_pending_key(stream_key: str, side_effect: str, sequence: int) -> str:
     return f"{stream_key}:side-effect:{side_effect}:{sequence}:pending"
 
@@ -328,6 +336,30 @@ class TaskRunRedisStream:
         )
         return bool(claimed)
 
+    async def claim_first_agent_command(self) -> bool:
+        claimed = await self._redis_client.set(
+            get_task_run_stream_first_command_key(self._stream_key),
+            "1",
+            ex=self._timeout,
+            nx=True,
+        )
+        return bool(claimed)
+
+    async def release_first_agent_command(self) -> None:
+        await self._redis_client.delete(get_task_run_stream_first_command_key(self._stream_key))
+
+    async def claim_first_agent_activity(self) -> bool:
+        claimed = await self._redis_client.set(
+            get_task_run_stream_first_activity_key(self._stream_key),
+            "1",
+            ex=self._timeout,
+            nx=True,
+        )
+        return bool(claimed)
+
+    async def release_first_agent_activity(self) -> None:
+        await self._redis_client.delete(get_task_run_stream_first_activity_key(self._stream_key))
+
     async def claim_pending_side_effect(self, side_effect: str, sequence: int, lock_seconds: int) -> bool | None:
         pending_key = get_task_run_stream_side_effect_pending_key(self._stream_key, side_effect, sequence)
         lock_key = get_task_run_stream_side_effect_lock_key(self._stream_key, side_effect, sequence)
@@ -545,8 +577,16 @@ class TaskRunRedisStream:
             completed_key = get_task_run_stream_completed_key(self._stream_key)
             agent_active_key = get_task_run_stream_agent_active_key(self._stream_key)
             heartbeat_key = get_task_run_stream_heartbeat_key(self._stream_key)
+            first_command_key = get_task_run_stream_first_command_key(self._stream_key)
+            first_activity_key = get_task_run_stream_first_activity_key(self._stream_key)
             deleted = await self._redis_client.delete(
-                self._stream_key, sequence_key, completed_key, agent_active_key, heartbeat_key
+                self._stream_key,
+                sequence_key,
+                completed_key,
+                agent_active_key,
+                heartbeat_key,
+                first_command_key,
+                first_activity_key,
             )
             return _normalize_redis_int(deleted) > 0
         except Exception:
@@ -560,6 +600,8 @@ def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
     completed_key = get_task_run_stream_completed_key(stream_key)
     agent_active_key = get_task_run_stream_agent_active_key(stream_key)
     heartbeat_key = get_task_run_stream_heartbeat_key(stream_key)
+    first_command_key = get_task_run_stream_first_command_key(stream_key)
+    first_activity_key = get_task_run_stream_first_activity_key(stream_key)
     client = get_tasks_stream_redis_sync(use_dedicated)
 
     try:
@@ -569,6 +611,8 @@ def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
             completed_key,
             agent_active_key,
             heartbeat_key,
+            first_command_key,
+            first_activity_key,
         )
         return True
     except Exception:

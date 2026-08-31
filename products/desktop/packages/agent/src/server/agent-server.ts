@@ -44,7 +44,11 @@ import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
 import packageJson from "../../package.json" with { type: "json" };
-import { POSTHOG_METHODS, POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import {
+  POSTHOG_METHODS,
+  POSTHOG_NOTIFICATIONS,
+  type SteerDeclineCause,
+} from "../acp-extensions";
 import {
   createAcpConnection,
   type InProcessAcpConnection,
@@ -388,7 +392,8 @@ function getTaskRunStateString(
 type SteerDeclineReason =
   | "startup_turn"
   | "no_active_turn"
-  | "adapter_rejected";
+  | "adapter_rejected"
+  | `adapter_${SteerDeclineCause}`;
 
 /** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
 type SlackArtifactDelivery = "none" | "message" | "canvas_file";
@@ -503,6 +508,8 @@ export class AgentServer {
   private config: AgentServerConfig;
   private sessionReadyBootMs?: number;
   private sessionInitMs?: number;
+  private httpReadyBootMs?: number;
+  private commandDispatchedRunId?: string;
   private barrierReleasedAtMs?: number;
   private bootTracker: AgentBootTracker;
   private logger: Logger;
@@ -954,9 +961,11 @@ export class AgentServer {
           port: this.config.port,
         },
         () => {
+          this.httpReadyBootMs = Math.round(process.uptime() * 1000);
+          this.bootTracker.markHttpReady(this.httpReadyBootMs);
           this.logger.debug(
             `HTTP server listening on port ${this.config.port}`,
-            { bootMs: Math.round(process.uptime() * 1000) },
+            { bootMs: this.httpReadyBootMs },
           );
           resolve();
         },
@@ -1320,7 +1329,13 @@ export class AgentServer {
                 resolveDelivery(outcome);
                 return outcome;
               }
-              declineReason = "adapter_rejected";
+              const cause = (
+                result._meta as { steerDeclineCause?: unknown } | undefined
+              )?.steerDeclineCause;
+              declineReason =
+                typeof cause === "string"
+                  ? (`adapter_${cause}` as SteerDeclineReason)
+                  : "adapter_rejected";
             }
             const outcome = {
               stopReason: "steer_declined",
@@ -1369,6 +1384,7 @@ export class AgentServer {
               }
             } else {
               const runPrompt = () => {
+                this.emitFirstCommandDispatched();
                 const promptResult = commandSession.clientConnection.prompt({
                   sessionId: commandSession.acpSessionId,
                   prompt,
@@ -1691,7 +1707,10 @@ export class AgentServer {
       return;
     }
 
-    this.bootTracker = new AgentBootTracker(payload.run_id);
+    this.bootTracker = new AgentBootTracker(
+      payload.run_id,
+      this.httpReadyBootMs,
+    );
     this.initializationPromise = this._doInitializeSession(
       payload,
       sseController,
@@ -2307,6 +2326,7 @@ export class AgentServer {
       if (!session) {
         throw new Error("Agent session ended before the turn could be sent");
       }
+      this.emitFirstCommandDispatched();
       const attempt = continueInterruptedTurn
         ? {
             sessionId: session.acpSessionId,
@@ -5502,6 +5522,24 @@ ${commonInstructions}
       // `this.session` assignment) or before its SSE controller attaches.
       this.pendingEvents.push(event);
     }
+  }
+
+  private emitFirstCommandDispatched(): void {
+    if (!this.session) return;
+    const runId = this.session.payload.run_id;
+    if (this.commandDispatchedRunId === runId) return;
+    this.commandDispatchedRunId = runId;
+    const notification = {
+      jsonrpc: "2.0" as const,
+      method: POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
+      params: {},
+    };
+    this.broadcastEvent({
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification,
+    });
+    this.session.logWriter.appendRawLine(runId, JSON.stringify(notification));
   }
 
   private flushPreSessionEvents(): void {

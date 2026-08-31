@@ -765,12 +765,16 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         activity.logger.info(f"Skipping verdict for run {run.id}: superseded during posting")
         return {"verdict": "skipped_superseded"}
 
+    # Computed before the branch chain because two things must agree on it: the trigger label is only
+    # stripped for a refusal, and only then may the review tell the author to re-add it.
+    is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
+    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal
+
+    relabel_label = repo_config.trigger_label if strips_label else None
+
     if parsed.gate_blocked:
         # The deterministic gates denied auto-review — a terminal, non-approval
         # outcome. The engine still rendered a plain-language explanation; post it.
-        _post_sticky(
-            client, repo, pull_request, _neutralize_active_markdown(parsed.review_body or _verdict_comment(parsed))
-        )
         run.status = ReviewRunStatus.GATED
         run.verdict = ReviewVerdict.WAIT
     elif parsed.verdict == ReviewVerdict.APPROVED:
@@ -794,7 +798,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
             if adopted_review_id is not None:
                 run.posted_review_id = adopted_review_id
             else:
-                body = _neutralize_active_markdown(_scrub_credentials(parsed.review_body or _approve_comment(parsed)))
+                body = _scrub_credentials(_verdict_body(parsed, ReviewVerdict.APPROVED, relabel_label))
                 review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
                 run.posted_review_id = _comment_id(review)
             # Persist the id immediately, outside the conditional terminal save below: if that save
@@ -808,16 +812,19 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         run.verdict = ReviewVerdict.APPROVED
         update_fields.append("posted_review_id")
     else:
-        _post_sticky(
-            client, repo, pull_request, _neutralize_active_markdown(parsed.review_body or _verdict_comment(parsed))
-        )
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
+
+    # One post for every non-approval, keyed off the verdict the run just stored, so the review text
+    # and the recorded verdict cannot disagree. The approve branch above posted its own APPROVE.
+    if run.verdict != ReviewVerdict.APPROVED:
+        _post_non_approval_review(
+            client, repo, run, pull_request, input.team_id, _verdict_body(parsed, run.verdict, relabel_label)
+        )
 
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-    is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
     # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
     # the run was told it was.
     trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
@@ -825,7 +832,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
     # the author re-requests the next review by re-adding it.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
-    if repo_config.review_mode == ReviewMode.LABEL and is_refusal:
+    if strips_label:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
 
     run.completed_at = timezone.now()
@@ -1264,15 +1271,27 @@ def _stamp_digest_audience_if_merged(
     )
 
 
-def _post_sticky(client: StamphogGitHubClient, repo: str, pull_request: PullRequest, body: str) -> None:
-    """Upsert the sticky comment and persist its id on the PR. Body is scrubbed before posting.
+# The review this run posted when it did not approve. Kept out of ``posted_review_id``, which means
+# "the APPROVE review this run posted" and drives the retraction sweep — a COMMENT review is not
+# dismissable, so listing one there would break it. Nothing queries this, so it stays in ``output``.
+NON_APPROVAL_REVIEW_ID_KEY = "non_approval_review_id"
 
-    Idempotent on retry: ``upsert_sticky_comment`` edits the existing comment (tracked via
-    ``posted_comment_id``) rather than adding a new one, so a re-run does not double-post.
+
+def _post_non_approval_review(
+    client: StamphogGitHubClient, repo: str, run: ReviewRun, pull_request: PullRequest, team_id: int, body: str
+) -> None:
+    """Record a non-approval as its own COMMENT review, and remember it so a retry does not repeat it.
+
+    Same surface as the approval, so the two cannot end up in separate lists disagreeing about the
+    same head. Idempotency mirrors the approve path: the id is persisted the moment GitHub accepts
+    the review, outside the caller's conditional terminal save, so a crash after this point cannot
+    post twice.
     """
-    comment = client.upsert_sticky_comment(repo, pull_request.pr_number, _scrub_credentials(body))
-    pull_request.posted_comment_id = _comment_id(comment)
-    pull_request.save(update_fields=["posted_comment_id", "updated_at"])
+    if (run.output or {}).get(NON_APPROVAL_REVIEW_ID_KEY) is not None:
+        return
+    review = client.post_comment_review(repo, pull_request.pr_number, _scrub_credentials(body), run.head_sha)
+    run.output = {**(run.output or {}), NON_APPROVAL_REVIEW_ID_KEY: _comment_id(review)}
+    ReviewRun.objects.for_team(team_id).filter(id=run.id).update(output=run.output, updated_at=timezone.now())
 
 
 def _comment_id(obj: dict) -> int | None:
@@ -1281,12 +1300,36 @@ def _comment_id(obj: dict) -> int | None:
     return value if isinstance(value, int) else None
 
 
-def _approve_comment(parsed: ReviewerVerdict) -> str:
-    return parsed.reasoning or "Looks good."
+# What each verdict means for the author, in the words they need to act on. The engine renders its
+# reasoning and a gate table, but never states the outcome, and every gate row reads "✓" even on a
+# refusal — so without this line a reader cannot tell an approval from a denial.
+_VERDICT_HEADLINES: dict[str, str] = {
+    ReviewVerdict.APPROVED: "**Approved.**",
+    ReviewVerdict.REFUSED: "**Not approved — this change needs a human reviewer.**",
+    ReviewVerdict.ESCALATE: "**Not approved — escalated to a human reviewer.**",
+    ReviewVerdict.WAIT: "**Not approved yet — waiting on the conditions below.**",
+}
 
 
-def _verdict_comment(parsed: ReviewerVerdict) -> str:
-    body = f"**Stamphog review: {parsed.verdict}**\n\n{parsed.reasoning}".rstrip()
+def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | None) -> str:
+    """The review body: the outcome in words, what to do next, then whatever the engine rendered.
+
+    ``relabel_label`` is the caller's own label-removal decision rather than a re-derivation of it, so
+    the review cannot tell an author to re-add a label the run left in place.
+
+    The engine's ``review_body`` is the rich version (reasoning plus the gate table) and the
+    ``reasoning``/``showstoppers`` pair is the fallback when it rendered nothing. The headline is
+    prepended to both, so the outcome is stated whichever one is available.
+    """
+    headline = _VERDICT_HEADLINES.get(verdict, f"**Stamphog review: {verdict}**")
+    if relabel_label:
+        headline += f"\n\nRe-add the `{relabel_label}` label to request another review once you have addressed this."
+    detail = parsed.review_body or _reasoning_detail(parsed)
+    return f"{headline}\n\n{_neutralize_active_markdown(detail)}".rstrip()
+
+
+def _reasoning_detail(parsed: ReviewerVerdict) -> str:
+    body = parsed.reasoning
     if parsed.showstoppers:
         body += "\n\n**Showstoppers:**\n" + "\n".join(f"- {item}" for item in parsed.showstoppers)
-    return body
+    return body.strip()

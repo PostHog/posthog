@@ -21,6 +21,7 @@ import {
 import { GitHubSourceRepositoriesDialog } from "@posthog/ui/features/inbox/components/GitHubSourceRepositoriesDialog";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { Badge } from "@posthog/ui/primitives/Badge";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { memo, useCallback, useState } from "react";
 
 export type SignalSourceValues = Record<ToggleableSourceProduct, boolean>;
@@ -317,7 +318,9 @@ function SourceRunningIndicator({
   }
   return (
     <div className="mt-2 flex items-center gap-2">
-      <CircleNotchIcon size={14} className="animate-spin text-(--accent-11)" />
+      <Spin className="text-(--accent-11)">
+        <CircleNotchIcon size={14} />
+      </Spin>
       <span className="text-(--accent-11) text-[13px]">{message}</span>
     </div>
   );
