@@ -924,11 +924,16 @@ def deliver_pending_slack_file_artifacts(
 
     # (artifact, failure_reason or None, delivery_mode) for chart artifacts only —
     # export_asset_id marks an image as chart-endpoint output.
-    chart_outcomes: list[tuple[TaskArtifact, str | None, str | None]] = []
+    chart_outcomes: list[tuple[TaskArtifact, str | None, str | None, str | None]] = []
 
-    def _record_chart(artifact: TaskArtifact, failure_reason: str | None, delivery_mode: str | None = None) -> None:
+    def _record_chart(
+        artifact: TaskArtifact,
+        failure_reason: str | None,
+        delivery_mode: str | None = None,
+        message_ts: str | None = None,
+    ) -> None:
         if artifact.export_asset_id is not None:
-            chart_outcomes.append((artifact, failure_reason, delivery_mode))
+            chart_outcomes.append((artifact, failure_reason, delivery_mode, message_ts))
 
     image_cards: list[_SlackImageCard] = []
     for artifact, version_payload, content_type in image_files:
@@ -973,7 +978,7 @@ def deliver_pending_slack_file_artifacts(
         # would lose it permanently instead of leaving it pending for the next relay.
         delivered_artifact_ids: set[UUID] = set()
 
-        def _mark_card_delivered(card: _SlackImageCard) -> None:
+        def _mark_card_delivered(card: _SlackImageCard, message_ts: str | None) -> None:
             if _mark_slack_file_artifact_delivered(
                 artifact=card.artifact,
                 version_number=int(card.version_payload.get("version") or card.artifact.current_version or 0),
@@ -982,7 +987,7 @@ def deliver_pending_slack_file_artifacts(
             ):
                 result.delivered_count += 1
                 delivered_artifact_ids.add(card.artifact.id)
-                _record_chart(card.artifact, None, "url" if card.image_url else "file_upload")
+                _record_chart(card.artifact, None, "url" if card.image_url else "file_upload", message_ts)
 
         result.answer_posted = _post_composed_answer_message(
             slack,
@@ -1036,11 +1041,15 @@ def deliver_pending_slack_file_artifacts(
         ):
             result.delivered_count += 1
 
-    _capture_chart_delivery_events(run, chart_outcomes)
+    _capture_chart_delivery_events(run, mapping, chart_outcomes)
     return result
 
 
-def _capture_chart_delivery_events(run: TaskRun, outcomes: list[tuple[TaskArtifact, str | None, str | None]]) -> None:
+def _capture_chart_delivery_events(
+    run: TaskRun,
+    mapping: Any,
+    outcomes: list[tuple[TaskArtifact, str | None, str | None, str | None]],
+) -> None:
     """Emit one analytics event per chart delivery attempt. Runs in the Temporal
     worker, where the global posthoganalytics client drops events — hence the
     scoped client."""
@@ -1049,7 +1058,7 @@ def _capture_chart_delivery_events(run: TaskRun, outcomes: list[tuple[TaskArtifa
     try:
         team = run.team
         with ph_scoped_capture() as capture:
-            for artifact, failure_reason, delivery_mode in outcomes:
+            for artifact, failure_reason, delivery_mode, message_ts in outcomes:
                 capture(
                     distinct_id=str(artifact.created_by.distinct_id if artifact.created_by else team.uuid),
                     event="task_chart_slack_delivery_failed" if failure_reason else "task_chart_slack_delivered",
@@ -1060,6 +1069,11 @@ def _capture_chart_delivery_events(run: TaskRun, outcomes: list[tuple[TaskArtifa
                         "export_asset_id": artifact.export_asset_id,
                         "delivery_mode": delivery_mode,
                         "failure_reason": failure_reason,
+                        "slack_session_id": f"{mapping.slack_workspace_id}:{mapping.channel}:{mapping.thread_ts}",
+                        "slack_workspace_id": mapping.slack_workspace_id,
+                        "slack_channel_id": mapping.channel,
+                        "slack_thread_ts": mapping.thread_ts,
+                        "slack_message_ts": message_ts,
                     },
                     groups=groups(team.organization, team),
                 )
@@ -1129,7 +1143,7 @@ def _post_composed_answer_message(
     mapping: Any,
     image_cards: list[_SlackImageCard],
     answer_sections: list[str],
-    mark_delivered: Callable[[_SlackImageCard], None],
+    mark_delivered: Callable[[_SlackImageCard, str | None], None],
     deadline: float,
 ) -> bool:
     """Post answer text and chart cards, composed into one message when possible.
@@ -1138,7 +1152,7 @@ def _post_composed_answer_message(
     False so the caller reposts the whole answer (a duplicated chunk beats silently
     losing the rest). ``mark_delivered`` is called for each card as soon as its own
     post succeeds, so an activity that dies part-way through doesn't replay the cards
-    that already landed."""
+    that already landed. The callback receives the Slack message timestamp for analytics."""
     sections = [section for section in answer_sections if section.strip()]
     section_blocks = _section_blocks(sections)
     card_blocks: list[dict[str, Any]] = []
@@ -1156,7 +1170,7 @@ def _post_composed_answer_message(
     if len(kept) + len(card_blocks) <= _SLACK_MESSAGE_BLOCK_LIMIT:
         fallback_text = sections[0] if sections else _artifact_fallback_text(image_cards[0].artifact)
         try:
-            if _post_blocks_with_processing_retry(
+            if posted := _post_blocks_with_processing_retry(
                 slack,
                 channel=mapping.channel,
                 thread_ts=mapping.thread_ts,
@@ -1165,7 +1179,7 @@ def _post_composed_answer_message(
                 deadline=deadline,
             ):
                 for card in image_cards:
-                    mark_delivered(card)
+                    mark_delivered(card, _slack_message_ts(posted))
                 posted_blocks += len(kept)
                 return bool(section_blocks) and posted_blocks == len(section_blocks)
         except Exception:
@@ -1177,7 +1191,7 @@ def _post_composed_answer_message(
         posted_blocks += 1 if _post_thread_text(slack, mapping=mapping, text=block["text"]["text"]) else 0
     for card in image_cards:
         try:
-            if _post_blocks_with_processing_retry(
+            if posted := _post_blocks_with_processing_retry(
                 slack,
                 channel=mapping.channel,
                 thread_ts=mapping.thread_ts,
@@ -1186,7 +1200,7 @@ def _post_composed_answer_message(
                 attempts=_IMAGE_BLOCK_FALLBACK_ATTEMPTS,
                 deadline=deadline,
             ):
-                mark_delivered(card)
+                mark_delivered(card, _slack_message_ts(posted))
         except Exception:
             logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(card.artifact.id), exc_info=True)
     return bool(section_blocks) and posted_blocks == len(section_blocks)
@@ -1339,13 +1353,12 @@ def _post_blocks_with_processing_retry(
     blocks: list[dict[str, Any]],
     attempts: int = _IMAGE_BLOCK_POST_ATTEMPTS,
     deadline: float | None = None,
-) -> bool:
-    """Whether the message actually landed. A skipped post — the message it would answer
-    is gone — returns False, so the caller leaves the cards pending instead of delivered."""
+) -> Any | None:
+    """Return Slack's posted message response, or ``None`` when the parent message is gone."""
     for attempt in range(1, attempts + 1):
         try:
             posted = post_slack_thread_reply(slack, channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
-            return posted is not None
+            return posted
         except SlackApiError as e:
             error = e.response.get("error")
             if attempt == attempts or error not in ("invalid_blocks", "ratelimited"):
@@ -1362,7 +1375,12 @@ def _post_blocks_with_processing_retry(
             if deadline is not None and time.monotonic() + wait >= deadline:
                 raise
             time.sleep(wait)
-    return False  # unreachable: attempts >= 1, so the loop always returns or raises
+    return None  # unreachable: attempts >= 1, so the loop always returns or raises
+
+
+def _slack_message_ts(posted: Any) -> str | None:
+    ts = posted.get("ts") if hasattr(posted, "get") else None
+    return str(ts) if ts else None
 
 
 def _pending_slack_file_version(artifact: TaskArtifact) -> tuple[int, dict[str, Any]] | None:

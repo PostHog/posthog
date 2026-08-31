@@ -22,6 +22,7 @@ from products.tasks.backend.logic.services.living_artifacts import (
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
     DocumentConnectorUnavailable,
+    _capture_chart_delivery_events,
     _chart_card_blocks,
     _post_composed_answer_message,
     _section_blocks,
@@ -100,6 +101,30 @@ class TestLivingArtifacts(TestCase):
         )
         artifacts_flag.start()
         self.addCleanup(artifacts_flag.stop)
+
+    @patch("products.tasks.backend.logic.services.living_artifacts.ph_scoped_capture")
+    def test_chart_delivery_capture_includes_slack_thread_context(self, mock_scoped_capture):
+        capture = mock_scoped_capture.return_value.__enter__.return_value
+        artifact = MagicMock(
+            id="artifact-id",
+            task_id="task-id",
+            created_by=self.user,
+            export_asset_id=123,
+        )
+        mapping = MagicMock(slack_workspace_id="T123", channel="C123", thread_ts="1111.1")
+
+        _capture_chart_delivery_events(
+            self.task_run,
+            mapping,
+            [(artifact, None, "url", "1111.2")],
+        )
+
+        properties = capture.call_args.kwargs["properties"]
+        self.assertEqual(properties["slack_session_id"], "T123:C123:1111.1")
+        self.assertEqual(properties["slack_workspace_id"], "T123")
+        self.assertEqual(properties["slack_channel_id"], "C123")
+        self.assertEqual(properties["slack_thread_ts"], "1111.1")
+        self.assertEqual(properties["slack_message_ts"], "1111.2")
 
     @classmethod
     def setUpTestData(cls):
@@ -872,17 +897,19 @@ class TestChartCardBlockBuilders(SimpleTestCase):
             _SlackImageCard(TaskArtifact(name="<!channel> spike.png"), {}, file_id=f"F{index}")
             for index in range(card_count)
         ]
+        delivered: list[tuple[_SlackImageCard, str | None]] = []
 
         _post_composed_answer_message(
             slack,
             mapping=MagicMock(channel="C123", thread_ts="1111.1"),
             image_cards=cards,
             answer_sections=[],
-            mark_delivered=lambda card: None,
+            mark_delivered=lambda card, message_ts: delivered.append((card, message_ts)),
             deadline=time.monotonic() + 30,
         )
 
         self.assertEqual(slack.chat_postMessage.call_count, 1 if card_count == 1 else card_count)
+        self.assertEqual(delivered, [(card, "1111.2") for card in cards])
         for call in slack.chat_postMessage.call_args_list:
             self.assertEqual(call.kwargs["text"], "&lt;!channel&gt; spike")
 
@@ -906,7 +933,7 @@ class TestChartCardBlockBuilders(SimpleTestCase):
             mapping=MagicMock(channel="C_DELETED", thread_ts="8888.1"),
             image_cards=cards,
             answer_sections=[],
-            mark_delivered=delivered.append,
+            mark_delivered=lambda card, message_ts: delivered.append(card),
             deadline=time.monotonic() + 30,
         )
 

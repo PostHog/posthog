@@ -107,7 +107,10 @@ class TestReportSlackMentionReceived:
         assert props["is_first_message_in_session"] is exp_first
         assert props["session_message_count"] == exp_count
         assert props["slack_session_id"] == f"T12345:{event['channel']}:{thread_ts}"
+        assert props["slack_workspace_id"] == "T12345"
+        assert props["slack_channel_id"] == event["channel"]
         assert props["slack_thread_ts"] == thread_ts
+        assert props["slack_message_ts"] == event["ts"]
         assert props["slack_user_id"] == event["user"]
         assert props["posthog_user_identified"] is exp_identified
         assert ("$set" in props) is exp_identified
