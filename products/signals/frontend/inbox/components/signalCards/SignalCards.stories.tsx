@@ -188,7 +188,7 @@ const errorTrackingIssue = makeSignal({
 
 // The real signal content carries the issue's full stack trace as a code fence (it is written for
 // the report LLM, see `emit_issue_lifecycle_signal`), so a fixture with a long one pins the
-// three-line collapse the card applies to it.
+// three-line cap the card applies to it.
 const STACK_TRACE = [
     'RequestEntityTooLarge: upload chunk exceeds 10 MB',
     'handle_upload in app/api/uploads.py line 214',
@@ -433,7 +433,7 @@ export const GenericFallbacks: Story = {
     render: () => <Rail signals={[genericWithEntityLink, genericWithExternalLink, genericWithoutLink]} />,
 }
 
-/** The stack trace fence in the signal content collapses to three lines instead of filling the rail. */
+/** The stack trace fence in the signal content is cut to three lines instead of filling the rail. */
 export const ErrorTrackingStackTrace: Story = {
     decorators: [
         mswDecorator({

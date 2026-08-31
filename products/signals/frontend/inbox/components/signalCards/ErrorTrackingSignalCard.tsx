@@ -94,9 +94,9 @@ export function ErrorTrackingSignalCard({ signal }: SignalCardProps): JSX.Elemen
         <SignalCardShell signal={signal}>
             {signal.content && (
                 // The signal content ends with the issue's full stack trace in a code fence, which
-                // is written for the report LLM rather than for display, so collapse it to keep it
-                // from swallowing the evidence rail.
-                <LemonMarkdown className="text-sm text-secondary mb-2" disableImages codeMaxLinesWithoutExpansion={3}>
+                // is written for the report LLM rather than for display, so cap it to keep it from
+                // swallowing the evidence rail. The View issue link carries the full trace.
+                <LemonMarkdown className="text-sm text-secondary mb-2" disableImages codeMaxLines={3}>
                     {signal.content}
                 </LemonMarkdown>
             )}
