@@ -171,7 +171,7 @@ function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.E
         <div className="mt-4 space-y-2" data-attr="workflows-reputation-isp-breakdown">
             <MetricLabel
                 label="By mailbox provider"
-                tooltip={`One provider filtering your email is invisible in the project-wide rates above, which pool every provider together. ${WINDOW_TOOLTIP}`}
+                tooltip={`The project-wide rates above pool every provider together, so a struggling provider can be hidden by the others. This table splits the rates out per provider. A provider that accepts your mail and then files it as spam still reads as healthy here. ${WINDOW_TOOLTIP}`}
             />
             <LemonTable
                 dataSource={[...isps]}
@@ -210,7 +210,7 @@ function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.E
                         align: 'right',
                         render: (_, row: IspSendingHealthApi) =>
                             row.complaint_rate === null ? (
-                                <Tooltip title="This provider does not report spam complaints back to senders, so there is no rate to show. Watch its delivery rate instead.">
+                                <Tooltip title="This provider does not report spam complaints back to senders, so there is no rate to show. Its delivery rate still catches rejection, but it cannot show whether accepted mail reaches the inbox.">
                                     <span className="text-secondary cursor-default">Not reported</span>
                                 </Tooltip>
                             ) : (
