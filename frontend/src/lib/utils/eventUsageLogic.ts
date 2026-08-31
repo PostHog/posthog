@@ -1397,7 +1397,7 @@ export interface eventUsageLogicActions {
     ) => {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion
-        outcome?: string
+        outcome: string | undefined
     }
     reportExperimentUpdated: (experiment: Experiment) => {
         experiment: Experiment
