@@ -21,12 +21,13 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, VALIDATION_MAX_ATTEMPTS
+from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
-    FinalizeStatusCommentInput,
+    GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
     LoadedPerspectiveDTO,
@@ -35,13 +36,22 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RemoveTriggerLabelInput,
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
     SelectPerspectivesInput,
+    SyncReviewSkillsInput,
     TrackReviewFailedInput,
     ValidateChunkInput,
     ValidateChunkResult,
+    ValidateIntegrationInput,
+)
+from products.review_hog.backend.temporal.resolution import (
+    FailResolutionInput,
+    ResolutionRunResult,
+    ResolvePRWorkflow,
+    ResolveThreadsInput,
 )
 from products.review_hog.backend.temporal.types import (
     ResolvePRWorkflowInputs,
@@ -116,6 +126,7 @@ async def _run_full_review_pr_workflow(
     validate_calls: list[int] = []
     publish_calls: list[int] = []
     finalize_will_publish: list[bool] = []
+    remove_label_calls: list[int] = []
     # Each code_review receipt appended to the signals report, as (outcome, review_url).
     receipt_calls: list[tuple[str, str | None]] = []
     # The outcome edit of the PR status comment, as (urgency_threshold, resolved_from, review_url) —
@@ -244,6 +255,10 @@ async def _run_full_review_pr_workflow(
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=True, review_url=_REVIEW_URL)
 
+    @activity.defn(name="remove_trigger_label_activity")
+    async def remove_label(input: RemoveTriggerLabelInput) -> None:
+        remove_label_calls.append(input.pr_number)
+
     @activity.defn(name="append_code_review_artefact_activity")
     async def append_receipt(input: AppendCodeReviewArtefactInput) -> None:
         receipt_calls.append((input.outcome, input.review_url))
@@ -301,6 +316,7 @@ async def _run_full_review_pr_workflow(
                 validate_chunk,
                 build_body,
                 publish_act,
+                remove_label,
                 append_receipt,
                 post_status,
                 finalize_status,
@@ -350,6 +366,7 @@ async def _run_full_review_pr_workflow(
         "validate": validate_calls,
         "publish": publish_calls,
         "finalize_will_publish": finalize_will_publish,
+        "remove_label": remove_label_calls,
         "receipts": receipt_calls,
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
@@ -442,6 +459,25 @@ async def test_review_pr_workflow_publishes_only_when_publish_true():
     # posted review's URL — dropping any of these reverts the comment to blaming the author's
     # settings or linking nowhere.
     assert recorded["finalize_status"] == [("must_fix", "override", _REVIEW_URL)]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_removes_label_trigger_after_completion():
+    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="label")
+    assert recorded["remove_label"] == [7]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_removes_label_trigger_after_failure():
+    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="label", fail_dedup=True)
+    assert recorded["failed"] is True
+    assert recorded["remove_label"] == [7]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_does_not_remove_label_for_other_triggers():
+    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="manual")
+    assert recorded["remove_label"] == []
 
 
 @parameterized.expand(
@@ -736,3 +772,52 @@ async def test_validate_issues_workflow_fails_above_failure_floor():
 
     with pytest.raises(WorkflowFailureError):
         await _run_validate_workflow(issue_ids=["1-1-1", "1-2-1"], validate_chunk=validate_chunk)
+
+
+@pytest.mark.asyncio
+async def test_resolve_pr_workflow_runs_the_failure_cleanup_on_a_dead_resolution():
+    # The resolution activity's own failure handler misses prepare failures, timeouts, and worker
+    # death — the workflow-level cleanup is the only thing standing between those and a PR comment
+    # stuck on "Resolving comments" forever. It must fire on terminal failure and never on success.
+    cleanup_calls: list[int] = []
+
+    @activity.defn(name="validate_github_integration_activity")
+    async def validate_integration(input: ValidateIntegrationInput) -> None:
+        return None
+
+    @activity.defn(name="sync_review_skills_activity")
+    async def sync_skills(input: SyncReviewSkillsInput) -> None:
+        return None
+
+    @activity.defn(name="generate_schemas_activity")
+    async def generate_schemas(input: GenerateSchemasInput) -> None:
+        return None
+
+    @activity.defn(name="resolve_threads_activity")
+    async def resolve_threads(input: ResolveThreadsInput) -> ResolutionRunResult:
+        raise ApplicationError("prepare exploded", non_retryable=True)
+
+    @activity.defn(name="fail_resolution_activity")
+    async def fail_resolution(input: FailResolutionInput) -> None:
+        cleanup_calls.append(input.pr_number)
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[ResolvePRWorkflow],
+            activities=[validate_integration, sync_skills, generate_schemas, resolve_threads, fail_resolution],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    ResolvePRWorkflow.run,
+                    ResolvePRWorkflowInputs(
+                        team_id=1, user_id=2, acting_user_id=2, pr_url="u", owner="o", repo="r", pr_number=7
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+    assert cleanup_calls == [7]

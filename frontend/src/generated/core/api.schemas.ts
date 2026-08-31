@@ -163,19 +163,8 @@ export interface OrganizationDomainApi {
     jit_provisioning_enabled?: boolean
     /** @maxLength 28 */
     sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml: boolean
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim: boolean
     /** @nullable */
     readonly scim_base_url: string | null
-    /** Returns whether ID-JAG (XAA) is configured for this domain. */
-    readonly has_id_jag: boolean
-    /**
-     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-     * @nullable
-     */
-    identity_provider_config?: string | null
 }
 
 export interface PaginatedOrganizationDomainListApi {
@@ -199,20 +188,33 @@ export interface PatchedOrganizationDomainApi {
     jit_provisioning_enabled?: boolean
     /** @maxLength 28 */
     sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml?: boolean
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim?: boolean
     /** @nullable */
     readonly scim_base_url?: string | null
-    /** Returns whether ID-JAG (XAA) is configured for this domain. */
-    readonly has_id_jag?: boolean
-    /**
-     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-     * @nullable
-     */
-    identity_provider_config?: string | null
 }
+
+/**
+ * * `all` - All
+ * * `selected` - Selected
+ */
+export type DomainScopeEnumApi = (typeof DomainScopeEnumApi)[keyof typeof DomainScopeEnumApi]
+
+export const DomainScopeEnumApi = {
+    All: 'all',
+    Selected: 'selected',
+} as const
+
+/**
+ * * `saml` - Saml
+ * * `scim` - Scim
+ * * `xaa` - Xaa
+ */
+export type ConfigScopeEnumApi = (typeof ConfigScopeEnumApi)[keyof typeof ConfigScopeEnumApi]
+
+export const ConfigScopeEnumApi = {
+    Saml: 'saml',
+    Scim: 'scim',
+    Xaa: 'xaa',
+} as const
 
 export interface IdentityProviderConfigApi {
     readonly id: string
@@ -221,10 +223,25 @@ export interface IdentityProviderConfigApi {
      * @maxLength 255
      */
     name?: string
+    /** Domains this configuration applies to. An unset value behaves like selected domains.
+     *
+     * * `all` - All
+     * * `selected` - Selected */
+    domain_scope?: DomainScopeEnumApi | BlankEnumApi | null
+    /** Feature configured by this identity provider configuration.
+     *
+     * * `saml` - Saml
+     * * `scim` - Scim
+     * * `xaa` - Xaa */
+    config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
+    /** Organization domain IDs that this identity provider configuration applies to. */
+    organization_domain_ids?: string[]
     readonly created_at: string
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml: boolean
+    /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+    readonly saml_relay_state: string
     /**
      * SAML IdP entity ID (issuer).
      * @maxLength 512
@@ -288,10 +305,25 @@ export interface PatchedIdentityProviderConfigApi {
      * @maxLength 255
      */
     name?: string
+    /** Domains this configuration applies to. An unset value behaves like selected domains.
+     *
+     * * `all` - All
+     * * `selected` - Selected */
+    domain_scope?: DomainScopeEnumApi | BlankEnumApi | null
+    /** Feature configured by this identity provider configuration.
+     *
+     * * `saml` - Saml
+     * * `scim` - Scim
+     * * `xaa` - Xaa */
+    config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
+    /** Organization domain IDs that this identity provider configuration applies to. */
+    organization_domain_ids?: string[]
     readonly created_at?: string
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml?: boolean
+    /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+    readonly saml_relay_state?: string
     /**
      * SAML IdP entity ID (issuer).
      * @maxLength 512
@@ -406,13 +438,112 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `discussions_mentioned` - discussions_mentioned
+ * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+ * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+ * * `materialized_view_sync_failed` - materialized_view_sync_failed
+ * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+ * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+ * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+ * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+ * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+ * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
+ */
+export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
+
+export const SettingEnumApi = {
+    DiscussionsMentioned: 'discussions_mentioned',
+    ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
+    ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
+    MaterializedViewSyncFailed: 'materialized_view_sync_failed',
+    MaterializedViewSyncFailedDaily: 'materialized_view_sync_failed_daily',
+    MaterializedViewSyncFailedImmediate: 'materialized_view_sync_failed_immediate',
+    OrganizationMemberJoinEmailDisabled: 'organization_member_join_email_disabled',
+    PipelineNotificationsDisabled: 'pipeline_notifications_disabled',
+    ProjectWeeklyDigestDisabled: 'project_weekly_digest_disabled',
+    WebAnalyticsWeeklyDigestProjectEnabled: 'web_analytics_weekly_digest_project_enabled',
+} as const
+
+export interface OrganizationNotificationLockApi {
+    /** Notification setting this rule enforces.
+     *
+     * * `discussions_mentioned` - discussions_mentioned
+     * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+     * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+     * * `materialized_view_sync_failed` - materialized_view_sync_failed
+     * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+     * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+     * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+     * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+     * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+     * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+    setting: SettingEnumApi
+    /** What the setting applies to: a project ID or an organization ID. Empty for a setting that is a single switch. */
+    scope_id: string
+    /** The value the organization enforces. */
+    locked_value: boolean
+}
+
+export interface OrganizationNotificationMemberApi {
+    /** Numeric ID of the member, used as the key when saving changes. */
+    user_id: number
+    /** Stable public identifier of the member. */
+    uuid: string
+    /** Member's first name, for display. */
+    first_name: string
+    /** Member's last name, for display. */
+    last_name: string
+    /** Member's email address, which is where these notifications go. */
+    email: string
+    /** Member's organization membership level: 1 for member, 8 for admin, 15 for owner. */
+    organization_membership_level: number
+    /** False when the member's membership level is above yours, which means you cannot change their settings. */
+    editable: boolean
+    /** Rules in force for this member. */
+    locks: OrganizationNotificationLockApi[]
+}
+
+export interface OrganizationNotificationLockChangeApi {
+    /** Member this rule applies to. */
+    user_id: number
+    /** Notification setting to lock or unlock.
+     *
+     * * `discussions_mentioned` - discussions_mentioned
+     * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+     * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+     * * `materialized_view_sync_failed` - materialized_view_sync_failed
+     * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+     * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+     * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+     * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+     * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+     * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+    setting: SettingEnumApi
+    /** Project ID for a setting that breaks down by project, organization ID for the member-join email, empty for a single switch. */
+    scope_id?: string
+    /**
+     * Value to enforce, or null to remove the rule and give the member their own setting back.
+     * @nullable
+     */
+    locked_value: boolean | null
+}
+
+export interface OrganizationNotificationLockBulkUpdateApi {
+    /**
+     * Only the entries you changed. Anything left out keeps whatever it had.
+     * @maxItems 2000
+     */
+    changes: OrganizationNotificationLockChangeApi[]
+}
+
+/**
  * Serializer for organization-scoped OAuth applications (read-only).
  */
 export interface OrganizationOAuthApplicationApi {
     readonly id: string
     /** @maxLength 255 */
     name?: string
-    /** @maxLength 100 */
+    /** @maxLength 2048 */
     client_id?: string
     readonly redirect_uris_list: readonly string[]
     /** True if this application has been verified by PostHog */
@@ -1365,7 +1496,7 @@ export type MarketingAnalyticsEventConversionGoalApiSchemaMap = { [key: string]:
 export interface MarketingAnalyticsEventConversionGoalApi {
     conversion_goal_id: string
     conversion_goal_name: string
-    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
     counts_as_customer?: boolean | null
     /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
     counts_as_revenue?: boolean | null
@@ -1420,7 +1551,7 @@ export type MarketingAnalyticsActionConversionGoalApiSchemaMap = { [key: string]
 export interface MarketingAnalyticsActionConversionGoalApi {
     conversion_goal_id: string
     conversion_goal_name: string
-    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
     counts_as_customer?: boolean | null
     /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
     counts_as_revenue?: boolean | null
@@ -1471,7 +1602,7 @@ export type MarketingAnalyticsWarehouseConversionGoalApiSchemaMap = { [key: stri
 export interface MarketingAnalyticsWarehouseConversionGoalApi {
     conversion_goal_id: string
     conversion_goal_name: string
-    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
     counts_as_customer?: boolean | null
     /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
     counts_as_revenue?: boolean | null
@@ -3349,6 +3480,61 @@ export interface PatchedProjectBackwardCompatApi {
     readonly events_retention_enforced?: boolean
 }
 
+/**
+ * * `skip_person_processing` - Skip Person Processing
+ * * `drop_event_from_ingestion` - Drop Event From Ingestion
+ * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
+ * * `redirect_to_dlq` - Redirect To Dlq
+ * * `redirect_to_topic` - Redirect To Topic
+ */
+export type RestrictionTypeEnumApi = (typeof RestrictionTypeEnumApi)[keyof typeof RestrictionTypeEnumApi]
+
+export const RestrictionTypeEnumApi = {
+    SkipPersonProcessing: 'skip_person_processing',
+    DropEventFromIngestion: 'drop_event_from_ingestion',
+    ForceOverflowFromIngestion: 'force_overflow_from_ingestion',
+    RedirectToDlq: 'redirect_to_dlq',
+    RedirectToTopic: 'redirect_to_topic',
+} as const
+
+/**
+ * * `analytics` - Analytics
+ * * `session_recordings` - Session Recordings
+ * * `errortracking` - Errortracking
+ * * `clientwarnings` - Clientwarnings
+ * * `ai` - Ai
+ */
+export type PipelinesEnumApi = (typeof PipelinesEnumApi)[keyof typeof PipelinesEnumApi]
+
+export const PipelinesEnumApi = {
+    Analytics: 'analytics',
+    SessionRecordings: 'session_recordings',
+    Errortracking: 'errortracking',
+    Clientwarnings: 'clientwarnings',
+    Ai: 'ai',
+} as const
+
+export interface EventIngestionRestrictionApi {
+    /** What happens to matching events: dropped, sent to the overflow lane, or ingested without person processing.
+     *
+     * * `skip_person_processing` - Skip Person Processing
+     * * `drop_event_from_ingestion` - Drop Event From Ingestion
+     * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
+     * * `redirect_to_dlq` - Redirect To Dlq
+     * * `redirect_to_topic` - Redirect To Topic */
+    restriction_type: RestrictionTypeEnumApi
+    /** Distinct IDs the restriction applies to. Empty means it is not filtered by distinct ID. */
+    distinct_ids: string[]
+    /** Session IDs the restriction applies to. Empty means it is not filtered by session ID. */
+    session_ids: string[]
+    /** Event names the restriction applies to. Empty means it is not filtered by event name. */
+    event_names: string[]
+    /** Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID. */
+    event_uuids: string[]
+    /** Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR. */
+    pipelines: PipelinesEnumApi[]
+}
+
 export interface SharePasswordApi {
     readonly id: number
     readonly created_at: string
@@ -3995,6 +4181,11 @@ export interface OrganizationApi {
     /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
     members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
+    /**
+     * When True, requests through the PostHog MCP server can read but not change this organization's data.
+     * @nullable
+     */
+    read_only_mcp_access?: boolean | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -4161,6 +4352,8 @@ export interface UserApi {
     readonly is_email_verified: boolean | null
     /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
     notification_settings?: UserApiNotificationSettings
+    /** Notification settings an organization admin enforces on this user. The matching controls are read-only, and `notification_settings` still holds the user's own choice underneath. Read-only. */
+    readonly notification_locks: readonly OrganizationNotificationLockApi[]
     /**
      * Whether PostHog should anonymize events captured for this user when identified.
      * @nullable
@@ -4235,7 +4428,7 @@ export interface UserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review: boolean
 }
 
@@ -4270,6 +4463,8 @@ export interface PatchedUserApi {
     readonly is_email_verified?: boolean | null
     /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
     notification_settings?: PatchedUserApiNotificationSettings
+    /** Notification settings an organization admin enforces on this user. The matching controls are read-only, and `notification_settings` still holds the user's own choice underneath. Read-only. */
+    readonly notification_locks?: readonly OrganizationNotificationLockApi[]
     /**
      * Whether PostHog should anonymize events captured for this user when identified.
      * @nullable
@@ -4344,8 +4539,16 @@ export interface PatchedUserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review?: boolean
+}
+
+export interface UserGithubLoginApi {
+    /**
+     * The user's resolved GitHub login, or null when no GitHub identity is linked.
+     * @nullable
+     */
+    github_login: string | null
 }
 
 export interface UserGitHubAccountApi {
@@ -4360,6 +4563,17 @@ export interface UserGitHubAccountApi {
      */
     name?: string | null
 }
+
+/**
+ * * `connected` - connected
+ * * `unavailable` - unavailable
+ */
+export type InstallationStatusEnumApi = (typeof InstallationStatusEnumApi)[keyof typeof InstallationStatusEnumApi]
+
+export const InstallationStatusEnumApi = {
+    Connected: 'connected',
+    Unavailable: 'unavailable',
+} as const
 
 export interface UserGitHubIntegrationItemApi {
     /** PostHog UserIntegration row id. */
@@ -4382,6 +4596,13 @@ export interface UserGitHubIntegrationItemApi {
     github_login?: string | null
     /** True when this installation id matches a team-level GitHub integration on the active project. */
     uses_shared_installation: boolean
+    /** Whether any other PostHog project or personal connection references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization. */
+    installation_shared: boolean
+    /** `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
     /** When this integration row was created. */
     created_at: string
 }
@@ -4437,11 +4658,77 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /** Total number of repositories matching the search query, across all pages. */
+    total: number
 }
 
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+    /** `unavailable` when GitHub reports the App installation as uninstalled or suspended, in which case `repositories` is the last cached list rather than a fresh one.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
+}
+
+/**
+ * * `pending` - Pending
+ * * `approved` - Approved
+ * * `unidentified` - Unidentified
+ */
+export type GitHubInstallRequestItemStatusEnumApi =
+    (typeof GitHubInstallRequestItemStatusEnumApi)[keyof typeof GitHubInstallRequestItemStatusEnumApi]
+
+export const GitHubInstallRequestItemStatusEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Unidentified: 'unidentified',
+} as const
+
+export interface GitHubInstallRequestItemApi {
+    /** PostHog GitHubInstallRequest row id. */
+    id: string
+    /** GitHub login the install was requested under. Blank if it could not be resolved. */
+    github_login: string
+    /** `pending` while waiting on an org owner's approval, `approved` once the installation webhook confirms it, `unidentified` when the requesting GitHub account could not be resolved. Approval can't be detected for an unidentified request, so the user has to start the connect flow again.
+     *
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `unidentified` - Unidentified */
+    status: GitHubInstallRequestItemStatusEnumApi
+    /**
+     * GitHub App installation id, set once the request is approved.
+     * @nullable
+     */
+    installation_id?: string | null
+    /**
+     * GitHub organization or user login the installation was approved under, once known.
+     * @nullable
+     */
+    account_login?: string | null
+    /**
+     * GitHub account type (`Organization` or `User`) the installation was approved under, once known.
+     * @nullable
+     */
+    account_type?: string | null
+    /** When the install approval was requested. */
+    requested_at: string
+    /**
+     * When an org owner approved the request.
+     * @nullable
+     */
+    resolved_at?: string | null
+}
+
+export interface GitHubInstallRequestListResponseApi {
+    /** The user's GitHub App install-approval requests, newest first. */
+    results: GitHubInstallRequestItemApi[]
+    /**
+     * Shareable GitHub App install URL with no PostHog session state, for an org owner who needs to approve the install. Null when the GitHub App is not configured on this instance.
+     * @nullable
+     */
+    install_url?: string | null
 }
 
 export interface UserGitHubPrepareCallbackRequestApi {
@@ -4623,6 +4910,18 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
+/**
+ * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+ */
+export interface VerifyEmailRequestApi {
+    /** UUID of the user whose email is being verified. */
+    uuid: string
+    /** Verification token from the emailed link. Required unless a code is provided. */
+    token?: string
+    /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+    code?: string
+}
+
 export type CimdVerificationTokensListParams = {
     /**
      * Number of results to return per page.
@@ -4687,6 +4986,13 @@ export type OrganizationsProjectsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
     /**
      * A search term.
      */

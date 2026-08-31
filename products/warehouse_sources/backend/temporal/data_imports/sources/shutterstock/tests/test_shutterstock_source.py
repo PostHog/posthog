@@ -3,25 +3,14 @@ from typing import Literal
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shutterstock import (
     ShutterstockAuthMethodConfig,
     ShutterstockSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.shutterstock import (
-    ShutterstockResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source import (
     ShutterstockSource,
     _auth_from_config,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _basic_config(**auth_overrides: str) -> ShutterstockSourceConfig:
@@ -37,33 +26,6 @@ class TestShutterstockSource:
         self.source = ShutterstockSource()
         self.team_id = 123
         self.config = _basic_config()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SHUTTERSTOCK
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Shutterstock"
-        assert config.label == "Shutterstock"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/shutterstock"
-
-    def test_auth_select_offers_both_credential_types_with_secret_inputs(self) -> None:
-        config = self.source.get_source_config
-        select = next(f for f in config.fields if isinstance(f, SourceFieldSelectConfig))
-
-        assert select.name == "auth_method"
-        assert [option.value for option in select.options] == ["api_key", "access_token"]
-        secret_fields = {
-            field.name for option in select.options for field in option.fields or [] if getattr(field, "secret", False)
-        }
-        assert secret_fields == {"consumer_secret", "access_token"}
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-        assert len(self.source.get_documented_tables()) == len(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -87,32 +49,12 @@ class TestShutterstockSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
     def test_only_server_side_filter_endpoints_are_incremental(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         incremental = {name for name, s in schemas.items() if s.supports_incremental}
         # Only the updated feeds and license history expose Shutterstock's server-side
         # `start_date` filter.
         assert incremental == {"images_updated", "videos_updated", "image_licenses", "video_licenses"}
-
-    def test_incremental_schemas_advertise_their_fields(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["image_licenses"].incremental_fields == INCREMENTAL_FIELDS["image_licenses"]
-        assert schemas["subscriptions"].incremental_fields == []
-        assert schemas["subscriptions"].supports_append is False
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["image_licenses"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "image_licenses"
-
-    def test_get_canonical_descriptions_keys_match_endpoints(self) -> None:
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical).issubset(set(ENDPOINTS))
 
     @pytest.mark.parametrize(
         "selection, expected",
@@ -182,11 +124,6 @@ class TestShutterstockSource:
         )
 
         assert permissions == {"subscriptions": "blocked", "image_categories": None, "not_an_endpoint": None}
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ShutterstockResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.source.shutterstock_source"

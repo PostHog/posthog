@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
 import {
@@ -197,7 +198,6 @@ export interface trendsDataLogicValues {
         | undefined
     results: TrendResult[]
     showConfidenceIntervals: boolean
-    showLegendIsolateSeriesItem: boolean
     showMovingAverage: boolean
     showTrendLines: boolean
 }
@@ -253,6 +253,9 @@ export interface trendsDataLogicActions {
     }
     setHoveredDatasetIndex: (index: number | null) => {
         index: number | null
+    }
+    setResultsHidden: (hiddenIds: string[]) => {
+        hiddenIds: string[]
     }
     toggleAllResultsHidden: (
         datasets: IndexedTrendResult[],
@@ -387,7 +390,7 @@ export interface trendsDataLogicMeta {
                 | Record<string, ResultCustomizationByValue>
                 | Record<number, ResultCustomizationByPosition>
                 | undefined,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource:
                 | FunnelsQuery
@@ -413,10 +416,6 @@ export interface trendsDataLogicMeta {
                 | undefined
         ) => (dataset: IndexedTrendResult) => boolean
         areAllSeriesVisible: (
-            indexedResults: IndexedTrendResult[],
-            getTrendsHidden: (dataset: IndexedTrendResult) => boolean
-        ) => boolean
-        showLegendIsolateSeriesItem: (
             indexedResults: IndexedTrendResult[],
             getTrendsHidden: (dataset: IndexedTrendResult) => boolean
         ) => boolean
@@ -497,6 +496,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         toggleResultHidden: (dataset: IndexedTrendResult) => ({ dataset }),
         toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
         toggleOtherSeriesHidden: (dataset: IndexedTrendResult) => ({ dataset }),
+        setResultsHidden: (hiddenIds: string[]) => ({ hiddenIds }),
         setHoveredDatasetIndex: (index: number | null) => ({ index }),
     }),
 
@@ -612,7 +612,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     })
                 } else if (
                     display &&
-                    (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
+                    (display === ChartDisplayType.ActionsBarValue || PIE_DISPLAY_TYPES.includes(display))
                 ) {
                     indexedResults.sort((a, b) => {
                         const aValue =
@@ -1027,14 +1027,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             ): boolean => indexedResults.every((d) => !getTrendsHidden(d)),
         ],
 
-        showLegendIsolateSeriesItem: [
-            (s) => [s.indexedResults, s.getTrendsHidden],
-            (
-                indexedResults: IndexedTrendResult[],
-                getTrendsHidden: (dataset: IndexedTrendResult) => boolean
-            ): boolean => indexedResults.length > 0 && !indexedResults.every((d) => getTrendsHidden(d)),
-        ],
-
         legendSeriesIsolationMenuEligible: [
             (s) => [s.indexedResults],
             (indexedResults: IndexedTrendResult[]): boolean => indexedResults.length > 1,
@@ -1104,6 +1096,31 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             actions.updateInsightFilter({
                 resultCustomizations,
             } as Partial<TrendsFilter>)
+        },
+        setResultsHidden: ({ hiddenIds }) => {
+            const { indexedResults, resultCustomizationBy, resultCustomizations } = values
+            const hidden = new Set(hiddenIds)
+            // Customizations are keyed per series identity, which several results can share when
+            // assigning by value. Resolve visibility per key — a key stays visible while any of its
+            // results is — so isolating one of a pair doesn't hide the other out from under it.
+            const visibleKeys = new Set(
+                indexedResults
+                    .filter((r) => !hidden.has(String(r.id)))
+                    .map((r) => getTrendResultCustomizationKey(resultCustomizationBy, r))
+            )
+
+            const next: Record<string, ResultCustomization> = { ...resultCustomizations }
+            for (const result of indexedResults) {
+                const key = getTrendResultCustomizationKey(resultCustomizationBy, result)
+                const existing = getTrendResultCustomization(resultCustomizationBy, result, resultCustomizations)
+                next[key] = {
+                    ...existing,
+                    assignmentBy: resultCustomizationBy,
+                    hidden: !visibleKeys.has(key),
+                }
+            }
+
+            actions.updateInsightFilter({ resultCustomizations: next } as Partial<TrendsFilter>)
         },
         toggleOtherSeriesHidden: ({ dataset }) => {
             const { indexedResults, resultCustomizationBy, resultCustomizations, getTrendsHidden } = values

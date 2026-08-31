@@ -12,6 +12,7 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 
+from products.tasks.backend.constants import CI_STATUSES, PR_STATES
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.observability import log_activity_execution
@@ -166,6 +167,22 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
                 },
                 cause=e,
             )
+
+        # Persist the snapshot the CI loop just paid for, so the task list's
+        # pr:/ci: filters read live state off the run's output instead of
+        # needing their own GitHub round trips. Only canonical values land in
+        # output, and best-effort: the follow-up decision must not fail
+        # because a row write did.
+        updates: dict[str, Any] = {}
+        if pull_request.get("state") in PR_STATES:
+            updates["pr_state"] = pull_request["state"]
+        if pull_request.get("ci_status") in CI_STATUSES:
+            updates["ci_status"] = pull_request["ci_status"]
+        if updates:
+            try:
+                TaskRun.update_output_atomic(ctx.run_id, updates=updates)
+            except Exception:
+                activity.logger.warning("get_pr_context_snapshot_persist_failed", exc_info=True)
 
         return GetPrContextOutput(
             pr_url=pr_url,

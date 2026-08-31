@@ -20,7 +20,10 @@ import { logger } from '~/common/utils/logger'
 const claimCounter = new Counter({
     name: 'cdp_rate_limiter_claim_total',
     help: 'Token-bucket claim outcomes from the SES rate limiter Valkey.',
-    labelNames: ['limiter', 'key', 'result'],
+    // No per-bucket `key` label: the workflow-email limiter's key embeds team and flow id, which
+    // would grow the series count without bound. `limiter` already separates the callers; per-key
+    // diagnosis stays available through the structured warn logs below.
+    labelNames: ['limiter', 'result'],
 })
 
 const claimLatency = new Histogram({
@@ -164,19 +167,19 @@ export class RateLimiterService {
                     key: req.key,
                     raw: result,
                 })
-                claimCounter.inc({ limiter: this.config.name, key: req.key, result: 'valkey_error' })
+                claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
                 return 0
             }
 
             const outcome = granted === 0 ? 'denied' : granted < req.requested ? 'granted_partial' : 'granted_full'
-            claimCounter.inc({ limiter: this.config.name, key: req.key, result: outcome })
+            claimCounter.inc({ limiter: this.config.name, result: outcome })
             return granted
         } catch (err) {
             logger.warn('🪙', `RateLimiterService(${this.config.name}) claim threw`, {
                 key: req.key,
                 error: String(err),
             })
-            claimCounter.inc({ limiter: this.config.name, key: req.key, result: 'valkey_error' })
+            claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
             return 0
         } finally {
             endTimer()

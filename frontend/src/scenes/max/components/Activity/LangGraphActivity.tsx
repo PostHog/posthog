@@ -44,9 +44,7 @@ export function LangGraphActivity({
     const uiPayloadBody =
         toolCall && uiPayload && isRenderableUIPayloadTool(toolCall.name, uiPayload)
             ? Object.entries(uiPayload)
-                  .filter(
-                      ([toolName]) => toolName !== 'summarize_sessions' && toolName !== 'summarize_website_interactions'
-                  )
+                  .filter(([toolName]) => toolName !== 'summarize_website_interactions')
                   .map(([toolName, toolPayload]) => (
                       <UIPayloadAnswer
                           key={`${result?.tool_call_id}-${toolName}`}

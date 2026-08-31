@@ -69,6 +69,8 @@ describe('experimentActivityDescriber', () => {
         it.each([
             { activity: 'exposure_frozen', expectedFragment: 'froze exposure for', notExpected: 'unfroze' },
             { activity: 'exposure_unfrozen', expectedFragment: 'unfroze exposure for', notExpected: 'unknown action' },
+            { activity: 'paused', expectedFragment: 'paused experiment:', notExpected: 'unknown action' },
+            { activity: 'resumed', expectedFragment: 'resumed experiment:', notExpected: 'unknown action' },
         ])('$activity: "$expectedFragment experiment name"', ({ activity, expectedFragment, notExpected }) => {
             const result = experimentActivityDescriber(baseLogItem({ activity }))
             const text = textOf(result)

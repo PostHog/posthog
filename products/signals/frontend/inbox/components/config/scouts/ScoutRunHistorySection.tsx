@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { memo, useMemo, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { pluralize } from 'lib/utils/strings'
@@ -89,7 +89,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
     const hasBody = Boolean(run.summary) || status === 'failed' || expanded
 
     return (
-        <div className="flex flex-col rounded border border-primary bg-bg-light">
+        <div className="flex flex-col border-b border-primary last:border-b-0">
             <button
                 type="button"
                 onClick={() => {
@@ -101,7 +101,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
                     })
                     setExpanded((value) => !value)
                 }}
-                className="flex items-center gap-2 px-3 py-2 text-left"
+                className="flex items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-secondary"
                 aria-expanded={expanded}
             >
                 <IconChevronDown
@@ -117,36 +117,38 @@ const ScoutRunRow = memo(function ScoutRunRow({
                 )}
                 <span className="flex-1" />
                 {emitted > 0 ? (
-                    <span className="whitespace-nowrap rounded bg-primary-highlight px-1.5 py-0.5 text-[11px] font-medium text-primary-3000">
+                    <LemonTag type="highlight" size="small">
                         {pluralize(emitted, 'signal')} emitted
-                    </span>
+                    </LemonTag>
                 ) : reportActivityLabel ? (
-                    <span className="whitespace-nowrap rounded bg-primary-highlight px-1.5 py-0.5 text-[11px] font-medium text-primary-3000">
+                    <LemonTag type="highlight" size="small">
                         {reportActivityLabel}
-                    </span>
-                ) : status === 'completed' ? (
-                    <span className="whitespace-nowrap text-[11px] text-muted">0 signals emitted</span>
+                    </LemonTag>
                 ) : null}
             </button>
 
             {hasBody && (
-                <div className="px-3 pb-2 pl-9">
+                <div className="px-3 pb-2.5 pl-9">
                     {run.summary ? (
                         <LemonMarkdown
                             disableImages
-                            className={expanded ? 'text-sm text-primary' : 'text-sm text-primary line-clamp-2'}
+                            className={
+                                expanded
+                                    ? 'text-[13px] leading-snug text-secondary'
+                                    : 'text-[13px] leading-snug text-secondary line-clamp-2'
+                            }
                         >
                             {run.summary}
                         </LemonMarkdown>
                     ) : status === 'failed' ? (
-                        <span className="text-sm italic text-muted">
+                        <span className="text-[13px] italic text-muted">
                             No summary — the run ended before writing its close-out. The task run in PostHog is the only
                             diagnostic.
                         </span>
                     ) : null}
 
                     {expanded && (
-                        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">
+                        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-primary pt-2 text-xs text-tertiary">
                             <span className="font-mono">{truncateId(run.run_id)}</span>
                             {authoredReportIds.map((reportId) => (
                                 <Link
@@ -257,17 +259,19 @@ export function ScoutRunHistorySection({ skillName }: { skillName: string }): JS
             {loading ? (
                 <LemonSkeleton className="h-12 w-full rounded" />
             ) : filteredRuns.length === 0 ? (
-                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     {runs.length > 0
                         ? `No runs match this filter in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`
                         : SCOUT_NO_RECENT_RUNS}
                 </div>
             ) : (
-                <>
+                // One card with attached rows, rather than a stack of separate bordered cards — a run
+                // list reads as a log, and 25 individually-bordered boxes is a lot of chrome for it.
+                <div className="overflow-hidden rounded border border-primary bg-surface-primary">
                     {filteredRuns.map((run) => (
                         <ScoutRunRow key={run.run_id} run={run} skillName={skillName} />
                     ))}
-                </>
+                </div>
             )}
         </div>
     )

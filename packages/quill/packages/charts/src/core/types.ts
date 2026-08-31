@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import type { LegendItem } from '../components/Legend/Legend'
+import type { LegendItemControls } from '../components/Legend/useChartLegend'
 
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
@@ -314,12 +315,17 @@ export interface YAxis {
     hide?: boolean
     /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
     startAtZero?: boolean
+    /** Domain control for this axis. Set on secondary axes only: the primary axis takes the
+     *  chart-level `valueDomain`, already merged with the goal-line stretch. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
- *  when interactive, owns the toggled-off state — clicking a row hides that series (no draw, no
- *  scale contribution, no tooltip) and the axes rescale, matching the classic insight legend.
- *  Pass `hiddenKeys` + `onToggleSeries` to control the state yourself instead. */
+ *  when interactive, owns the toggled-off state. A plain click isolates the clicked series — every
+ *  other row is hidden (no draw, no scale contribution, no tooltip) and the axes rescale into the
+ *  freed space — and clicking the isolated row again restores all; ⌘/Ctrl-click (or Shift-click)
+ *  toggles one series in or out. Pass `hiddenKeys` + `onToggleSeries` to control the state
+ *  yourself instead, and `onSetHiddenSeries` alongside them to keep isolating. */
 export interface ChartLegendConfig {
     /** Render the legend. Default false. */
     show?: boolean
@@ -329,21 +335,36 @@ export interface ChartLegendConfig {
     align?: 'start' | 'center' | 'end'
     /** Gap in px between the legend and the plot. */
     gap?: number
-    /** Clicking a legend item hides/shows its series. Default true when the legend is shown;
-     *  set false for a static, read-only legend. */
+    /** Legend rows respond to clicks — isolate, or toggle with ⌘/Ctrl. Default true when the legend
+     *  is shown; set false for a static, read-only legend. */
     interactive?: boolean
-    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state;
-     *  omit for chart-managed (uncontrolled) toggling. */
+    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state, plus
+     *  `onSetHiddenSeries` for the bulk actions — without it a controlled legend can't isolate and a
+     *  plain click falls back to toggling. Omit all three for chart-managed (uncontrolled) state. */
     hiddenKeys?: string[]
     /** Initial hidden keys for the chart-managed (uncontrolled) state. Ignored when `hiddenKeys`
      *  is set (controlled). */
     defaultHiddenKeys?: string[]
     /** Called whenever a series is toggled, with its key and resulting hidden state. */
     onToggleSeries?: (key: string, hidden: boolean) => void
-    /** Wrap each rendered legend row — receives the default row node and its item, returns the
-     *  node to render. Lets consumers augment rows (e.g. a right-click context menu) while keeping
-     *  the default swatch/label/toggle rendering. Return `defaultNode` to leave a row untouched. */
-    renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
+    /** Called with the whole next hidden set when a bulk action runs — a plain click isolating a
+     *  series, or a row menu's isolate / hide-all. A controlled legend must handle this for those
+     *  actions to work at all; `onToggleSeries` fires one key at a time and can't express them as a
+     *  single update. Uncontrolled legends update their own state and don't need it. */
+    onSetHiddenSeries?: (hiddenKeys: string[]) => void
+    /** Groups legend rows that a consumer stores one visibility bit for, so the chart counts them as
+     *  one series: isolating keeps the whole group visible, "only this one is visible" is judged per
+     *  group, and a legend with one group has nothing to isolate. A chart comparing two periods needs
+     *  this when a series' current and previous rows share one stored bit. `hiddenKeys` stays in row
+     *  space either way — this only answers which rows are the same series, never where the consumer
+     *  keeps the state. Defaults to the row's own key. */
+    visibilityGroupKey?: (rowKey: string) => string
+    /** Wrap each rendered legend row — receives the default row node, its item, and that row's
+     *  {@link LegendItemControls} (visibility state plus toggle/isolate/hide-all actions), and
+     *  returns the node to render. Lets consumers augment rows (e.g. a right-click context menu)
+     *  while keeping the default swatch/label/toggle rendering. Return `defaultNode` to leave a row
+     *  untouched. */
+    renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
 }
 
 export interface TooltipConfig {
@@ -373,20 +394,33 @@ export interface TooltipConfig {
     totalFormatter?: (value: number) => string
     /** Sort series rows by value descending so the highest value appears at the top. */
     sortedByValue?: boolean
+    /** Bar charts only. `bar` (the default) tooltips only inside a painted bar. `band` tooltips
+     *  anywhere in the hovered band, so a one-pixel bar or a zero bucket still reports its value. */
+    hitArea?: 'bar' | 'band'
 }
 
-/** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
- *  bars). The two modes are mutually exclusive by construction — pick one. Omit the option
- *  entirely for the default: a data-derived range with `d3.nice()`. */
-export type ValueDomain =
-    /** Pin both ends — skips the data-derived range and `d3.nice()` so independent charts that
-     *  share this domain stay visually comparable (e.g. funnel steps). Takes precedence over
-     *  `barLayout: 'percent'` / `percentStackView`. */
-    | readonly [number, number]
-    /** Keep data-derived auto-scaling, but stretch the domain to always cover these values
-     *  (e.g. goal-line targets that sit outside the data). Folded into the range before
-     *  `d3.nice()`. */
-    | { include: readonly number[] }
+/** Value-axis domain control (y for vertical/line/area charts, x for horizontal bars). Omit for the
+ *  default: a data-derived range with `d3.nice()`.
+ *
+ *  Setting **both** ends pins the domain, skipping `d3.nice()` and overriding percent layout, which
+ *  keeps independent charts visually comparable (e.g. funnel steps). Setting **one** clamps that end
+ *  and leaves the other automatic.
+ *
+ *  A non-finite bound counts as unset, so `{ min: 0, max: Math.max(...[]) }` floors at zero instead
+ *  of collapsing. An inverted pair falls back to the automatic domain rather than being swapped,
+ *  because these arrive from saved queries, the API, and MCP, where a silent reinterpretation would
+ *  render an axis nobody asked for. */
+export interface ValueDomain {
+    /** Widen the domain to cover these values (e.g. off-scale goal lines). Folded in before
+     *  `d3.nice()`. Ignored once both `min` and `max` are set. */
+    include?: readonly number[]
+    /** Floor of the value axis, applied after `include` folding, the zero clamp and `d3.nice()`, and
+     *  used verbatim so a typed bound isn't rounded away. Ignored under a percent layout, and dropped
+     *  when non-positive on a log scale. */
+    min?: number
+    /** Ceiling of the value axis. See {@link ValueDomain.min}. */
+    max?: number
+}
 
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
  *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */

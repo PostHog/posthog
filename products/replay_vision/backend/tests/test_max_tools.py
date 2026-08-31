@@ -12,9 +12,9 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 
 import products.replay_vision.backend.max_tools as max_tools_module
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.max_tools import (
     AnalyzeReplayVisionImpactTool,
@@ -32,7 +32,6 @@ from products.replay_vision.backend.max_tools import (
     SearchReplayVisionObservationsTool,
     SummarizeReplayVisionSummariesTool,
     UpdateReplayVisionScannerTool,
-    _ObservationFilters,
 )
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -58,7 +57,7 @@ _SCANNER_LOOKUP_PATH = "products.replay_vision.backend.max_tools.scanner_for_rea
 # The estimate refresh runs a ClickHouse query; these tests are about the tool, not the query.
 _REFRESH_ESTIMATE_PATH = "products.replay_vision.backend.api.scanners._refresh_estimate_fail_soft"
 _GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.max_tools.async_generate_embedding"
-_EXECUTE_HOGQL_PATH = "products.replay_vision.backend.max_tools.execute_hogql_query"
+_EXECUTE_HOGQL_PATH = "products.replay_vision.backend.search.execute_hogql_query"
 
 
 class TestDraftReplayVisionScannerPromptTool(BaseTest):
@@ -119,7 +118,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
             name=name,
             scanner_type=scanner_type,
             scanner_config={"prompt": "rate frustration"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _create_observation(self, scanner: ReplayScanner, session_id: str, model_output: dict) -> ReplayObservation:
@@ -180,7 +179,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         def _side_effect(*_args, **kwargs):
             placeholders = kwargs.get("placeholders", {})
             rows = [
-                (str(obs.id), distance)
+                (str(obs.id), distance, "")
                 for obs, distance in ranked
                 if _matches(obs.scanner_result["model_output"], placeholders)
             ]
@@ -195,7 +194,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         obs_far = await self._observation(scanner, "sess-far", "user smoothly completed checkout", score=5)
         obs_near = await self._observation(scanner, "sess-near", "user rage-clicked the broken submit button", score=0)
         # ClickHouse returns ids ordered by ascending cosine distance (nearest first).
-        hogql_results = MagicMock(results=[(str(obs_near.id), 0.1), (str(obs_far.id), 0.4)])
+        hogql_results = MagicMock(results=[(str(obs_near.id), 0.1, ""), (str(obs_far.id), 0.4, "")])
 
         with (
             patch(
@@ -221,7 +220,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1)])),
+            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1, "")])),
         ):
             _, artifact = await self._tool(context={"scanner_id": str(scanner.id)})._arun_impl(query="button")
 
@@ -236,7 +235,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1)])),
+            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1, "")])),
         ):
             _, artifact = await self._tool(context={"scanner_id": str(context_scanner.id)})._arun_impl(
                 query="button", scanner_id=str(target_scanner.id)
@@ -277,7 +276,10 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs_a.id), 0.1), (str(obs_b.id), 0.2)])),
+            patch(
+                _EXECUTE_HOGQL_PATH,
+                return_value=MagicMock(results=[(str(obs_a.id), 0.1, ""), (str(obs_b.id), 0.2, "")]),
+            ),
         ):
             content, artifact = await self._tool()._arun_impl(query="checkout problems")
 
@@ -404,7 +406,7 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         with (
             patch(_GENERATE_EMBEDDING_PATH, new_callable=AsyncMock, return_value=MagicMock(embedding=[0.1])),
-            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1)])),
+            patch(_EXECUTE_HOGQL_PATH, return_value=MagicMock(results=[(str(obs.id), 0.1, "")])),
         ):
             content, _ = await self._tool()._arun_impl(query="x", scanner_id=str(scanner.id))
 
@@ -453,30 +455,6 @@ class TestSummarizeReplayVisionSummariesTool(BaseTest):
 
         assert artifact == {"error": "fetch_failed"}
         assert "hunter2" not in content
-
-
-class TestObservationFiltersTagClause:
-    """Pure-logic clause construction — no DB/ClickHouse, so it runs without the full test stack."""
-
-    @parameterized.expand(
-        [
-            ("single", ["frustrated_or_confused"]),
-            ("multiple", ["abandoned", "completed"]),
-            # `_ObservationFilters` registers values verbatim — pre-slugifying is the caller's (tool's) job. The
-            # SQL slugifies the *stored* side; passing a non-slug here proves the value is not re-normalized.
-            ("verbatim_not_renormalized", ["Frustrated Or Confused"]),
-        ]
-    )
-    def test_tags_clause_normalizes_stored_side_and_registers_values(self, _name: str, tags: list[str]) -> None:
-        placeholders: dict = {}
-        clauses = _ObservationFilters(tags=tags).where_clauses(placeholders)
-
-        assert len(clauses) == 1
-        # Stored metadata tags are slugified inside the clause (arrayMap) so verbatim-stored tags still match.
-        assert clauses[0].startswith("hasAny(")
-        assert "arrayMap" in clauses[0]
-        # The clause carries no inlined tag value — it lives only in the parameterized placeholder, verbatim.
-        assert placeholders["tags"].value == tags
 
 
 class TestReplayVisionChargeConfirmation(BaseTest):
@@ -574,7 +552,7 @@ class TestScanReplayVisionSessionsScannerLimit(BaseTest):
             name="capped",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         cost = observation_credits_for_model(scanner.model)
         seed_scanner_spend(scanner, cost)
@@ -604,7 +582,7 @@ class TestScanReplayVisionSessionsScannerLimit(BaseTest):
             name="uncapped",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         start = MagicMock(return_value=MagicMock())
         with (
@@ -710,7 +688,7 @@ class TestCreateReplayVisionActionTool(BaseTest):
             name="my-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     @parameterized.expand([("daily",), ("weekly",)])
@@ -742,7 +720,7 @@ class TestCreateReplayVisionActionTool(BaseTest):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         _, artifact = await self._tool()._arun_impl(scanner_id=str(scanner.id), name="cross-team")
 
@@ -781,7 +759,7 @@ class TestReplayVisionToolAuthorization(BaseTest):
             name="secret-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     @pytest.mark.django_db
@@ -822,7 +800,7 @@ class TestReplayVisionToolAuthorization(BaseTest):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
         _, artifact = await self._tool(ScanReplayVisionSessionsTool)._arun_impl(
@@ -860,7 +838,7 @@ class TestReplayVisionApprovalFlowEndToEnd(BaseTest):
             name="checkout",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     @staticmethod
@@ -952,7 +930,7 @@ class TestUpdateReplayVisionScannerTool(BaseTest):
             "name": "checkout",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "did the user check out?"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
             "enabled": False,
             "estimated_monthly_observations": 400,
             # The model always stamps this alongside the count; the preview treats a missing one as stale.
@@ -1136,7 +1114,7 @@ class TestReplayVisionLifecycleTools(BaseTest):
             "name": "checkout",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "did the user check out?"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
         }
         defaults.update(overrides)
         return ReplayScanner.objects.create(**defaults)
@@ -1166,7 +1144,7 @@ class TestReplayVisionLifecycleTools(BaseTest):
             inline_key="k",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "one-off"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             enabled=False,
             sampling_rate=0.0,
         )
@@ -1267,7 +1245,7 @@ class TestReplayVisionActionScannerAccess(BaseTest):
             name="private",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did they check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         return VisionAction.all_teams.create(
             team=self.team,
@@ -1332,7 +1310,7 @@ class TestReplayVisionActionScannerAccess(BaseTest):
             name="themes",
             scanner_type=ScannerType.CLASSIFIER,
             scanner_config={"prompt": "what went wrong?", "tags": ["checkout"]},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
         _, artifact = await self._tool(AnalyzeReplayVisionImpactTool)._arun_impl(scanner_id=str(scanner.id))

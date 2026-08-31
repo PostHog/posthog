@@ -199,12 +199,41 @@ describe('getIssueReplayDateRange', () => {
         expect(range.date_to).toEqual('2024-01-02T13:00:00.000Z')
     })
 
-    it('falls back to first_seen when last_seen is missing or predates it', () => {
+    it('uses the selected event while last_seen is still loading', () => {
+        const range = getIssueReplayDateRange('2024-01-01T12:00:00.000Z', null, '2024-04-01T12:00:00.000Z')
+        expect(range.date_to).toEqual('2024-04-01T13:00:00.000Z')
+    })
+
+    it('uses a selected event that is newer than a stale last_seen', () => {
+        const range = getIssueReplayDateRange(
+            '2024-01-01T12:00:00.000Z',
+            dayjs('2024-02-01T12:00:00.000Z'),
+            '2024-04-01T12:00:00.000Z'
+        )
+        expect(range.date_to).toEqual('2024-04-01T13:00:00.000Z')
+    })
+
+    it('falls back to first_seen when no later timestamp is known', () => {
         const firstSeen = '2024-01-01T12:00:00.000Z'
         expect(getIssueReplayDateRange(firstSeen, null).date_to).toEqual('2024-01-01T13:00:00.000Z')
         expect(getIssueReplayDateRange(firstSeen, dayjs('2023-12-31T00:00:00.000Z')).date_to).toEqual(
             '2024-01-01T13:00:00.000Z'
         )
+    })
+
+    // first_seen is null for an issue with no ingested events — reachable via the
+    // metrics error-spike overlay, and it used to crash the issue scene render.
+    it('anchors on last_seen when first_seen is missing', () => {
+        const range = getIssueReplayDateRange(null, dayjs('2024-01-02T12:00:00.000Z'))
+        expect(range.date_from).toEqual('2024-01-02T11:00:00.000Z')
+        expect(range.date_to).toEqual('2024-01-02T13:00:00.000Z')
+    })
+
+    it('anchors on the selected event when first_seen and last_seen are missing', () => {
+        const range = getIssueReplayDateRange(null, null, '2024-04-01T12:00:00.000Z')
+        expect(range.date_from).toEqual('2024-04-01T11:00:00.000Z')
+        expect(range.date_to).toEqual('2024-04-01T13:00:00.000Z')
+        expect(() => getIssueReplayDateRange(null, null)).not.toThrow()
     })
 })
 

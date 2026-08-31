@@ -10,6 +10,11 @@ from posthog.models import Organization, Team
 from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.pipelines import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataJobPipelineVersion,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+)
 
 pytestmark = [
     pytest.mark.django_db,
@@ -17,7 +22,7 @@ pytestmark = [
 
 
 def _create_org_team_source_schema_job(
-    pipeline_version: ExternalDataJob.PipelineVersion | None = None,
+    pipeline_version: ExternalDataJobPipelineVersion | None = None,
 ) -> tuple[Team, ExternalDataSource, ExternalDataSchema, ExternalDataJob]:
     org = Organization.objects.create(name="Test Org")
     team = Team.objects.create(organization=org, name="Test Team")
@@ -34,7 +39,7 @@ def _create_org_team_source_schema_job(
         team=team,
         pipeline=source,
         schema=schema,
-        status=ExternalDataJob.Status.RUNNING,
+        status=ExternalDataJobStatus.RUNNING,
         rows_synced=100,
         pipeline_version=pipeline_version,
     )
@@ -51,17 +56,17 @@ class TestUpdateExternalJobStatus:
             updated = update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.COMPLETED,
+                status=ExternalDataJobStatus.COMPLETED,
                 logger=MagicMock(),
                 latest_error=None,
             )
 
-        assert updated.status == ExternalDataJob.Status.COMPLETED
+        assert updated.status == ExternalDataJobStatus.COMPLETED
         assert updated.finished_at is not None
         mock_emit.assert_called_once()
         emitted_job = mock_emit.call_args.args[0]
         assert emitted_job.id == job.id
-        assert emitted_job.status == ExternalDataJob.Status.COMPLETED
+        assert emitted_job.status == ExternalDataJobStatus.COMPLETED
 
     def test_retried_terminal_transition_is_idempotent(self):
         """A redelivered Kafka message or retried Temporal activity must not
@@ -74,7 +79,7 @@ class TestUpdateExternalJobStatus:
             update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.COMPLETED,
+                status=ExternalDataJobStatus.COMPLETED,
                 logger=MagicMock(),
                 latest_error=None,
             )
@@ -83,7 +88,7 @@ class TestUpdateExternalJobStatus:
             update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.COMPLETED,
+                status=ExternalDataJobStatus.COMPLETED,
                 logger=MagicMock(),
                 latest_error=None,
             )
@@ -101,7 +106,7 @@ class TestUpdateExternalJobStatus:
             updated = update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.RUNNING,
+                status=ExternalDataJobStatus.RUNNING,
                 logger=MagicMock(),
                 latest_error=None,
             )
@@ -134,7 +139,7 @@ class TestUpdateExternalJobStatus:
             update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.COMPLETED,
+                status=ExternalDataJobStatus.COMPLETED,
                 logger=MagicMock(),
                 latest_error=None,
             )
@@ -153,12 +158,12 @@ class TestUpdateExternalJobStatus:
             updated = update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.FAILED,
+                status=ExternalDataJobStatus.FAILED,
                 logger=MagicMock(),
                 latest_error="boom",
             )
 
-        assert updated.status == ExternalDataJob.Status.FAILED
+        assert updated.status == ExternalDataJobStatus.FAILED
         assert updated.finished_at is not None
         assert updated.latest_error == "boom"
         mock_emit.assert_called_once()
@@ -166,11 +171,11 @@ class TestUpdateExternalJobStatus:
     @pytest.mark.parametrize(
         "status,expect_notify",
         [
-            (ExternalDataJob.Status.FAILED, True),
-            (ExternalDataJob.Status.COMPLETED, False),
-            (ExternalDataJob.Status.BILLING_LIMIT_REACHED, False),
-            (ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW, False),
-            (ExternalDataJob.Status.RUNNING, False),
+            (ExternalDataJobStatus.FAILED, True),
+            (ExternalDataJobStatus.COMPLETED, False),
+            (ExternalDataJobStatus.BILLING_LIMIT_REACHED, False),
+            (ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW, False),
+            (ExternalDataJobStatus.RUNNING, False),
         ],
     )
     def test_failure_notification_only_fires_on_failed_status(self, status, expect_notify):
@@ -187,7 +192,7 @@ class TestUpdateExternalJobStatus:
                 team_id=team.pk,
                 status=status,
                 logger=MagicMock(),
-                latest_error="boom" if status == ExternalDataJob.Status.FAILED else None,
+                latest_error="boom" if status == ExternalDataJobStatus.FAILED else None,
             )
 
         if expect_notify:
@@ -208,7 +213,7 @@ class TestUpdateExternalJobStatus:
                 update_external_job_status(
                     job_id=str(job.id),
                     team_id=team.pk,
-                    status=ExternalDataJob.Status.FAILED,
+                    status=ExternalDataJobStatus.FAILED,
                     logger=MagicMock(),
                     latest_error="boom",
                 )
@@ -228,19 +233,19 @@ class TestUpdateExternalJobStatus:
             updated = update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.FAILED,
+                status=ExternalDataJobStatus.FAILED,
                 logger=MagicMock(),
                 latest_error="boom",
             )
 
-        assert updated.status == ExternalDataJob.Status.FAILED
+        assert updated.status == ExternalDataJobStatus.FAILED
         assert updated.finished_at is not None
 
     @pytest.mark.parametrize(
         "first_status,rejected_status",
         [
-            (ExternalDataJob.Status.COMPLETED, ExternalDataJob.Status.FAILED),
-            (ExternalDataJob.Status.FAILED, ExternalDataJob.Status.COMPLETED),
+            (ExternalDataJobStatus.COMPLETED, ExternalDataJobStatus.FAILED),
+            (ExternalDataJobStatus.FAILED, ExternalDataJobStatus.COMPLETED),
         ],
     )
     def test_terminal_to_different_terminal_is_rejected(self, first_status, rejected_status):
@@ -252,7 +257,7 @@ class TestUpdateExternalJobStatus:
                 team_id=team.pk,
                 status=first_status,
                 logger=MagicMock(),
-                latest_error="first error" if first_status == ExternalDataJob.Status.FAILED else None,
+                latest_error="first error" if first_status == ExternalDataJobStatus.FAILED else None,
             )
 
         result = update_external_job_status(
@@ -266,7 +271,7 @@ class TestUpdateExternalJobStatus:
         assert result.status == first_status
         db_job = ExternalDataJob.objects.get(id=job.id)
         assert db_job.status == first_status
-        expected_error = "first error" if first_status == ExternalDataJob.Status.FAILED else None
+        expected_error = "first error" if first_status == ExternalDataJobStatus.FAILED else None
         assert db_job.latest_error == expected_error
 
     def test_terminal_error_not_clobbered_by_later_cancelled_finalization(self):
@@ -279,7 +284,7 @@ class TestUpdateExternalJobStatus:
             update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.FAILED,
+                status=ExternalDataJobStatus.FAILED,
                 logger=MagicMock(),
                 latest_error="Tenant or user not found",
             )
@@ -287,7 +292,7 @@ class TestUpdateExternalJobStatus:
             updated = update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.FAILED,
+                status=ExternalDataJobStatus.FAILED,
                 logger=MagicMock(),
                 latest_error="Cancelled",
             )
@@ -309,7 +314,7 @@ class TestUpdateExternalJobStatus:
             update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.FAILED,
+                status=ExternalDataJobStatus.FAILED,
                 logger=MagicMock(),
                 latest_error=LOCK_TAKEOVER_LATEST_ERROR,
             )
@@ -317,19 +322,19 @@ class TestUpdateExternalJobStatus:
             updated = update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.COMPLETED,
+                status=ExternalDataJobStatus.COMPLETED,
                 logger=MagicMock(),
                 latest_error=None,
             )
 
-        assert updated.status == ExternalDataJob.Status.COMPLETED
+        assert updated.status == ExternalDataJobStatus.COMPLETED
         assert updated.latest_error is None
         assert updated.finished_at is not None
         # Success metrics must be emitted even though the takeover already stamped finished_at.
         assert mock_emit.call_count == 2
-        assert mock_emit.call_args.args[0].status == ExternalDataJob.Status.COMPLETED
+        assert mock_emit.call_args.args[0].status == ExternalDataJobStatus.COMPLETED
         schema.refresh_from_db()
-        assert schema.status == ExternalDataSchema.Status.COMPLETED
+        assert schema.status == ExternalDataSchemaStatus.COMPLETED
         assert schema.latest_error is None
 
     @pytest.mark.parametrize(
@@ -345,7 +350,7 @@ class TestUpdateExternalJobStatus:
         # the job completes, the schema stays FAILED until the marker is cleared.
         team, _source, schema, job = _create_org_team_source_schema_job()
         schema.sync_type_config = halting_marker
-        schema.status = ExternalDataSchema.Status.FAILED
+        schema.status = ExternalDataSchemaStatus.FAILED
         schema.latest_error = "The replication slot no longer exists on the source database."
         schema.save()
 
@@ -353,14 +358,14 @@ class TestUpdateExternalJobStatus:
             updated = update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.COMPLETED,
+                status=ExternalDataJobStatus.COMPLETED,
                 logger=MagicMock(),
                 latest_error=None,
             )
 
-        assert updated.status == ExternalDataJob.Status.COMPLETED
+        assert updated.status == ExternalDataJobStatus.COMPLETED
         schema.refresh_from_db()
-        assert schema.status == ExternalDataSchema.Status.FAILED
+        assert schema.status == ExternalDataSchemaStatus.FAILED
         assert schema.latest_error == "The replication slot no longer exists on the source database."
 
     def test_rejected_transition_does_not_overwrite_schema_status(self):
@@ -370,24 +375,24 @@ class TestUpdateExternalJobStatus:
             update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.COMPLETED,
+                status=ExternalDataJobStatus.COMPLETED,
                 logger=MagicMock(),
                 latest_error=None,
             )
 
         schema.refresh_from_db()
-        assert schema.status == ExternalDataSchema.Status.COMPLETED
+        assert schema.status == ExternalDataSchemaStatus.COMPLETED
 
         update_external_job_status(
             job_id=str(job.id),
             team_id=team.pk,
-            status=ExternalDataJob.Status.FAILED,
+            status=ExternalDataJobStatus.FAILED,
             logger=MagicMock(),
             latest_error="late failure",
         )
 
         schema.refresh_from_db()
-        assert schema.status == ExternalDataSchema.Status.COMPLETED
+        assert schema.status == ExternalDataSchemaStatus.COMPLETED
         assert schema.latest_error is None
 
 
@@ -395,16 +400,16 @@ class TestFinalizeQueueSweep:
     @pytest.mark.parametrize(
         "status",
         [
-            ExternalDataJob.Status.FAILED,
-            ExternalDataJob.Status.BILLING_LIMIT_REACHED,
-            ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW,
+            ExternalDataJobStatus.FAILED,
+            ExternalDataJobStatus.BILLING_LIMIT_REACHED,
+            ExternalDataJobStatus.BILLING_LIMIT_TOO_LOW,
         ],
     )
     def test_v3_risky_terminal_sweeps_queue_batches(self, status, django_capture_on_commit_callbacks):
         # Any non-Completed terminal can leave enqueued batches behind; the sweep must fire
         # after commit or the batches stay claimable until the retention prune.
         team, _source, _schema, job = _create_org_team_source_schema_job(
-            pipeline_version=ExternalDataJob.PipelineVersion.V3
+            pipeline_version=ExternalDataJobPipelineVersion.V3
         )
 
         with (
@@ -433,11 +438,11 @@ class TestFinalizeQueueSweep:
         [
             # A normally-completed v3 run has drained its queue by construction; the fleet's
             # hottest status write must not gain a cross-DB call.
-            (ExternalDataJob.PipelineVersion.V3, ExternalDataJob.Status.COMPLETED),
+            (ExternalDataJobPipelineVersion.V3, ExternalDataJobStatus.COMPLETED),
             # v1/v2 have no batch queue at all.
-            (ExternalDataJob.PipelineVersion.V2, ExternalDataJob.Status.FAILED),
-            (ExternalDataJob.PipelineVersion.V1, ExternalDataJob.Status.FAILED),
-            (None, ExternalDataJob.Status.FAILED),
+            (ExternalDataJobPipelineVersion.V2, ExternalDataJobStatus.FAILED),
+            (ExternalDataJobPipelineVersion.V1, ExternalDataJobStatus.FAILED),
+            (None, ExternalDataJobStatus.FAILED),
         ],
     )
     def test_no_queue_sweep_for_normal_completion_or_non_v3(
@@ -460,7 +465,7 @@ class TestFinalizeQueueSweep:
                 team_id=team.pk,
                 status=status,
                 logger=MagicMock(),
-                latest_error="boom" if status == ExternalDataJob.Status.FAILED else None,
+                latest_error="boom" if status == ExternalDataJobStatus.FAILED else None,
             )
 
         mock_sweep.assert_not_called()
@@ -469,7 +474,7 @@ class TestFinalizeQueueSweep:
         # Failed -> Completed after lock takeover is the one Completed write that can leave
         # batches behind: a producer may have enqueued after the takeover's own sweep.
         team, _source, _schema, job = _create_org_team_source_schema_job(
-            pipeline_version=ExternalDataJob.PipelineVersion.V3
+            pipeline_version=ExternalDataJobPipelineVersion.V3
         )
 
         with (
@@ -485,7 +490,7 @@ class TestFinalizeQueueSweep:
                 update_external_job_status(
                     job_id=str(job.id),
                     team_id=team.pk,
-                    status=ExternalDataJob.Status.FAILED,
+                    status=ExternalDataJobStatus.FAILED,
                     logger=MagicMock(),
                     latest_error=LOCK_TAKEOVER_LATEST_ERROR,
                 )
@@ -495,19 +500,19 @@ class TestFinalizeQueueSweep:
                 update_external_job_status(
                     job_id=str(job.id),
                     team_id=team.pk,
-                    status=ExternalDataJob.Status.COMPLETED,
+                    status=ExternalDataJobStatus.COMPLETED,
                     logger=MagicMock(),
                     latest_error=None,
                 )
 
         mock_sweep.assert_called_once()
-        assert mock_sweep.call_args.kwargs["status"] == ExternalDataJob.Status.COMPLETED
+        assert mock_sweep.call_args.kwargs["status"] == ExternalDataJobStatus.COMPLETED
 
     def test_queue_sweep_error_does_not_fail_status_update(self, django_capture_on_commit_callbacks):
         # The queue is a separate physical Postgres; an outage there must never fail or roll
         # back the status write the sweep rides on.
         team, _source, _schema, job = _create_org_team_source_schema_job(
-            pipeline_version=ExternalDataJob.PipelineVersion.V3
+            pipeline_version=ExternalDataJobPipelineVersion.V3
         )
 
         with (
@@ -524,14 +529,14 @@ class TestFinalizeQueueSweep:
             update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.FAILED,
+                status=ExternalDataJobStatus.FAILED,
                 logger=MagicMock(),
                 latest_error="boom",
             )
 
         mock_sweep.assert_called_once()
         db_job = ExternalDataJob.objects.get(id=job.id)
-        assert db_job.status == ExternalDataJob.Status.FAILED
+        assert db_job.status == ExternalDataJobStatus.FAILED
         assert db_job.finished_at is not None
 
     def test_queue_sweep_cancellation_propagates_instead_of_being_reported(self, django_capture_on_commit_callbacks):
@@ -539,7 +544,7 @@ class TestFinalizeQueueSweep:
         # triggered this status write is itself cancelled mid-sweep. That must propagate so the
         # caller's own cancellation handling runs, not get swallowed and reported as a sweep bug.
         team, _source, _schema, job = _create_org_team_source_schema_job(
-            pipeline_version=ExternalDataJob.PipelineVersion.V3
+            pipeline_version=ExternalDataJobPipelineVersion.V3
         )
 
         with (
@@ -558,7 +563,7 @@ class TestFinalizeQueueSweep:
             update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
-                status=ExternalDataJob.Status.FAILED,
+                status=ExternalDataJobStatus.FAILED,
                 logger=MagicMock(),
                 latest_error="boom",
             )

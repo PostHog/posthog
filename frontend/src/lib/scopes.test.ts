@@ -5,6 +5,7 @@ import {
     API_SCOPES,
     API_SCOPES_OMITTED_FROM_MODAL,
     getScopeDescription,
+    scopeMatchesSearch,
 } from 'lib/scopes'
 
 import { API_SCOPE_OBJECTS } from '~/types'
@@ -50,6 +51,39 @@ describe('API_SCOPES modal coverage', () => {
     it('never both offers and omits the same scope', () => {
         const overlap = [...omitted].filter((obj) => offered.has(obj as (typeof API_SCOPE_OBJECTS)[number]))
         expect(overlap).toEqual([])
+    })
+})
+
+describe('scopeMatchesSearch', () => {
+    const featureFlag = { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' }
+
+    it('matches every scope for an empty or whitespace term', () => {
+        expect(scopeMatchesSearch(featureFlag, '')).toBe(true)
+        expect(scopeMatchesSearch(featureFlag, '   ')).toBe(true)
+    })
+
+    // The regression this guards: the picker shows objectName, so a search on that label must match.
+    it.each([
+        ['key', 'feature_flag'],
+        ['objectName', 'Feature flag'],
+        ['objectPlural', 'feature flags'],
+        ['a single word from the label', 'flag'],
+        ['tokens in any order', 'flag feature'],
+    ])('matches on %s', (_field, term) => {
+        expect(scopeMatchesSearch(featureFlag, term)).toBe(true)
+    })
+
+    it('matches on the info text and ignores non-string info', () => {
+        expect(scopeMatchesSearch({ key: 'query', objectName: 'Query', info: 'Run SQL' }, 'sql')).toBe(true)
+        expect(scopeMatchesSearch({ key: 'query', objectName: 'Query', info: undefined }, 'undefined')).toBe(false)
+    })
+
+    it('matches on label for rows that carry no objectName', () => {
+        expect(scopeMatchesSearch({ key: 'cohort', label: 'Cohort' }, 'cohort')).toBe(true)
+    })
+
+    it('returns false when a token matches no field', () => {
+        expect(scopeMatchesSearch(featureFlag, 'dashboard')).toBe(false)
     })
 })
 

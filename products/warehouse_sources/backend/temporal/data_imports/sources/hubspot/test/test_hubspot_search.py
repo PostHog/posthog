@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -1211,21 +1212,17 @@ class TestGetRowsViaSearch:
 class TestHubspotSourceRouting:
     def test_search_path_requires_cursor_property(self) -> None:
         # Temporarily strip the cursor property from `deals` config to exercise the guard.
-        original = HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field
-        HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = None
-        try:
-            with pytest.raises(ValueError):
-                hubspot_source(
-                    api_key="k",
-                    refresh_token="r",
-                    endpoint="deals",
-                    logger=MagicMock(),
-                    resumable_source_manager=MagicMock(),
-                    use_search_path=True,
-                    api_version=HUBSPOT_API_VERSION_V3,
-                )
-        finally:
-            HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = original
+        no_cursor = replace(HUBSPOT_ENDPOINTS["deals"], cursor_filter_property_field=None)
+        with patch.dict(HUBSPOT_ENDPOINTS, {"deals": no_cursor}), pytest.raises(ValueError):
+            hubspot_source(
+                api_key="k",
+                refresh_token="r",
+                endpoint="deals",
+                logger=MagicMock(),
+                resumable_source_manager=MagicMock(),
+                use_search_path=True,
+                api_version=HUBSPOT_API_VERSION_V3,
+            )
 
     def test_search_path_happy_path(self) -> None:
         resp = hubspot_source(

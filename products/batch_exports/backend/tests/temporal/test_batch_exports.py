@@ -498,3 +498,16 @@ def test_generate_query_ranges(remaining_range, done_ranges, expected):
     """Test generate_query_ranges returns the expected query ranges."""
     result = list(generate_query_ranges(remaining_range, done_ranges))
     assert result == expected
+
+
+@pytest.mark.parametrize("delta", [dt.timedelta(0), dt.timedelta(hours=1)])
+def test_data_interval_accepts_ordered_bounds(delta: dt.timedelta) -> None:
+    end = dt.datetime(2023, 8, 1, tzinfo=dt.UTC)
+    interval = DataInterval(start=end - delta, end=end)
+    assert interval.end - interval.start == delta
+
+
+def test_data_interval_rejects_reversed_bounds() -> None:
+    end = dt.datetime(2023, 8, 1, tzinfo=dt.UTC)
+    with pytest.raises(ValueError, match="start"):
+        DataInterval(start=end + dt.timedelta(seconds=1), end=end)

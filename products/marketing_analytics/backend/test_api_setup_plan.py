@@ -164,12 +164,19 @@ class TestSetupPlanFeatureFlag(APIBaseTest):
 
         assert flag.call_count == 1
 
-    def test_the_flag_is_grouped_on_the_organization(self):
-        # Every other marketing-analytics flag is org-grouped; a team-only evaluation
-        # here would let one project disagree with the rest of its org.
+    def test_the_flag_is_evaluated_for_the_requesting_person(self):
+        # The flag targets people, and the frontend renders the Setup tab off that same
+        # per-person answer. Evaluating it against the team instead answers for nobody, so
+        # the tab lands on an endpoint that 404s. Two people to also catch an answer
+        # cached somewhere that outlives one request.
+        other_user = User.objects.create_and_join(self.organization, "second@posthog.com", None)
+
         with patch(_FLAG_TARGET, return_value=True) as flag, patch(_PLAN_TARGET, return_value=_plan()):
             self.client.get(self.url)
+            self.client.force_login(other_user)
+            self.client.get(self.url)
 
+        assert [call.args[1] for call in flag.call_args_list] == [self.user.distinct_id, other_user.distinct_id]
         assert flag.call_args.kwargs["groups"] == {"organization": str(self.team.organization.id)}
 
 

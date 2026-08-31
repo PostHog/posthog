@@ -688,7 +688,6 @@ def get_rows(
 
     logger.debug(f"Stripe: reading from resource {resource}")
 
-    # Get the incremental field name for this endpoint
     incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
@@ -1195,6 +1194,18 @@ def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
     )
 
 
+def _is_stripe_webhook_limit_error(error_str: str) -> bool:
+    """Detect Stripe's webhook-endpoint cap rejection.
+
+    Stripe caps an account's webhook endpoints and rejects further creates with an
+    ``invalid_request_error`` that carries no distinct ``code``, so it never matches the
+    permission/403 branch. Classifying it lets us tell the user the cap is the cause and point them
+    at the manual-setup fallback instead of surfacing Stripe's raw message.
+    """
+    lowered = error_str.lower()
+    return "maximum of" in lowered and "webhook endpoint" in lowered
+
+
 def create_webhook(
     api_key: str,
     stripe_account_id: str | None,
@@ -1251,6 +1262,16 @@ def create_webhook(
                     "Stripe account. The 'Account id' in your source settings only applies to Stripe Connect "
                     "platform accounts — remove or correct it if your key belongs directly to the account, "
                     "then retry. Otherwise, set up the webhook manually below."
+                ),
+            )
+
+        if _is_stripe_webhook_limit_error(error_str):
+            return WebhookCreationResult(
+                success=False,
+                error=(
+                    "Your Stripe account has reached its webhook endpoint limit. Delete an unused "
+                    "endpoint in the Stripe dashboard (Developers → Webhooks) and retry, or set up "
+                    "the webhook manually below."
                 ),
             )
 

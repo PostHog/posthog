@@ -105,6 +105,7 @@ AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 # The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
+AI_REPORT_CHARTS_KEY = "ai_report_charts"
 
 
 class SubscriptionTriggerType:
@@ -120,7 +121,7 @@ class SubscriptionTriggerType:
 
 
 @dataclasses.dataclass
-class SubscriptionInfo:
+class DueSubscription:
     subscription_id: int
     team_id: int
     distinct_id: str
@@ -306,7 +307,7 @@ class GenerateAIReportResult:
 
 
 @dataclasses.dataclass
-class SubscriptionAbortInfo:
+class DeliveryAbort:
     """Returned by `validate_subscription_for_delivery` when the workflow should abort.
     `failed_recipient` is populated only when this run auto-disabled the sub
     (workflow records FAILED). None means already-disabled — idempotency redispatch."""

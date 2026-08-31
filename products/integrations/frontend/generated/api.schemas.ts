@@ -197,6 +197,7 @@ export interface RoleLookupResponseApi {
  * * `tiktok-ads` - Tiktok Ads
  * * `twilio` - Twilio
  * * `vercel` - Vercel
+ * * `youtube-analytics` - Youtube Analytics
  */
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
@@ -247,6 +248,18 @@ export const IntegrationKindEnumApi = {
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
     Vercel: 'vercel',
+    YoutubeAnalytics: 'youtube-analytics',
+} as const
+
+/**
+ * * `connected` - connected
+ * * `unavailable` - unavailable
+ */
+export type InstallationStatusEnumApi = (typeof InstallationStatusEnumApi)[keyof typeof InstallationStatusEnumApi]
+
+export const InstallationStatusEnumApi = {
+    Connected: 'connected',
+    Unavailable: 'unavailable',
 } as const
 
 /**
@@ -260,6 +273,13 @@ export interface IntegrationConfigApi {
     readonly created_by: UserBasicApi
     readonly errors: string
     readonly display_name: string
+    /**
+     * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+     * @nullable
+     */
+    readonly installation_shared: boolean | null
+    /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+    readonly installation_status: InstallationStatusEnumApi | null
 }
 
 export interface PaginatedIntegrationConfigListApi {
@@ -309,6 +329,13 @@ export interface PatchedIntegrationConfigApi {
     readonly created_by?: UserBasicApi
     readonly errors?: string
     readonly display_name?: string
+    /**
+     * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+     * @nullable
+     */
+    readonly installation_shared?: boolean | null
+    /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+    readonly installation_status?: InstallationStatusEnumApi | null
 }
 
 export interface GitHubBranchesResponseApi {
@@ -348,11 +375,18 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /** Total number of repositories matching the search query, across all pages. */
+    total: number
 }
 
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+    /** `unavailable` when GitHub reports the App installation as uninstalled or suspended, in which case `repositories` is the last cached list rather than a fresh one.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
 }
 
 export interface GitHubTeamApi {
@@ -514,7 +548,8 @@ export interface IntegrationAccessRequestApi {
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
-     * * `vercel` - Vercel */
+     * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics */
     kind: IntegrationKindEnumApi
     /**
      * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
@@ -677,6 +712,7 @@ export type IntegrationsListParams = {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics
      */
     kind?: IntegrationsListKind
     /**
@@ -738,6 +774,7 @@ export const IntegrationsListKind = {
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
     Vercel: 'vercel',
+    YoutubeAnalytics: 'youtube-analytics',
 } as const
 
 export type IntegrationsChannelsRetrieveParams = {

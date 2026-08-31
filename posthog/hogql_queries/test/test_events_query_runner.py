@@ -1284,6 +1284,50 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner.run()
 
     @freeze_time("2020-01-11T12:00:05Z")
+    def test_restricted_display_property_does_not_break_person_display_name(self):
+        from posthog.models import PropertyDefinition
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self._enable_property_access_control()
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"email": "secret@example.com", "name": "Test User"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:01Z",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        # restrict "email", the first default display-name property
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        query = EventsQuery(select=["person_display_name -- Person"], after="2020-01-10")
+        runner = EventsQueryRunner(query=query, team=self.team, user=self.user)
+        response = runner.run()
+
+        # The query must succeed and mask the restricted value, not raise.
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) > 0
+        assert response.results[0][0]["display_name"] == "Test User"
+
+    @freeze_time("2020-01-11T12:00:05Z")
     def test_users_with_different_restrictions_get_different_cache_keys(self):
         self._enable_property_access_control()
 

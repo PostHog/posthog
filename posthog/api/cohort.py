@@ -102,7 +102,7 @@ from products.cohorts.backend.models.util import (
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
@@ -555,7 +555,8 @@ class CSVConfig:
     PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     EMAIL_HEADERS = ["email", "e-mail"]
-    ENCODING = "utf-8"
+    # utf-8-sig strips the byte order mark that Excel and Google Sheets glue onto the first header
+    ENCODING = "utf-8-sig"
 
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
@@ -648,6 +649,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "errors_calculating",
             "last_error_message",
             "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
             "is_static",
             "cohort_type",
             "condition_type",
@@ -668,6 +671,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "errors_calculating",
             "last_error_message",
             "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
             "experiment_set",
             "condition_type",
         ]
@@ -998,12 +1003,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 result = self._find_id_column(first_row)
 
                 if result is None:
-                    available_headers = [h for h in first_row if h.strip()]
+                    available_headers = [h.strip() for h in first_row if h.strip()]
                     raise ValidationError(
                         {
                             "csv": [
                                 CSVConfig.ErrorMessages.MISSING_ID_COLUMN.format(
-                                    columns=", ".join(available_headers) if available_headers else "none"
+                                    columns=", ".join(f"'{h}'" for h in available_headers)
+                                    if available_headers
+                                    else "none"
                                 )
                             ]
                         }

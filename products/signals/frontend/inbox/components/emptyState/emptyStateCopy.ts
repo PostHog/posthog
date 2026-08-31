@@ -1,7 +1,6 @@
 import { SignalSourceType } from '../../types'
 
 const SOURCE_TRIGGER_COPY: Partial<Record<SignalSourceType, string>> = {
-    [SignalSourceType.SessionAnalysisCluster]: 'a session shows a repeated problem',
     [SignalSourceType.SessionProblem]: 'a session shows a product problem',
     [SignalSourceType.Evaluation]: 'an AI evaluation fails',
     [SignalSourceType.EvaluationReport]: 'AI evaluation results need attention',

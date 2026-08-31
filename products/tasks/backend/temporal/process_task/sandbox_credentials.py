@@ -286,12 +286,12 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
 
 
 def _propagate_user_token(user_integration_id: int, token: str) -> int:
-    from products.tasks.backend.logic.services.sandbox import Sandbox  # noqa: PLC0415
+    from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id  # noqa: PLC0415
 
     applied = 0
     for live in _live_sandboxes_for_user_integration(user_integration_id):
         try:
-            sandbox = Sandbox.get_by_id(live.sandbox_id)
+            sandbox = get_sandbox_class_for_sandbox_id(live.sandbox_id).get_by_id(live.sandbox_id)
             # Re-check the actor binding under the per-sandbox lock: the filter above is not atomic
             # with this write, so a transition could have rebound the sandbox in between.
             if sandbox.is_running() and _apply_owner_token_locked(

@@ -50,7 +50,7 @@ describe('labelStats', () => {
             prompt: '',
             scanner_config: {},
             scanner_type: 'monitor',
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.7-flash',
             provider: 'google',
             emits_signals: false,
             query: {},

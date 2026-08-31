@@ -101,7 +101,7 @@ export function InboxScopeSelect() {
           value={segmentValue}
           size="1"
           onValueChange={handleSegmentValueChange}
-          aria-label="Inbox scope"
+          aria-label="Self-driving scope"
         >
           <SegmentedControl.Item value="for-you">For you</SegmentedControl.Item>
           <SegmentedControl.Item

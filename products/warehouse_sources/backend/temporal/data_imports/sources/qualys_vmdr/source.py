@@ -47,9 +47,10 @@ class QualysVmdrSource(ResumableSource[QualysVmdrSourceConfig, QualysVmdrResumeC
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = QUALYS_VMDR_SUPPORTED_VERSIONS
     default_version = QUALYS_VMDR_DEFAULT_VERSION
-    # Qualys is retiring KnowledgeBase 2.0 (End of Service Dec 2025, End of Life Dec 2026).
+    # Qualys is retiring KnowledgeBase 2.0 (End of Support Dec 2025, End of Life June 2026); the
+    # sunset date is the End of Life, when Qualys stops serving the version.
     deprecated_versions = (
-        VersionDeprecation(version=QUALYS_VMDR_API_VERSION_2_0, sunset_at=datetime.date(2025, 12, 31)),
+        VersionDeprecation(version=QUALYS_VMDR_API_VERSION_2_0, sunset_at=datetime.date(2026, 6, 30)),
     )
     api_docs_url = "https://docs.qualys.com/en/vm/api/index.htm"
 

@@ -7,7 +7,7 @@ import { BindLogic, Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { DateRangeFilter } from './DateRange'
+import { DateRangeFilter, getNextErrorTrackingDateRange } from './DateRange'
 import { issueFiltersLogic } from './issueFiltersLogic'
 
 const LOGIC_KEY = 'test'
@@ -47,5 +47,23 @@ describe('DateRangeFilter', () => {
         expect(logic.values.dateRange).toEqual({ date_from: '-30d', date_to: null })
 
         logic.unmount()
+    })
+
+    it.each([
+        [
+            { date_from: '-1h', date_to: null },
+            { dateRange: { date_from: '-24h', date_to: null }, label: '24 hours' },
+        ],
+        [
+            { date_from: '-7d', date_to: null },
+            { dateRange: { date_from: '-14d', date_to: null }, label: '14 days' },
+        ],
+        [
+            { date_from: '-30d', date_to: null },
+            { dateRange: { date_from: '-90d', date_to: null }, label: '90 days' },
+        ],
+        [{ date_from: '-180d', date_to: null }, null],
+    ])('returns the next wider date tick for %j', (dateRange, expected) => {
+        expect(getNextErrorTrackingDateRange(dateRange)).toEqual(expected)
     })
 })

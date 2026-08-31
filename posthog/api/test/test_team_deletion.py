@@ -172,7 +172,6 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
         fake = get_active_fake()
         for rpc in [
             "delete_hash_key_overrides_by_teams",
-            "delete_personless_distinct_ids_batch_for_team",
             "delete_persons_batch_for_team",
             "delete_groups_batch_for_team",
             "delete_group_type_mappings_batch_for_team",

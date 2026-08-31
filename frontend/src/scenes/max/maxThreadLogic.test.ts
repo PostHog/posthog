@@ -8,10 +8,12 @@ import React from 'react'
 
 import api, { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -28,7 +30,7 @@ import {
     SlashCommandName,
 } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
+import { Conversation, ConversationDetail, ConversationStatus, ConversationType, OrganizationType } from '~/types'
 
 import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -819,6 +821,23 @@ describe('maxThreadLogic', () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
 
             expect(logic.values.queuedMessages).toEqual([{ ...queueMessage, content: 'Updated' }])
+        })
+
+        it('blocks editing a queued message into /ticket for orgs that cannot contact support', async () => {
+            const updateSpy = jest.spyOn(api.conversations.queue, 'update')
+            const toastSpy = jest.spyOn(lemonToast, 'warning')
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            logic.actions.setQueuedMessages([
+                { id: 'queue-1', content: 'Original', created_at: new Date().toISOString() },
+            ])
+            logic.actions.setQueueLimit(2)
+
+            logic.actions.updateQueuedMessage('queue-1', '/ticket')
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(updateSpy).not.toHaveBeenCalled()
+            expect(toastSpy).toHaveBeenCalled()
         })
 
         it('deletes queued messages from the API', async () => {
@@ -1871,18 +1890,57 @@ describe('maxThreadLogic', () => {
             expect(names).not.toContain(SlashCommandName.SlashRemember)
             expect(names).toContain(SlashCommandName.SlashUsage)
             expect(names).toContain(SlashCommandName.SlashFeedback)
-            // /ticket must be offered even when no billing context is available — the backend decides eligibility
-            expect(names).toContain(SlashCommandName.SlashTicket)
         })
 
-        it('keeps the full command set for langgraph conversations', async () => {
+        it('keeps the core-memory commands for langgraph conversations', async () => {
             setRuntime('langgraph')
             const names = logic.values.filteredCommands.map((c) => c.name)
             expect(names).toContain(SlashCommandName.SlashInit)
             expect(names).toContain(SlashCommandName.SlashRemember)
             expect(names).toContain(SlashCommandName.SlashUsage)
             expect(names).toContain(SlashCommandName.SlashFeedback)
+        })
+
+        it('hides /ticket for organizations that cannot contact support', () => {
+            setRuntime('langgraph')
+            const names = logic.values.filteredCommands.map((c) => c.name)
+            expect(names).not.toContain(SlashCommandName.SlashTicket)
+        })
+
+        it('offers /ticket once the org is eligible to contact support', () => {
+            setRuntime('langgraph')
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                created_at: dayjs().toISOString(),
+            } as OrganizationType)
+            const names = logic.values.filteredCommands.map((c) => c.name)
             expect(names).toContain(SlashCommandName.SlashTicket)
+        })
+    })
+
+    describe('ticket command send gate', () => {
+        it('blocks sending /ticket for orgs that cannot contact support, even typed by hand', async () => {
+            const streamSpy = mockStream()
+            const toastSpy = jest.spyOn(lemonToast, 'warning')
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('/ticket')
+            }).toNotHaveDispatchedActions(['streamConversation'])
+
+            expect(streamSpy).not.toHaveBeenCalled()
+            expect(toastSpy).toHaveBeenCalled()
+        })
+
+        it('sends /ticket for orgs that are eligible to contact support', async () => {
+            const streamSpy = mockStream()
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                created_at: dayjs().toISOString(),
+            } as OrganizationType)
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('/ticket')
+            }).toDispatchActions(['streamConversation'])
+
+            expect(streamSpy).toHaveBeenCalledWith(expect.objectContaining({ content: '/ticket' }), expect.any(Object))
         })
     })
 

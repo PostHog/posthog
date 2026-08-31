@@ -186,18 +186,6 @@ def parse_prop_clauses(
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
-        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_PERSONS:
-            filter_query, filter_params = prop_filter_json_extract(
-                prop,
-                idx,
-                prepend,
-                prop_var="properties",
-                allow_denormalized_props=allow_denormalized_props,
-                property_operator=property_operator,
-                table_name=table_name,
-            )
-            final.append(f" {filter_query}")
-            params.update(filter_params)
         elif prop.type == "person" and person_properties_mode in [
             PersonPropertiesMode.DIRECT_ON_EVENTS,
             PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2,
@@ -214,7 +202,7 @@ def parse_prop_clauses(
             )
             final.append(filter_query)
             params.update(filter_params)
-        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.DIRECT:
+        elif prop.type == "person":
             # :TODO: Clean this up by using PersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
@@ -244,20 +232,6 @@ def parse_prop_clauses(
                     )
                 )
                 params.update(filter_params)
-        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT:
-            # this setting is used to generate the PersonQuery SQL.
-            # When using direct mode, there should only be person properties in the entire
-            # property group
-            filter_query, filter_params = prop_filter_json_extract(
-                prop,
-                idx,
-                prepend=f"personquery_{prepend}",
-                allow_denormalized_props=True,
-                transform_expression=lambda column_name: f"argMax(person.{column_name}, version)",
-                property_operator=property_operator,
-            )
-            final.append(filter_query)
-            params.update(filter_params)
         elif prop.type == "event":
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
@@ -931,6 +905,14 @@ def process_ok_values(ok_values: Any, operator: OperatorType) -> list[str]:
         return [re.escape(text) for text in ok_values]
 
 
+def _chain_escaped_value(value: str) -> str:
+    # A quoted value in the chain escapes double quotes as \" (_escape in
+    # posthog/models/element/element.py). A selector can write the quote either
+    # pre-escaped ([title="say \"hi\""]) or bare inside single quotes
+    # ([title='say "hi"']), so normalize to the chain's form to match both.
+    return value.replace(r"\"", '"').replace('"', r"\"")
+
+
 def build_selector_regex(selector: Selector) -> str:
     regex = r""
     for tag in selector.parts:
@@ -942,8 +924,11 @@ def build_selector_regex(selector: Selector) -> str:
         if tag.ch_attributes:
             regex += r".*?"
             for key, value in sorted(tag.ch_attributes.items()):
-                regex += rf'{re.escape(key)}="{re.escape(str(value))}".*?'
-        regex += r'([-_a-zA-Z0-9\.:"= \[\]\(\),]*?)?($|;|:([^;^\s]*(;|$|\s)))'
+                regex += rf'{re.escape(key)}="{re.escape(_chain_escaped_value(str(value)))}".*?'
+        # The rest of the element can carry characters an allowlist cannot
+        # anticipate (classes like w-1/2 or !mt-0), so skip anything up to the
+        # `;` element separator.
+        regex += r"[^;]*?($|;|:([^;^\s]*(;|$|\s)))"
         if tag.direct_descendant:
             regex += r".*"
     if regex:

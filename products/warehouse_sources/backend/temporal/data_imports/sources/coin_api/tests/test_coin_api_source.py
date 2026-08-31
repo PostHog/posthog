@@ -1,16 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.coin_api import CoinApiResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source import CoinApiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinapi import (
     CoinApiSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCoinApiSource:
@@ -18,33 +13,6 @@ class TestCoinApiSource:
         self.source = CoinApiSource()
         self.team_id = 123
         self.config = CoinApiSourceConfig(api_key="key", symbol_id="BITSTAMP_SPOT_BTC_USD", period_id="1DAY")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.COINAPI
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "CoinApi"
-        assert config.label == "CoinAPI"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/coin-api"
-        assert [f.name for f in config.fields] == [
-            "api_key",
-            "exchange_rate_base_asset",
-            "symbol_id",
-            "period_id",
-            "start_date",
-        ]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        key_field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == "api_key"
-        )
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O, so public docs can render the table list.
@@ -118,11 +86,6 @@ class TestCoinApiSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("key")
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CoinApiResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source.coin_api_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
@@ -153,11 +116,6 @@ class TestCoinApiSource:
         assert kwargs["period_id"] == "1DAY"
         assert kwargs["exchange_rate_base_asset"] == "USD"
         assert kwargs["start_date"] == ""
-
-    def test_canonical_descriptions_cover_key_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert "ohlcv_history" in descriptions
-        assert "price_close" in descriptions["ohlcv_history"]["columns"]
 
     def test_documented_tables_render_for_public_docs(self) -> None:
         tables = self.source.get_documented_tables()

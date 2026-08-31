@@ -4,16 +4,18 @@ from typing import Any, Optional, cast
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
+    CacheMissResponse,
     DashboardFilter,
     DateRange,
     HogQLFilters,
     HogQLQuery,
     HogQLQueryResponse,
+    QueryStatusResponse,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata import get_table_names
@@ -26,10 +28,13 @@ from posthog.hogql.variables import replace_variables
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.models import User
 
-from products.warehouse_sources.backend.facade.models import get_direct_external_data_source_for_connection
+from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 
@@ -46,6 +51,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         **kwargs,
     ):
         self.settings = settings or HogQLGlobalSettings()
+        self._direct_connection_validated = False
+        self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight
@@ -53,6 +60,65 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if last_refresh is None:
             return None
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+
+    def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
+        if self._direct_connection_validated and not force:
+            return
+        managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
+        if self.query.connectionId:
+            source = get_direct_connection_source(
+                self.team,
+                self.query.connectionId,
+                user=user if user is not None else self.user,
+            )
+            if source is None:
+                raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+            if source.has_managed_warehouse_prefix:
+                managed_warehouse_sql_mode = source.managed_warehouse_sql_mode
+                if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+                    raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+        self._managed_warehouse_sql_mode = managed_warehouse_sql_mode
+        self._direct_connection_validated = True
+
+    def get_cache_payload(self) -> dict:
+        self._validate_direct_connection()
+        payload = super().get_cache_payload()
+        if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
+            payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
+        if self._modifiers_override_provided and self.query.modifiers is not None:
+            # Old workers preferred query modifiers while new workers prefer the constructor override.
+            # Keep their cached results apart during a rolling deploy.
+            payload["hogql_modifier_precedence"] = "runner"
+        return payload
+
+    def query_status_labels(self) -> list[str] | None:
+        self._validate_direct_connection()
+        if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
+            return [
+                f"{managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{self.query.connectionId}"
+            ]
+        return None
+
+    def run(
+        self,
+        execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user: Optional[User] = None,
+        query_id: Optional[str] = None,
+        insight_id: Optional[int] = None,
+        dashboard_id: Optional[int] = None,
+        cache_age_seconds: Optional[int] = None,
+        analytics_props: Optional[AnalyticsProps] = None,
+    ) -> HogQLQueryResponse | CachedHogQLQueryResponse | CacheMissResponse | QueryStatusResponse:
+        self._validate_direct_connection(user=user, force=True)
+        return super().run(
+            execution_mode=execution_mode,
+            user=user,
+            query_id=query_id,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+            cache_age_seconds=cache_age_seconds,
+            analytics_props=analytics_props,
+        )
 
     def requires_fresh_calculation(self) -> bool:
         # system.information_schema.* mirrors mutable data-catalog state (metric approval, relationship
@@ -82,7 +148,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
             if self.query.filters and finder.has_filters:
-                parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
+                # Resolve {filters} against the shared database so a filtered query builds the schema
+                # once, instead of replace_filters building a throwaway one. With a connection id the
+                # schema is the external connection's, so keep the per-call build there.
+                database = self.shared_database if self.query.connectionId is None else None
+                parsed_select = replace_filters(parsed_select, self.query.filters, self.team, database)
         if self.query.variables:
             with self.timings.measure("replace_variables"):
                 parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
@@ -113,12 +183,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # p95 duration of HogQL query is 2.78sec
             self.settings.max_execution_time = 10
 
-        if self.query.connectionId:
-            source = get_direct_external_data_source_for_connection(
-                team_id=self.team.pk, connection_id=self.query.connectionId
-            )
-            if source is None:
-                raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+        self._validate_direct_connection()
 
         if self.query.sendRawQuery and self.query.connectionId:
             return execute_hogql_query(
@@ -152,11 +217,19 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,
         )
 
+        context_kwargs: dict[str, Any] = {}
+        if self.query.connectionId is None:
+            # With a connection id the executor builds its own connection-scoped database,
+            # so the shared one would be built for nothing.
+            context_kwargs["context"] = self.build_hogql_context()
         response = func(
             query_type="HogQLQuery",
             query=query,
             filters=self.query.filters,
-            modifiers=self.query.modifiers or self.modifiers,
+            # Print with the same modifiers the shared database was built from (self.modifiers).
+            # The shared database uses self.modifiers, so passing self.query.modifiers here would let
+            # a caller that sets both build the schema from one modifier set and print SQL for another.
+            modifiers=self.modifiers,
             team=self.team,
             user=self.user,
             user_access_control=self.user_access_control,
@@ -167,6 +240,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             workload=self.workload,
             ch_user=self.ch_user,
             settings=self.settings,
+            **context_kwargs,
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})

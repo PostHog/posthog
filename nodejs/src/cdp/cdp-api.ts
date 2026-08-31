@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
+import { z } from 'zod'
 
 import { ModifiedRequest } from '~/common/api/router'
 import { logger } from '~/common/utils/logger'
@@ -72,7 +73,8 @@ import {
 import { dualRead, dualWrite } from './utils/dual-store'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
-import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
+import { PosthogJwtAudience } from './utils/jwt-utils'
+import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -143,10 +145,12 @@ export class CdpApi {
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
     private batchResolverProducer: CyclotronV2JobProducer | null
-    // Scoped auth for the reschedule_parked route (exempted from the shared internal-secret
-    // middleware): Django mints per-call JWTs pinned to a team + workflow. Null when the key
-    // isn't provisioned — the route then fails closed.
-    private rescheduleJwt: JWT | null
+    // Scoped auth for the reschedule_parked and cancel routes (exempted from the shared
+    // internal-secret middleware): Django mints per-call JWTs pinned to a team + workflow,
+    // one audience per route. Disabled when the key isn't provisioned — the routes then fail closed.
+    private rescheduleJwt: ScopedServiceJwt
+    private cancelInvocationsJwt: ScopedServiceJwt
+    private cancelBatchJwt: ScopedServiceJwt
 
     constructor(
         private config: PluginsServerConfig,
@@ -198,9 +202,18 @@ export class CdpApi {
             this.hogWatcherMirror
         )
         this.batchResolverProducer = batchResolverProducer
-        this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
-            ? new JWT(config.WORKFLOWS_RESCHEDULE_JWT_SECRET)
-            : null
+        this.rescheduleJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED,
+            config.WORKFLOWS_RESCHEDULE_JWT_SECRET || ''
+        )
+        this.cancelInvocationsJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_CANCEL_INVOCATIONS,
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
+        )
+        this.cancelBatchJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
+        )
     }
 
     public get service(): PluginServerService {
@@ -271,6 +284,14 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/reschedule_parked',
             asyncHandler(this.postHogFlowRescheduleParked)
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/invocations/cancel',
+            asyncHandler(this.postHogFlowCancelInvocations)
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/batch_jobs/:batch_job_id/cancel',
+            asyncHandler(this.postHogFlowCancelBatchJob)
         )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
@@ -774,9 +795,15 @@ export class CdpApi {
 
             const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration, filterGlobals)
 
-            invocation.state.currentAction = current_action_id
+            // Real event ingestion evaluates trigger filters before creating an invocation. A test run has to
+            // execute the trigger action itself so callers can verify whether their supplied globals match.
+            // Without this explicit position, executeCurrentAction starts after the trigger by design.
+            const startingActionId =
+                current_action_id ??
+                compoundConfiguration.actions?.find((action: HogFlowAction) => action.type === 'trigger')?.id
+            invocation.state.currentAction = startingActionId
                 ? {
-                      id: current_action_id,
+                      id: startingActionId,
                       startedAtTimestamp: Date.now(),
                   }
                 : undefined
@@ -823,8 +850,8 @@ export class CdpApi {
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
-                nextActionId: result.invocation.state.currentAction?.id,
-                status: result.error ? 'error' : 'success',
+                nextActionId: result.skipped ? null : result.invocation.state.currentAction?.id,
+                status: result.error ? 'error' : result.skipped ? 'skipped' : 'success',
                 errors: result.error ? [result.error] : [],
                 logs: [...result.logs, ...logs],
                 variables: result.invocation.state.variables ?? {},
@@ -1014,6 +1041,36 @@ export class CdpApi {
         }
     }
 
+    // Shared gate for the per-call scoped JWTs Django mints (reschedule, cancel): verifies the
+    // token and requires its claims to match the URL's team + workflow, so a leaked token can't
+    // touch another team or flow. Routes scoped tighter than a workflow (batch cancel) pass the
+    // narrower claims via extraClaims and every one must match too. Writes the 401 itself and
+    // returns false on any mismatch.
+    private verifyScopedWorkflowJwt(
+        jwt: ScopedServiceJwt,
+        req: ModifiedRequest,
+        res: express.Response,
+        label: string,
+        extraClaims?: Record<string, string>
+    ): boolean {
+        const { team_id, id } = req.params
+        const authHeader = req.headers['authorization']
+        const token =
+            typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+        let claims: Record<string, unknown> | undefined
+        try {
+            claims = token ? (jwt.verify(token) as typeof claims) : undefined
+        } catch {
+            claims = undefined
+        }
+        const extrasMatch = !extraClaims || Object.entries(extraClaims).every(([key, value]) => claims?.[key] === value)
+        if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id || !extrasMatch) {
+            res.status(401).json({ error: `Unauthorized: Invalid ${label} token` })
+            return false
+        }
+        return true
+    }
+
     // Pull forward the wake times of this workflow's parked jobs after a timing edit. Django
     // calls this (via a Celery task) when a published/saved change shortened a delay or moved a
     // wait window; one call is one slice, and the caller loops with the returned bounds until
@@ -1029,7 +1086,7 @@ export class CdpApi {
                     error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
                 })
             }
-            if (!this.rescheduleJwt) {
+            if (!this.rescheduleJwt.enabled) {
                 return res.status(503).json({
                     error: 'Reschedule auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
                 })
@@ -1037,17 +1094,8 @@ export class CdpApi {
 
             const { team_id, id } = req.params
 
-            const authHeader = req.headers['authorization']
-            const token =
-                typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-            const claims = token
-                ? (this.rescheduleJwt.verify(token, PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED, {
-                      ignoreVerificationErrors: true,
-                  }) as { team_id?: number; hog_flow_id?: string } | undefined)
-                : undefined
-            // The claims pin the token to one team + workflow, so a leaked token can't sweep anything else.
-            if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
-                return res.status(401).json({ error: 'Unauthorized: Invalid reschedule token' })
+            if (!this.verifyScopedWorkflowJwt(this.rescheduleJwt, req, res, 'reschedule')) {
+                return
             }
 
             const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
@@ -1100,6 +1148,145 @@ export class CdpApi {
             })
         } catch (e) {
             logger.error('Error rescheduling parked hog flow jobs', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    // Flag a workflow's in-flight cyclotron jobs for cancellation. The workers own the actual
+    // termination (terminal status + lifecycle row + metric + log) when they observe the flag;
+    // this endpoint only marks rows and wakes parked ones. See CyclotronV2Manager.cancelJobs.
+    //
+    // Auth mirrors postHogFlowRescheduleParked: a per-call JWT minted by Django, pinned to this
+    // team + workflow, on its own audience, never the fleet-wide internal secret.
+    private postHogFlowCancelInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            if (!this.cancelInvocationsJwt.enabled) {
+                return res.status(503).json({
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
+                })
+            }
+
+            const { team_id, id } = req.params
+
+            if (!this.verifyScopedWorkflowJwt(this.cancelInvocationsJwt, req, res, 'cancel')) {
+                return
+            }
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            // Deliberately no hogFlowManager lookup beyond team pinning: cancel must keep working
+            // for flows that were deleted with runs still parked. The JWT claims already bind the
+            // request to this flow id, and cancelJobs filters on (team_id, function_id).
+
+            // UUID-shaped ids only: cancelJobs binds them as ::uuid[], so a malformed id must be a
+            // 400 here rather than a Postgres cast error surfaced as a 500. The cap is the same
+            // env-driven one the Django cancel serializer validates against, so raising the env
+            // var lifts both sides together instead of leaving Django accepting ids this route
+            // then rejects with a 400 (which Django surfaces as a 500).
+            const maxInvocationIds = this.config.HOG_INVOCATION_RERUN_MAX_COUNT
+            const idsMessage = `invocation_ids must be a non-empty array of up to ${maxInvocationIds} invocation UUIDs`
+            const parsed = z
+                .object({
+                    invocation_ids: z
+                        .array(z.string().uuid(idsMessage))
+                        .min(1, idsMessage)
+                        .max(maxInvocationIds, idsMessage)
+                        .optional(),
+                    all: z.boolean().optional(),
+                })
+                .refine((body) => (body.invocation_ids !== undefined) !== (body.all === true), {
+                    message: 'Provide exactly one of invocation_ids or all=true',
+                })
+                .safeParse(req.body ?? {})
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body' })
+            }
+            const { invocation_ids: invocationIds, all } = parsed.data
+
+            const result = await this.batchResolverProducer.cancelJobs({
+                teamId: team.id,
+                functionId: id,
+                jobIds: invocationIds,
+                all: all === true ? true : undefined,
+                // Batch-resolver jobs orchestrate audience fan-out rather than being runs;
+                // flagging one would silently stall a batch with no terminal reporting.
+                // Stopping a batch run is its own feature with its own endpoint.
+                excludeQueueNames: [HOGFLOW_BATCH_RESOLVE_QUEUE],
+            })
+            return res.json({
+                marked: result.marked,
+                remaining: result.remaining,
+                done: result.done,
+            })
+        } catch (e) {
+            logger.error('Error cancelling hog flow invocations', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    // Stop a batch run: flag its resolver orchestration job and every child run for
+    // cancellation in one sweep — they share parent_run_id, so one selector covers both.
+    // The resolver's in-transaction tombstone check plus Django's repeat-until-done loop
+    // make this converge: once the resolver is flagged it can commit at most the one page
+    // that already held its row lock, and that page's children surface in the next sweep's
+    // remaining count.
+    //
+    // Auth mirrors the other workflows CDP calls: a per-call JWT minted by Django, pinned
+    // to this team + workflow, on its own audience.
+    private postHogFlowCancelBatchJob = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            if (!this.cancelBatchJwt.enabled) {
+                return res.status(503).json({
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
+                })
+            }
+
+            const { team_id, id, batch_job_id } = req.params
+
+            // batch_job_id is pinned in the claims too: without it, a captured token could stop
+            // any sibling batch of the same workflow for the token's lifetime.
+            if (!this.verifyScopedWorkflowJwt(this.cancelBatchJwt, req, res, 'cancel', { batch_job_id })) {
+                return
+            }
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            if (batch_job_id.length > 200) {
+                return res.status(400).json({ error: 'batch_job_id is too long' })
+            }
+
+            const result = await this.batchResolverProducer.cancelJobs({
+                teamId: team.id,
+                functionId: id,
+                parentRunId: batch_job_id,
+            })
+            return res.json({
+                marked: result.marked,
+                remaining: result.remaining,
+                done: result.done,
+            })
+        } catch (e) {
+            logger.error('Error cancelling hog flow batch job', {
                 error: e instanceof Error ? e.message : String(e),
             })
             return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
