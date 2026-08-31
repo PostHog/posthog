@@ -63,7 +63,7 @@ this perspective always makes the change smaller or simpler.
 
 ## Investigation commands
 
-- Count a symbol's callers: `rg "\bthe_symbol\b" -l` (only the defining file → nothing uses it)
+- Count a symbol's callers: `rg -n "\bthe_symbol\b"` (list every match with its line, then count the call sites apart from the definition — a helper called only inside its own file still has callers, so `-l` returning one path does not mean it is unused)
 - Find single-implementation abstractions: `rg "class \w+\((ABC|Protocol)\)" --type py -A 3`, then count subclasses / implementors of each
 - Check whether an option is ever set: `rg "option_name\s*[=:]"` across callers and config
 - Find broad exception handling: `rg "except Exception|except:|catch \(" -B 3 -A 5`
