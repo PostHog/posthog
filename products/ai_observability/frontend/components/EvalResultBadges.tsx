@@ -8,7 +8,7 @@ import { pluralize } from 'lib/utils/strings'
 import { TraceViewMode, aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 import { EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
-import { getEvaluationResultDisplay } from './EvaluationResultTag'
+import { EvaluationResultDisplayOptions, getEvaluationResultDisplay } from './EvaluationResultTag'
 
 export interface EvalSummary {
     latestRun: EvaluationRun
@@ -29,12 +29,15 @@ export function getEvalSummaries(runs: EvaluationRun[]): EvalSummary[] {
     return Array.from(byEvalId.values())
 }
 
-export function getEvalBadgeProps(run: EvaluationRun): {
+export function getEvalBadgeProps(
+    run: EvaluationRun,
+    options: EvaluationResultDisplayOptions = {}
+): {
     type: LemonTagProps['type']
     icon: JSX.Element
     label: string
 } {
-    const { type, icon, label } = getEvaluationResultDisplay(run)
+    const { type, icon, label } = getEvaluationResultDisplay(run, options)
     return { type, icon, label }
 }
 

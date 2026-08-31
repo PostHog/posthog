@@ -1,6 +1,6 @@
 import { EvaluationRun } from '../evaluations/types'
 import { getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
-import { isSentimentRun } from './EvaluationResultTag'
+import { getEvaluationResultDisplay, getEvaluationResultSortValue, isSentimentRun } from './EvaluationResultTag'
 
 function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
     return {
@@ -132,6 +132,25 @@ describe('EvalResultBadges', () => {
         it('prioritizes running status over result value', () => {
             const props = getEvalBadgeProps(makeRun({ status: 'running', result: true }))
             expect(props.label).toBe('Running')
+        })
+    })
+
+    describe('getEvaluationResultDisplay polarity', () => {
+        it('keeps the True label but marks a detector true result as danger', () => {
+            const run = { status: 'completed', result: true, skipped: false } as any
+            expect(getEvaluationResultDisplay(run, { trueIsFailure: true })).toMatchObject({
+                type: 'danger',
+                label: 'True',
+            })
+            expect(getEvaluationResultDisplay(run)).toMatchObject({ type: 'success', label: 'True' })
+        })
+
+        it('sorts a detector false result above its true result', () => {
+            const trueRun = { status: 'completed', result: true, skipped: false } as any
+            const falseRun = { status: 'completed', result: false, skipped: false } as any
+            expect(getEvaluationResultSortValue(falseRun, { trueIsFailure: true })).toBeGreaterThan(
+                getEvaluationResultSortValue(trueRun, { trueIsFailure: true })
+            )
         })
     })
 
