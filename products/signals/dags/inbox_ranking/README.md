@@ -77,6 +77,39 @@ s3://<bucket>/<prefix>/
 - **Metrics telemetry**: each asset also captures its metrics as events into the dogfood project (the same project the label events land in), through `training/telemetry.py`: `inbox_ranking_examples_built` and `inbox_ranking_candidate_trained` once per head (`head`, holdout / train AUC, average precision, logloss, positive rate, the permutation-null mean and spread, counts, `readable`) and `inbox_ranking_promotion_decided` once per run, all carrying `model_version` and stamped midday UTC on the partition day so re-runs and backfills chart on the day they describe. Per-head stability is a trends insight with a `head` breakdown; a readability drop is an insight alert. `metadata.json` stays the durable record. Capture is best-effort. Local dev runs (`DEBUG`) emit too, under `distinct_id` `inbox_ranking_training_local` with `environment=local`, so filter or break down on `environment` when reading the prod series; any other non-Cloud deployment emits nothing.
 - **Champion**: `promotion.decide_promotion` — promote when the candidate has a readable head, is within 0.02 AUC of the champion on every head the champion could read, and the champion is at least `INBOX_RANKING_PROMOTION_MIN_DAYS` old. The champion's AUCs come from its `<head>.holdout.ubj` scored on the candidate's holdout (`paired_champion_aucs`), so both models are compared on one set of reports; a champion without that file falls back to its stored AUC. The pointer is rewritten only when `INBOX_RANKING_AUTO_PROMOTE` is on; otherwise the decision is logged and surfaced as asset metadata, so the daily candidate series is monitoring while the first shadow read runs on a frozen champion. To promote by hand, copy a candidate's `metadata.json` to `champion.json` with a `promoted_at`.
 
+### Running the training job locally
+
+The training job is S3-only, so it can run on a laptop against copies of the prod snapshots. The dataset job cannot: it needs the dogfood project's ClickHouse and cross-region Postgres.
+
+1. With the dev stack up (`bin/start`; the script waits for object storage to accept requests), sync the two prefixes the job reads into the local object-storage bucket. This needs an SSO session with the `secrets-editor` role on `prod-us-secrets`, and the Secrets Manager id of the dataset reader credential (provisioned with the bucket; ask the owning team):
+
+   ```bash
+   aws sso login --profile prod-us-secrets
+   INBOX_RANKING_READER_SECRET_ID=<secret id> products/signals/dags/inbox_ranking/bin/sync_snapshots_local.sh
+   ```
+
+   This copies `inbox_report_state/v1/dt=*` and `inbox_report_labels/v1/dt=*` to `~/.cache/posthog/inbox_ranking/` and from there into `s3://posthog/inbox_ranking/` on SeaweedFS (`localhost:19000`). It prints the partition days present in both tables; pick one of those as the partition to run. Re-runs only move new days.
+
+2. Make sure `INBOX_RANKING_DATASET_S3_BUCKET` is unset in the shell that runs Dagster (`env | grep INBOX_RANKING`): `common.s3_client()` then talks to SeaweedFS and `dataset_bucket()` is `posthog`. If it is set, the dag uses your ambient AWS credentials against that bucket, and the read-only credential the sync used protects nothing.
+
+3. `bin/start` runs `dagster dev` on http://localhost:3030 with the signals location loaded; materialize `inbox_ranking_training_job` for that partition from the UI, or from the CLI:
+
+   ```bash
+   dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locations.signals \
+       -j inbox_ranking_training_job --tags '{"dagster/partition": "2026-08-25"}'
+   ```
+
+   The schedule is stopped outside prod US, so nothing runs unasked. If the run sits in `QUEUED`, check the daemon log for `Maximum is 10, won't launch more`: runs from a killed `dagster dev` stay `STARTED` forever and count against the local queue. Terminate them from the Runs page (force termination).
+
+4. Read the result from `s3://posthog/inbox_ranking/inbox_ranking_models/v1/dt=<day>/metadata.json` (per-head AUCs, readability); the examples are at `s3://posthog/inbox_ranking/inbox_ranking_training_examples/v1/dt=<day>/part-00000.parquet`:
+
+   ```bash
+   AWS_ACCESS_KEY_ID=object_storage_root_user AWS_SECRET_ACCESS_KEY=object_storage_root_password \
+       aws --endpoint-url http://localhost:19000 s3 cp s3://posthog/inbox_ranking/inbox_ranking_models/v1/dt=2026-08-25/metadata.json -
+   ```
+
+Nothing here touches the prod bucket: the reader credential is read-only and the dag writes only to the local bucket.
+
 ### Configuration
 
 | Setting                                | Default         | Meaning                                                                                                                                                                                                             |
