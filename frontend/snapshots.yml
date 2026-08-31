@@ -1352,6 +1352,10 @@ snapshots:
         hash: v1.k794b7964.9bb4b92b008cdccb862ca940535251a1c759438b17605a34f8d74681b94e6765.0ftYxcCOUtalHC4McZch-sIgToj4VHnBEtoZ6vhga10
     components-markdown-notebook--mermaid-diagram--light:
         hash: v1.k794b7964.a338e3150ada84d22781e22226e16a7d9f13a9e5be0105d614cb9886825b52ff.xPp_HRs9ogzR41qb6oWtWB1zkE1EMbwDQJl3Vk-5fy8
+    components-markdown-notebook--mermaid-diagram-editor--dark:
+        hash: v1.k794b7964.58b9607c195432d7dba610de93c1bf47812ffcd51f463168fdc56379697ea401.Fm_YioP0aS0NiS8_guXZdBkkki35dwNwW-6YuMO4T7E
+    components-markdown-notebook--mermaid-diagram-editor--light:
+        hash: v1.k794b7964.dcedeba93bc439ac3a8c12e42b07e885c6158e6bcdaa8d8eb914aa518f182835.SjR79unenBay0KLcEX9gVhjc0ECdLBsCjEMfLa6w5Bc
     components-markdown-notebook--mermaid-diagram-fallback--dark:
         hash: v1.k794b7964.494ca017ad3eb87dfe9bafd02920e7d8603d43c1a82d300b45899d3af5dd64f8.DtGmaVDhzyfI5-VFW5wY9pEqk4WwZlHK3e19ohNTBAo
     components-markdown-notebook--mermaid-diagram-fallback--light:
