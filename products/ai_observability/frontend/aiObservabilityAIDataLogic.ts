@@ -406,7 +406,8 @@ export const aiObservabilityAIDataLogic = kea<aiObservabilityAIDataLogicType>([
                         try {
                             const results = await fetchAIDataBatch(batch)
                             actions.loadAIDataBatchSuccess(results, requestedEventIds)
-                        } catch {
+                        } catch (error) {
+                            console.warn('[aiObservabilityAIDataLogic] failed to load AI data batch', error)
                             actions.loadAIDataBatchFailure(requestedEventIds)
                         }
                     })

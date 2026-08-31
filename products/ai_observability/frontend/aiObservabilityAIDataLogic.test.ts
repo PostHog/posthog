@@ -11,12 +11,11 @@ const mockApi = api as jest.Mocked<typeof api>
 // [uuid, input, output, output_choices, input_state, output_state, tools].
 type Row = [string, unknown, unknown, unknown, unknown, unknown, unknown]
 
-// Let the listener's setTimeout(0) batch timer fire, then drain the query + merge microtask chain.
+// Let the listener's setTimeout(0) batch timer fire, then take one more macrotask turn so the
+// query + merge chain settles regardless of its await depth.
 async function settle(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0))
-    for (let i = 0; i < 10; i++) {
-        await Promise.resolve()
-    }
+    await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 describe('aiObservabilityAIDataLogic', () => {
