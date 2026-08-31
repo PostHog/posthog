@@ -123,6 +123,7 @@ from products.workflows.backend.api.message_assets import (
 from products.workflows.backend.api.publish_impact import build_publish_impact
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
+    MESSAGING_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
@@ -3106,6 +3107,17 @@ def mint_audience_confirm_token(
                 OpenApiTypes.UUID,
                 description="Filter to workflows created by the user with this uuid.",
             ),
+            OpenApiParameter(
+                "type",
+                OpenApiTypes.STR,
+                enum=["messaging", "automation"],
+                description="Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.",
+            ),
+            OpenApiParameter(
+                "trigger",
+                OpenApiTypes.STR,
+                description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
+            ),
         ]
     )
 )
@@ -3242,6 +3254,17 @@ class HogFlowViewSet(
                 except ValueError:
                     raise exceptions.ValidationError({"created_by": "Must be a valid user uuid"})
                 queryset = queryset.filter(created_by__uuid=created_by)
+
+            workflow_type = self.request.GET.get("type")
+            if workflow_type:
+                if workflow_type not in ("messaging", "automation"):
+                    raise exceptions.ValidationError({"type": "Must be one of: messaging, automation"})
+                messaging_q = Q()
+                for action_type in MESSAGING_ACTION_TYPES:
+                    messaging_q |= Q(actions__contains=[{"type": action_type}])
+                queryset = (
+                    queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
+                )
 
         if self.request.GET.get("trigger"):
             try:
