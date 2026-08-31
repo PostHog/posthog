@@ -447,10 +447,14 @@ describe('workflowLogic auto-save', () => {
         let rejected: number
         let releaseFirstPatch: (() => void) | null
         let firstPatchSeen: Promise<void>
+        let scheduleWrites: number
+        let events: string[]
 
         beforeEach(async () => {
             serverUpdatedAt = '2026-05-01T00:00:00.000Z'
             rejected = 0
+            scheduleWrites = 0
+            events = []
             releaseFirstPatch = null
             let markFirstPatchSeen = (): void => {}
             firstPatchSeen = new Promise<void>((resolve) => {
@@ -464,6 +468,14 @@ describe('workflowLogic auto-save', () => {
                         200,
                         makeWorkflow({ updated_at: serverUpdatedAt }),
                     ],
+                    '/api/environments/:team_id/hog_flows/:id/schedules': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/schedules': () => {
+                        scheduleWrites += 1
+                        events.push('schedule')
+                        return [200, { id: 'sched-1', rrule: 'FREQ=DAILY', starts_at: '2026-07-01T00:00:00.000Z' }]
+                    },
                 },
                 patch: {
                     // Stands in for perform_update, which rejects a write whose base_updated_at is
@@ -484,6 +496,7 @@ describe('workflowLogic auto-save', () => {
                             return [409, { detail: 'stale_update', code: 'stale_update' }]
                         }
                         serverUpdatedAt = new Date(Date.parse(serverUpdatedAt) + 1000).toISOString()
+                        events.push('patch')
                         return [200, makeWorkflow({ updated_at: serverUpdatedAt, name: body.name })]
                     },
                 },
@@ -508,6 +521,27 @@ describe('workflowLogic auto-save', () => {
             await new Promise((resolve) => setTimeout(resolve, 200))
 
             expect({ rejected, banner: logic.values.externallyEdited }).toEqual({ rejected: 0, banner: false })
+        })
+
+        it('runs the manual-only save work once when a manual save queues behind an auto-save', async () => {
+            // Both saves now land, where the second used to 409. The auto-save must not pick up the
+            // manual save's label and repeat its side effects, which include creating a schedule.
+            logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z')
+
+            logic.actions.setWorkflowValue('name', 'Renamed by me')
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+            await firstPatchSeen
+
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            releaseFirstPatch?.()
+            await new Promise((resolve) => setTimeout(resolve, 300))
+
+            // The schedule belongs to the manual save, so it is written once and only after that
+            // save lands. Attributing it to the auto-save puts it between the two patches.
+            expect(events).toEqual(['patch', 'patch', 'schedule'])
+            expect(scheduleWrites).toBe(1)
         })
 
         it('keeps the form submitting until the queued manual save lands', async () => {
@@ -568,6 +602,42 @@ describe('workflowLogic auto-save', () => {
 
             expect(logic.values.publishDisabledReason).toBeUndefined()
             expect(logic.values.discardDisabledReason).toBeUndefined()
+        })
+
+        it('does not re-enable a workflow when a save is queued behind a disable', async () => {
+            // The disable request is held open, so the save below queues behind it and carries the
+            // form's stale status. Landing that would put a stopped workflow back into sending.
+            const patched: Record<string, any>[] = []
+            let releaseDisable: (() => void) | null = null
+            let seen = 0
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patched.push(body)
+                        if (++seen === 1) {
+                            await new Promise<void>((resolve) => {
+                                releaseDisable = resolve
+                            })
+                        }
+                        return [200, makeWorkflow({ ...staged, status: body.status ?? 'draft' })]
+                    },
+                },
+            })
+
+            logic.actions.saveWorkflowPartial({ status: 'draft' })
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            logic.actions.setWorkflowValue('name', 'Edited while disabling')
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            releaseDisable?.()
+            await new Promise((resolve) => setTimeout(resolve, 300))
+
+            expect(patched[0].status).toBe('draft')
+            // The queued form save must not speak about status at all.
+            expect(patched[1]).not.toHaveProperty('status')
         })
     })
 

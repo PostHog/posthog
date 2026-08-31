@@ -61,7 +61,7 @@ describe('WorkflowSceneHeader', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': ACTIVE_WITH_DRAFT,
-                '/api/environments/:team_id/hog_flows/:id/schedules/': { results: [] },
+                '/api/environments/:team_id/hog_flows/:id/schedules': { results: [] },
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
         })
@@ -89,7 +89,7 @@ describe('WorkflowSceneHeader', () => {
 
         // Auto-save has just landed: a draft is staged and the form is clean.
         const clean = toolbar()
-        expect(clean).toEqual(['workflow-publish:Publish', 'workflow-save:Save draft'])
+        expect(clean).toEqual(['workflow-save:Save draft', 'workflow-publish:Publish'])
 
         act(() => {
             logic.actions.setWorkflowValue('name', 'Still typing')

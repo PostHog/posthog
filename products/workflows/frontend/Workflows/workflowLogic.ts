@@ -187,6 +187,12 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
+/** What a save was dispatched with, kept per save because a later save moves the shared state. */
+interface SaveContext {
+    initiatedByAutoSave: boolean
+    pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
+}
+
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
     for (const field of WORKFLOW_CONTENT_FIELDS) {
@@ -2936,12 +2942,14 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         ) => HogFlow
         hasStagedDraft: (originalWorkflow: HogFlow | null) => boolean
-        showDraftActions: (hasStagedDraft: boolean, originalWorkflow: HogFlow | null) => boolean
+        showDraftActions: (originalWorkflow: HogFlow | null) => boolean
         publishDisabledReason: (
+            hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
             draftActionPending: 'discard' | 'publish' | null
         ) => string | undefined
         discardDisabledReason: (
+            hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
             draftActionPending: 'discard' | 'publish' | null
         ) => string | undefined
@@ -3056,6 +3064,13 @@ export const workflowLogic = kea<workflowLogicType>([
                     // auto-save's own 409 would then take the manual path and raise the banner.
                     // Read the origin at dispatch time, while it still describes this save.
                     const initiatedByAutoSave = values.isAutoSave
+                    // Saves run one at a time, so their success and failure actions arrive in
+                    // dispatch order. Queue what each save needs alongside them, so the success
+                    // listener reads its own values rather than shared state a later save moved.
+                    // The pending schedule rides along because an earlier save's reset clears it,
+                    // which would drop a schedule change the user asked a manual save to persist.
+                    const saveContexts = (cache.saveContexts ??= []) as SaveContext[]
+                    saveContexts.push({ initiatedByAutoSave, pendingSchedule: values.pendingSchedule })
 
                     const runSave = async (): Promise<HogFlow> => {
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
@@ -3105,7 +3120,14 @@ export const workflowLogic = kea<workflowLogicType>([
                         const payload: Partial<HogFlow> =
                             isStatusTransition || (values.originalWorkflow?.status === 'active' && !contentChanged)
                                 ? omitWorkflowContent(updates)
-                                : updates
+                                : { ...updates }
+                        if (!isStatusTransition) {
+                            // Only the enable/disable control changes status, and it does not write
+                            // the new value back to the form. A save queued behind that request
+                            // would otherwise carry the pre-change status and put the workflow back,
+                            // so a disabled workflow would resume running and sending.
+                            delete payload.status
+                        }
                         // The stamps of the newest server copy this editor has produced. A queued save
                         // must fence against the copy the save before it wrote, and that copy reaches
                         // this cache when its response lands, which is before kea applies the result to
@@ -3706,33 +3728,51 @@ export const workflowLogic = kea<workflowLogicType>([
         // A staged draft outlives the edits made after it, so the draft actions stay mounted while
         // the form is dirty. Gating them on a clean form made them appear and disappear on every
         // auto-save cycle.
+        // Every live workflow keeps the publish slot, staged draft or not. Mounting the button only
+        // once a draft exists would move the save button on the first auto-save, which is the jump
+        // this editor is meant to stop. A live workflow can always be published into, so the button
+        // is honest when idle: it says there is nothing staged yet.
         showDraftActions: [
-            (s) => [s.hasStagedDraft, s.originalWorkflow],
-            (hasStagedDraft: boolean, originalWorkflow: HogFlow | null): boolean =>
-                hasStagedDraft && !!originalWorkflow?.id,
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean =>
+                originalWorkflow?.status === 'active' && !!originalWorkflow?.id,
         ],
 
         publishDisabledReason: [
-            (s) => [s.hasUnsavedChanges, s.draftActionPending],
-            (hasUnsavedChanges: boolean, draftActionPending: 'publish' | 'discard' | null): string | undefined => {
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
+            (
+                hasStagedDraft: boolean,
+                hasUnsavedChanges: boolean,
+                draftActionPending: 'publish' | 'discard' | null
+            ): string | undefined => {
                 if (draftActionPending === 'discard') {
                     return 'Discarding is in progress'
                 }
                 // Publish promotes the staged draft, so edits still sitting in the form would not
                 // go out. Auto-save clears this a few seconds after the user stops typing.
-                return hasUnsavedChanges ? 'Save your changes first' : undefined
+                if (hasUnsavedChanges) {
+                    return 'Save your changes first'
+                }
+                return hasStagedDraft ? undefined : 'No changes staged to publish'
             },
         ],
 
         discardDisabledReason: [
-            (s) => [s.hasUnsavedChanges, s.draftActionPending],
-            (hasUnsavedChanges: boolean, draftActionPending: 'publish' | 'discard' | null): string | undefined => {
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
+            (
+                hasStagedDraft: boolean,
+                hasUnsavedChanges: boolean,
+                draftActionPending: 'publish' | 'discard' | null
+            ): string | undefined => {
                 if (draftActionPending === 'publish') {
                     return 'Publishing is in progress'
                 }
                 // Discarding reloads the workflow, which drops whatever the form still holds. The
                 // user only agreed to lose the staged draft, so block until the form is clean.
-                return hasUnsavedChanges ? 'Save or clear your changes first' : undefined
+                if (hasUnsavedChanges) {
+                    return 'Save or clear your changes first'
+                }
+                return hasStagedDraft ? undefined : 'No changes staged to discard'
             },
         ],
     }),
@@ -3937,6 +3977,8 @@ export const workflowLogic = kea<workflowLogicType>([
             cache.saveEditVersion = values.workflowEditVersion
         },
         saveWorkflowFailure: () => {
+            // Keep the queue aligned with the saves still in flight.
+            ;(cache.saveContexts as SaveContext[] | undefined)?.shift()
             actions.replayDeferredResourceEdited()
         },
         replayDeferredResourceEdited: () => {
@@ -3947,12 +3989,18 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
-            const isAutoSave = values.isAutoSave
+            // What this save was dispatched with. A manual save queued behind an auto-save used to
+            // relabel the auto-save here, so the auto-save also ran the manual-only work below: a
+            // second toast, and a second schedule write that can leave a duplicate schedule.
+            const saveContext = (cache.saveContexts as SaveContext[] | undefined)?.shift()
+            const isAutoSave = saveContext?.initiatedByAutoSave ?? values.isAutoSave
 
             if (!isAutoSave) {
                 // Save pending schedule changes (only on manual save)
                 const workflowId = originalWorkflow.id
-                const pendingSchedule = values.pendingSchedule
+                // Read the schedule this save carried. An auto-save that landed first has already
+                // reset the reducers, so the live value no longer describes what the user staged.
+                const pendingSchedule = saveContext ? saveContext.pendingSchedule : values.pendingSchedule
                 const existingScheduleId = values.currentSchedule?.id
                 const hasScheduleChanges = pendingSchedule !== false && !!workflowId
 

@@ -295,52 +295,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 Update template
                             </LemonButton>
                         ) : (
-                            // The draft actions stay mounted while the user keeps editing, and save
-                            // keeps the last slot. Auto-save used to swap this group between "Save
-                            // draft" and "Publish" every few seconds, which moved a different action
-                            // under a pointer that had not left the button.
+                            // Both buttons hold a fixed slot for the whole edit. Auto-save used to
+                            // swap this group between "Save draft" and "Publish" every few seconds,
+                            // which moved a different action under a pointer that had not left the
+                            // button.
                             <>
-                                {showDraftActions && (
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Workflow}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={workflowUserAccessLevel ?? undefined}
-                                    >
-                                        <LemonButton
-                                            data-attr="workflow-publish"
-                                            type={hasUnsavedChanges ? 'secondary' : 'primary'}
-                                            size="small"
-                                            onClick={() => publishDraft()}
-                                            loading={draftActionPending === 'publish'}
-                                            disabledReason={publishDisabledReason}
-                                            // Discarding is rare and destructive, so it sits in the
-                                            // menu rather than next to the button a person aims for.
-                                            sideAction={{
-                                                'data-attr': 'workflow-draft-actions',
-                                                'aria-label': 'More draft actions',
-                                                dropdown: {
-                                                    placement: 'bottom-end',
-                                                    overlay: (
-                                                        <LemonMenuOverlay
-                                                            items={[
-                                                                {
-                                                                    label: 'Discard draft',
-                                                                    icon: <IconTrash />,
-                                                                    status: 'danger',
-                                                                    onClick: () => discardDraft(),
-                                                                    disabledReason: discardDisabledReason,
-                                                                    'data-attr': 'workflow-discard-draft',
-                                                                },
-                                                            ]}
-                                                        />
-                                                    ),
-                                                },
-                                            }}
-                                        >
-                                            Publish
-                                        </LemonButton>
-                                    </AccessControlAction>
-                                )}
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Workflow}
                                     minAccessLevel={AccessControlLevel.Editor}
@@ -373,6 +332,47 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                               : 'Save'}
                                     </LemonButton>
                                 </AccessControlAction>
+                                {showDraftActions && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Workflow}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={workflowUserAccessLevel ?? undefined}
+                                    >
+                                        <LemonButton
+                                            data-attr="workflow-publish"
+                                            type={hasStagedDraft && !hasUnsavedChanges ? 'primary' : 'secondary'}
+                                            size="small"
+                                            onClick={() => publishDraft()}
+                                            loading={draftActionPending === 'publish'}
+                                            disabledReason={publishDisabledReason}
+                                            // Discarding is rare and destructive, so it sits in the
+                                            // menu rather than next to the button a person aims for.
+                                            sideAction={{
+                                                'data-attr': 'workflow-draft-actions',
+                                                'aria-label': 'More draft actions',
+                                                dropdown: {
+                                                    placement: 'bottom-end',
+                                                    overlay: (
+                                                        <LemonMenuOverlay
+                                                            items={[
+                                                                {
+                                                                    label: 'Discard draft',
+                                                                    icon: <IconTrash />,
+                                                                    status: 'danger',
+                                                                    onClick: () => discardDraft(),
+                                                                    disabledReason: discardDisabledReason,
+                                                                    'data-attr': 'workflow-discard-draft',
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ),
+                                                },
+                                            }}
+                                        >
+                                            Publish
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                )}
                             </>
                         )}
                     </>
