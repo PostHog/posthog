@@ -157,6 +157,18 @@
                                 "anyOf": [
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "preprocessing": {
                                                 "anyOf": [
                                                     {
@@ -235,6 +247,18 @@
                                     },
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "preprocessing": {
                                                 "anyOf": [
                                                     {
@@ -313,6 +337,18 @@
                                     },
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "multiplier": {
                                                 "anyOf": [
                                                     {
@@ -469,6 +505,18 @@
                                     },
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "preprocessing": {
                                                 "anyOf": [
                                                     {
@@ -547,6 +595,18 @@
                                     },
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "preprocessing": {
                                                 "anyOf": [
                                                     {
@@ -625,6 +685,18 @@
                                     },
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "n_estimators": {
                                                 "anyOf": [
                                                     {
@@ -714,6 +786,18 @@
                                     },
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "method": {
                                                 "anyOf": [
                                                     {
@@ -815,6 +899,18 @@
                                     },
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "n_bins": {
                                                 "anyOf": [
                                                     {
@@ -904,6 +1000,18 @@
                                     },
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "n_neighbors": {
                                                 "anyOf": [
                                                     {
@@ -993,6 +1101,18 @@
                                     },
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "kernel": {
                                                 "anyOf": [
                                                     {
@@ -1093,6 +1213,18 @@
                                     },
                                     {
                                         "properties": {
+                                            "direction": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["both", "up", "down"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            },
                                             "preprocessing": {
                                                 "anyOf": [
                                                     {
@@ -1173,6 +1305,18 @@
                             },
                             "type": "array"
                         },
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "operator": {
                             "description": "How to combine sub-detector results",
                             "enum": ["and", "or"],
@@ -1189,6 +1333,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "preprocessing": {
                             "anyOf": [
                                 {
@@ -1267,6 +1423,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "preprocessing": {
                             "anyOf": [
                                 {
@@ -1345,6 +1513,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "multiplier": {
                             "anyOf": [
                                 {
@@ -1501,6 +1681,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "preprocessing": {
                             "anyOf": [
                                 {
@@ -1579,6 +1771,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "preprocessing": {
                             "anyOf": [
                                 {
@@ -1657,6 +1861,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "n_estimators": {
                             "anyOf": [
                                 {
@@ -1746,6 +1962,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "method": {
                             "anyOf": [
                                 {
@@ -1847,6 +2075,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "n_bins": {
                             "anyOf": [
                                 {
@@ -1936,6 +2176,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "n_neighbors": {
                             "anyOf": [
                                 {
@@ -2025,6 +2277,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "kernel": {
                             "anyOf": [
                                 {
@@ -2125,6 +2389,18 @@
                 },
                 {
                     "properties": {
+                        "direction": {
+                            "anyOf": [
+                                {
+                                    "enum": ["both", "up", "down"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                        },
                         "preprocessing": {
                             "anyOf": [
                                 {
