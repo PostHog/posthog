@@ -236,6 +236,14 @@ export function ReportsTab(): JSX.Element {
     }, [selectedSectionsKey])
 
     const firstLoadPending = selectedSections.some((key) => !sections[key].isLoaded && !sections[key].reportsLoadFailed)
+    // Selecting an unloaded state flips `firstLoadPending` back on. Rows already on screen must not
+    // be replaced with a skeleton then, so the skeleton only shows before the first settle or when
+    // the current selection has no rows to keep visible.
+    const settledOnceRef = useRef(false)
+    if (!firstLoadPending) {
+        settledOnceRef.current = true
+    }
+    const showFirstLoadSkeleton = firstLoadPending && (!settledOnceRef.current || rows.length === 0)
     const anyLoadFailed = selectedSections.some((key) => sections[key].reportsLoadFailed && !sections[key].isLoaded)
     const pageLoading = selectedSections.some((key) => sections[key].reportsResponseLoading)
     const pageLoadFailed = selectedSections.some((key) => sections[key].pageLoadFailed)
@@ -316,10 +324,11 @@ export function ReportsTab(): JSX.Element {
 
             {inboxIsEmpty ? (
                 <ReportsEmptyState />
-            ) : firstLoadPending ? (
+            ) : showFirstLoadSkeleton ? (
                 // Hold the rows until every selected state's first page has settled: the states
                 // load in parallel, and painting the fastest one first would let the slower ones
-                // insert rows among cards already on screen.
+                // insert rows among cards already on screen. A state selected later merges its
+                // rows in when they land, with the trailing page skeleton covering the wait.
                 <CardSkeleton count={4} variant="cards" dashed />
             ) : rows.length === 0 ? (
                 anyLoadFailed ? (

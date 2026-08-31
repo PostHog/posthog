@@ -78,22 +78,29 @@ function makeReport(id: string, status: SignalReportStatus): SignalReport {
     } satisfies SignalReport
 }
 
-// Rows keyed off each state's fixed filter, so which state contributed a row is observable.
-function mockReportRows(): void {
+// Rows keyed off each state's fixed filter, so which state contributed a row is observable. The
+// optional gate holds the Resolved state's rows response (not its `limit=1` count) open, so a test
+// can assert what the list shows while that state is still loading its first page.
+function mockReportRows(resolvedRowsGate?: { block: Promise<void>; onRequest: () => void }): void {
     const withPr = makeReport('with-pr', SignalReportStatus.READY)
     const needsPr = makeReport('needs-pr', SignalReportStatus.READY)
     const resolved = makeReport('resolved', SignalReportStatus.RESOLVED)
     useMocks({
         get: {
             '/api/projects/:team_id/signals/reports/available_reviewers': {},
-            '/api/projects/:team_id/signals/reports/': ({ request }) => {
+            '/api/projects/:team_id/signals/reports/': async ({ request }) => {
                 const params = new URL(request.url).searchParams
+                const isResolved = (params.get('status') ?? '').includes('resolved')
+                if (isResolved && params.get('limit') !== '1' && resolvedRowsGate) {
+                    resolvedRowsGate.onRequest()
+                    await resolvedRowsGate.block
+                }
                 const results =
                     params.get('has_implementation_pr') === 'true'
                         ? [withPr]
                         : params.get('has_implementation_pr') === 'false'
                           ? [needsPr]
-                          : (params.get('status') ?? '').includes('resolved')
+                          : isResolved
                             ? [resolved]
                             : []
                 return [200, { count: results.length, next: null, previous: null, results }]
@@ -181,7 +188,16 @@ describe('ReportsTab', () => {
     // selection is the open work (Review and merge + Needs decision); the state filter widens it
     // to the closed states and narrows it back down.
     it('shows the open-work states by default and follows the state filter', async () => {
-        mockReportRows()
+        let releaseResolvedRows: () => void = () => {}
+        let resolvedRowsRequested = false
+        mockReportRows({
+            block: new Promise((resolve) => {
+                releaseResolvedRows = resolve
+            }),
+            onRequest: () => {
+                resolvedRowsRequested = true
+            },
+        })
         inboxFiltersLogic.mount()
         inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
 
@@ -195,6 +211,13 @@ describe('ReportsTab', () => {
 
         inboxFiltersLogic.actions.toggleState('resolved')
 
+        // The loaded rows must stay on screen while the newly selected state fetches its first
+        // page: falling back to the first-load skeleton here wipes the list on every state toggle.
+        await waitFor(() => expect(resolvedRowsRequested).toBe(true))
+        expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
+        expect(document.querySelector('[data-attr="report-card-needs-pr"]')).not.toBeNull()
+
+        releaseResolvedRows()
         await waitFor(() => {
             expect(document.querySelector('[data-attr="report-card-resolved"]')).not.toBeNull()
         })
