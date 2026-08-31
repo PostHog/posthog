@@ -1012,7 +1012,11 @@ enum StreamEnd {
 /// budgeted frame, a non-empty `timed_out` list of unique in-range indices,
 /// and `accepted + timed_out.len()` covering the frame exactly; OK requires
 /// the list empty.
-fn ack_shape_error(message_count: usize, budgeted: bool, ack: &SubBatchAck) -> Option<&'static str> {
+fn ack_shape_error(
+    message_count: usize,
+    budgeted: bool,
+    ack: &SubBatchAck,
+) -> Option<&'static str> {
     if ack.status != SubBatchStatus::Partial as i32 {
         return (!ack.timed_out.is_empty()).then_some("timed_out on a non-partial ack");
     }

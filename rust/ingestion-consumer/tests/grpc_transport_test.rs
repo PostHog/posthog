@@ -44,7 +44,10 @@ enum AckMode {
 /// Manual mode: the test drives the worker's acks through this.
 #[derive(Clone)]
 enum ManualAck {
-    Ok { seq: u64, accepted: u32 },
+    Ok {
+        seq: u64,
+        accepted: u32,
+    },
     Nack(u64),
     /// Send this ack frame exactly as given, for protocol-violation tests.
     Raw(SubBatchAck),
@@ -269,7 +272,14 @@ async fn sub_batches_reach_the_worker_in_enqueue_order() {
     // Enqueue three sub-batches back to back — more than the un-acked cap, so
     // ordering must survive the ledger pacing too.
     let pending: Vec<_> = (0..3)
-        .map(|i| transport.begin_send(&url, &format!("batch-{i}"), vec![msg("d1", i)], SendOptions::default()))
+        .map(|i| {
+            transport.begin_send(
+                &url,
+                &format!("batch-{i}"),
+                vec![msg("d1", i)],
+                SendOptions::default(),
+            )
+        })
         .collect();
     for (i, p) in pending.into_iter().enumerate() {
         let outcome = p.wait().await.expect("send should succeed");
@@ -294,7 +304,12 @@ async fn out_of_order_acks_resolve_the_right_sends() {
     );
     let url = worker_url(mock.addr);
 
-    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], SendOptions::default());
+    let first = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d1", 2)],
+        SendOptions::default(),
+    );
     let second = transport.begin_send(&url, "batch-2", vec![msg("d2", 3)], SendOptions::default());
 
     // Wait until both are on the wire, then ack seq 2 before seq 1 with
@@ -657,7 +672,12 @@ async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
     let url = worker_url(mock.addr);
 
     // Enqueued first, so it is seq 1 — the one the worker never acks.
-    let stuck = transport.begin_send(&url, "batch-stuck", vec![msg("d1", 1)], SendOptions::default());
+    let stuck = transport.begin_send(
+        &url,
+        "batch-stuck",
+        vec![msg("d1", 1)],
+        SendOptions::default(),
+    );
 
     // Keep feeding siblings faster than the ack timeout. Each is acked and
     // drained (the worker stream holds at most one alongside the stuck entry), so a
@@ -794,7 +814,12 @@ async fn send_and_ack_raw(ack: SubBatchAck) -> Result<SendOutcome, SendError> {
     transport.set_soft_budget_ms(30_000);
     let url = worker_url(mock.addr);
 
-    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], SendOptions::default());
+    let pending = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d1", 2)],
+        SendOptions::default(),
+    );
     wait_for_received(&mock, 1).await;
     ack_tx.send(ManualAck::Raw(ack)).unwrap();
     pending.wait().await
@@ -867,7 +892,11 @@ async fn malformed_partial_acks_fence_with_the_messages_returned() {
             matches!(err.error, TransportError::WorkerStreamFailed(_)),
             "{case}: fences as a fault, not backpressure"
         );
-        assert_eq!(err.messages.len(), 2, "{case}: messages come back for replay");
+        assert_eq!(
+            err.messages.len(),
+            2,
+            "{case}: messages come back for replay"
+        );
     }
 }
 
@@ -934,7 +963,12 @@ async fn a_partial_ack_for_an_unbudgeted_sub_batch_fences() {
     );
     let url = worker_url(mock.addr);
 
-    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], SendOptions::default());
+    let pending = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d1", 2)],
+        SendOptions::default(),
+    );
     wait_for_received(&mock, 1).await;
     ack_tx
         .send(ManualAck::Raw(SubBatchAck {

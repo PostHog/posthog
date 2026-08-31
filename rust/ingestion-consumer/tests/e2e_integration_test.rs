@@ -1821,7 +1821,12 @@ async fn drain_defer_flush_delivers_to_survivor_over_stream() {
     let pinned_idx = workers.iter().position(|w| w.url == pinned_url).unwrap();
     let survivor_idx = 1 - pinned_idx;
     transport
-        .begin_send(&pinned_url, "batch-1", b1[0].messages.clone(), SendOptions::default())
+        .begin_send(
+            &pinned_url,
+            "batch-1",
+            b1[0].messages.clone(),
+            SendOptions::default(),
+        )
         .wait()
         .await
         .expect("batch-1 send");

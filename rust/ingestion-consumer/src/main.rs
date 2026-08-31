@@ -228,8 +228,7 @@ async fn async_main(config: Config) -> Result<()> {
     let per_key_serialization = config.ingestion_worker_per_key_serialization
         || config.ingestion_worker_sub_batch_soft_budget_ms > 0;
     dispatcher.set_per_key_serialization(per_key_serialization);
-    dispatcher
-        .set_unbudgeted_resend_attempts(config.ingestion_worker_unbudgeted_resend_attempts);
+    dispatcher.set_unbudgeted_resend_attempts(config.ingestion_worker_unbudgeted_resend_attempts);
     if per_key_serialization {
         info!(
             soft_budget_ms = config.ingestion_worker_sub_batch_soft_budget_ms,

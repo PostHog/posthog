@@ -687,7 +687,9 @@ impl Dispatcher {
             batch_id: batch_id.to_string(),
             routing_keys,
             sub_batches: assignments.sub_batch_infos(),
-            deferred_groups: drain_deferred_count + cascade_deferred_count + serialized_deferred_count,
+            deferred_groups: drain_deferred_count
+                + cascade_deferred_count
+                + serialized_deferred_count,
             unroutable_groups: unroutable_deferred_count,
         });
 
@@ -919,8 +921,11 @@ impl Dispatcher {
             }
             self.key_sentinel
                 .note_sent(&group.routing_key, &group.messages, SendKind::Resend);
-            let escalated =
-                escalated_key(&table.timeout_attempts, &group.routing_key, escalation_threshold);
+            let escalated = escalated_key(
+                &table.timeout_attempts,
+                &group.routing_key,
+                escalation_threshold,
+            );
             if escalated {
                 counter!("ingestion_consumer_budget_escalations_total").increment(1);
             }
@@ -1035,8 +1040,7 @@ impl Dispatcher {
         timed_out: Vec<SerializedKafkaMessage>,
         clears_deferral: bool,
     ) {
-        counter!("ingestion_consumer_messages_timed_out_total")
-            .increment(timed_out.len() as u64);
+        counter!("ingestion_consumer_messages_timed_out_total").increment(timed_out.len() as u64);
 
         let mut table = self.pin_table.lock().unwrap();
         let GroupedMessages { groups, .. } = group_messages_by_routing_key(timed_out);
@@ -1535,7 +1539,7 @@ mod tests {
                 routing_key: "tok:user-1".to_string(),
                 messages: make_msgs(&["tok:user-1"]),
             },
-                false,
+            false,
         );
         assignments.add_group(
             wid(1),
@@ -1543,7 +1547,7 @@ mod tests {
                 routing_key: "tok:user-2".to_string(),
                 messages: make_msgs(&["tok:user-2"]),
             },
-                false,
+            false,
         );
 
         assert_eq!(
@@ -1573,7 +1577,7 @@ mod tests {
                 routing_key: "tok:user-1".to_string(),
                 messages: vec![make_msg_at("tok:user-1", 100)],
             },
-                false,
+            false,
         );
         let sub_batches = assignments.into_sub_batches();
         assert_eq!(sub_batches[0].key_offsets.len(), 1);
@@ -1588,7 +1592,7 @@ mod tests {
                 routing_key: ":7:42".to_string(),
                 messages: vec![make_unkeyed_msg()],
             },
-                false,
+            false,
         );
         assert!(assignments.into_sub_batches()[0].key_offsets.is_empty());
     }
