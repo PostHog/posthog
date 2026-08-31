@@ -90,7 +90,7 @@ export default meta
 
 type Story = StoryObj
 
-// The default view: one flat list over every report state.
+// The default view: one flat list over the default-selected open-work states.
 export const Reports: Story = {
     decorators: [reportsListDecorator(reportTabReports)],
     render: () => <ReportsTabStory />,

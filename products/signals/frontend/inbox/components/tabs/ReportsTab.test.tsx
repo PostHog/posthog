@@ -177,9 +177,10 @@ describe('ReportsTab', () => {
         expect(screen.queryByText('Nothing in your inbox yet')).toBeNull()
     })
 
-    // The whole point of the flat list: every state's rows in one run, and the state filter
-    // narrowing which of them render.
-    it('merges the states into one list and narrows it by the state filter', async () => {
+    // The whole point of the flat list: one merged run over the selected states. The default
+    // selection is the open work (Review and merge + Needs decision); the state filter widens it
+    // to the closed states and narrows it back down.
+    it('shows the open-work states by default and follows the state filter', async () => {
         mockReportRows()
         inboxFiltersLogic.mount()
         inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
@@ -189,16 +190,21 @@ describe('ReportsTab', () => {
         await waitFor(() => {
             expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
             expect(document.querySelector('[data-attr="report-card-needs-pr"]')).not.toBeNull()
+        })
+        expect(document.querySelector('[data-attr="report-card-resolved"]')).toBeNull()
+
+        inboxFiltersLogic.actions.toggleState('resolved')
+
+        await waitFor(() => {
             expect(document.querySelector('[data-attr="report-card-resolved"]')).not.toBeNull()
         })
 
-        inboxFiltersLogic.actions.toggleState('monitoring')
+        inboxFiltersLogic.actions.toggleState('needs-decision')
 
         await waitFor(() => {
-            expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
             expect(document.querySelector('[data-attr="report-card-needs-pr"]')).toBeNull()
-            expect(document.querySelector('[data-attr="report-card-resolved"]')).toBeNull()
         })
+        expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
     })
 
     // A shared link or persisted storage can carry `state=not-actionable`, a staff-only state the
@@ -208,8 +214,17 @@ describe('ReportsTab', () => {
         mockReportRows()
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: false })
         inboxFiltersLogic.mount()
-        inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
-        inboxFiltersLogic.actions.toggleState('not-actionable')
+        // A shared link carrying only the staff-only state, hydrated the way urlToAction applies it.
+        inboxFiltersLogic.actions.setFilters({
+            scope: INBOX_SCOPE_ENTIRE_PROJECT,
+            sourceProductFilter: [],
+            scoutFilter: [],
+            priorityFilter: [],
+            stateFilter: ['not-actionable'],
+            sortField: 'priority',
+            sortDirection: 'asc',
+            searchQuery: '',
+        })
 
         render(<ReportsTab />)
 

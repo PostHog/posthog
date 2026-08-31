@@ -38,6 +38,24 @@ export type InboxSortDirection = 'asc' | 'desc'
 const DEFAULT_SORT_FIELD: InboxSortField = 'priority'
 const DEFAULT_SORT_DIRECTION: InboxSortDirection = 'asc'
 
+/**
+ * The states selected by default: the two that hold open work. The closed states (Resolved,
+ * Dismissed) stay one checkbox away so the fresh inbox leads with what needs a person.
+ */
+export const DEFAULT_STATE_FILTER: InboxReportSectionKey[] = ['monitoring', 'needs-decision']
+
+/**
+ * URL value for an explicitly empty selection (every state). An absent `state` param means the
+ * default selection, so the empty selection needs its own encoding; without it, the URL rewrite
+ * after unchecking the last state would immediately hydrate the default back.
+ */
+const STATE_PARAM_ALL = 'all'
+
+/** Whether a state selection is exactly the default, in any order. */
+export function isDefaultStateFilter(stateFilter: InboxReportSectionKey[]): boolean {
+    return sameSet(stateFilter, DEFAULT_STATE_FILTER)
+}
+
 // Query-param keys that mirror the filter state so a view can be shared via URL.
 const FILTER_URL_KEYS = ['scope', 'source', 'scout', 'priority', 'state', 'sort', 'search'] as const
 
@@ -80,6 +98,18 @@ function parseListParam(raw: unknown, valid: Set<string>): string[] {
     return raw.split(',').filter((v) => valid.has(v))
 }
 
+/**
+ * Decode the `state` param: the sentinel means every state, an explicit list is validated, and
+ * anything else (absent, or nothing but unknown values) falls back to the default selection.
+ */
+function parseStateParam(raw: unknown): InboxReportSectionKey[] {
+    if (raw === STATE_PARAM_ALL) {
+        return []
+    }
+    const parsed = parseListParam(raw, VALID_STATE_VALUES) as InboxReportSectionKey[]
+    return parsed.length > 0 ? parsed : DEFAULT_STATE_FILTER
+}
+
 // Scout skill names are team-specific and dynamic, so there is no static valid set to check a
 // shared link against — accept any non-empty comma-separated slugs; an unknown scout simply
 // matches no reports server-side.
@@ -107,7 +137,7 @@ export function parseFilterSearchParams(searchParams: Record<string, any>): Inbo
         sourceProductFilter: parseListParam(searchParams.source, VALID_SOURCE_VALUES),
         scoutFilter: parseScoutParam(searchParams.scout),
         priorityFilter: parseListParam(searchParams.priority, VALID_PRIORITIES) as SignalReportPriority[],
-        stateFilter: parseListParam(searchParams.state, VALID_STATE_VALUES) as InboxReportSectionKey[],
+        stateFilter: parseStateParam(searchParams.state),
         sortField,
         sortDirection,
         searchQuery: typeof searchParams.search === 'string' ? searchParams.search : '',
@@ -152,7 +182,9 @@ export function filterSearchParams(values: InboxFilterState): Record<string, str
     if (values.priorityFilter.length > 0) {
         params.priority = values.priorityFilter.join(',')
     }
-    if (values.stateFilter.length > 0) {
+    if (values.stateFilter.length === 0) {
+        params.state = STATE_PARAM_ALL
+    } else if (!isDefaultStateFilter(values.stateFilter)) {
         params.state = values.stateFilter.join(',')
     }
     if (values.sortField !== DEFAULT_SORT_FIELD || values.sortDirection !== DEFAULT_SORT_DIRECTION) {
@@ -354,7 +386,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         clearScoutFilter: true,
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
         // The report states (Needs decision, Review and merge, …) shown in the flat Reports list.
-        // Multi-select: an empty selection means every state the user can see.
+        // Multi-select: the open-work states are selected by default (DEFAULT_STATE_FILTER), and an
+        // empty selection means every state the user can see.
         toggleState: (state: InboxReportSectionKey) => ({ state }),
         // Replace the whole selection. The priority control is a single select, but the state
         // stays a list so a shared link carrying several priorities still filters by all of them.
@@ -509,13 +542,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             },
         ],
         stateFilter: [
-            [] as InboxReportSectionKey[],
+            DEFAULT_STATE_FILTER,
             { persist: true },
             {
                 toggleState: (current, { state }) =>
                     current.includes(state) ? current.filter((s) => s !== state) : [...current, state],
                 setFilters: (_, { filters }) => filters.stateFilter,
-                clearFilters: () => [],
+                clearFilters: () => DEFAULT_STATE_FILTER,
             },
         ],
     }),

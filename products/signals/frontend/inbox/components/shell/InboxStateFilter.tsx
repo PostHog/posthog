@@ -15,8 +15,9 @@ import {
 
 /**
  * Multi-select report-state filter for the flat Reports list: one checkbox per state (Needs decision,
- * Review and merge, Resolved, Dismissed, plus Not actionable for staff). An empty selection means
- * every state, so the trigger reads "All statuses" at rest.
+ * Review and merge, Resolved, Dismissed, plus Not actionable for staff). The open-work states are
+ * selected by default (see DEFAULT_STATE_FILTER); an empty selection means every state, so the
+ * trigger reads "All statuses" then.
  */
 export function InboxStateFilter(): JSX.Element {
     const { isStaff } = useValues(inboxSceneLogic)

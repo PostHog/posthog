@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
-import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
@@ -204,12 +204,16 @@ export function ReportsTab(): JSX.Element {
     const selectedSections = selectedFlatListSections(visibleStateFilter, isStaff)
 
     // "Nothing yet" is a claim about the whole project, so it only holds with no filters and the
-    // project-wide scope; a narrowed view that matches nothing gets the filter-aware copy instead.
-    // The verdict is over the states this user can see, so staff still reach Not actionable when it
-    // is the only state with reports. Hold the list until every count has answered, so a slow first
-    // load never flashes the "nothing yet" screen at a full inbox.
-    const narrowed = hasActiveFilters || visibleStateFilter.length > 0
-    const unfilteredView = !narrowed && scope === INBOX_SCOPE_ENTIRE_PROJECT
+    // project-wide scope. The state selection does not gate it: counts load for every state the
+    // user can see (staff still reach Not actionable when it is the only state with reports), so
+    // the verdict stays true whatever states are selected. Hold the list until every count has
+    // answered, so a slow first load never flashes the "nothing yet" screen at a full inbox.
+    // For the empty-list copy, the state selection only counts as narrowing when the user moved it
+    // off the default and it hides at least one state; the default view keeps the scope-aware copy.
+    const narrowed =
+        hasActiveFilters ||
+        (!isDefaultStateFilter(visibleStateFilter) && selectedSections.length < visibleSections.length)
+    const unfilteredView = !hasActiveFilters && scope === INBOX_SCOPE_ENTIRE_PROJECT
     const countsSettled = visibleSections.every((key) => sections[key].count !== null)
     const inboxIsEmpty = unfilteredView && countsSettled && visibleSections.every((key) => sections[key].count === 0)
 

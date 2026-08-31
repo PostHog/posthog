@@ -26,7 +26,7 @@ const DEFAULT_STATE: InboxFilterState = {
     sourceProductFilter: [],
     scoutFilter: [],
     priorityFilter: [],
-    stateFilter: [],
+    stateFilter: ['monitoring', 'needs-decision'],
     sortField: 'priority',
     sortDirection: 'asc',
     searchQuery: '',
@@ -88,6 +88,9 @@ describe('inboxFiltersLogic', () => {
                 { ...DEFAULT_STATE, scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
                 { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
+            // An unchecked-everything selection means every state. It must survive the URL rewrite
+            // that follows each toggle, or hydration would put the default selection straight back.
+            ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
         ])('round-trips %s through encode/decode', (_name, state, expectedParams) => {
             expect(filterSearchParams(state)).toEqual(expectedParams)
             expect(parseFilterSearchParams(expectedParams)).toEqual(state)
