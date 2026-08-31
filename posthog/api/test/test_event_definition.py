@@ -280,6 +280,16 @@ class TestEventDefinitionAPI(APIBaseTest):
         for item in response.json()["results"]:
             assert item["name"] in ["watched_movie"]
 
+    def test_search_matches_core_event_by_display_label(self):
+        # "$copy_autocapture" has the display label "Clipboard autocapture"; searching that label
+        # must find the event even though the label words are absent from the stored key.
+        create_event_definitions({"name": "$copy_autocapture", "last_seen_at": None}, team_id=self.demo_team.pk)
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=clipboard")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+        assert "$copy_autocapture" in result_names
+
     @parameterized.expand(
         [
             ("shorter match first for 'app'", "app", ["rated_app", "installed_app"]),

@@ -36,14 +36,14 @@ from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
-from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
+from posthog.filters import TermSearchFilterBackend, name_alias_search_extra, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
+from posthog.taxonomy.taxonomy import CORE_EVENTS, EVENT_NAME_ALIASES, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -308,7 +308,10 @@ class EventDefinitionViewSet(
         event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
 
         search = self.request.GET.get("search", None)
-        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+        # Match core events by their display label too, so e.g. a search of "Clipboard autocapture"
+        # finds "$copy_autocapture" the same way property search matches labels back to keys.
+        search_extra = name_alias_search_extra(search, EVENT_NAME_ALIASES)
+        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search, search_extra)
 
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = self._ordering_params_from_request()

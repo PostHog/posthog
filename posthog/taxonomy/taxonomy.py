@@ -4016,6 +4016,14 @@ PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
     for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
 }
 
+# Maps a core event key to the display label a user sees in the picker (e.g. "$copy_autocapture"
+# -> "Clipboard autocapture"). Lets the event picker match a search of the label back to the key.
+EVENT_NAME_ALIASES: dict[str, str] = {
+    key: value["label"]
+    for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
+    if "label" in value and "deprecated" not in value["label"]
+}
+
 IGNORED_EVENT_NAMES: list[str] = [
     name for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items() if is_hidden_from_assistant(defn)
 ]
