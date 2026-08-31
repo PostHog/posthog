@@ -5,7 +5,8 @@ import * as path from 'path'
 import * as core from '@actions/core'
 import {PullRequest} from '@octokit/webhooks-types'
 
-import {File} from './file'
+import {File, ChangeStatus} from './file'
+import {Filter} from './filter'
 
 // Compares the API's changed-file list against the same list derived locally from
 // the pull request's merge commit, and reports disagreement without acting on it.
@@ -74,6 +75,10 @@ interface ShadowResult {
   gitCount: number | null
   onlyInApi: Difference
   onlyInGit: Difference
+  // Which filter keys answer differently on the two file lists. A differing file list
+  // only matters where it flips a key, because the key is what gates a job.
+  keysLost: string[]
+  keysGained: string[]
 }
 
 interface GitResult {
@@ -137,7 +142,32 @@ function originUrl(): string {
 // The merge ref is not guaranteed to be present or current: GitHub recomputes it
 // asynchronously after a push. Requiring the second parent to equal the head SHA
 // rejects a stale ref rather than reading it as this pull request's changes.
-async function localChangedFiles(pr: PullRequest, signal: AbortSignal): Promise<string[]> {
+// git reports a type change as T, which is a content change like any other to a filter.
+// R and C are unreachable under --no-renames and are mapped so a future caller without
+// that flag still gets a status rather than the fallback.
+const STATUS_OF: {[letter: string]: ChangeStatus} = {
+  A: ChangeStatus.Added,
+  C: ChangeStatus.Copied,
+  D: ChangeStatus.Deleted,
+  M: ChangeStatus.Modified,
+  R: ChangeStatus.Renamed,
+  T: ChangeStatus.Modified,
+  U: ChangeStatus.Unmerged
+}
+
+// -z --name-status emits a status field and a path field per entry, each NUL-terminated.
+// A status carries a similarity score for R and C, which --no-renames rules out, so the
+// first character is the whole status here.
+function parseNameStatus(out: string): File[] {
+  const fields = out.split('\0').filter(Boolean)
+  const files: File[] = []
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    files.push({filename: fields[i + 1], status: STATUS_OF[fields[i][0]] || ChangeStatus.Modified})
+  }
+  return files
+}
+
+async function localChangedFiles(pr: PullRequest, signal: AbortSignal): Promise<File[]> {
   const gitDir = await scratchRepo(signal)
 
   const fetched = await git(
@@ -171,12 +201,14 @@ async function localChangedFiles(pr: PullRequest, signal: AbortSignal): Promise<
 
   // --no-renames so a rename arrives as a delete plus an add, which is the shape
   // the API path builds by hand from `previous_filename`. -z because git quotes a
-  // path holding a newline or a non-ASCII byte in the default format.
-  const diff = await git(gitDir, ['diff', '--no-renames', '--name-only', '-z', 'FETCH_HEAD^1', 'FETCH_HEAD'], signal)
+  // path holding a newline or a non-ASCII byte in the default format. --name-status
+  // because a filter rule can scope itself to a change status, so a comparison that
+  // guessed one would answer a different question than the filter asks.
+  const diff = await git(gitDir, ['diff', '--no-renames', '--name-status', '-z', 'FETCH_HEAD^1', 'FETCH_HEAD'], signal)
   if (diff.code !== 0) {
     throw new Unavailable('diff-failed', firstLine(diff.err))
   }
-  return diff.out.split('\0').filter(Boolean)
+  return parseNameStatus(diff.out)
 }
 
 // A queue branch can differ by thousands of paths, which is neither readable in a log
@@ -197,9 +229,23 @@ function difference(from: Set<string>, against: Set<string>): Difference {
   return {count, sample}
 }
 
-function compare(api: Set<string>, local: Set<string>): ShadowResult {
+// A filter key gates a job on whether any changed file matched it, so the key's answer
+// is `length > 0` and nothing finer. `exportResults` reads it the same way.
+function firedKeys(filter: Filter, files: File[]): Set<string> {
+  return new Set(
+    Object.entries(filter.match(files))
+      .filter(([, matched]) => matched.length > 0)
+      .map(([key]) => key)
+  )
+}
+
+function compare(filter: Filter, apiFiles: File[], gitFiles: File[]): ShadowResult {
+  const api = new Set(apiFiles.map(f => f.filename))
+  const local = new Set(gitFiles.map(f => f.filename))
   const onlyInApi = difference(api, local)
   const onlyInGit = difference(local, api)
+  const apiKeys = firedKeys(filter, apiFiles)
+  const gitKeys = firedKeys(filter, gitFiles)
   return {
     verdict: onlyInApi.count === 0 && onlyInGit.count === 0 ? 'match' : 'mismatch',
     reason: null,
@@ -207,7 +253,9 @@ function compare(api: Set<string>, local: Set<string>): ShadowResult {
     apiCount: api.size,
     gitCount: local.size,
     onlyInApi,
-    onlyInGit
+    onlyInGit,
+    keysLost: [...apiKeys].filter(k => !gitKeys.has(k)).sort(),
+    keysGained: [...gitKeys].filter(k => !apiKeys.has(k)).sort()
   }
 }
 
@@ -223,27 +271,34 @@ async function budgeted<T>(work: (signal: AbortSignal) => Promise<T>, ms: number
   return Promise.race([work(controller.signal), expiry]).finally(() => clearTimeout(timer))
 }
 
-export async function compareWithMergeCommit(apiFiles: File[], pr: PullRequest): Promise<ShadowResult> {
-  const api = new Set(apiFiles.map(f => f.filename))
+export async function compareWithMergeCommit(filter: Filter, apiFiles: File[], pr: PullRequest): Promise<ShadowResult> {
   try {
     const gitFiles = await budgeted(async signal => localChangedFiles(pr, signal), BUDGET_MS)
-    return compare(api, new Set(gitFiles))
+    return compare(filter, apiFiles, gitFiles)
   } catch (error) {
     return {
       verdict: 'unavailable',
       reason: error instanceof Unavailable ? error.reason : 'unknown',
       detail: error instanceof Unavailable ? error.detail : messageOf(error),
-      apiCount: api.size,
+      apiCount: new Set(apiFiles.map(f => f.filename)).size,
       gitCount: null,
       onlyInApi: {count: 0, sample: []},
-      onlyInGit: {count: 0, sample: []}
+      onlyInGit: {count: 0, sample: []},
+      keysLost: [],
+      keysGained: []
     }
   }
 }
 
 // Without this the only record of a divergence is a log line in one job of one run,
 // which is unreadable at the volume that makes the comparison worth running.
-async function capture(apiKey: string, result: ShadowResult, pr: PullRequest, durationMs: number): Promise<void> {
+async function capture(
+  apiKey: string,
+  result: ShadowResult,
+  pr: PullRequest,
+  apiRows: number,
+  durationMs: number
+): Promise<void> {
   const repo = process.env.GITHUB_REPOSITORY || null
   const properties = {
     repo,
@@ -256,11 +311,17 @@ async function capture(apiKey: string, result: ShadowResult, pr: PullRequest, du
     only_in_api_count: result.onlyInApi.count,
     only_in_git: result.onlyInGit.sample,
     only_in_git_count: result.onlyInGit.count,
-    // pulls/{n}/files truncates silently, so record both sides of the tell: what the
-    // API returned, and what the pull request payload says it should have been. The
-    // count has to come from the payload, because `api_count` counts a rename twice:
-    // the API path expands each renamed row into an add plus a delete.
-    api_truncated: pr.changed_files >= API_FILE_CAP,
+    selection_changed: result.keysLost.length > 0 || result.keysGained.length > 0,
+    keys_lost: result.keysLost,
+    keys_gained: result.keysGained,
+    // pulls/{n}/files truncates silently at the cap, and the cap counts API rows, so
+    // the tell is how many rows came back. `api_count` cannot stand in: the API path
+    // expands each renamed row into an add plus a delete.
+    api_rows: apiRows,
+    api_truncated: apiRows >= API_FILE_CAP,
+    // Kept beside `api_rows` rather than used as the tell, because the payload's count
+    // is computed when the event fires and reads stale on a pull request whose base
+    // moved. The two disagreeing is itself worth seeing.
     pr_changed_files: pr.changed_files,
     pr_number: pr.number,
     head_sha: pr.head.sha,
@@ -300,7 +361,8 @@ function summarize(result: ShadowResult): string {
   if (result.verdict === 'mismatch') {
     return (
       `MISMATCH api=${result.apiCount} git=${result.gitCount} ` +
-      `onlyInApi=${JSON.stringify(result.onlyInApi.sample)} onlyInGit=${JSON.stringify(result.onlyInGit.sample)}`
+      `onlyInApi=${JSON.stringify(result.onlyInApi.sample)} onlyInGit=${JSON.stringify(result.onlyInGit.sample)} ` +
+      `keysLost=${JSON.stringify(result.keysLost)} keysGained=${JSON.stringify(result.keysGained)}`
     )
   }
   return `match (${result.apiCount} files)`
@@ -313,7 +375,7 @@ function summarize(result: ShadowResult): string {
 // detects changes runs this action, so a comparison whose result cannot be recorded
 // is a merge-ref fetch on the critical path of a gate job in exchange for a log line
 // nobody reads. Fork pull requests get no secrets, so they take this path too.
-export async function report(apiFiles: File[], pr: PullRequest): Promise<void> {
+export async function report(filter: Filter, apiFiles: File[], apiRows: number, pr: PullRequest): Promise<void> {
   const apiKey = process.env.PATHS_FILTER_SHADOW_POSTHOG_TOKEN
   if (!apiKey) {
     return
@@ -321,14 +383,14 @@ export async function report(apiFiles: File[], pr: PullRequest): Promise<void> {
   try {
     core.startGroup('Shadow: merge-commit change detection')
     const startedAt = Date.now()
-    const result = await compareWithMergeCommit(apiFiles, pr)
+    const result = await compareWithMergeCommit(filter, apiFiles, pr)
     const durationMs = Date.now() - startedAt
 
     // core.info even for a mismatch: a warning becomes an annotation on the run summary
     // and the checks page, which reads as a problem with the pull request.
     core.info(`shadow: ${summarize(result)} in ${durationMs}ms`)
 
-    await capture(apiKey, result, pr, durationMs).catch(error => {
+    await capture(apiKey, result, pr, apiRows, durationMs).catch(error => {
       core.info(`shadow: capture skipped (${messageOf(error)})`)
     })
   } catch (error) {

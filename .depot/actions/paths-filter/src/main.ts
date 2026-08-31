@@ -34,7 +34,7 @@ async function run(): Promise<void> {
     }
 
     const filter = new Filter(filtersYaml)
-    const files = await getChangedFiles(token, base, ref, initialFetchDepth)
+    const files = await getChangedFiles(filter, token, base, ref, initialFetchDepth)
     core.info(`Detected ${files.length} changed files`)
     const results = filter.match(files)
     exportResults(results, listFiles)
@@ -59,7 +59,13 @@ function getConfigFileContent(configPath: string): string {
   return fs.readFileSync(configPath, {encoding: 'utf8'})
 }
 
-async function getChangedFiles(token: string, base: string, ref: string, initialFetchDepth: number): Promise<File[]> {
+async function getChangedFiles(
+  filter: Filter,
+  token: string,
+  base: string,
+  ref: string,
+  initialFetchDepth: number
+): Promise<File[]> {
   // if base is 'HEAD' only local uncommitted changes will be detected
   // This is the simplest case as we don't need to fetch more commits or evaluate current/before refs
   if (base === git.HEAD) {
@@ -84,8 +90,8 @@ async function getChangedFiles(token: string, base: string, ref: string, initial
       }
       const pr = github.context.payload.pull_request as PullRequest
       if (token) {
-        const apiFiles = await getChangedFilesFromApi(token, pr)
-        await shadow.report(apiFiles, pr)
+        const {files: apiFiles, rows} = await getChangedFilesFromApi(token, pr)
+        await shadow.report(filter, apiFiles, rows, pr)
         return apiFiles
       }
       if (github.context.eventName === 'pull_request_target') {
@@ -168,12 +174,16 @@ async function getChangedFilesFromGit(base: string, head: string, initialFetchDe
 }
 
 // Uses github REST api to get list of files changed in PR
-async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): Promise<File[]> {
+// `rows` counts what the API returned rather than what `files` holds, because a renamed
+// row expands into two entries below. The API caps the response at 3,000 rows and says
+// nothing when it does, so the row count is the only tell that the list is partial.
+async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): Promise<{files: File[]; rows: number}> {
   core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`)
   try {
     const client = github.getOctokit(token)
     const per_page = 100
     const files: File[] = []
+    let rows = 0
 
     core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`)
     for await (const response of client.paginate.iterator(
@@ -190,6 +200,7 @@ async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): 
       core.info(`Received ${response.data.length} items`)
 
       for (const row of response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>) {
+        rows++
         core.info(`[${row.status}] ${row.filename}`)
         // There's no obvious use-case for detection of renames
         // Therefore we treat it as if rename detection in git diff was turned off.
@@ -215,7 +226,7 @@ async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): 
       }
     }
 
-    return files
+    return {files, rows}
   } finally {
     core.endGroup()
   }
