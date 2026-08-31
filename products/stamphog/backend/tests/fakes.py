@@ -157,6 +157,8 @@ class GitHubRecorder:
         # Test hook: raise this exception from the label-add POST (e.g. GitHubRateLimitError) to
         # exercise the best-effort catch for exception types the client does not raise itself.
         self.add_label_side_effect: Exception | None = None
+        # Set to make posting a COMMENT review blow up, e.g. a rate limit on the failure notice.
+        self.comment_review_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
         # Per-repository overrides for the same paths, for cases where two connected repos must
@@ -211,6 +213,8 @@ class GitHubRecorder:
             # Split by event so a test asserting on approvals never matches a COMMENT review.
             event = (json_body or {}).get("event")
             kind = "approve_review" if event == "APPROVE" else "comment_review"
+            if kind == "comment_review" and self.comment_review_side_effect is not None:
+                raise self.comment_review_side_effect
             return self._record_write(kind, m.group("repo"), int(m.group("number")), json_body)
         if method == "GET" and (m := _ISSUE_COMMENTS_RE.match(path)):
             page = int(params.get("page", 1))

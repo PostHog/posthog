@@ -949,6 +949,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     first_error_line = (input.error.splitlines() or [""])[0][:300]
     if run.status in TERMINAL_STATUSES:
         activity.logger.warning(f"Run {run.id} already {run.status}; keeping it, error was: {first_error_line}")
+        # A retry that died between the FAILED save and the notice finds its own run terminal. Keep
+        # the status, but post the notice the author is still owed. Only FAILED resumes: every other
+        # terminal state belongs to a run that gave a verdict.
+        if run.status == ReviewRunStatus.FAILED:
+            _post_failure_notice(StamphogGitHubClient(run.pull_request.repo_config.installation_id), run, input.team_id)
         return
     # A prior post_verdict attempt may have approved on GitHub and then exhausted retries before the
     # terminal save — the id is persisted, the verdict is not, and without a future delivery nothing
@@ -965,8 +970,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # Conditional like every terminal save (the load-time guard above can race an in-flight
     # supersession): a run that just went SUPERSEDED keeps that status, FAILED must not clobber it.
     now = timezone.now()
-    ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-        status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now
+    marked_failed = (
+        ReviewRun.objects.for_team(input.team_id)
+        .filter(id=run.id)
+        .exclude(status__in=TERMINAL_STATUSES)
+        .update(status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now)
     )
     # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too. After
     # the terminal save on purpose: the removal's live-peer check must see this run as terminal, or
@@ -984,6 +992,7 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # the global client's background flush may never run before the worker thread moves on.
     pull_request = run.pull_request
     repo = pull_request.repo_config.repository
+
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=pull_request.author_login or repo,
@@ -996,6 +1005,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
                 "stamphog_error": first_error_line,
             },
         )
+
+    # Last, because this step raises. A retry returns through the terminal guard, which posts the
+    # notice and nothing else, so the event above must reach PostHog on this attempt.
+    if marked_failed:
+        _post_failure_notice(client, run, input.team_id)
 
 
 def _harden_reviewer_command(command: Sequence[str] | str) -> str:
@@ -1327,6 +1341,47 @@ def _post_non_approval_review(
     review = client.post_comment_review(repo, pull_request.pr_number, _scrub_credentials(body), run.head_sha)
     run.output = {**(run.output or {}), NON_APPROVAL_REVIEW_ID_KEY: _comment_id(review)}
     ReviewRun.objects.for_team(team_id).filter(id=run.id).update(output=run.output, updated_at=timezone.now())
+
+
+FAILURE_NOTICE_BODY = (
+    "**The review did not complete.**\n\n"
+    "Stamphog hit an error and produced no verdict for this commit.\n\n"
+    "Push a new commit to try again."
+)
+
+
+def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: int) -> None:
+    """Tell the PR that this run gave no verdict, once.
+
+    The notice names a push, because that route works in every mode. A failure keeps the trigger
+    label, so a push carries it and starts a run, while a re-added label waits out the per-PR
+    cooldown. A self-driving run ignores labels and re-reviews only on synchronize, reopen and base
+    retarget.
+
+    The notice gives no error text, because this is a public pull request.
+
+    A newer run at the same head stops the notice. Supersession skips terminal states, so a
+    `reopened` delivery can queue a replacement at the unchanged head, and that replacement can
+    approve the commit this notice would call unreviewed. A newer run at a different head is not a
+    replacement. The read uses the writer, because it gates a GitHub write.
+
+    A GitHub error propagates. If this function hides it, the activity completes, Temporal does not
+    retry, and the PR keeps no notice. Raising is safe: the FAILED update is committed, and the retry
+    finishes the post through the terminal guard.
+    """
+    replaced_at_same_head = (
+        ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request_id=run.pull_request_id, head_sha=run.head_sha, created_at__gt=run.created_at)
+        .exists()
+    )
+    if replaced_at_same_head:
+        activity.logger.info(f"Skipping the failure notice for run {run.id}; a newer run holds the same head")
+        return
+
+    _post_non_approval_review(
+        client, run.pull_request.repo_config.repository, run, run.pull_request, team_id, FAILURE_NOTICE_BODY
+    )
 
 
 def _comment_id(obj: dict) -> int | None:
