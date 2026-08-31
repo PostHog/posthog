@@ -386,43 +386,6 @@ class TestBufferedGating:
 
 
 @pytest.mark.asyncio
-class TestTransactionAlignedBatches:
-    """A transaction's rows must resolve in one batch.
-
-    The append lane's replay guard counts the destination's rows at the watermark. The load side
-    advances that watermark per committed batch, so a transaction split across two batches would
-    let the second batch count the first's rows as already-applied and drop its own tail.
-    """
-
-    async def test_a_transaction_spanning_files_is_not_split_by_the_row_limit(self):
-        s3 = _FakeS3(
-            {
-                _key(100, 200, 0): _parquet_bytes(_table([1, 2], [100, 200])),
-                _key(200, 200, 1): _parquet_bytes(_table([3], [200])),
-                _key(300, 300, 0): _parquet_bytes(_table([4], [300])),
-            }
-        )
-
-        tables = await _collect(s3, batch_row_limit=2)
-
-        # The limit trips on the first file, but its transaction continues into the sibling.
-        assert [t.column(CDC_SEQ_COLUMN).to_pylist() for t in tables] == [[100, 200, 200], [300]]
-
-    async def test_the_batch_still_cuts_between_transactions(self):
-        # Alignment must not turn every run into one giant batch.
-        s3 = _FakeS3(
-            {
-                _key(100, 100, 0): _parquet_bytes(_table([1, 2], [100, 100])),
-                _key(200, 200, 0): _parquet_bytes(_table([3], [200])),
-            }
-        )
-
-        tables = await _collect(s3, batch_row_limit=2)
-
-        assert [t.num_rows for t in tables] == [2, 1]
-
-
-@pytest.mark.asyncio
 class TestMultiLaneDeletionFloor:
     """A file is deletable only once EVERY lane has committed past it.
 

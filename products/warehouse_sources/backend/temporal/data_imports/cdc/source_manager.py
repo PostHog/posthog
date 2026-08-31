@@ -406,7 +406,7 @@ class CDCSourceManager:
         batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
 
         async with aget_s3_client() as s3:
-            for position, file in enumerate(files):
+            for file in files:
                 key = file.key
                 # The only place a buffer file is deleted — see _is_consumed for the proof.
                 if self._is_consumed(file.span.end_seq, file.modified, floor, proof_time):
@@ -426,26 +426,12 @@ class CDCSourceManager:
                 if table.num_rows == 0:
                     continue
 
-                if batch.add(table) and self._ends_a_transaction(files, position):
+                if batch.add(table):
                     yield self._finalize_batch(batch.tables, table_transformer)
                     batch.reset()
 
             if batch:
                 yield self._finalize_batch(batch.tables, table_transformer)
-
-    @staticmethod
-    def _ends_a_transaction(files: list[_BufferFile], position: int) -> bool:
-        """Whether the next file starts a transaction this one did not carry.
-
-        A transaction's events share one commit position and can span files, so a batch cut
-        between two of them would split it. The append lane resolves a replay by counting the
-        rows its table already holds at the position; a split lets the second batch read a
-        position the first one just advanced to, count its own head rows as already applied,
-        and drop that many rows off the tail. Only a genuinely split transaction extends a
-        batch — the common case cuts here exactly as before.
-        """
-        following = files[position + 1] if position + 1 < len(files) else None
-        return following is None or following.span.start_seq > files[position].span.end_seq
 
     def _finalize_batch(
         self, tables: list[pa.Table], table_transformer: Callable[[pa.Table], pa.Table] | None
