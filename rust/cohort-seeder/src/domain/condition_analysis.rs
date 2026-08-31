@@ -20,7 +20,8 @@ use std::sync::Arc;
 
 use cohort_core::filters::TeamFilters;
 use cohort_core::hogvm::analysis::{
-    analyze_condition, ConditionAnalysis, EvaluationClass, FullColumnsReason, Projection, ReadPath,
+    analyze_condition_within, AnalysisBudget, ConditionAnalysis, EvaluationClass,
+    FullColumnsReason, Projection, ReadPath,
 };
 
 use super::condition::PinnedCondition;
@@ -68,10 +69,16 @@ impl ConditionClass {
             // what the program is. Classifying by the projection there fails wide rather than
             // narrow, which is the direction a wrong answer has to fall.
             (EvaluationClass::EventOnly { .. }, Projection::Reads(_)) => Self::EventOnly,
+            // Exhaustive rather than defaulted, like every other reason mapping in this chain. A
+            // new `FullColumnsReason` landing in `FullColumns` by default would be reported as an
+            // understood outcome: only `Unanalyzable` reaches the reason counter, so the census
+            // would describe a brand new failure mode as expected.
             (EvaluationClass::EventOnly { .. }, Projection::FullColumns(reason))
             | (EvaluationClass::General, Projection::FullColumns(reason)) => match reason {
                 FullColumnsReason::Unanalyzable(_) => Self::Unanalyzable,
-                _ => Self::FullColumns,
+                FullColumnsReason::BarePropertiesRoot | FullColumnsReason::BarePersonRoot => {
+                    Self::FullColumns
+                }
             },
             (EvaluationClass::General, Projection::Reads(_)) => Self::Projectable,
         }
@@ -87,6 +94,18 @@ pub const MISSING_BYTECODE_REASON: &str = "missing_bytecode";
 /// truncation.
 const MAX_RENDERED_BLOCKED_EVENTS: usize = 50;
 
+/// How many worst-case conditions one run's census may cost, as one budget its conditions share.
+///
+/// The analyzer bounds each condition, which leaves `conditions × ceiling` for a run — and nothing
+/// caps behavioral conditions per run, so that product is unbounded. Sharing one budget bounds the
+/// run instead. Past it the remaining conditions report the budget and fall back to every column,
+/// which the census counts under its own reason rather than hiding.
+///
+/// A budget rather than a deadline because [`ConditionAnalyses::build`] has to stay a pure function
+/// of the pinned payload: two replicas re-validating one run must classify it identically, and a
+/// wall clock would not.
+const CENSUS_WORST_CASE_CONDITIONS: usize = 8;
+
 /// One analysis per unique pinned condition hash.
 ///
 /// Person runs are deliberately absent. Their conditions read the small person-scope globals rather
@@ -98,8 +117,13 @@ pub struct ConditionAnalyses {
 }
 
 impl ConditionAnalyses {
-    /// Analyze every unique hash among `conditions` whose bytecode the frozen catalog carries.
+    /// Analyze every unique hash among `conditions` whose bytecode the frozen catalog carries,
+    /// under one budget they share — see [`CENSUS_WORST_CASE_CONDITIONS`].
+    ///
+    /// `conditions` is walked in order, so the budget is spent the same way every time and the
+    /// result stays a pure function of the pinned payload.
     pub fn build(conditions: &[PinnedCondition], filters: &TeamFilters) -> Self {
+        let mut budget = AnalysisBudget::for_conditions(CENSUS_WORST_CASE_CONDITIONS);
         let mut by_hash = HashMap::new();
         for condition in conditions {
             if by_hash.contains_key(&condition.hash) {
@@ -111,7 +135,10 @@ impl ConditionAnalyses {
             else {
                 continue;
             };
-            by_hash.insert(condition.hash, analyze_condition(bytecode.as_slice()));
+            by_hash.insert(
+                condition.hash,
+                analyze_condition_within(bytecode.as_slice(), &mut budget),
+            );
         }
         Self { by_hash }
     }
@@ -119,13 +146,20 @@ impl ConditionAnalyses {
     /// Count the conditions by class, and account for each event name what a projection over it
     /// would have to supply.
     ///
-    /// Counted per unique hash, not per pinned condition: the same condition shared by several
-    /// cohorts is one piece of work, and counting it twice would overstate the projectable share.
+    /// Counted per unique hash and event name, not per pinned condition: the same condition shared
+    /// by several cohorts is one piece of work, and counting it twice would overstate the
+    /// projectable share.
+    ///
+    /// The event name is part of the key rather than the hash alone, because the two arrive as
+    /// independent fields of the Django payload. Deduplicating on the hash would skip a repeated
+    /// hash before it reached its second event name, and that event would then be accounted from
+    /// its other conditions alone — projection-eligible on paper while carrying a condition that
+    /// needs every column.
     pub fn census(&self, conditions: &[PinnedCondition]) -> ConditionCensus {
         let mut census = ConditionCensus::default();
-        let mut seen = BTreeSet::new();
+        let mut seen: BTreeSet<(ConditionHash, &str)> = BTreeSet::new();
         for condition in conditions {
-            if !seen.insert(condition.hash) {
+            if !seen.insert((condition.hash, condition.event_name.as_str())) {
                 continue;
             }
             let event = census
@@ -156,16 +190,12 @@ impl ConditionAnalyses {
                 _ => event.unprojectable += 1,
             }
             if let Projection::FullColumns(reason) = &analysis.projection {
-                if class == ConditionClass::Unanalyzable {
-                    *census
-                        .unanalyzable_reasons
-                        .entry(UnanalyzableLabel::of(reason))
-                        .or_default() += 1;
-                }
+                let label = UnanalyzableLabel::of(reason);
                 if class.is_unprojectable() {
-                    event
-                        .blockers
-                        .insert(UnanalyzableLabel::of(reason).render());
+                    event.blockers.insert(label.render());
+                }
+                if class == ConditionClass::Unanalyzable {
+                    *census.unanalyzable_reasons.entry(label).or_default() += 1;
                 }
             }
             if let Projection::Reads(paths) = &analysis.projection {
@@ -590,6 +620,32 @@ mod tests {
         assert_eq!(census.total(), 1);
         assert_eq!(census.count(ConditionClass::EventOnly), 1);
         assert_eq!(census.per_event["purchase"].event_only, 1);
+    }
+
+    /// The same hash under two event names has to account against both. The hash and the event name
+    /// are independent fields of the Django payload, so nothing structural pairs them; a census that
+    /// skipped the repeat would leave the second event with no row, and an event whose only other
+    /// conditions are narrow would then read as projection-eligible while carrying a wide one.
+    #[test]
+    fn a_hash_reused_under_two_event_names_accounts_against_both() {
+        let shared = "shared0000000000";
+        let conditions = [condition(shared, "purchase"), condition(shared, "signup")];
+        let catalog = filters(&[(shared, "purchase", bare_properties())]);
+
+        let census = ConditionAnalyses::build(&conditions, &catalog).census(&conditions);
+        assert_eq!(
+            census.blocked_event_names(),
+            [
+                (
+                    "purchase",
+                    &BTreeSet::from(["bare_properties_root".to_owned()])
+                ),
+                (
+                    "signup",
+                    &BTreeSet::from(["bare_properties_root".to_owned()])
+                ),
+            ]
+        );
     }
 
     /// Past the cap the info line counts the rest instead of naming them, and the uncapped

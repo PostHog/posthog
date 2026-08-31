@@ -407,10 +407,12 @@ async fn persist_run_warning(pool: &PgPool, run_id: RunId, note: RunWarningNote)
 /// runs every poll tick, and the decode is the one place the seeder interprets an untrusted catalog
 /// value.
 ///
-/// The analyzer bounds its work per condition, not per run, and this runs inline on the task that
-/// owes the liveness heartbeat. What keeps that safe is the gate above: the same tick already parses
-/// every discovered run's whole pinned payload during validation, which is more work than analyzing
-/// that payload once.
+/// This runs inline on the task that owes the liveness heartbeat, so its cost has to be bounded by
+/// the run rather than by the condition: nothing caps behavioral conditions on a run, and the
+/// `reported_runs` gate does not help after a restart, when every active run is new again.
+/// `ConditionAnalyses::build` gives the run's conditions one shared budget for that. The gate is
+/// still what keeps the *ordinary* cost small — the same tick already parses every discovered run's
+/// whole pinned payload during validation, which is more work than analyzing that payload once.
 ///
 /// Nothing consumes the analysis yet. The point is to learn the shape of real catalogs before any
 /// scan is built on one: which event names a projection could narrow, and what blocks the rest.

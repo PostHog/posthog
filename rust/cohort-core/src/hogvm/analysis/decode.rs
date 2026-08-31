@@ -360,6 +360,10 @@ mod tests {
 
     use super::*;
 
+    /// The `["_H", <version>]` header [`body`] prepends, so a token position in a case is readable
+    /// as an offset into that case's own tokens.
+    const HEADER_LEN: usize = 2;
+
     fn body(tokens: Vec<Value>) -> Vec<Value> {
         let mut bytecode = vec![json!("_H"), json!(1)];
         bytecode.extend(tokens);
@@ -469,6 +473,112 @@ mod tests {
                 expected,
                 "{tokens:?}"
             );
+        }
+    }
+
+    /// Every opcode's token advance, one row per [`Operation`] variant.
+    ///
+    /// The exhaustive match in `kind_for` catches a *new* opcode. It does not catch an existing one
+    /// gaining an immediate: `kind_for` keeps answering `Bare`, every later instruction decodes at
+    /// the wrong offset, and `GET_GLOBAL` then pops the wrong cells — a confidently wrong read set
+    /// rather than the fail-closed wide one this module exists to produce.
+    ///
+    /// The array is typed `[_; 57]` so the count is load-bearing: a new variant fails to compile
+    /// here rather than being silently skipped. This pins the decoder against itself, not against
+    /// `vm.rs`; a shared arity table both read is the structural fix and a larger change than this.
+    #[test]
+    fn every_opcode_advances_by_exactly_its_immediates() {
+        // (opcode, its immediates, the tokens it consumes after the opcode).
+        let cases: [(Operation, Vec<Value>, usize); 57] = [
+            (Operation::GetGlobal, vec![json!(1)], 1),
+            (Operation::CallGlobal, vec![json!("f"), json!(0)], 2),
+            (Operation::And, vec![json!(2)], 1),
+            (Operation::Or, vec![json!(2)], 1),
+            (Operation::Not, vec![], 0),
+            (Operation::Plus, vec![], 0),
+            (Operation::Minus, vec![], 0),
+            (Operation::Mult, vec![], 0),
+            (Operation::Div, vec![], 0),
+            (Operation::Mod, vec![], 0),
+            (Operation::Eq, vec![], 0),
+            (Operation::NotEq, vec![], 0),
+            (Operation::Gt, vec![], 0),
+            (Operation::GtEq, vec![], 0),
+            (Operation::Lt, vec![], 0),
+            (Operation::LtEq, vec![], 0),
+            (Operation::Like, vec![], 0),
+            (Operation::Ilike, vec![], 0),
+            (Operation::NotLike, vec![], 0),
+            (Operation::NotIlike, vec![], 0),
+            (Operation::In, vec![], 0),
+            (Operation::NotIn, vec![], 0),
+            (Operation::Regex, vec![], 0),
+            (Operation::NotRegex, vec![], 0),
+            (Operation::Iregex, vec![], 0),
+            (Operation::NotIregex, vec![], 0),
+            (Operation::InCohort, vec![], 0),
+            (Operation::NotInCohort, vec![], 0),
+            (Operation::True, vec![], 0),
+            (Operation::False, vec![], 0),
+            (Operation::Null, vec![], 0),
+            (Operation::String, vec![json!("x")], 1),
+            (Operation::Integer, vec![json!(7)], 1),
+            (Operation::Float, vec![json!(1.5)], 1),
+            (Operation::Pop, vec![], 0),
+            (Operation::GetLocal, vec![json!(0)], 1),
+            (Operation::SetLocal, vec![json!(0)], 1),
+            (Operation::Return, vec![], 0),
+            (Operation::Jump, vec![json!(0)], 1),
+            (Operation::JumpIfFalse, vec![json!(0)], 1),
+            // The VM refuses `DECLARE_FN` before it reads an immediate, so there is no arity to
+            // copy and bare is what keeps this decoder aligned with it.
+            (Operation::DeclareFn, vec![], 0),
+            (Operation::Dict, vec![json!(0)], 1),
+            (Operation::Array, vec![json!(0)], 1),
+            (Operation::Tuple, vec![json!(0)], 1),
+            (Operation::GetProperty, vec![], 0),
+            (Operation::SetProperty, vec![], 0),
+            (Operation::JumpIfStackNotNull, vec![json!(0)], 1),
+            (Operation::GetPropertyNullish, vec![], 0),
+            (Operation::Throw, vec![], 0),
+            (Operation::Try, vec![json!(0)], 1),
+            (Operation::PopTry, vec![], 0),
+            // Name, arg count, upvalue count, then an empty body.
+            (
+                Operation::Callable,
+                vec![json!("f"), json!(0), json!(0), json!(0)],
+                4,
+            ),
+            (Operation::Closure, vec![json!(0)], 1),
+            (Operation::CallLocal, vec![json!(0)], 1),
+            (Operation::GetUpvalue, vec![json!(0)], 1),
+            (Operation::SetUpvalue, vec![json!(0)], 1),
+            (Operation::CloseUpvalue, vec![], 0),
+        ];
+        for (op, immediates, advance) in cases {
+            let mut tokens = vec![json!(op as u8)];
+            tokens.extend(immediates);
+            // A trailing `POP`, which only decodes as an instruction if the opcode before it
+            // consumed exactly `advance` tokens.
+            tokens.push(json!(35));
+            let decoded = decode(&body(tokens))
+                .unwrap_or_else(|error| panic!("{op:?} did not decode: {error}"));
+            assert_eq!(
+                decoded.instrs.len(),
+                2,
+                "{op:?} left {:?}",
+                decoded
+                    .instrs
+                    .iter()
+                    .map(|instr| instr.kind.clone())
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                decoded.instrs[1].start,
+                TokenIndex(HEADER_LEN + 1 + advance),
+                "{op:?} advanced to the wrong token"
+            );
+            assert_eq!(decoded.instrs[1].kind, InstrKind::Bare(Operation::Pop));
         }
     }
 

@@ -19,6 +19,12 @@
 //! is quadratic in the program's own length, which on the largest real list size meant seconds of
 //! blocking and over a gigabyte, for a program the VM evaluates in kilobytes.
 //!
+//! That gating answers the shape it was built for and no other. A program that is *all* merge
+//! points — a deep stack of literals, then a chain of rejoining diamonds — stores and copies a
+//! stack at every one of them, and a transfer-step ceiling does not bound that, because one step
+//! can copy a whole stack. So the two ceilings in [`AnalysisBudget`] are both needed: steps for the
+//! programs that spend without copying, copied cells for the programs that copy without spending.
+//!
 //! The pass stays fail-closed everywhere it is not sure. Two paths that meet at different stack
 //! depths, a jump into the middle of an instruction, a local slot outside the frame, or a `RETURN`
 //! that leaves the stack unbalanced all stop the analysis and widen the condition to every column.
@@ -37,14 +43,24 @@ use super::{FullColumnsReason, GlobalRoot, Projection, ReadPath, UnanalyzableRea
 /// that projects an `elements_chain` read must carry it too.
 const ELEMENTS_CHAIN_PROPERTY: &str = "$elements_chain";
 
-/// A ceiling on transfer steps, so a program the lattice argument does not cover cannot hang the
-/// caller. The fixpoint is reached far sooner: a merge point's stack can only move upward, one cell
-/// at a time, so the work is quadratic in the program length at worst and this only fires if that
-/// reasoning is wrong.
+/// A ceiling on transfer steps one program may take, so a program the lattice argument does not
+/// cover cannot hang the caller. The fixpoint is reached far sooner: a merge point's stack can only
+/// move upward, one cell at a time, so the work is quadratic in the program length at worst and
+/// this only fires if that reasoning is wrong.
 const MAX_WORKLIST_STEPS: usize = 1_000_000;
 
+/// A ceiling on the abstract stack cells one program may copy in total.
+///
+/// The step ceiling does not bound the work on its own: one step can copy a whole stack at a merge
+/// point, so the two multiply. A deep stack followed by a chain of rejoining diamonds is all merge
+/// points, so merge-point gating does not apply to it, and the pair of ceilings alone admits about
+/// `1e12` cell copies. Charging what is actually copied is what makes the bounded cost the cost
+/// incurred.
+const MAX_COPIED_CELLS: usize = 16_000_000;
+
 /// A ceiling on the abstract stack cells the pass holds at once, across stored merge-point states
-/// and the worklist together.
+/// and the worklist together. A memory ceiling rather than a work one, so it is per program however
+/// the caller shares [`AnalysisBudget`].
 ///
 /// The pass would otherwise be quadratic in a shape production already writes: a `properties.x IN
 /// (...)` leaf pushes every list element before `IN` pops them, and catalogs hold lists of several
@@ -52,6 +68,50 @@ const MAX_WORKLIST_STEPS: usize = 1_000_000;
 /// square of its length. Merge-point gating removes that for straight-line code; this bounds what
 /// is left, so a shape nobody predicted costs a wide answer rather than the process.
 const MAX_RETAINED_CELLS: usize = 1_000_000;
+
+/// A ceiling on the work an analysis may do, in transfer steps and copied abstract stack cells.
+///
+/// Both units are load-bearing. A step ceiling alone lets one step copy a whole stack, so the two
+/// multiply; a cell ceiling alone says nothing about a straight-line run, which is walked in place
+/// and copies nothing.
+///
+/// A budget may be shared by a batch of conditions, which is how a caller bounds the batch rather
+/// than each member of it: per-condition ceilings alone leave `conditions × ceiling`, and nothing
+/// caps the conditions on a run. Sharing keeps the analysis a pure function of its input — a batch
+/// is analyzed in a fixed order, so it always spends the budget the same way, which a wall-clock
+/// deadline would not. Past the budget every remaining condition reports it and fails closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnalysisBudget {
+    /// Transfer steps left to take.
+    pub steps: usize,
+    /// Abstract stack cells left to copy.
+    pub cells: usize,
+}
+
+impl AnalysisBudget {
+    /// What one condition may cost on its own.
+    pub const fn for_one_condition() -> Self {
+        Self {
+            steps: MAX_WORKLIST_STEPS,
+            cells: MAX_COPIED_CELLS,
+        }
+    }
+
+    /// What `worst_case_conditions` conditions cost together, each saturating its own ceiling. The
+    /// unit is a worst case rather than a condition, so a batch of any size fits a budget the
+    /// caller can reason about in wall-clock terms.
+    pub const fn for_conditions(worst_case_conditions: usize) -> Self {
+        Self {
+            steps: MAX_WORKLIST_STEPS.saturating_mul(worst_case_conditions),
+            cells: MAX_COPIED_CELLS.saturating_mul(worst_case_conditions),
+        }
+    }
+
+    fn spend(&mut self, steps: usize, cells: usize) {
+        self.steps = self.steps.saturating_sub(steps);
+        self.cells = self.cells.saturating_sub(cells);
+    }
+}
 
 /// Which instructions more than one edge can reach.
 ///
@@ -117,12 +177,23 @@ impl AbstractValue {
 
 type AbstractStack = Vec<AbstractValue>;
 
-pub(super) fn project(bytecode: &[Value]) -> Projection {
+pub(super) fn project(bytecode: &[Value], budget: &mut AnalysisBudget) -> Projection {
+    // A spent budget stops before the decode too. Decoding is work proportional to the whole
+    // program, so a batch that ran out on its first condition would otherwise still pay it for
+    // every remaining one.
+    if budget.steps == 0 {
+        return full_columns(UnanalyzableReason::IterationBudget);
+    }
     let decoded = match decode(bytecode) {
         Ok(decoded) => decoded,
         Err(error) => return full_columns(UnanalyzableReason::Decode(error)),
     };
-    match Interpreter::new(&decoded).run() {
+    let mut interpreter = Interpreter::new(&decoded, *budget);
+    let outcome = interpreter.run();
+    // Charged however the pass ended: a condition that spent the budget and then failed closed has
+    // still spent it.
+    budget.spend(interpreter.steps, interpreter.cells_copied);
+    match outcome {
         Ok(reads) => Projection::Reads(reads),
         Err(Stop::Unanalyzable(reason)) => full_columns(reason),
         Err(Stop::BareRoot(reason)) => Projection::FullColumns(reason),
@@ -171,6 +242,13 @@ struct Interpreter<'a> {
     /// Stack cells alive in `entry` and on the worklist together. Bounding this is what keeps the
     /// pass's memory a function of the program's branching rather than of its length.
     retained: usize,
+    /// Transfer steps taken and stack cells copied so far. Read back by [`project`] and charged
+    /// against the caller's budget, so a batch sharing one budget pays for what each member spent.
+    steps: usize,
+    cells_copied: usize,
+    /// This program's ceilings: its own, capped by what the caller's budget has left.
+    step_ceiling: usize,
+    cell_ceiling: usize,
     /// Accumulated across every visit and never retracted. Held outside the per-instruction state
     /// on purpose: a join that narrowed a read set could make the analysis claim fewer globals
     /// than the program touches, which is the one failure this module must not have.
@@ -179,35 +257,38 @@ struct Interpreter<'a> {
 }
 
 impl<'a> Interpreter<'a> {
-    fn new(decoded: &'a Decoded) -> Self {
+    fn new(decoded: &'a Decoded, budget: AnalysisBudget) -> Self {
         let starts: Vec<TokenIndex> = decoded.instrs.iter().map(|instr| instr.start).collect();
+        let count = decoded.instrs.len();
+        // Every instruction is re-processed once per widening of a merge point upstream of it, and
+        // a merge point widens at most once per stack cell. The quadratic term covers that; the
+        // factor is headroom, so a legitimate program never reports the budget instead of an answer.
+        let step_ceiling = count
+            .checked_mul(count + 1)
+            .and_then(|product| product.checked_mul(4))
+            .unwrap_or(MAX_WORKLIST_STEPS)
+            .min(MAX_WORKLIST_STEPS)
+            .min(budget.steps);
         Self {
             merge_points: merge_points(decoded, &starts),
             starts,
             decoded,
-            entry: vec![None; decoded.instrs.len()],
+            entry: vec![None; count],
             retained: 0,
+            steps: 0,
+            cells_copied: 0,
+            step_ceiling,
+            cell_ceiling: MAX_COPIED_CELLS.min(budget.cells),
             reads: BTreeSet::new(),
             worklist: VecDeque::new(),
         }
     }
 
-    fn run(mut self) -> Result<BTreeSet<ReadPath>, Stop> {
+    fn run(&mut self) -> Result<BTreeSet<ReadPath>, Stop> {
         if self.decoded.instrs.is_empty() {
-            return Ok(self.reads);
+            return Ok(BTreeSet::new());
         }
         self.enqueue(InstrIndex(0), AbstractStack::new());
-
-        let count = self.decoded.instrs.len();
-        // Every instruction is re-processed once per widening of a merge point upstream of it, and
-        // a merge point widens at most once per stack cell. The quadratic term covers that; the
-        // factor is headroom, so a legitimate program never reports the budget instead of an answer.
-        let budget = count
-            .checked_mul(count + 1)
-            .and_then(|product| product.checked_mul(4))
-            .unwrap_or(MAX_WORKLIST_STEPS)
-            .min(MAX_WORKLIST_STEPS);
-        let mut steps = 0;
 
         while let Some((InstrIndex(entry_index), stack)) = self.worklist.pop_front() {
             self.retained -= stack.len();
@@ -217,11 +298,13 @@ impl<'a> Interpreter<'a> {
             // through the worklist would copy the whole stack per instruction, which is a copy per
             // element of a large `IN` list — quadratic in the program's own length.
             loop {
-                steps += 1;
-                if steps > budget {
+                self.steps += 1;
+                if self.steps > self.step_ceiling {
                     return Err(Stop::Unanalyzable(UnanalyzableReason::IterationBudget));
                 }
-                if self.retained + stack.len() > MAX_RETAINED_CELLS {
+                if self.retained + stack.len() > MAX_RETAINED_CELLS
+                    || self.cells_copied > self.cell_ceiling
+                {
                     return Err(Stop::Unanalyzable(UnanalyzableReason::StateBudget));
                 }
                 let next = match self.transfer(index, &mut stack)? {
@@ -245,10 +328,14 @@ impl<'a> Interpreter<'a> {
                 index = next;
             }
         }
-        Ok(self.reads)
+        Ok(std::mem::take(&mut self.reads))
     }
 
     fn enqueue(&mut self, index: InstrIndex, stack: AbstractStack) {
+        // Every stack this pass copies is copied on the way here — the worklist entry itself, and
+        // the merge-point store that precedes it. Charging by cells rather than by step is what
+        // makes the ceiling bound the work: one step can copy a whole stack.
+        self.cells_copied = self.cells_copied.saturating_add(stack.len());
         self.retained += stack.len();
         self.worklist.push_back((index, stack));
     }
@@ -597,16 +684,23 @@ mod tests {
     }
 
     fn reads_of(bytecode: &[Value]) -> Vec<String> {
-        match project(bytecode) {
+        match project(bytecode, &mut AnalysisBudget::for_one_condition()) {
             Projection::Reads(paths) => paths.iter().map(ReadPath::render).collect(),
             other => panic!("expected reads, got {other:?}"),
         }
     }
 
     fn full_columns_reason(tokens: Vec<Value>) -> FullColumnsReason {
-        match project(&program(tokens)) {
+        match project(&program(tokens), &mut AnalysisBudget::for_one_condition()) {
             Projection::FullColumns(reason) => reason,
             other => panic!("expected full columns, got {other:?}"),
+        }
+    }
+
+    fn unanalyzable_within(bytecode: &[Value], budget: &mut AnalysisBudget) -> UnanalyzableReason {
+        match project(bytecode, budget) {
+            Projection::FullColumns(FullColumnsReason::Unanalyzable(reason)) => reason,
+            other => panic!("expected an unanalyzable reason, got {other:?}"),
         }
     }
 
@@ -989,5 +1083,147 @@ mod tests {
         );
         let shallow = vec![json!(29), json!(29), json!(1), json!(6)];
         assert_eq!(unanalyzable(shallow), UnanalyzableReason::StackUnderflow);
+    }
+
+    /// Both ceilings, on programs small enough to reach them at unit cost rather than at a million
+    /// steps. They are guards rather than dead code, so the risk they carry is not an unreachable
+    /// branch — it is a guard that is wrong and nothing that says so.
+    ///
+    /// The step ceiling is reached through the loop here rather than through the spent-budget
+    /// shortcut, which the next test covers.
+    #[test]
+    fn each_ceiling_fails_closed_under_its_own_reason() {
+        // STRING, STRING, GET_GLOBAL, RETURN.
+        let straight_line = program(read(&["properties", "plan"]));
+        assert_eq!(
+            unanalyzable_within(
+                &straight_line,
+                &mut AnalysisBudget {
+                    steps: 1,
+                    cells: usize::MAX
+                }
+            ),
+            UnanalyzableReason::IterationBudget
+        );
+
+        // A fork whose two edges both land on the POP, so the pass copies its one-deep stack onto
+        // the worklist rather than walking it in place. Without a copy there is no cell to charge.
+        let forked = program(vec![
+            json!(32),
+            json!("x"),
+            json!(29),
+            json!(40),
+            json!(0),
+            json!(35),
+            json!(29),
+        ]);
+        assert_eq!(
+            reads_of(&forked),
+            Vec::<String>::new(),
+            "the fork analyzes cleanly when the budget allows it"
+        );
+        assert_eq!(
+            unanalyzable_within(
+                &forked,
+                &mut AnalysisBudget {
+                    steps: usize::MAX,
+                    cells: 0
+                }
+            ),
+            UnanalyzableReason::StateBudget
+        );
+    }
+
+    /// One budget across several conditions is what bounds a batch rather than each member of it.
+    /// The spend has to be real: a budget that reset per condition would leave `conditions ×
+    /// ceiling`, which is the shape this exists to refuse.
+    #[test]
+    fn a_shared_budget_is_spent_down_and_then_refuses() {
+        // STRING, STRING, GET_GLOBAL, RETURN: four transfer steps, exactly.
+        let bytecode = program(read(&["properties", "plan"]));
+        let mut budget = AnalysisBudget {
+            steps: 4,
+            cells: usize::MAX,
+        };
+        assert!(matches!(
+            project(&bytecode, &mut budget),
+            Projection::Reads(_)
+        ));
+        assert_eq!(budget.steps, 0);
+        // The next condition is refused before it is even decoded.
+        assert_eq!(
+            unanalyzable_within(&bytecode, &mut budget),
+            UnanalyzableReason::IterationBudget
+        );
+    }
+
+    /// A deep stack, then diamonds whose two arms write different literals into one local slot, so
+    /// every rejoin widens a cell and re-enqueues a full-depth stack.
+    fn widening_diamonds(depth: usize, count: usize) -> Vec<Value> {
+        let mut tokens = Vec::new();
+        for index in 0..depth {
+            tokens.push(json!(32));
+            tokens.push(json!(format!("v{index}")));
+        }
+        for index in 0..count {
+            let slot = index % depth;
+            // TRUE; JUMP_IF_FALSE over the first arm.
+            tokens.extend([json!(29), json!(40), json!(6)]);
+            // STRING "a"; SET_LOCAL slot; JUMP over the second arm.
+            tokens.extend([
+                json!(32),
+                json!("a"),
+                json!(37),
+                json!(slot),
+                json!(39),
+                json!(4),
+            ]);
+            // STRING "b"; SET_LOCAL slot.
+            tokens.extend([json!(32), json!("b"), json!(37), json!(slot)]);
+        }
+        for _ in 0..depth {
+            tokens.push(json!(35));
+        }
+        tokens.push(json!(31));
+        tokens
+    }
+
+    /// The shape merge-point gating does not answer: a program that is *all* merge points.
+    ///
+    /// Its cost is the copying, and neither of the other two ceilings sees it. Steps do not, because
+    /// one step copies a whole stack. The memory ceiling does not either, because each copy is
+    /// popped again, so the pass holds a fraction of what it has copied. At the sizes a catalog row
+    /// can carry this ran for over a second on the caller's task before the copied-cell ceiling
+    /// existed.
+    #[test]
+    fn a_program_that_is_all_merge_points_is_charged_by_the_cells_it_copies() {
+        let bytecode = program(widening_diamonds(40, 40));
+        let decoded = decode(&bytecode).expect("the shape decodes");
+        let mut interpreter = Interpreter::new(&decoded, AnalysisBudget::for_one_condition());
+        interpreter
+            .run()
+            .unwrap_or_else(|_| panic!("the shape analyzes cleanly under a whole budget"));
+        assert!(
+            interpreter.cells_copied > interpreter.steps * 5,
+            "{} steps against {} copied cells, so the step ceiling bounds this shape after all",
+            interpreter.steps,
+            interpreter.cells_copied
+        );
+        assert!(
+            interpreter.retained < MAX_RETAINED_CELLS / 10,
+            "{} cells held at the end, so the memory ceiling is what bounds this shape",
+            interpreter.retained
+        );
+
+        assert_eq!(
+            unanalyzable_within(
+                &bytecode,
+                &mut AnalysisBudget {
+                    steps: usize::MAX,
+                    cells: 1_000
+                }
+            ),
+            UnanalyzableReason::StateBudget
+        );
     }
 }

@@ -28,6 +28,7 @@ use hogvm::Operation;
 use serde_json::Value;
 
 pub use decode::DecodeError;
+pub use projection::AnalysisBudget;
 
 /// What a static pass could establish about one condition's bytecode.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,10 +115,12 @@ pub enum UnanalyzableReason {
     /// opcode where an immediate is.
     BadJumpTarget,
     /// The worklist ran past its step ceiling, so the fixpoint argument does not hold for this
-    /// program. Never expected; it exists so an unforeseen shape is a wide answer, not a hang.
+    /// program. Never expected on its own; it exists so an unforeseen shape is a wide answer, not a
+    /// hang. Also how a condition reports a shared [`AnalysisBudget`] its siblings already spent.
     IterationBudget,
-    /// The pass would have had to hold more abstract stack state than its ceiling allows. Bounds
-    /// the memory a single condition can cost, whatever its branching shape.
+    /// The pass would have had to hold or copy more abstract stack state than its ceiling allows.
+    /// Bounds the memory and the copying a condition can cost, whatever its branching shape, and
+    /// reports a shared [`AnalysisBudget`] spent down to its cell half.
     StateBudget,
     /// A local slot outside the current frame, which the VM's own bounds check refuses.
     LocalSlotOutOfRange,
@@ -302,15 +305,28 @@ fn group_index(suffix: &str) -> Option<GroupIndex> {
     GroupIndex::parse(digit.checked_sub(b'0')?)
 }
 
-/// Analyze one condition's loaded bytecode.
+/// Analyze one condition's loaded bytecode, under a budget of its own.
 ///
 /// Total: it returns no error and never panics. Anything the model does not cover becomes
 /// [`Projection::FullColumns`] carrying the reason, because a wrong narrow answer would drop rows
 /// from a scan while a wide one only costs time.
 pub fn analyze_condition(bytecode: &[Value]) -> ConditionAnalysis {
+    analyze_condition_within(bytecode, &mut AnalysisBudget::for_one_condition())
+}
+
+/// Analyze one condition against a budget its siblings share.
+///
+/// A caller with many conditions wants the batch bounded, not each member of it: the per-condition
+/// ceilings leave `conditions × ceiling`, which is unbounded wherever nothing caps the conditions.
+/// Spending one budget in a fixed order keeps that bounded and keeps the analysis a pure function
+/// of its input, so the same batch always classifies the same way.
+pub fn analyze_condition_within(
+    bytecode: &[Value],
+    budget: &mut AnalysisBudget,
+) -> ConditionAnalysis {
     ConditionAnalysis {
         evaluation: event_only::classify(bytecode),
-        projection: projection::project(bytecode),
+        projection: projection::project(bytecode, budget),
     }
 }
 

@@ -235,7 +235,6 @@ impl PinnedRun {
         let conditions = resolve_conditions(payload.conditions, &participation, &mut warnings)?;
         let event_names = EventNameSet::from_conditions(&conditions);
         let uncovered_cohorts = participation.uncovered_cohorts(&conditions);
-        // A pure function of the pinned payload, so re-validating the run classifies identically.
 
         Ok(ValidatedPinnedRun {
             uncovered_cohorts,
@@ -919,12 +918,12 @@ mod tests {
         );
     }
 
-    /// Validation classifies the run's conditions, and classifies them the same way every time.
-    /// Determinism is what a later projection pass depends on: a chunk retried on another replica
-    /// re-validates the same payload, and two replicas that disagreed about a condition's read set
-    /// would scan two different column sets for the same chunk.
+    /// A validated run classifies the same way every time it is validated. Determinism is what a
+    /// later projection pass depends on: a chunk retried on another replica re-validates the same
+    /// payload, and two replicas that disagreed about a condition's read set would scan two
+    /// different column sets for the same chunk.
     #[test]
-    fn validation_classifies_the_pinned_conditions_and_repeats_itself() {
+    fn a_revalidated_run_classifies_its_conditions_identically() {
         let event_only = "eventonly0000000";
         let projectable = "projectable00000";
         // `properties.plan == 'paid' AND event == 'signup'`, in the compiler's emission order.

@@ -116,6 +116,57 @@ fn graft(into: &mut Map<String, Value>, keys: &[String], value: Option<&Value>) 
     }
 }
 
+/// Every path the projection kept has to lie on a claimed one: under it, where a claim names a
+/// subtree, or on the way to it, for the objects [`graft`] creates along a claimed path.
+///
+/// Without this the corpus cannot fail on a leak. Each fixture's property bag holds at most the one
+/// key its condition reads, so a `project_globals` that returned whole objects instead of the
+/// claimed keys would decide every fixture the same way and pass — leaving the test asserting that
+/// the full globals decide the condition, which is trivially true. The generated corpus is
+/// projected key by key and so cannot leak by construction; this is the same guarantee for the
+/// programs that came out of the real compiler.
+fn assert_nothing_outside_the_claimed_paths(
+    projected: &Value,
+    paths: &BTreeSet<ReadPath>,
+    name: &str,
+) {
+    let claimed: Vec<Vec<String>> = paths
+        .iter()
+        .map(|path| {
+            let mut keys = vec![path.root.as_str().to_owned()];
+            keys.extend(path.segments.iter().cloned());
+            keys
+        })
+        .collect();
+    assert_kept_path_is_claimed(projected, &mut Vec::new(), &claimed, name);
+}
+
+fn assert_kept_path_is_claimed(
+    value: &Value,
+    at: &mut Vec<String>,
+    claimed: &[Vec<String>],
+    name: &str,
+) {
+    if let Value::Object(fields) = value {
+        if !fields.is_empty() {
+            for (key, child) in fields {
+                at.push(key.clone());
+                assert_kept_path_is_claimed(child, at, claimed, name);
+                at.pop();
+            }
+            return;
+        }
+    }
+    // An empty path is the whole projection being empty, which cannot carry anything unclaimed.
+    assert!(
+        at.is_empty()
+            || claimed
+                .iter()
+                .any(|path| path.starts_with(at) || at.starts_with(path)),
+        "fixture `{name}` kept {at:?}, which no claimed path covers"
+    );
+}
+
 fn matched(bytecode: &[Value], globals: Value, name: &str) -> bool {
     match evaluate_detailed(bytecode, globals) {
         EvalOutcome::Matched(matched) => matched,
@@ -124,7 +175,8 @@ fn matched(bytecode: &[Value], globals: Value, name: &str) -> bool {
 }
 
 /// Every fixture analyzes, and where the analysis claims a read set, that set alone decides the
-/// condition the same way the oracle did.
+/// condition the same way the oracle did — with the projection holding nothing the analysis did not
+/// claim, so the equivalence is about the claimed set rather than about the whole event.
 #[test]
 fn every_parity_fixture_decides_the_same_way_from_its_claimed_reads() {
     let fixtures = fixtures();
@@ -143,11 +195,9 @@ fn every_parity_fixture_decides_the_same_way_from_its_claimed_reads() {
         let Projection::Reads(paths) = analyze_condition(&fixture.bytecode).projection else {
             continue;
         };
-        let projected = matched(
-            &fixture.bytecode,
-            project_globals(&fixture.globals, &paths),
-            &fixture.name,
-        );
+        let projected_globals = project_globals(&fixture.globals, &paths);
+        assert_nothing_outside_the_claimed_paths(&projected_globals, &paths, &fixture.name);
+        let projected = matched(&fixture.bytecode, projected_globals, &fixture.name);
         assert_eq!(
             projected,
             fixture.expected,
