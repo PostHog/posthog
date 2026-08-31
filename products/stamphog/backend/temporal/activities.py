@@ -494,9 +494,25 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     # most one sandbox, whatever ended the attempt before it. Both sit outside the try below: the
     # refusal must not be re-wrapped, and a failed stamp write is a plain database error over work
     # that has cost nothing yet, so it stays retryable.
-    if (run.output or {}).get("sandbox_started_at"):
+    # Read the claim from the writer instead of trusting the copy loaded at the top of this activity.
+    # The two attempts that can reach here are separated by the start-to-close timeout, so an attempt
+    # that stalled through its own timeout sees the replacement's claim here and stops rather than
+    # provisioning beside it. Merging onto this row also keeps whatever the replacement wrote.
+    #
+    # This is a read then a write, not an atomic claim: two attempts interleaving between the two
+    # statements would both pass. Accepted, because reaching that needs one attempt to resume in the
+    # same instant its own 30-minute timeout fires. Closing it properly needs a dedicated column and
+    # a conditional update.
+    latest_output = (
+        ReviewRun.objects.for_team(input.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=run.id)
+        .values_list("output", flat=True)
+        .first()
+    ) or {}
+    if latest_output.get("sandbox_started_at"):
         raise SandboxPhaseError("an earlier attempt already provisioned a sandbox for this run")
-    run.output = {**(run.output or {}), "sandbox_started_at": timezone.now().isoformat()}
+    run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
     run.save(update_fields=["output", "updated_at"])
 
     try:
@@ -533,8 +549,10 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
             )
     except Exception as exc:
         # Keep the original type in the message: SandboxPhaseError is the retry marker, so it is the
-        # only type the failure record would otherwise show.
-        raise SandboxPhaseError(f"{type(exc).__name__}: {exc}") from exc
+        # only type the failure record would otherwise show. Scrub it like every other sandbox-derived
+        # string: the config handed to create() carries the minted gateway token, so a provisioning
+        # error can echo it, and this message reaches run.error and the failure event.
+        raise SandboxPhaseError(_scrub_credentials(f"{type(exc).__name__}: {exc}", token, gateway_token)) from exc
 
     activity.logger.info(f"Reviewer completed for run {run.id}")
     return {"exit_code": result.exit_code}
