@@ -9,6 +9,7 @@ import abc
 import dataclasses
 from typing import Any, Optional
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.enrichment.fields import EnrichmentFields
@@ -17,7 +18,7 @@ from products.growth.backend.enrichment.transform import transform_harmonic_comp
 from ee.billing.salesforce_enrichment.harmonic_client import AsyncHarmonicClient
 
 
-@dataclasses.dataclass
+@frozen
 class ProviderLookup:
     """One provider lookup: the transformed fields plus the raw response kept for the archive.
 
