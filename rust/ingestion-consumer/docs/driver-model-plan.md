@@ -131,10 +131,10 @@ Outcome: commit contiguity is a property of a data structure, not of completion 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
 - Each slot records: complete or not, event count, byte count. The counts serve the budget in change 17.
 - Operations: `charge` adds a delivered offset. `complete` marks an offset done. `frontier` returns the highest contiguous done offset and does not mutate. `take_frontier` consumes the done prefix up to the frontier.
-- The read/consume split matters: shadow comparison reads `frontier` repeatedly without consuming state. Only an issued commit calls `take_frontier`.
+- The read/consume split matters: the comparison read is idempotent and cannot consume state by accident. Consumption happens at commit points in every mode, so the ring holds only uncommitted offsets.
 - Completions can arrive in any order. The frontier moves only over completed slots.
 - Kafka delivers offsets with gaps (transactions, compaction). Contiguity means the prefix of delivered offsets, not offset arithmetic.
-- Add property tests: out-of-order completion, monotonic frontier, `frontier` idempotence, offset gaps, ring capacity.
+- Add property tests: out-of-order completion, monotonic frontier, `frontier` idempotence, the ring drains after `take_frontier`, offset gaps, ring capacity.
 
 **Interfaces:**
 
@@ -150,6 +150,7 @@ Outcome: commit contiguity is a property of a data structure, not of completion 
 - Charge every delivered offset into its partition ledger during `collect_batch`.
 - When a poll completes, mark all its offsets complete.
 - At each commit, compare the partition's `frontier` — the non-mutating read — with the offset the current path commits. With oldest-first completion, the two must be equal.
+- After the comparison, call `take_frontier` at the same commit point. The ledger drains identically in shadow and active modes. Without this, the shadow ring grows without bound.
 - On a mismatch: increment a counter and log the partition with both offsets. Do not block the commit.
 - On revoke, drop the partition's ledger. This mirrors the commit sentinel's `forget_partitions`.
 - Soak on all lanes. The exit criterion is a mismatch count of zero across deploys and rebalances.
@@ -167,7 +168,7 @@ Outcome: commit contiguity is a property of a data structure, not of completion 
 **Goal:** The frontier produces the same commits as the old code, and change 4 already proved that.
 
 - Commit each partition's frontier instead of the poll's max offset.
-- Call `take_frontier` only when the commit is issued. Shadow mode keeps reading `frontier` and never consumes.
+- The ledger calls do not change: both modes already charge, complete, compare, and consume at the same points (change 4). This switchover changes only which value the consumer commits.
 - With oldest-first completion, the output is identical to the old path.
 - The commit sentinel stays on and checks contiguity and monotonicity.
 - Rollback is the config switch back to `shadow`.
