@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 import { ReactNode, useEffect, useRef, useState } from 'react'
 
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+
 import { LemonMarkdown } from '../LemonMarkdown'
 import { Link, LinkProps } from '../Link'
 
@@ -30,7 +32,13 @@ export function LemonTableLink({
         </div>
     )
     const descriptionBlock = description ? (
-        <LemonTableLinkDescription description={description} truncate={truncateDescription} />
+        // Keyed by the text so a row reused for a different record (LemonTable falls back to index
+        // keys) doesn't carry over the previous record's expanded state.
+        <LemonTableLinkDescription
+            key={typeof description === 'string' ? description : undefined}
+            description={description}
+            truncate={truncateDescription}
+        />
     ) : null
 
     if (!props.to) {
@@ -75,18 +83,20 @@ function LemonTableLinkDescription({
     const contentRef = useRef<HTMLDivElement | null>(null)
     const [expanded, setExpanded] = useState(false)
     const [isOverflowing, setIsOverflowing] = useState(false)
+    // The column resizes with the scene (e.g. opening a side panel), which changes the line count.
+    const { width: contentWidth } = useResizeObserver({ ref: contentRef })
 
     useEffect(() => {
         if (truncate && !expanded && contentRef.current) {
             setIsOverflowing(contentRef.current.scrollHeight > contentRef.current.clientHeight)
         }
-    }, [truncate, expanded, description])
+    }, [truncate, expanded, description, contentWidth])
 
     return (
         <div className="text-xs text-tertiary mt-1">
             <div ref={contentRef} className={clsx(truncate && !expanded && 'line-clamp-2')}>
                 {typeof description === 'string' ? (
-                    <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
+                    <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings disableImages>
                         {description}
                     </LemonMarkdown>
                 ) : (
@@ -97,6 +107,7 @@ function LemonTableLinkDescription({
                 <Link
                     onClick={() => setExpanded(!expanded)}
                     className="text-xs"
+                    aria-expanded={expanded}
                     data-attr="lemon-table-link-description-toggle"
                 >
                     {expanded ? 'Show less' : 'Show more'}
