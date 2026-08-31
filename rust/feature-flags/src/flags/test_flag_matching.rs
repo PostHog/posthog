@@ -734,6 +734,18 @@ mod tests {
                 "user {distinct_id}"
             );
 
+            // The sentence the person reads under the badge. A matched condition used to
+            // render the "did not match properties" branch here, directly below MATCHED.
+            let expected_condition = if is_member {
+                "Condition 1 matched and passed 100% rollout"
+            } else {
+                "Condition 1 did not match properties"
+            };
+            assert_eq!(
+                conditions[0].explanation, expected_condition,
+                "user {distinct_id}"
+            );
+
             let properties = &conditions[0].properties;
             assert_eq!(properties.len(), 1);
             assert_eq!(properties[0].matched, is_member, "user {distinct_id}");
