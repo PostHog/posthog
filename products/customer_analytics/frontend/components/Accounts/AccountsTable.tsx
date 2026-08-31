@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
@@ -10,11 +9,13 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
@@ -32,13 +33,12 @@ import type {
 
 import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
-import { AccountNameCell } from './AccountNameCell'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
+import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
-import { AccountsEvents } from './constants'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
 type AccountNameCellData = { name: string; external_id: string | null; id: string; logo_domain: string | null }
@@ -77,27 +77,13 @@ function parseAssignedUserIds(value: unknown): number[] {
 }
 
 function NameCell({ record }: { record: unknown }): JSX.Element {
-    const { isAccountExpanded } = useValues(accountsExpansionLogic)
-    const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
     const cell = getNameCell(record)
-    const accountId = cell?.id
     return (
-        <AccountNameCell
-            accountId={accountId}
+        <AccountsTableNameCell
+            accountId={cell?.id}
             name={cell?.name ?? ''}
             externalId={cell?.external_id}
             logoDomain={cell?.logo_domain}
-            onClick={(event) => {
-                if (!accountId || event.metaKey || event.ctrlKey || event.shiftKey) {
-                    return
-                }
-                event.preventDefault()
-                event.stopPropagation()
-                if (!isAccountExpanded(accountId)) {
-                    posthog.capture(AccountsEvents.AccountOpened)
-                }
-                toggleAccountExpanded(accountId)
-            }}
         />
     )
 }
@@ -326,6 +312,7 @@ function CanonicalTimestampCell({
     value: string
     tab: AccountExpansionTab
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { openAccountTab } = useActions(accountsExpansionLogic)
     const accountId = getNameCell(record)?.id
     const label = <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
@@ -337,8 +324,12 @@ function CanonicalTimestampCell({
         <Link
             to={urls.customerAnalyticsAccount(accountId, tab)}
             onClick={(event) => {
-                // Modifier-click keeps the href's new-tab behavior, matching the account name cell.
-                if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                if (
+                    featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE] ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey
+                ) {
                     return
                 }
                 event.preventDefault()
@@ -503,10 +494,15 @@ function useContextColumns(): Record<string, QueryContextColumn> {
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { expandedAccountIds } = useValues(accountsExpansionLogic)
     const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
-    return useMemo(
-        () => ({
+    const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
+    return useMemo(() => {
+        if (accountSceneEnabled) {
+            return undefined
+        }
+        return {
             noIndent: true,
             expandedRowClassName: '[&>td]:overflow-visible!',
             isRowExpanded: ({ result }) => {
@@ -531,9 +527,8 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
                     <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
                 ) : null
             },
-        }),
-        [expandedAccountIds, toggleAccountExpanded]
-    )
+        }
+    }, [accountSceneEnabled, expandedAccountIds, toggleAccountExpanded])
 }
 
 const SKELETON_ROW_COUNT = 5
@@ -576,18 +571,22 @@ const SKELETON_COLUMNS: LemonTableColumns<{ key: number }> = [
     })),
 ]
 
-function AccountsTableSkeleton(): JSX.Element {
+function AccountsTableSkeleton({ expandable }: { expandable: boolean }): JSX.Element {
     return (
         <LemonTable
             className="DataTable"
             columns={SKELETON_COLUMNS}
             dataSource={Array.from({ length: SKELETON_ROW_COUNT }, (_, key) => ({ key }))}
             rowKey="key"
-            expandable={{
-                noIndent: true,
-                expandedRowRender: () => null,
-                rowExpandable: () => true,
-            }}
+            expandable={
+                expandable
+                    ? {
+                          noIndent: true,
+                          expandedRowRender: () => null,
+                          rowExpandable: () => true,
+                      }
+                    : undefined
+            }
         />
     )
 }
@@ -600,12 +599,14 @@ export function AccountsTable(): JSX.Element {
             query: accountsQuerySource ?? accountsDataTableQuery.source,
         } as DataNodeLogicProps)
     )
+    const { featureFlags } = useValues(featureFlagLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
+    const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
     // A null source means the query is still waiting on the relationship
     // definitions — same skeleton as the initial fetch, not an empty table.
     if ((responseLoading || !accountsQuerySource) && !response) {
-        return <AccountsTableSkeleton />
+        return <AccountsTableSkeleton expandable={!accountSceneEnabled} />
     }
     return (
         <div className="@container">
