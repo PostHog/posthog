@@ -53,6 +53,7 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
         "data-warehouse-table",
         "data-warehouse-view",
         "slack-message",
+        "github-event",
     }
 )
 
@@ -64,6 +65,16 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
     "function_sms",  # SMS sending actions
     "function_push",  # Push notification actions
 }
+
+# Action types that send a message to a person. A workflow containing at least one of these is a
+# "messaging" workflow; everything else is an "automation". Keep in sync with the frontend's
+# WorkflowTypeTag (products/workflows/frontend/Workflows/WorkflowsTable.tsx), which renders the
+# same split, and the list API's `type` filter, which queries on it.
+MESSAGING_ACTION_TYPES: Final[list[str]] = [
+    "function_email",
+    "function_sms",
+    "function_push",
+]
 
 # Action types that read person data and therefore cannot be used in person-less ("row-scoped")
 # workflows such as those triggered by a data warehouse table row sync. Keep in sync with the
@@ -80,6 +91,7 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-table",
     "data-warehouse-view",
     "slack-message",
+    "github-event",
 }
 
 

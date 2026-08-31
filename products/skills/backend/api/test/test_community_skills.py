@@ -51,6 +51,10 @@ def _create_community_skill(
     )
 
 
+def _captured_events(mock_capture, event: str) -> list[dict]:
+    return [call.kwargs["properties"] for call in mock_capture.call_args_list if call.kwargs.get("event") == event]
+
+
 def _create_template_skill(*, slug: str = "feed-scout") -> CommunitySkill:
     return CommunitySkill.objects.create(
         slug=slug,
@@ -322,6 +326,49 @@ class TestCommunitySkillAPI(APIBaseTest):
         second = self.client.post(self._url("web-analytics-triage/vote/"))
         self.assertEqual(second.json(), {"vote_count": 0, "has_voted": False})
         self.assertFalse(CommunitySkillVote.objects.exists())
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_vote_reports_event_with_state_and_count(self, mock_capture, _mock_flag) -> None:
+        _create_community_skill(slug="web-analytics-triage")
+
+        self.client.post(self._url("web-analytics-triage/vote/"))
+        self.client.post(self._url("web-analytics-triage/vote/"))
+
+        vote_events = _captured_events(mock_capture, "community skill voted")
+        self.assertEqual(
+            [(p["community_skill_slug"], p["voted"], p["vote_count"]) for p in vote_events],
+            [("web-analytics-triage", True, 1), ("web-analytics-triage", False, 0)],
+        )
+
+    @parameterized.expand(
+        [
+            ("not_found",),
+            ("missing_variable",),
+            ("name_conflict",),
+            ("undeclared_placeholder",),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_install_failure_reports_event(self, reason, mock_capture, _mock_flag) -> None:
+        # Each branch shape (return, raised ValidationError, hand-built 500) must still emit the
+        # failure event, so cover one representative path per shape plus the not-found path.
+        if reason == "not_found":
+            self.client.post(self._url("missing/install/"), {})
+        elif reason == "missing_variable":
+            _create_template_skill(slug="feed-scout")
+            self.client.post(self._url("feed-scout/install/"), {}, format="json")
+        elif reason == "name_conflict":
+            _create_community_skill(slug="web-analytics-triage")
+            self.client.post(self._url("web-analytics-triage/install/"), {})
+            self.client.post(self._url("web-analytics-triage/install/"), {})
+        elif reason == "undeclared_placeholder":
+            skill = _create_template_skill(slug="feed-scout")
+            skill.body = "Watch {{ feed_table }} and {{ undeclared }}."
+            skill.save(update_fields=["body"])
+            self.client.post(self._url("feed-scout/install/"), {"variables": {"feed_table": "x"}}, format="json")
+
+        failures = _captured_events(mock_capture, "community skill install failed")
+        self.assertEqual([p["reason"] for p in failures], [reason])
 
 
 @pytest.mark.ee

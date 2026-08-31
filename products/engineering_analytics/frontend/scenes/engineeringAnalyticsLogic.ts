@@ -100,7 +100,7 @@ export interface WorkflowHealthBucket {
     runCount: number
     completed: number
     successes: number
-    /** Decisive failures only (failure / timed_out); excludes skipped, cancelled, action_required. */
+    /** Decisive failures only; excludes skipped, cancelled, neutral, and action_required. */
     failures: number
 }
 
@@ -109,7 +109,7 @@ export interface WorkflowHealthRow {
     repoName: string
     workflowName: string
     runCount: number
-    /** Over completed runs only; null when nothing has settled yet. */
+    /** Over conclusive runs only; null when no run reached a pass-or-fail verdict. */
     successRate: number | null
     p50Seconds: number | null
     p95Seconds: number | null

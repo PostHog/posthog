@@ -60,6 +60,7 @@ export interface HogExecutorAsyncConfig {
 export interface HogExecutorAsyncDependencies {
     teamManager: TeamManager
     conversationsTicketsJwt: ScopedServiceJwt
+    customerAnalyticsAccountsJwt: ScopedServiceJwt
     hogInputsService: HogInputsService
     emailService: EmailService
     recipientTokensService: RecipientTokensService
@@ -269,6 +270,7 @@ export class HogExecutorAsyncService {
                             siteUrl: this.config.siteUrl,
                             internalApiBaseUrl: this.config.internalApiBaseUrl,
                             conversationsTicketsJwt: this.deps.conversationsTicketsJwt,
+                            customerAnalyticsAccountsJwt: this.deps.customerAnalyticsAccountsJwt,
                             consumeInlineAsyncBudget,
                         },
                         result

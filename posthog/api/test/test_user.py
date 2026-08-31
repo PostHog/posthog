@@ -3276,8 +3276,9 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         assert f"https://my.posthog.net/verify_email/{self.user.uuid}/" in html_message
 
-    def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(self):
-        self.user.is_email_verified = True
+    @parameterized.expand([("verified", True), ("legacy_never_verified", None)])
+    def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(self, _name, is_email_verified):
+        self.user.is_email_verified = is_email_verified
         self.user.pending_email = "new-address@posthog.com"
         self.user.save()
 
@@ -3309,6 +3310,8 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
     def test_unverified_user_with_staged_change_verifies_only_the_account_address(self):
         # A signup code for an unverified user must go to the account address and prove that one,
         # even if a change to another address is staged: the staged address is itself unproven.
+        # False means an unverified signup; None (a legacy account) is trusted as verified.
+        self.user.is_email_verified = False
         self.user.pending_email = "staged@posthog.com"
         self.user.save()
 
