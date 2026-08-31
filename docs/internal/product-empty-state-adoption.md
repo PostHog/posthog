@@ -61,6 +61,7 @@ tiles, or `FeaturePreviewSceneGate` rather than scene empty states.
 | Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | in review             |
 | Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`               | in review             |
 | Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                   | in review             |
+| Actions                | `products/actions/frontend/pages/Actions.tsx`                                       | on master             |
 
 Only four products resolve their status at app boot, via a `setupProbe` in their manifest:
 LLM analytics, error tracking, MCP analytics, web analytics.
@@ -81,7 +82,6 @@ These are the scenes a new user is most likely to land on before they have data.
 | Single empty dashboard | `frontend/src/scenes/dashboard/EmptyDashboardComponent.tsx` | `ProductIntroduction`                                                                  |
 | Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                   | `ProductIntroduction`, plus a second table-level empty state                           |
 | Annotations            | `frontend/src/scenes/annotations/Annotations.tsx`           | `ProductIntroduction`                                                                  |
-| Actions                | `products/actions/frontend/components/ActionsTable.tsx`     | `ProductIntroduction`                                                                  |
 
 ### Tier 2: cheap, or actively misleading today
 
