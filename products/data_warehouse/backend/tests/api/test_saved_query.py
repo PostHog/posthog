@@ -1647,6 +1647,40 @@ class TestSavedQuery(APIBaseTest):
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
 
+    @parameterized.expand(["post", "patch"])
+    def test_unresolved_column_returns_message_without_error_tracking(self, method):
+        # Creating or updating a saved query whose query references a missing column must surface
+        # the underlying error to the user and must not report it to error tracking — it is a user
+        # mistake, not a bug.
+        if method == "patch":
+            create_response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                },
+            )
+            self.assertEqual(create_response.status_code, 201, create_response.content)
+            saved_query = create_response.json()
+
+        bad_query = {"kind": "HogQLQuery", "query": "select missing_column_xyz from events LIMIT 100"}
+
+        with patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture:
+            if method == "post":
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                    {"name": "bad_view", "query": bad_query},
+                )
+            else:
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                    {"query": bad_query, "edited_history_id": saved_query["latest_history_id"]},
+                )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("missing_column_xyz", str(response.json()))
+        mock_capture.assert_not_called()
+
     def test_create_with_activity_log(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
