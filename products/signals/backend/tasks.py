@@ -143,6 +143,7 @@ def deliver_scout_slack_output(
                 return
             post_scout_emission_to_slack(
                 emission,
+                delivery_id=delivery_id,
                 integration_id=integration_id,
                 channel=channel,
             )
