@@ -96,6 +96,7 @@ export function LoginForm(): JSX.Element {
             <AuthSceneCard footer={footer}>
                 {isCodeSent && <HedgehogMagnifyingGlass className="block w-auto mx-auto mb-3 h-28" />}
                 <AuthCardTitle
+                    className={isCodeSent ? 'mb-2' : undefined}
                     title={
                         isCodeSent ? (
                             'Check your inbox'
@@ -123,18 +124,18 @@ export function LoginForm(): JSX.Element {
                 />
                 <SessionRiskBanner className="mb-4" />
                 {isCodeSent && (
-                    <div className="mb-4 -mt-3 flex flex-col items-center gap-1 text-sm">
+                    <div className="mb-5 flex flex-col items-center gap-1 text-sm">
                         <Link
                             onClick={() => resendCodeBasedVerification(null)}
                             disabledReason={resendResponseLoading ? 'Sending...' : undefined}
                             className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
                         >
-                            Not seeing it? Resend code
+                            Resend code
                         </Link>
                         {resendResponse?.success && (
                             <p className="flex items-center gap-1 text-success mb-0" role="status">
                                 <IconCheckCircle />
-                                <span>Code sent. Check your inbox.</span>
+                                <span>Code sent</span>
                             </p>
                         )}
                     </div>
