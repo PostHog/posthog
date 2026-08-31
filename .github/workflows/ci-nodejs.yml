@@ -189,6 +189,8 @@ jobs:
                   NODE_FULL: ${{ steps.filter.outputs.node_full }}
                   NODE_SRC: ${{ steps.filter.outputs.node_src }}
                   NODE_SRC_FILES: ${{ steps.filter.outputs.node_src_files }}
+                  # Through env, not inline: a branch name is author-controlled.
+                  HEAD_REF: ${{ github.head_ref }}
               run: |
                   set -uo pipefail
 
@@ -203,6 +205,12 @@ jobs:
 
                   # Master push and the cron skip the paths filter, so every output is empty.
                   [ "${{ github.event_name }}" = "pull_request" ] || full "not a pull request"
+                  # Trunk's merge-queue branches raise a pull_request event like any other, so
+                  # they need excluding by name. That run is the gate for master and must never
+                  # be narrowed.
+                  case "$HEAD_REF" in
+                      trunk-merge/*) full "merge queue run" ;;
+                  esac
                   [ "$NODE_FULL" != "true" ] || full "config, lockfile or Rust change"
                   [ "$NODE_SRC" = "true" ] || full "no resolvable Node source changes"
 
