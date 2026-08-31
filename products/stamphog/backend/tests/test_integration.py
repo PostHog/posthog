@@ -280,6 +280,17 @@ def test_a_second_attempt_never_provisions_a_second_sandbox(team, stamphog_chain
     assert len(stamphog_chain.sandbox_class.created_configs) == 1
 
 
+def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
+    # PyYAML names the offending construct on its first line, and that line is what mark_review_failed
+    # persists into run.error, which is readable with stamphog:read by people who need no access to
+    # the repository. The default branch it comes from is private to that repository.
+    with pytest.raises(RuntimeError) as raised:
+        activities._overlay_policy_yaml("acme/widgets", "version: 1\n", "!a-private-internal-tag {}\n")
+
+    assert "a-private-internal-tag" not in str(raised.value)
+    assert ".stamphog/policy.yml" in str(raised.value)
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_sandbox_gets_minted_short_lived_credential_and_closed_egress(
     team, user, stamphog_chain: StamphogChain
