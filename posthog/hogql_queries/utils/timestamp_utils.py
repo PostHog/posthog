@@ -309,10 +309,13 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
         with _earliest_timestamp_query_tags():
             result = execute_hogql_query(query=query, team=team)
     except Exception as e:
-        # A cancelled or pressure-evicted query must not fail the caller. Fall back to the
-        # "now - delta" window without caching, so the next run retries.
+        # A cancelled or pressure-evicted query must not fail the caller. Fall back to the 2015
+        # floor, not the empty-team "now - delta" window below: a real earliest timestamp is always
+        # at or after the floor, so this only widens the range the main query scans, where
+        # "now - delta" would truncate an "all time" insight to the last week for a team that has
+        # older events. Skip the cache so the next run retries instead of pinning the fallback.
         logger.warning("earliest_timestamp_unfiltered_query_failed", team_id=team.pk, error=str(e))
-        return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
+        return UNFILTERED_EARLIEST_TIMESTAMP_FLOOR
 
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
