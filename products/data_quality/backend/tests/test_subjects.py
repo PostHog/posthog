@@ -14,8 +14,8 @@ from products.data_quality.backend.facade.enums import SubjectType
 from products.data_quality.backend.logic.subject_access import readable_subjects
 from products.data_quality.backend.logic.subjects import resolve_subject
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSubjectResolver(BaseTest):
