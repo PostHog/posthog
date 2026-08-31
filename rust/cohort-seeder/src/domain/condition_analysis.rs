@@ -300,20 +300,11 @@ impl ConditionCensus {
     /// Capped at [`MAX_RENDERED_BLOCKED_EVENTS`], with the remainder counted rather than named. The
     /// names are customer-defined and a catalog's event vocabulary has no ceiling, so an uncapped
     /// line is a log entry whose size the operator does not control. The head is what gets acted
-    /// on; the full list is in the debug-level read dump.
+    /// on; [`Self::render_all_blocked_events`] is where the elided names are.
     pub fn render_blocked_events(&self) -> String {
         let blocked = self.blocked_event_names();
-        let mut rendered = blocked
-            .iter()
-            .take(MAX_RENDERED_BLOCKED_EVENTS)
-            .map(|(event_name, blockers)| {
-                format!(
-                    "{event_name}=[{}]",
-                    blockers.iter().cloned().collect::<Vec<_>>().join(",")
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
+        let mut rendered =
+            render_event_sets(blocked.iter().take(MAX_RENDERED_BLOCKED_EVENTS).copied());
         if let Some(elided) = blocked.len().checked_sub(MAX_RENDERED_BLOCKED_EVENTS) {
             if elided > 0 {
                 rendered.push_str(&format!(" (+{elided} more)"));
@@ -322,20 +313,41 @@ impl ConditionCensus {
         rendered
     }
 
-    /// The read sets as one compact line per event name, for the per-run debug log.
-    pub fn render_reads(&self) -> String {
-        self.per_event
-            .iter()
-            .filter(|(_, event)| !event.reads.is_empty())
-            .map(|(event_name, event)| {
-                format!(
-                    "{event_name}=[{}]",
-                    event.reads.iter().cloned().collect::<Vec<_>>().join(",")
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
+    /// Every blocked event name with its reasons, uncapped, for the per-run debug log.
+    ///
+    /// This is the list to join against per-event row volume, so a run whose blocked set outgrows
+    /// the capped line still has its whole set somewhere. The debug level is what makes the
+    /// uncapped size acceptable.
+    pub fn render_all_blocked_events(&self) -> String {
+        render_event_sets(self.blocked_event_names())
     }
+
+    /// The read sets as one compact line per event name, for the per-run debug log. Events that
+    /// read nothing are absent; a blocked one is named by [`Self::render_all_blocked_events`].
+    pub fn render_reads(&self) -> String {
+        render_event_sets(
+            self.per_event
+                .iter()
+                .filter(|(_, event)| !event.reads.is_empty())
+                .map(|(event_name, event)| (event_name.as_str(), &event.reads)),
+        )
+    }
+}
+
+/// `name=[value,value] name=[value]` — the shape both per-event log lines render in.
+fn render_event_sets<'a>(
+    events: impl IntoIterator<Item = (&'a str, &'a BTreeSet<String>)>,
+) -> String {
+    events
+        .into_iter()
+        .map(|(event_name, values)| {
+            format!(
+                "{event_name}=[{}]",
+                values.iter().cloned().collect::<Vec<_>>().join(",")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]
@@ -578,6 +590,48 @@ mod tests {
         assert_eq!(census.total(), 1);
         assert_eq!(census.count(ConditionClass::EventOnly), 1);
         assert_eq!(census.per_event["purchase"].event_only, 1);
+    }
+
+    /// Past the cap the info line counts the rest instead of naming them, and the uncapped
+    /// renderer still names every one. An event blocked only by a wide condition reads nothing, so
+    /// it is absent from the read dump; without the uncapped list it would appear in no output at
+    /// all, and the blocked set is the census's whole deliverable.
+    #[test]
+    fn blocked_events_past_the_cap_are_counted_in_the_info_line_and_named_in_full() {
+        let over_cap = MAX_RENDERED_BLOCKED_EVENTS + 3;
+        // Zero-padded so the rendered order matches the generated one.
+        let hashes = (0..over_cap)
+            .map(|index| format!("wide{index:012}"))
+            .collect::<Vec<_>>();
+        let names = (0..over_cap)
+            .map(|index| format!("event_{index:03}"))
+            .collect::<Vec<_>>();
+        let conditions = hashes
+            .iter()
+            .zip(&names)
+            .map(|(hash, name)| condition(hash, name))
+            .collect::<Vec<_>>();
+        let leaves = hashes
+            .iter()
+            .zip(&names)
+            .map(|(hash, name)| (hash.as_str(), name.as_str(), bare_properties()))
+            .collect::<Vec<_>>();
+        let catalog = filters(&leaves);
+
+        let census = ConditionAnalyses::build(&conditions, &catalog).census(&conditions);
+        assert_eq!(census.blocked_event_names().len(), over_cap);
+
+        let capped = census.render_blocked_events();
+        assert!(capped.ends_with(" (+3 more)"), "{capped}");
+        assert!(!capped.contains(&names[over_cap - 1]), "{capped}");
+
+        let full = census.render_all_blocked_events();
+        for name in &names {
+            assert!(full.contains(name), "{name} is named nowhere");
+        }
+        assert!(!full.contains("more)"), "the uncapped line does not elide");
+        // Nothing narrow was found, so the read dump cannot carry these names either.
+        assert_eq!(census.render_reads(), "");
     }
 
     #[test]

@@ -90,7 +90,7 @@ pub(super) struct Decoded {
 pub enum DecodeError {
     #[error("bytecode does not start with the `_H` marker")]
     MissingHeader,
-    #[error("bytecode version marker is not a number")]
+    #[error("bytecode version marker is not an unsigned integer")]
     MalformedVersion,
     #[error("token at {ip} is not an opcode")]
     NotAnOpcode { ip: usize },
@@ -100,19 +100,35 @@ pub enum DecodeError {
     MalformedImmediate { ip: usize, op: Operation },
 }
 
+impl DecodeError {
+    /// Which opcode's immediates could not be read, when the failure names one.
+    ///
+    /// Exhaustive rather than defaulted, so a new variant carrying an [`Operation`] has to decide
+    /// whether it surfaces here. Losing the opcode silently is what makes a decoder-versus-VM drift
+    /// read as one anonymous bucket, which is the case this label exists for.
+    pub fn op(&self) -> Option<Operation> {
+        match self {
+            Self::TruncatedImmediates { op, .. } | Self::MalformedImmediate { op, .. } => Some(*op),
+            Self::MissingHeader | Self::MalformedVersion | Self::NotAnOpcode { .. } => None,
+        }
+    }
+}
+
 /// Split `bytecode` into instructions.
 ///
 /// The header handling mirrors `hogvm::Program::from_shared` exactly, version ambiguity included: a
 /// pre-version program whose first opcode happens to be a number has that opcode read as its
 /// version. The VM reads it the same way, so an analysis that disagreed would be describing a
-/// program the VM never runs.
+/// program the VM never runs. That is also why the version has to be an unsigned integer here: the
+/// VM takes it through `as_u64`, so a negative or fractional version is a program it refuses to
+/// load, and accepting it would classify bytecode that never runs.
 pub(super) fn decode(bytecode: &[Value]) -> Result<Decoded, DecodeError> {
     if bytecode.first().and_then(Value::as_str) != Some("_H") {
         return Err(DecodeError::MissingHeader);
     }
     let body_start = match bytecode.get(1) {
         None => 1,
-        Some(Value::Number(_)) => 2,
+        Some(Value::Number(version)) if version.as_u64().is_some() => 2,
         Some(_) => return Err(DecodeError::MalformedVersion),
     };
     decode_span(
@@ -620,8 +636,12 @@ mod tests {
         );
     }
 
-    /// The header rules mirror the VM's: `_H` is mandatory, a numeric version token is consumed,
-    /// and a non-numeric one is an error rather than a first opcode.
+    /// The header rules mirror the VM's: `_H` is mandatory, an unsigned-integer version token is
+    /// consumed, and anything else is an error rather than a first opcode.
+    ///
+    /// The version cases are the ones worth pinning. `Program::from_shared` takes the token through
+    /// `as_u64`, so a negative or fractional version is bytecode the VM will not load; a decoder
+    /// that accepted it would report a read set for a program that never runs.
     #[test]
     fn the_header_is_read_exactly_as_the_vm_reads_it() {
         assert_eq!(decode(&[]).unwrap_err(), DecodeError::MissingHeader);
@@ -629,10 +649,13 @@ mod tests {
             decode(&[json!(1), json!(32)]).unwrap_err(),
             DecodeError::MissingHeader
         );
-        assert_eq!(
-            decode(&[json!("_H"), json!("v1")]).unwrap_err(),
-            DecodeError::MalformedVersion
-        );
+        for version in [json!("v1"), json!(-1), json!(1.5), json!(null)] {
+            assert_eq!(
+                decode(&[json!("_H"), version.clone()]).unwrap_err(),
+                DecodeError::MalformedVersion,
+                "version {version} decoded but the VM refuses it"
+            );
+        }
         // A bare marker is a valid, empty program.
         assert_eq!(kinds(&[json!("_H")]).unwrap(), Vec::new());
         assert_eq!(kinds(&[json!("_H"), json!(1)]).unwrap(), Vec::new());

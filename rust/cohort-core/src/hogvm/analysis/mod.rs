@@ -87,7 +87,7 @@ impl FullColumnsReason {
     pub fn op(&self) -> Option<Operation> {
         match self {
             Self::Unanalyzable(reason) => reason.op(),
-            _ => None,
+            Self::BarePropertiesRoot | Self::BarePersonRoot => None,
         }
     }
 }
@@ -153,10 +153,24 @@ impl UnanalyzableReason {
     /// safe as a second metric dimension — unlike [`Self::UnknownGlobalRoot`]'s payload, which is
     /// customer-shaped. It is worth carrying because "unsupported_op" alone cannot tell one
     /// fixable compiler template apart from a genuinely unreadable program.
+    ///
+    /// A decode failure names its opcode too, and that is the case the label earns the most: a
+    /// decoder whose immediate table drifts from `vm.rs` fails on the opcode that drifted.
+    /// Exhaustive rather than defaulted, so a new variant has to decide.
     pub fn op(&self) -> Option<Operation> {
         match self {
+            Self::Decode(error) => error.op(),
             Self::UnsupportedOp(op) => Some(*op),
-            _ => None,
+            Self::UnknownGlobalRoot(_)
+            | Self::DynamicGlobalPath
+            | Self::StackUnderflow
+            | Self::ZeroLengthGlobalChain
+            | Self::StackDepthMismatch
+            | Self::BadJumpTarget
+            | Self::IterationBudget
+            | Self::StateBudget
+            | Self::LocalSlotOutOfRange
+            | Self::UnbalancedReturn => None,
         }
     }
 }

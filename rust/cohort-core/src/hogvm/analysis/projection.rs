@@ -967,13 +967,16 @@ mod tests {
     /// A hostile count immediate must not reach an allocation. `u64::MAX` is a capacity-overflow
     /// panic and a merely huge value is an allocation abort; either would take down the caller's
     /// task, which the fail-closed contract cannot absorb.
+    ///
+    /// The refusal also names the opcode it stopped on. A decode failure is the reason a census
+    /// cannot diagnose from the coarse label alone, because it is what a decoder drifting from
+    /// `vm.rs` looks like, and the opcode is the field that says which table entry drifted.
     #[test]
     fn a_hostile_global_chain_count_never_allocates() {
         for count in [json!(u64::MAX), json!(4_000_000_000u64)] {
-            assert!(matches!(
-                unanalyzable(vec![json!(1), count.clone()]),
-                UnanalyzableReason::Decode(_)
-            ));
+            let reason = unanalyzable(vec![json!(1), count.clone()]);
+            assert!(matches!(reason, UnanalyzableReason::Decode(_)));
+            assert_eq!(reason.op(), Some(Operation::GetGlobal));
         }
         // A count the decoder accepts, still deeper than the stack.
         let padded = std::iter::repeat_n(json!(29), 8)

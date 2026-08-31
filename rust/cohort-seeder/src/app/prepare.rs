@@ -87,7 +87,7 @@ pub(super) async fn refresh_runs(
     for run in discovered {
         seen_runs.insert(run.run_id);
         let kind = run.kind;
-        match prepare_run(pool, store, plan_caps, reported_runs, run).await {
+        match prepare_run(pool, store, allowlist, plan_caps, reported_runs, run).await {
             PrepareOutcome::Eligible(prepared) => {
                 let run_id = match &prepared {
                     PreparedRun::Behavioral(run) => run.run_id,
@@ -130,6 +130,7 @@ pub(super) async fn refresh_runs(
 async fn prepare_run(
     pool: &PgPool,
     store: &PgChunkStore,
+    allowlist: &TeamAllowlist,
     plan_caps: PlanCaps,
     reported_runs: &mut HashSet<RunId>,
     run: DiscoveredRun,
@@ -146,7 +147,7 @@ async fn prepare_run(
     };
     match kind {
         RunKind::Behavioral => {
-            prepare_behavioral(pool, store, plan_caps, reported_runs, boundary).await
+            prepare_behavioral(pool, store, allowlist, plan_caps, reported_runs, boundary).await
         }
         RunKind::PersonProperty => prepare_person(pool, store, reported_runs, boundary).await,
     }
@@ -184,6 +185,7 @@ async fn resolve_boundary(pool: &PgPool, run: DiscoveredRun) -> Option<Resolved>
 async fn prepare_behavioral(
     pool: &PgPool,
     store: &PgChunkStore,
+    allowlist: &TeamAllowlist,
     plan_caps: PlanCaps,
     reported_runs: &mut HashSet<RunId>,
     boundary: SeedableRun,
@@ -199,7 +201,7 @@ async fn prepare_behavioral(
     let lookback_truncated = lookback_was_truncated(&validated.run, plan_caps);
     if reported_runs.insert(run_id) {
         record_pinned_warnings(&validated.warnings);
-        record_condition_census(run_id, &validated.run);
+        record_condition_census(allowlist, run_id, &validated.run);
         if lookback_truncated {
             counter!(LOOKBACK_TRUNCATED).increment(1);
         }
@@ -405,20 +407,26 @@ async fn persist_run_warning(pool: &PgPool, run_id: RunId, note: RunWarningNote)
 /// runs every poll tick, and the decode is the one place the seeder interprets an untrusted catalog
 /// value.
 ///
+/// The analyzer bounds its work per condition, not per run, and this runs inline on the task that
+/// owes the liveness heartbeat. What keeps that safe is the gate above: the same tick already parses
+/// every discovered run's whole pinned payload during validation, which is more work than analyzing
+/// that payload once.
+///
 /// Nothing consumes the analysis yet. The point is to learn the shape of real catalogs before any
 /// scan is built on one: which event names a projection could narrow, and what blocks the rest.
-fn record_condition_census(run_id: RunId, run: &PinnedRun) {
+fn record_condition_census(allowlist: &TeamAllowlist, run_id: RunId, run: &PinnedRun) {
     let census = ConditionAnalyses::build(&run.conditions, &run.filters).census(&run.conditions);
     if census.total() == 0 {
         return;
     }
+    let team = team_label(allowlist, run.team_id);
     for class in ConditionClass::ALL {
         let count = census.count(class);
         if count > 0 {
             counter!(
                 CONDITIONS_CLASSIFIED,
                 "class" => class.as_str(),
-                "team_id" => team_label(run.team_id),
+                "team_id" => team.clone(),
             )
             .increment(count);
         }
@@ -428,7 +436,7 @@ fn record_condition_census(run_id: RunId, run: &PinnedRun) {
             CONDITIONS_UNANALYZABLE,
             "reason" => label.reason,
             "op" => label.op.clone().unwrap_or_else(|| Arc::from("none")),
-            "team_id" => team_label(run.team_id),
+            "team_id" => team.clone(),
         )
         .increment(*count);
     }
@@ -445,18 +453,43 @@ fn record_condition_census(run_id: RunId, run: &PinnedRun) {
         blocked_events = %census.render_blocked_events(),
         "condition bytecode analysis census",
     );
-    // The read sets carry customer-defined event names and property keys, and run to several
-    // kilobytes on a large catalog. Values are never included, but the keys alone are enough to
-    // keep this off the default level.
-    debug!(?run_id, reads = %census.render_reads(), "condition bytecode analysis reads");
+    // The read sets and the uncapped blocked list carry customer-defined event names and property
+    // keys, and run to several kilobytes on a large catalog. Values are never included, but the
+    // keys alone are enough to keep this off the default level. Named apart from the line above's
+    // `blocked_events` because that one is truncated and this one is not, and a query that mixed
+    // them would read a partial list as a whole one.
+    debug!(
+        ?run_id,
+        reads = %census.render_reads(),
+        all_blocked_events = %census.render_all_blocked_events(),
+        "condition bytecode analysis reads and blockers",
+    );
 }
 
-/// The team a census belongs to, as a metric label. Bounded by
-/// `REALTIME_COHORT_TEAM_ALLOWLIST`: discovery only ever surfaces runs for allowlisted teams, so
-/// this cannot grow with the customer base. It is here because the deliverable is one team's
-/// number, which a blended counter cannot give.
-fn team_label(team_id: TeamId) -> Arc<str> {
-    Arc::from(team_id.0.to_string().as_str())
+/// How many teams the census names individually before it stops naming any.
+///
+/// Sized well above the shadow rollout's team count, so the collapse is a ceiling rather than a
+/// routine truncation.
+const MAX_LABELLED_TEAMS: usize = 32;
+
+/// The label every team shares once the census stops naming them.
+const UNLABELLED_TEAM: &str = "other";
+
+/// The team a census belongs to, as a metric label.
+///
+/// A team gets its own series only while `REALTIME_COHORT_TEAM_ALLOWLIST` names few enough of them.
+/// The allowlist does not bound this on its own: it accepts `all` (which a set-but-empty variable
+/// also parses to) and ranges of up to 100,000 ids, and the recorder never evicts a series, so a
+/// wide rollout would retain one per team that ever seeded. The label is here because the
+/// deliverable is one team's number, which a blended counter cannot give; the per-run log line
+/// carries the exact team either way, so collapsing costs the dashboard, not the answer.
+fn team_label(allowlist: &TeamAllowlist, team_id: TeamId) -> Arc<str> {
+    match allowlist {
+        TeamAllowlist::Only(ids) if ids.len() <= MAX_LABELLED_TEAMS => {
+            Arc::from(team_id.0.to_string().as_str())
+        }
+        TeamAllowlist::Only(_) | TeamAllowlist::All => Arc::from(UNLABELLED_TEAM),
+    }
 }
 
 fn record_pinned_warnings(warnings: &[PinnedWarning]) {
@@ -526,5 +559,36 @@ fn run_error_disposition(run_id: Option<RunId>, error: &RunError) -> RunErrorDis
         | RunError::UnknownScope(_)
         | RunError::NotFound(_)
         | RunError::NotActive(_) => RunErrorDisposition::Retry,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    /// An allowlist that can grow with the customer base must not mint a metric series per team.
+    /// The recorder never evicts one, so a label that tracks team count leaks for the whole process
+    /// lifetime — and `all`, which a set-but-empty variable also parses to, is the configuration
+    /// the boundedness claim used to assume away.
+    #[test]
+    fn only_a_narrow_allowlist_names_teams_in_the_census_label() {
+        let narrow = TeamAllowlist::Only(HashSet::from([2, 7]));
+        assert_eq!(&*team_label(&narrow, TeamId(2)), "2");
+
+        let wide = TeamAllowlist::Only((0..=MAX_LABELLED_TEAMS as i32).collect());
+        assert_eq!(&*team_label(&wide, TeamId(2)), UNLABELLED_TEAM);
+        assert_eq!(
+            &*team_label(&TeamAllowlist::All, TeamId(2)),
+            UNLABELLED_TEAM
+        );
+        assert_eq!(
+            &*team_label(
+                &"".parse::<TeamAllowlist>().expect("blank parses"),
+                TeamId(2)
+            ),
+            UNLABELLED_TEAM
+        );
     }
 }
