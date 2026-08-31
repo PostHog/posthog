@@ -16,32 +16,14 @@ import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/ho
 import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
-import { HogFlowAction } from '../../types'
 import {
     SLACK_POSTER_MODE_OPTIONS,
     SlackPosterMode,
     decodeSlackFilters,
     encodeSlackFilters,
+    InternalEventTriggerConfig,
+    isSlackMessageTriggerConfig,
 } from './slackTriggerFilters'
-
-export type InternalEventTriggerConfig = {
-    type: 'internal-event'
-    filters: {
-        source: 'internal-events'
-        events: { id: string; type: 'events' }[]
-        properties?: any[]
-    }
-}
-
-export function isSlackMessageTriggerConfig(
-    config: Extract<HogFlowAction, { type: 'trigger' }>['config']
-): config is InternalEventTriggerConfig {
-    return (
-        config.type === 'internal-event' &&
-        config.filters.source === 'internal-events' &&
-        config.filters.events.some((event) => event.id === '$slack_message_received')
-    )
-}
 
 // Slack messages never reach ClickHouse, so the advanced list has no stored values to
 // autocomplete from and the properties have to be declared.
