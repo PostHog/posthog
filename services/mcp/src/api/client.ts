@@ -571,6 +571,21 @@ export class ApiClient {
                         }
                         return result
                     },
+
+                    // Resolve one project inside a named organization. Unlike the flat
+                    // `/api/projects/{id}/` route (which resolves its organization from the
+                    // caller's backend current organization), this pins the organization to
+                    // `orgId`, so a scoped key whose selected org differs from the backend
+                    // current org still reaches a project it can access.
+                    get: async ({
+                        projectId,
+                    }: {
+                        projectId: string
+                    }): Promise<Result<Schemas.ProjectBackwardCompat>> => {
+                        return this.fetchJson<Schemas.ProjectBackwardCompat>(
+                            `${this.baseUrl}/api/organizations/${orgId}/projects/${projectId}/`
+                        )
+                    },
                 }
             },
         }
