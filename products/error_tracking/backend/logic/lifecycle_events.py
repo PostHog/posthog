@@ -173,6 +173,9 @@ def produce_issue_lifecycle_event_on_commit(
             status=status_property if isinstance(status_property, str) else None,
             assignee=assignee_property_value if isinstance(assignee_property_value, str) else None,
             actor_email=actor_email,
+            severity=properties.get("severity"),
+            fingerprint=fingerprint,
+            first_seen=properties.get("first_seen"),
             extra=delivery_extra or None,
         )
 

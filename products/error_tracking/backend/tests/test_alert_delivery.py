@@ -13,6 +13,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.common import WorkflowIDReusePolicy
 
+from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
@@ -70,6 +71,25 @@ class AlertTestMixin(BaseTest):
         }
         defaults.update(overrides)
         return AlertDeliveryWorkflowInputs(**defaults)
+
+    def _mock_slack(self):
+        slack_integration = patch("products.error_tracking.backend.temporal.alerts.delivery.SlackIntegration")
+        mock = slack_integration.start()
+        self.addCleanup(slack_integration.stop)
+        client = mock.return_value.client
+        client.chat_postMessage.return_value = {"channel": "C0123", "ts": "111.222"}
+        return client
+
+    def _thread(self, alert, *, rooted=True) -> ErrorTrackingAlertThread:
+        with team_scope(self.team.id):
+            return ErrorTrackingAlertThread.objects.create(
+                team=self.team,
+                alert=alert,
+                issue=self.issue,
+                destination=alert.destinations.get(),
+                external_ref={"channel": "C0123", "ts": "111.222"} if rooted else {},
+                root_headline="🔴 New issue" if rooted else "",
+            )
 
 
 class TestAlertDeliveryPlanning(AlertTestMixin):
@@ -211,25 +231,6 @@ class TestAlertMessages(SimpleTestCase):
 
 
 class TestSlackThreadDelivery(AlertTestMixin):
-    def _mock_slack(self):
-        slack_integration = patch("products.error_tracking.backend.temporal.alerts.delivery.SlackIntegration")
-        mock = slack_integration.start()
-        self.addCleanup(slack_integration.stop)
-        client = mock.return_value.client
-        client.chat_postMessage.return_value = {"channel": "C0123", "ts": "111.222"}
-        return client
-
-    def _thread(self, alert, *, rooted=True) -> ErrorTrackingAlertThread:
-        with team_scope(self.team.id):
-            return ErrorTrackingAlertThread.objects.create(
-                team=self.team,
-                alert=alert,
-                issue=self.issue,
-                destination=alert.destinations.get(),
-                external_ref={"channel": "C0123", "ts": "111.222"} if rooted else {},
-                root_headline="🔴 New issue" if rooted else "",
-            )
-
     def test_opener_posts_root_and_stores_thread_state(self):
         client = self._mock_slack()
         alert = self._create_alert(triggers=["issue_created"])
@@ -406,26 +407,6 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert thread.external_ref == {"channel": "C0123", "ts": "111.222"}
         assert thread.delivered_notification_ids == ["notif-1"]
 
-    def test_opener_with_configured_filters_stays_dark(self):
-        # Filter evaluation lands in a follow-up layer; until then a filtered
-        # alert must not post issues the user may have excluded.
-        client = self._mock_slack()
-        with team_scope(self.team.id):
-            alert = ErrorTrackingAlert.objects.create(
-                team=self.team,
-                name="Filtered",
-                triggers=["issue_created"],
-                filters={"properties": [{"key": "environment", "value": "production", "type": "event"}]},
-            )
-            alert.destinations.create(
-                team=self.team, channel_type="slack", integration=self.integration, config={"channel": "C0123"}
-            )
-
-        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
-
-        assert delivered == 0
-        client.chat_postMessage.assert_not_called()
-
     def test_root_header_stays_within_slack_limit(self):
         client = self._mock_slack()
         self._create_alert(triggers=["issue_created"])
@@ -480,6 +461,107 @@ class TestSlackThreadDelivery(AlertTestMixin):
         with team_scope(self.team.id):
             rooted = [t for t in ErrorTrackingAlertThread.objects.filter(issue=self.issue) if t.external_ref.get("ts")]
         assert len(rooted) == 1
+
+
+class TestAlertFilterEvaluation(AlertTestMixin):
+    def _create_filtered_alert(self, filters: dict, *, triggers=None) -> ErrorTrackingAlert:
+        compiled = compile_filters_bytecode(dict(filters), self.team)
+        assert not compiled.get("bytecode_error"), compiled
+        with team_scope(self.team.id):
+            alert = ErrorTrackingAlert.objects.create(
+                team=self.team,
+                name="Filtered",
+                triggers=triggers if triggers is not None else ["issue_created"],
+                filters=compiled,
+            )
+            alert.destinations.create(
+                team=self.team, channel_type="slack", integration=self.integration, config={"channel": "C0123"}
+            )
+        return alert
+
+    def _patch_exception_properties(self, properties: dict):
+        fetcher = patch(
+            "products.error_tracking.backend.temporal.alerts.delivery.fetch_exception_properties",
+            return_value=properties,
+        )
+        mock = fetcher.start()
+        self.addCleanup(fetcher.stop)
+        return mock
+
+    ENVIRONMENT_FILTER = {"properties": [{"key": "environment", "value": "production", "type": "event"}]}
+
+    def test_matching_event_property_filter_opens_a_thread(self):
+        client = self._mock_slack()
+        self._create_filtered_alert(self.ENVIRONMENT_FILTER)
+        self._patch_exception_properties({"environment": "production"})
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert delivered == 1
+        client.chat_postMessage.assert_called_once()
+
+    def test_non_matching_filter_skips_the_opener_and_leaves_no_thread(self):
+        client = self._mock_slack()
+        self._create_filtered_alert(self.ENVIRONMENT_FILTER)
+        self._patch_exception_properties({"environment": "staging"})
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert delivered == 0
+        client.chat_postMessage.assert_not_called()
+        with team_scope(self.team.id):
+            assert not ErrorTrackingAlertThread.objects.filter(issue=self.issue).exists()
+
+    def test_issue_field_filter_evaluates_from_the_lifecycle_snapshot(self):
+        client = self._mock_slack()
+        self._create_filtered_alert({"properties": [{"key": "severity", "value": "critical", "type": "event"}]})
+        fetcher = self._patch_exception_properties({})
+
+        skipped = deliver_alert_notifications(self._inputs("$error_tracking_issue_created", severity="low"))
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_created", notification_id="notif-2", severity="critical")
+        )
+
+        assert (skipped, delivered) == (0, 1)
+        client.chat_postMessage.assert_called_once()
+        assert fetcher.call_count == 2
+
+    def test_replies_are_never_filtered(self):
+        client = self._mock_slack()
+        alert = self._create_filtered_alert(self.ENVIRONMENT_FILTER)
+        self._thread(alert)
+        fetcher = self._patch_exception_properties({"environment": "staging"})
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_resolved"))
+
+        assert delivered == 1
+        assert client.chat_postMessage.call_args.kwargs["thread_ts"] == "111.222"
+        # Replies follow the thread: no opener planned, so nothing was fetched.
+        fetcher.assert_not_called()
+
+    def test_unfiltered_alerts_never_fetch_event_properties(self):
+        client = self._mock_slack()
+        self._create_alert(triggers=["issue_created"])
+        fetcher = self._patch_exception_properties({})
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert delivered == 1
+        client.chat_postMessage.assert_called_once()
+        fetcher.assert_not_called()
+
+    def test_broken_bytecode_fails_closed(self):
+        client = self._mock_slack()
+        alert = self._create_filtered_alert(self.ENVIRONMENT_FILTER)
+        with team_scope(self.team.id):
+            alert.filters = {**alert.filters, "bytecode": ["not-bytecode"]}
+            alert.save()
+        self._patch_exception_properties({"environment": "production"})
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert delivered == 0
+        client.chat_postMessage.assert_not_called()
 
 
 class TestAlertDeliveryDispatch(AlertTestMixin):
