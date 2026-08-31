@@ -485,7 +485,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
         all_comments: list[Comment] = []
         # (ticket, public customer messages, public agent replies) — private notes are excluded
         # from every denormalized counter to match the live signal path.
-        ticket_counter_updates: list[tuple[Ticket, int, int]] = []
+        ticket_counter_updates: list[tuple[Ticket, list[Comment], int, int]] = []
         for idx, comments_list, cust_count, agent_count in ticket_comments_map:
             if idx >= len(created_tickets):
                 continue
@@ -494,7 +494,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 c.item_id = str(ticket_obj.id)
             all_comments.extend(comments_list)
             if comments_list:
-                ticket_counter_updates.append((ticket_obj, cust_count, agent_count))
+                ticket_counter_updates.append((ticket_obj, comments_list, cust_count, agent_count))
 
         if all_comments:
             created_comments = Comment.objects.bulk_create(all_comments)
@@ -517,13 +517,14 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
         # customer-facing widget (message_count, last_message_*, unread badge), so they exclude
         # private notes — see the counting loop above and signals.update_ticket_on_message.
         tickets_with_counters: list[Ticket] = []
-        for ticket_obj, cust_count, agent_count in ticket_counter_updates:
+        for ticket_obj, comments_list, cust_count, agent_count in ticket_counter_updates:
             ticket_obj.message_count = cust_count + agent_count
             # last_message_* is shown to the customer, so use the latest non-private comment.
-            # Comments are appended in Zendesk chronological order, so reverse-scan for the
-            # newest visible one.
-            ticket_comments = [c for c in all_comments if c.item_id == str(ticket_obj.id)]
-            last_visible = next((c for c in reversed(ticket_comments) if not _comment_is_private(c)), None)
+            # Comments are appended in Zendesk chronological order, so reverse-scan the ticket's
+            # own comments for the newest visible one. Scanning per ticket keeps this
+            # O(comments-per-ticket); scanning all_comments would charge the per-team lock taken
+            # above for O(tickets x comments) work.
+            last_visible = next((c for c in reversed(comments_list) if not _comment_is_private(c)), None)
             if last_visible is not None:
                 ticket_obj.last_message_at = last_visible.created_at
                 ticket_obj.last_message_text = (last_visible.content or "")[:500]
