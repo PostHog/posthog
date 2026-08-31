@@ -1053,7 +1053,7 @@ describe('ingest-handler', () => {
         const originalFetch = global.fetch
         global.fetch = vi.fn(async (_url, init) => {
             fetchCalls.push({ body: JSON.parse(String((init as RequestInit).body)) })
-            return new Response('', { status: 200 })
+            return Response.json({ dispatched: true }, { status: 200 })
         }) as typeof fetch
 
         const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
@@ -1201,11 +1201,17 @@ describe('ingest-handler', () => {
     // Side effects: best-effort (callback failure does not fail ingest)
     // -----------------------------------------------------------------------
 
-    it('releases a command claim when the Django callback throws', async () => {
+    it.each([
+        [
+            'throws',
+            async () => {
+                throw new Error('network failure')
+            },
+        ],
+        ['answers 200 with a body that is not JSON', async () => new Response('', { status: 200 })],
+    ])('releases a command claim when the Django callback %s', async (_label, respond) => {
         const originalFetch = global.fetch
-        global.fetch = vi.fn(async () => {
-            throw new Error('network failure')
-        }) as typeof fetch
+        global.fetch = vi.fn(respond) as typeof fetch
 
         const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
 

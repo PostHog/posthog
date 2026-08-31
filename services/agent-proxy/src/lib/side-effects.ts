@@ -163,12 +163,12 @@ function fireCallback(
                 return
             }
             const payload: unknown = await response.json().catch(() => null)
-            if (
+            const dispatched =
                 typeof payload === 'object' &&
                 payload !== null &&
                 'dispatched' in payload &&
-                payload.dispatched === false
-            ) {
+                payload.dispatched === true
+            if (!dispatched) {
                 await releaseMilestoneClaim(releaseClaim, runId, kind)
             }
         })
