@@ -14,6 +14,8 @@ export interface AppMetricsSparklineProps extends AppMetricsLogicProps {
     successMetricNames?: string[]
     /** Optional display labels keyed by series name (e.g. `{ rows_synced: 'Rows synced' }`). */
     metricLabels?: Record<string, string>
+    /** Optional vars.scss color names keyed by series name; takes precedence over `successMetricNames`. */
+    metricColors?: Record<string, string>
 }
 
 const DEFAULT_SUCCESS_METRIC_NAMES = ['success']
@@ -21,6 +23,7 @@ const DEFAULT_SUCCESS_METRIC_NAMES = ['success']
 export function AppMetricsSparkline({
     successMetricNames,
     metricLabels,
+    metricColors,
     ...props
 }: AppMetricsSparklineProps): JSX.Element {
     const logic = appMetricsLogic(props)
@@ -52,12 +55,12 @@ export function AppMetricsSparkline({
 
         return (
             sortedSeries?.map((s) => ({
-                color: successNames.includes(s.name) ? 'success' : 'danger',
+                color: metricColors?.[s.name] ?? (successNames.includes(s.name) ? 'success' : 'danger'),
                 name: metricLabels?.[s.name] ?? s.name,
                 values: s.values,
             })) || []
         )
-    }, [appMetricsTrends, params, successMetricNames, metricLabels])
+    }, [appMetricsTrends, params, successMetricNames, metricLabels, metricColors])
 
     const labels = appMetricsTrends?.labels || []
 
