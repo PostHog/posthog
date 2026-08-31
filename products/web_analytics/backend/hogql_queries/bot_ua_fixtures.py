@@ -68,7 +68,6 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "every-api/0.1 (+https://github.com/MEMEO-PRO/every-api; docs corpus for AI coding agents)",
         "Mozilla/5.0 (compatible; RightAIChoiceBot/1.0; +https://rightaichoice.com)",
         # Self-declared crawlers observed in production `$http_log` traffic (second batch)
-        "Mozilla/5.0 (compatible; ExaSearchBot/1.0; +https://exa.ai)",
         "CodeMMPretrainCrawler/1.0 (pretraining corpus)",
         "gtmify-docs-mirror/1.0",
     ],
@@ -78,6 +77,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/bot)",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15 Applebot-Extended/0.1",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15 Applebot/0.1",
+        # Self-declared crawler observed in production `$http_log` traffic (second batch)
+        "Mozilla/5.0 (compatible; ExaSearchBot/1.0; +https://exa.ai)",
     ],
     "ai_assistant": [
         "Mozilla/5.0 (compatible; ChatGPT-User/1.0; +https://openai.com/bot)",

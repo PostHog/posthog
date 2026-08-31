@@ -981,7 +981,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # Self-declared crawlers observed in production `$http_log` traffic (second batch).
     # Each key anchors on the operator's exact declared token, never a generic word.
     # AI / agent crawlers
-    "ExaSearchBot": BotDefinition("Exa Search", "ai_crawler", "AI Agent", "Exa", documentation_url="https://exa.ai"),
+    "ExaSearchBot": BotDefinition("Exa Search", "ai_search", "AI Agent", "Exa", documentation_url="https://exa.ai"),
     "CodeMMPretrainCrawler": BotDefinition("CodeMM Pretrain Crawler", "ai_crawler", "AI Agent", "Unknown"),
     "gtmify-docs-mirror": BotDefinition("gtmify docs mirror", "ai_crawler", "AI Agent", "gtmify"),
     # Search / index crawlers
