@@ -1,6 +1,6 @@
 # Self-driving features
 
-> Status: **Draft** · Owner: Oliver Browne · Last updated: 2026-08-28
+> Status: **Draft** · Owner: Oliver Browne · Last updated: 2026-08-31
 
 ## Summary
 
@@ -71,7 +71,9 @@ The main discovery activity records failures directly, and the workflow cleanup 
 ### Planning agent
 
 Creating a feature starts an interactive, repository-less task with `ai_stage="planning"`.
-The agent asks which repositories matter and shallow-clones them as read-only context.
+Pressing **Promote feature** starts the same planning flow on a discovered feature's existing report and selected repository.
+The agent verifies discovery against the current code, checks related repositories when needed, and asks the user what future they intend for the feature instead of treating current behavior as approved intent.
+For a manually created feature, the agent asks which repositories matter and shallow-clones them as read-only context.
 It writes all durable work to the feature report through PostHog MCP tools.
 
 Planning must establish:
@@ -117,7 +119,7 @@ The feature endpoints live under `/api/projects/{team_id}/signals/features/`:
 - `GET /`: list feature reports, with staged features first;
 - `POST /discover/`: start guided repository discovery;
 - `GET /discovery_runs/`: list recent discovery runs and their progress;
-- `POST /{report_id}/promote/`: promote a staged feature into managed ownership;
+- `POST /{report_id}/promote/`: start the normal planning session for a discovered feature;
 - `POST /{report_id}/finish_planning/`: complete initial planning and activate ownership;
 - `POST /{report_id}/start_implementation/`: manually start one guarded implementation pass.
 
@@ -125,7 +127,8 @@ The Features tab lists staged reports separately from planning and managed featu
 The discovery modal selects a connected GitHub repository and accepts an optional scope instruction.
 During planning, the detail view leads with the live agent conversation and a report preview.
 Staged and managed reports use Status, Owner, and Feed surfaces to keep code context, implementation, feedback, measurements, and optimization work together.
-Promoting a staged report activates its owner scout and attempts the first implementation pass.
+Pressing **Promote feature** moves a discovered report into the planning conversation.
+Finishing that conversation promotes it, activates its owner scout, and attempts the first implementation pass.
 
 ## Invariants
 

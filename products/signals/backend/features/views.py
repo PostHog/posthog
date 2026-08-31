@@ -35,8 +35,8 @@ from products.signals.backend.features.service import (
     FeaturePlanningNotReadyError,
     create_feature,
     finish_feature_planning,
-    promote_staged_feature,
     start_feature_discovery,
+    start_staged_feature_planning,
 )
 from products.signals.backend.models import FeatureDiscoveryRun, SignalReport
 
@@ -253,19 +253,20 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=None,
         responses={
             200: OpenApiResponse(
-                response=InboxFeaturePlanningFinishedSerializer,
-                description="Feature promoted to managed ownership.",
+                response=InboxFeatureCreatedSerializer,
+                description="Feature planning conversation started.",
             ),
             400: OpenApiResponse(
                 response=InboxFeatureErrorSerializer,
-                description="The report is not a staged feature or is missing required details.",
+                description="The report is not a staged feature.",
             ),
             404: OpenApiResponse(description="Feature report not found for this project."),
         },
-        summary="Promote a staged feature",
+        summary="Start planning a discovered feature",
         description=(
-            "Promote an auto-discovered feature into managed ownership, activate its owner scout, "
-            "and start its first implementation pass when possible."
+            "Start the normal interactive planning conversation for an auto-discovered feature. The agent inspects "
+            "the selected repository, verifies the discovery report, asks about intended functionality, and "
+            "updates the same report. The feature remains in planning until planning is finished."
         ),
     )
     @action(detail=True, methods=["post"], url_path="promote")
@@ -275,7 +276,7 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             id=kwargs["pk"],
         )
         try:
-            completion = promote_staged_feature(
+            created = start_staged_feature_planning(
                 team=self.team,
                 user=cast(User, request.user),
                 report=report,
@@ -285,17 +286,12 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 InboxFeatureErrorSerializer({"detail": "This report is not a staged feature."}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except FeaturePlanningNotReadyError as error:
-            return Response(
-                InboxFeatureErrorSerializer({"detail": f"This feature is missing: {', '.join(error.missing)}."}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         return Response(
-            InboxFeaturePlanningFinishedSerializer(
+            InboxFeatureCreatedSerializer(
                 {
-                    "planning_finished": True,
-                    "scout_skill_name": completion.scout_skill_name,
-                    "implementation_task_id": completion.implementation_task_id,
+                    "report_id": created.report_id,
+                    "task_id": created.task_id,
+                    "run_id": created.run_id,
                 }
             ).data
         )

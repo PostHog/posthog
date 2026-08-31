@@ -270,17 +270,19 @@ class TestFeatureAPI(APIBaseTest):
         assert response.status_code == 404
 
     @patch("products.tasks.backend.facade.api.create_and_run_task")
-    def test_promote_endpoint_moves_staged_feature_to_managed(self, mock_create_task: MagicMock) -> None:
-        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-me4", extra_data={"login": "me"})
+    def test_promote_endpoint_starts_repo_backed_planning_on_the_discovered_report(
+        self, mock_create_task: MagicMock
+    ) -> None:
         mock_create_task.return_value = _mock_created_task(self.team, self.user)
         report = _make_ready_feature(self.team, self.user)
+        discovery_run_id = str(uuid4())
         SignalReportArtefact.append_status(
             team_id=self.team.id,
             report_id=str(report.id),
             content=FeatureLifecycle(
                 feature_stage=FeatureStage.STAGED,
                 source=FeatureSource.DISCOVERY,
-                discovery_run_id=str(uuid4()),
+                discovery_run_id=discovery_run_id,
             ),
             attribution=ArtefactAttribution.from_user(self.user.id),
             reevaluate_autostart=False,
@@ -289,8 +291,35 @@ class TestFeatureAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/promote/")
 
         assert response.status_code == 200, response.content
+        assert response.json() == {
+            "report_id": str(report.id),
+            "task_id": str(mock_create_task.return_value.task_id),
+            "run_id": str(mock_create_task.return_value.latest_run.id),
+        }
         lifecycle = SignalReportArtefact.objects.filter(
             report_id=report.id,
             type=SignalReportArtefact.ArtefactType.FEATURE_LIFECYCLE,
         ).latest("created_at")
-        assert FeatureLifecycle.model_validate_json(lifecycle.content).feature_stage == FeatureStage.MANAGED
+        parsed_lifecycle = FeatureLifecycle.model_validate_json(lifecycle.content)
+        assert parsed_lifecycle.feature_stage == FeatureStage.PLANNING
+        assert parsed_lifecycle.source == FeatureSource.DISCOVERY
+        assert parsed_lifecycle.discovery_run_id == discovery_run_id
+
+        kwargs = mock_create_task.call_args.kwargs
+        assert kwargs["repository"] == "posthog/posthog"
+        assert kwargs["mode"] == "interactive"
+        assert kwargs["signal_report_id"] == str(report.id)
+        assert kwargs["ai_stage"] == "planning"
+        first_message = kwargs["pending_user_message"]
+        assert "planning agent for a software feature" in first_message
+        assert "what future the user intends" in first_message
+        assert report.summary in first_message
+
+        artefacts = list(SignalReportArtefact.objects.filter(report_id=report.id).order_by("created_at"))
+        planning_runs = [a for a in artefacts if a.type == "task_run" and '"type":"planning"' in a.content]
+        assert len(planning_runs) == 1
+        assert mock_create_task.call_count == 1
+        assert not any(a.type in {"safety_judgment", "actionability_judgment"} for a in artefacts)
+        assert not SignalScoutConfig.all_teams.filter(
+            team=self.team, skill_name=owner_scout_skill_name(str(report.id))
+        ).exists()

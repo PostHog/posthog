@@ -511,13 +511,12 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
             actions.setPromotingFeature(true)
             try {
                 await signalsFeaturesPromoteCreate(String(values.currentProjectId), props.reportId)
-                lemonToast.success('Feature promoted. Its owner scout is active.')
+                lemonToast.success('Planning started')
                 actions.loadReportArtefacts()
                 actions.loadSelectedReport({ id: props.reportId })
                 actions.loadOwnerScoutConfig()
-                actions.setActiveSubTab('owner')
             } catch (error: unknown) {
-                lemonToast.error(featureDetailErrorMessage(error, 'Feature could not be promoted. Try again.'))
+                lemonToast.error(featureDetailErrorMessage(error, "Couldn't start planning. Try again."))
             } finally {
                 actions.setPromotingFeature(false)
             }

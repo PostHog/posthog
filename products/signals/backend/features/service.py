@@ -45,6 +45,7 @@ from products.signals.backend.models import (
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
 
@@ -99,6 +100,38 @@ class CreatedFeatureDiscovery:
     run_id: str
 
 
+def _start_feature_planning_task(
+    *, team: Team, user: User, report: SignalReport, repository: str | None, task_title: str
+) -> CreatedFeature:
+    report_id = str(report.id)
+    first_message = build_planning_bootstrap_message(report_id, report.summary or "")
+    created = tasks_facade.create_and_run_task(
+        team=team,
+        title=task_title,
+        description=first_message,
+        origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+        user_id=user.id,
+        repository=repository,
+        create_pr=False,
+        mode="interactive",
+        signal_report_id=report_id,
+        posthog_mcp_scopes="full",
+        interaction_origin="signal_report",
+        ai_stage="planning",
+        pending_user_message=first_message,
+    )
+    run_id = str(created.latest_run.id) if created.latest_run else None
+    append_task_run_artefact(
+        team_id=team.id,
+        report_id=report_id,
+        product=SIGNALS_PRODUCT,
+        type=TASK_RUN_TYPE_PLANNING,
+        task_id=str(created.task_id),
+        run_id=run_id,
+    )
+    return CreatedFeature(report_id=report_id, task_id=str(created.task_id), run_id=run_id)
+
+
 def create_feature(*, team: Team, user: User, initial_description: str) -> CreatedFeature:
     """Create a feature report and start its interactive planning phase.
 
@@ -139,34 +172,16 @@ def create_feature(*, team: Team, user: User, initial_description: str) -> Creat
     # is UI metadata and never reaches the model. The first message is a short bootstrap (identity,
     # report id, hard rules, "read the groundskeeping note"); the full operating contract lives in
     # the groundskeeping note artefact above, which the agent is directed to fetch first.
-    first_message = build_planning_bootstrap_message(report_id, initial_description)
-    created = tasks_facade.create_and_run_task(
+    created = _start_feature_planning_task(
         team=team,
-        title="Plan a new feature",
-        description=first_message,
-        origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
-        user_id=user.id,
+        user=user,
+        report=report,
         repository=None,
-        create_pr=False,
-        mode="interactive",
-        signal_report_id=report_id,
-        posthog_mcp_scopes="full",
-        interaction_origin="signal_report",
-        ai_stage="planning",
-        pending_user_message=first_message,
-    )
-    run_id = str(created.latest_run.id) if created.latest_run else None
-    append_task_run_artefact(
-        team_id=team.id,
-        report_id=report_id,
-        product=SIGNALS_PRODUCT,
-        type=TASK_RUN_TYPE_PLANNING,
-        task_id=str(created.task_id),
-        run_id=run_id,
+        task_title="Plan a new feature",
     )
 
     logger.info("feature_management.create_feature", extra={"team_id": team.id, "report_id": report_id})
-    return CreatedFeature(report_id=report_id, task_id=str(created.task_id), run_id=run_id)
+    return created
 
 
 def start_feature_discovery(*, team: Team, user: User, repository: str, focus: str) -> CreatedFeatureDiscovery:
@@ -341,11 +356,50 @@ def finish_feature_planning(*, team: Team, user: User, report: SignalReport) -> 
     return FeaturePlanningCompletion(scout_skill_name=skill_name, implementation_task_id=implementation_task_id)
 
 
-def promote_staged_feature(*, team: Team, user: User, report: SignalReport) -> FeaturePlanningCompletion:
-    lifecycle = latest_feature_lifecycle(team_id=team.id, report_id=str(report.id))
-    if lifecycle is None or lifecycle.feature_stage not in {FeatureStage.STAGED, FeatureStage.MANAGED}:
+def start_staged_feature_planning(*, team: Team, user: User, report: SignalReport) -> CreatedFeature:
+    """Start an interactive planning conversation on an existing discovered feature report."""
+    report_id = str(report.id)
+    lifecycle = latest_feature_lifecycle(team_id=team.id, report_id=report_id)
+    if lifecycle is None or lifecycle.feature_stage != FeatureStage.STAGED:
         raise FeatureNotStagedError
-    return finish_feature_planning(team=team, user=user, report=report)
+
+    repo_artefact = (
+        SignalReportArtefact.objects.filter(
+            team_id=team.id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    repository = None
+    if repo_artefact is not None:
+        repository = RepoSelectionResult.model_validate_json(repo_artefact.content).repository
+
+    created = _start_feature_planning_task(
+        team=team,
+        user=user,
+        report=report,
+        repository=repository,
+        task_title="Plan a discovered feature",
+    )
+    SignalReportArtefact.append_status(
+        team_id=team.id,
+        report_id=report_id,
+        content=FeatureLifecycle(
+            feature_stage=FeatureStage.PLANNING,
+            source=lifecycle.source,
+            discovery_run_id=lifecycle.discovery_run_id,
+        ),
+        attribution=ArtefactAttribution.from_user(user.id),
+        reevaluate_autostart=False,
+    )
+
+    logger.info(
+        "feature_management.start_staged_feature_planning",
+        extra={"team_id": team.id, "report_id": report_id, "task_id": str(created.task_id)},
+    )
+    return created
 
 
 def owner_scout_skill_name(report_id: str) -> str:

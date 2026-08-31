@@ -28,6 +28,7 @@ from products.signals.backend.features.discovery import (
     persist_discovered_features,
     run_multi_turn_feature_discovery,
 )
+from products.signals.backend.features.service import owner_scout_skill_name
 from products.signals.backend.features.types import FeatureDiscoveryWorkflowInput
 from products.signals.backend.models import FeatureDiscoveryRun, SignalReport, SignalReportArtefact
 from products.signals.backend.temporal.feature_discovery import (
@@ -481,6 +482,12 @@ class TestPersistDiscoveredFeatures(APIBaseTest):
         lifecycle = FeatureLifecycle.model_validate_json(lifecycle_row.content)
         assert lifecycle.feature_stage == FeatureStage.STAGED
         assert lifecycle.discovery_run_id == str(run.id)
+        groundskeeping = SignalReportArtefact.objects.get(
+            report=report,
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content__contains="About this feature report",
+        )
+        assert owner_scout_skill_name(str(report.id)) in groundskeeping.content
         question_row = SignalReportArtefact.objects.get(
             report=report,
             type=SignalReportArtefact.ArtefactType.QUESTION,

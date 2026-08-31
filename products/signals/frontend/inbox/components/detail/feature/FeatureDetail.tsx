@@ -613,8 +613,8 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
 
             {isStaged && (
                 <LemonBanner type="info" className="mb-4">
-                    Review this discovered feature before promoting it. Promotion activates its owner scout and starts
-                    the first implementation pass when the report has a resolvable owner.
+                    Promote feature starts a planning session with an agent. Review the feature together, then finish
+                    planning to activate its owner scout.
                 </LemonBanner>
             )}
 

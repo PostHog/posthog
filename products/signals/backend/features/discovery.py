@@ -24,6 +24,8 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
+from products.signals.backend.features.prompts import build_groundskeeping_note
+from products.signals.backend.features.service import owner_scout_skill_name
 from products.signals.backend.models import ArtefactAttribution, FeatureDiscoveryRun, SignalReport, SignalReportArtefact
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.facade import api as tasks_facade
@@ -635,6 +637,15 @@ def persist_discovered_features(*, run_id: str, team_id: int, result: FeatureDis
             ),
             attribution=attribution,
             reevaluate_autostart=False,
+        )
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=NoteArtefact(
+                note=build_groundskeeping_note(report_id, owner_scout_skill_name(report_id)),
+                author="feature management",
+            ),
+            attribution=ArtefactAttribution.system(),
         )
         SignalReportArtefact.append_status(
             team_id=team_id,

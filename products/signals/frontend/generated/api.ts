@@ -193,15 +193,15 @@ export const getSignalsFeaturesPromoteCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Promote an auto-discovered feature into managed ownership, activate its owner scout, and start its first implementation pass when possible.
- * @summary Promote a staged feature
+ * Start the normal interactive planning conversation for an auto-discovered feature. The agent inspects the selected repository, verifies the discovery report, asks about intended functionality, and updates the same report. The feature remains in planning until planning is finished.
+ * @summary Start planning a discovered feature
  */
 export const signalsFeaturesPromoteCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<InboxFeaturePlanningFinishedApi> => {
-    return apiMutator<InboxFeaturePlanningFinishedApi>(getSignalsFeaturesPromoteCreateUrl(projectId, id), {
+): Promise<InboxFeatureCreatedApi> => {
+    return apiMutator<InboxFeatureCreatedApi>(getSignalsFeaturesPromoteCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
