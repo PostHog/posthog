@@ -6,7 +6,7 @@ from dataclasses import field
 from enum import StrEnum
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -303,10 +303,10 @@ def _is_file_backed_user(creds: ClickHouseCredentials, workload: Workload, user:
 
 def get_http_kwargs(
     workload: Workload = Workload.DEFAULT,
-    team_id=None,
-    readonly=False,
+    team_id: int | None = None,
+    readonly: bool = False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
-):
+) -> dict[str, Any]:
     """Build kwargs for the short-lived HTTP client, reading a file-backed credential fresh.
 
     The HTTP client is rebuilt on every call, so one read here is enough to send a rotated token.
