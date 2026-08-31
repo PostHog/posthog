@@ -54,8 +54,10 @@ export function PaginationControl<T>({
                 size="small"
                 onClick={() => {
                     pagination?.controlled && pagination.onBackward?.()
-                    if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
-                        setCurrentPage(Math.max(1, Math.min(pageCount as number, currentPage as number) - 1))
+                    // Skip the URL write when the page count is unknown: Math.min against a null count
+                    // collapses to page 0, which competes with the handler above and snaps back to page 1.
+                    if (pageCount !== null && ((pagination?.controlled && currentPage) || !pagination?.controlled)) {
+                        setCurrentPage(Math.max(1, Math.min(pageCount, currentPage as number) - 1))
                     }
                 }}
             />
@@ -65,8 +67,8 @@ export function PaginationControl<T>({
                 size="small"
                 onClick={() => {
                     pagination?.controlled && pagination.onForward?.()
-                    if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
-                        setCurrentPage(Math.min(pageCount as number, (currentPage as number) + 1))
+                    if (pageCount !== null && ((pagination?.controlled && currentPage) || !pagination?.controlled)) {
+                        setCurrentPage(Math.min(pageCount, (currentPage as number) + 1))
                     }
                 }}
             />
