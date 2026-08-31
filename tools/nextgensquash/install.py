@@ -140,12 +140,60 @@ def _add_dependency_to_migration(path: Path, dep: tuple[str, str]) -> Path | Non
     return path
 
 
+def _remove_dep_entry(path: Path, dep: tuple[str, str]) -> bool:
+    """AST-based removal of one `(app, name)` tuple from `Migration.dependencies`.
+    Handles single-line and multi-line list formatting; a regex line match
+    missed inline lists like `dependencies = [(...), (...)]`.
+    """
+    import ast
+
+    src = path.read_text()
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return False
+    deps_assign = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "Migration":
+            for stmt in node.body:
+                if isinstance(stmt, ast.Assign) and any(
+                    isinstance(t, ast.Name) and t.id == "dependencies" for t in stmt.targets
+                ):
+                    deps_assign = stmt
+                    break
+    if deps_assign is None or not isinstance(deps_assign.value, ast.List):
+        return False
+    kept: list[str] = []
+    removed = False
+    for elt in deps_assign.value.elts:
+        if (
+            isinstance(elt, ast.Tuple)
+            and len(elt.elts) == 2
+            and all(isinstance(c, ast.Constant) and isinstance(c.value, str) for c in elt.elts)
+            and (elt.elts[0].value, elt.elts[1].value) == dep
+        ):
+            removed = True
+            continue
+        seg = ast.get_source_segment(src, elt)
+        if seg:
+            kept.append(seg)
+    if not removed:
+        return False
+    indent = " " * 8
+    lines = ["    dependencies = ["] + [f"{indent}{k}," for k in kept] + ["    ]"]
+    src_lines = src.splitlines()
+    start, end = deps_assign.lineno - 1, deps_assign.end_lineno - 1
+    new_src = "\n".join(src_lines[:start] + lines + src_lines[end + 1 :])
+    if not new_src.endswith("\n"):
+        new_src += "\n"
+    path.write_text(new_src)
+    return True
+
+
 def _strip_cycle_edges_from_migrations(edges: list[tuple[str, str, str, str]], target_dir: Path) -> list[Path]:
     """For each `(from_app, from_name, to_app, to_name)`, edit
     `target_dir / from_name.py` to remove the single matching entry from its
-    `dependencies` list. The entry is matched as a tuple literal like
-    `("to_app", "to_name")` (single or double quotes, whitespace tolerant).
-    The rest of the file is left untouched.
+    `dependencies` list. The rest of the file is left untouched.
     """
 
     edited: list[Path] = []
@@ -153,22 +201,9 @@ def _strip_cycle_edges_from_migrations(edges: list[tuple[str, str, str, str]], t
         p = target_dir / f"{fname}.py"
         if not p.exists():
             continue
-        src = p.read_text()
-        # Match: `("to_app", "to_name"),` or `("to_app", "to_name")` with quotes
-        # in either style. We remove the entire line if it's the dep entry.
-        pattern = re.compile(
-            r"^[ \t]*\(\s*['\"]"
-            + re.escape(to_app)
-            + r"['\"]\s*,\s*['\"]"
-            + re.escape(to_name)
-            + r"['\"]\s*\)\s*,?\s*\n",
-            re.MULTILINE,
-        )
-        new_src, count = pattern.subn("", src, count=1)
-        if count == 0:
+        if not _remove_dep_entry(p, (to_app, to_name)):
             sys.stderr.write(f"  warning: could not find dep ({to_app!r}, {to_name!r}) in {p}\n")
             continue
-        p.write_text(new_src)
         edited.append(p)
     return edited
 
