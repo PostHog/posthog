@@ -273,6 +273,7 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
                 "organization_id": inputs.organization_id,
                 "matched": matched,
                 "icp_fit_status": status,
+                "harmonic_enrichment_status": outcome.enrichment_status,
             },
             groups={"organization": inputs.organization_id},
         )
