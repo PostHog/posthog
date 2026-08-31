@@ -905,6 +905,9 @@ importers:
       '@tiptap/core':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/pm@3.20.6)
+      '@tiptap/extension-code':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))
       '@tiptap/extension-code-block':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
@@ -22482,8 +22485,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.474.0:
-    resolution: {integrity: sha512-YSoKMESTCa5zLNqXKI6sKUV1B/RZKU31k9Fmj6yFLndRMixYXyqXVF15Qkobtc1apqJaVZ1XvCl4PIlk5SpJYw==}
+  unlayer-types@1.476.0:
+    resolution: {integrity: sha512-BX8laPfXVmdE6+ujBc3oOiIp7AuAuLwXFs1yAMVWYjuYyF2uWPTLJpNB5LB05MlfbQKbaQGHrkdbcurzkq4MxQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -42945,7 +42948,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.474.0
+      unlayer-types: 1.476.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45260,7 +45263,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.474.0: {}
+  unlayer-types@1.476.0: {}
 
   unpipe@1.0.0: {}
 

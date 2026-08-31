@@ -1,6 +1,7 @@
 import { TaskItem, TaskList } from '@tiptap/extension-list'
 import StarterKit from '@tiptap/starter-kit'
 
+import { CodeExtension } from 'lib/components/RichContentEditor/CodeExtension'
 import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
 
 // Shared building blocks for the markdown editors (text card, AI prompt, etc). Each editor starts
@@ -10,8 +11,10 @@ const MARKDOWN_BASE_EXTENSIONS = [
         heading: {
             levels: [1, 2, 3],
         },
+        code: false,
         link: false,
     }),
+    CodeExtension,
     TaskList,
     TaskItem.configure({ nested: true }),
 ]

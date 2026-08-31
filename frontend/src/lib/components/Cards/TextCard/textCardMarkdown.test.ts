@@ -7,6 +7,11 @@ import {
 } from './textCardMarkdown'
 
 describe('textCardMarkdown', () => {
+    const codeSpanTextNode = (markdown: string): JSONContent | undefined =>
+        textCardConverter.markdownToDoc(markdown).content?.[0]?.content?.[0]
+    const linkHref = (node: JSONContent | undefined): unknown =>
+        node?.marks?.find((mark) => mark.type === 'link')?.attrs?.href
+
     it.each([undefined, null, '', '   \n\t '])('returns an empty doc for blank markdown: %p', (markdown) => {
         expect(textCardConverter.markdownToDoc(markdown)).toEqual({
             type: 'doc',
@@ -192,6 +197,76 @@ describe('textCardMarkdown', () => {
         }
         expect(wordArtNode?.attrs).toEqual({ text, style: expectedStyle, size: expectedSize })
         expect(textCardConverter.isRoundTripSafe(markdown)).toBe(true)
+    })
+
+    // A destination in angle brackets is markdown syntax, so the brackets must not reach the href.
+    // A destination holding balanced parens must survive whole, which a naive match truncates.
+    it.each([
+        ['a plain destination', '`[table_name](https://us.posthog.com/x)`', 'table_name', 'https://us.posthog.com/x'],
+        [
+            'a destination in angle brackets',
+            '`[table_name](<https://us.posthog.com/x>)`',
+            'table_name',
+            'https://us.posthog.com/x',
+        ],
+        [
+            'a destination holding balanced parens',
+            '`[wiki](https://en.wikipedia.org/wiki/Hog_(disambiguation))`',
+            'wiki',
+            'https://en.wikipedia.org/wiki/Hog_(disambiguation)',
+        ],
+        ['a relative path', '`[insights](/project/2/insights)`', 'insights', '/project/2/insights'],
+        ['mailto', '`[email us](mailto:hey@example.com)`', 'email us', 'mailto:hey@example.com'],
+        ['tel', '`[call us](tel:+15551234567)`', 'call us', 'tel:+15551234567'],
+    ])('links a code span containing %s', (_, markdown, expectedText, expectedHref) => {
+        const textNode = codeSpanTextNode(markdown)
+
+        expect(textNode).toMatchObject({ type: 'text', text: expectedText })
+        expect(textNode?.marks?.map((m) => m.type).sort()).toEqual(['code', 'link'])
+        expect(linkHref(textNode)).toBe(expectedHref)
+    })
+
+    it('round-trips a link written inside a code span unchanged', () => {
+        const source = '`[table_name](https://us.posthog.com/x)`'
+        const doc = textCardConverter.markdownToDoc(source)
+        const markdown = textCardConverter.docToMarkdown(doc)
+
+        // The author's own markdown comes back, so saving a card does not rewrite what they typed.
+        expect(markdown).toBe(source)
+        expect(textCardConverter.markdownToDoc(markdown)).toEqual(doc)
+    })
+
+    it('keeps the target href when a linked code span label is a URL', () => {
+        // `[`https://label.example`](https://target.example)` already parses to a single code+link
+        // node; promoting it again used to append a second link mark and rewrite the href to the label URL.
+        const markdown = '[`https://label.example`](https://target.example)'
+        const doc = textCardConverter.markdownToDoc(markdown)
+        const textNode = doc.content?.[0]?.content?.[0]
+
+        expect(textNode?.marks?.filter((m) => m.type === 'link')).toHaveLength(1)
+        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('https://target.example')
+        expect(textCardConverter.docToMarkdown(doc)).toBe('[`https://label.example`](https://target.example)')
+    })
+
+    // Promotion writes the matched destination onto the href itself, so it applies the link mark's
+    // own protocol allowlist. A scheme the mark would refuse stays plain text with only a `code`
+    // mark. A second, narrower list here would silently refuse destinations the editor accepts
+    // everywhere else.
+    it.each([
+        ['a javascript scheme', "`[click me](javascript:document.location='https://evil.example')`"],
+        ['a data scheme', '`[click me](data:text/html,hi)`'],
+        ['a vbscript scheme', '`[click me](vbscript:msgbox)`'],
+        ['no link syntax at all', '`SELECT * FROM events`'],
+        // A code span can sit inside a link already, so its bare text is left alone.
+        ['a bare URL', '`https://us.posthog.com/x`'],
+        // Emphasis characters are literal in code and must not become marks.
+        ['underscores and asterisks', '`a_b_c and *x*`'],
+    ])('leaves a code span with %s as plain code', (_, markdown) => {
+        const textNode = codeSpanTextNode(markdown)
+
+        // The text keeps the backticked content verbatim, so nothing was rewritten to a link label.
+        expect(textNode).toMatchObject({ type: 'text', text: markdown.slice(1, -1) })
+        expect(textNode?.marks?.map((m) => m.type)).toEqual(['code'])
     })
 
     it('uses non-clickable links while editing and clickable links in readonly', () => {
