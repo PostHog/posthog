@@ -61,7 +61,7 @@ class Migration(migrations.Migration):
                     models.OneToOneField(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="signal_scout_suggestion_set",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),

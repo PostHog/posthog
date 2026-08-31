@@ -2212,7 +2212,7 @@ class SignalScoutSuggestionSet(TeamScopedRootMixin, UUIDModel):
         "posthog.Team",
         on_delete=models.CASCADE,
         db_constraint=False,
-        related_name="signal_scout_suggestion_set",
+        related_name="+",
     )
     # The suggestion records (`ScoutSuggestionItem` shape plus per-item `dismissed_at`,
     # `dismissed_by_id`, `created_config_id`). Empty until the first successful generation.
