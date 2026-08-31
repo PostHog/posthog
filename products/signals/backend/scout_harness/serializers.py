@@ -22,6 +22,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.fields import empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
@@ -721,9 +722,9 @@ class _BestEffortDateTimeField(serializers.DateTimeField):
     the whole write — the same best-effort stance `run_id` takes on this serializer.
     """
 
-    def to_internal_value(self, value: Any) -> datetime | None:
+    def run_validation(self, data: Any = empty) -> datetime | None:
         try:
-            return super().to_internal_value(value)
+            return super().run_validation(data)
         except serializers.ValidationError:
             return None
 
