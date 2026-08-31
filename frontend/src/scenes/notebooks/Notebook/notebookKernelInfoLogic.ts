@@ -68,6 +68,12 @@ export type NotebookKernelInfoLogicProps = {
      * render one, so polling them costs a 404 every 10 seconds for as long as the page is open.
      */
     mode?: NotebookLogicMode
+    /**
+     * True on a shared or exported view, which renders from `cachedNotebook` precisely so it
+     * issues no team-scoped requests. Both kernel endpoints are team-scoped, so a logged-out
+     * viewer would get a 401 from each. Nobody can start a kernel from such a view anyway.
+     */
+    isShared?: boolean
 }
 
 /**
@@ -272,23 +278,31 @@ export interface notebookKernelInfoLogicMeta {
         hasActionInFlight: (actionInFlight: KernelActionInFlight) => boolean
         isModalKernel: (kernelInfo: NotebookKernelInfo | null) => boolean
         localFrames: (kernelInfo: NotebookKernelInfo | null) => NotebookKernelFrame[]
-        cpuOptions: (computeOptions: any) => number[]
-        memoryOptions: (computeOptions: any) => number[]
-        computePresets: (computeOptions: any) => NotebookComputePresetApi[]
-        cpuIndex: (cpuOptions: any, selectedCpu: number) => number
-        memoryIndex: (memoryOptions: any, selectedMemory: number) => number
-        currentCpu: (kernelInfo: NotebookKernelInfo | null, selectedCpu: number) => number | null
-        currentMemory: (kernelInfo: NotebookKernelInfo | null, selectedMemory: number) => number | null
-        selectedHourlyPrice: (computeOptions: any, selectedCpu: number, selectedMemory: number) => number | null
-        selectedPresetKey: (computePresets: any, selectedCpu: number, selectedMemory: number) => string | null
+        cpuOptions: (computeOptions: NotebookComputeOptionsResponseApi | null) => number[]
+        memoryOptions: (computeOptions: NotebookComputeOptionsResponseApi | null) => number[]
+        computePresets: (computeOptions: NotebookComputeOptionsResponseApi | null) => NotebookComputePresetApi[]
+        cpuIndex: (cpuOptions: number[], selectedCpu: number | null) => number
+        memoryIndex: (memoryOptions: number[], selectedMemory: number | null) => number
+        currentCpu: (kernelInfo: NotebookKernelInfo | null, selectedCpu: number | null) => number | null
+        currentMemory: (kernelInfo: NotebookKernelInfo | null, selectedMemory: number | null) => number | null
+        selectedHourlyPrice: (
+            computeOptions: NotebookComputeOptionsResponseApi | null,
+            selectedCpu: number | null,
+            selectedMemory: number | null
+        ) => number | null
+        selectedPresetKey: (
+            computePresets: NotebookComputePresetApi[],
+            selectedCpu: number | null,
+            selectedMemory: number | null
+        ) => string | null
         currentIdleTimeout: (kernelInfo: NotebookKernelInfo | null) => number
         hasConfigChanges: (
             kernelInfo: NotebookKernelInfo | null,
-            selectedCpu: number,
-            selectedMemory: number,
+            selectedCpu: number | null,
+            selectedMemory: number | null,
             idleTimeoutSeconds: number,
-            currentCpu: number,
-            currentMemory: number,
+            currentCpu: number | null,
+            currentMemory: number | null,
             currentIdleTimeout: number
         ) => boolean
     }
@@ -670,7 +684,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         },
     })),
     afterMount(({ actions, cache, props, values }) => {
-        if (props.mode && props.mode !== 'notebook') {
+        if ((props.mode && props.mode !== 'notebook') || props.isShared) {
             return
         }
         // Replacing the kea context drops this logic's path from the store without unmounting it,
