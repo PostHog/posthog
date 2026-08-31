@@ -904,11 +904,13 @@ export type EvaluationApiEvaluationConfig =
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
  */
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
 }
 
 /**
@@ -981,7 +983,7 @@ export interface EvaluationApi {
      * * `boolean` - Boolean (Pass/Fail)
      * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -1041,11 +1043,13 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
 }
 
 /**
@@ -1118,7 +1122,7 @@ export interface PatchedEvaluationApi {
      * * `boolean` - Boolean (Pass/Fail)
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]

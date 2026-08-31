@@ -139,7 +139,16 @@ class _EvaluationConfigField(serializers.JSONField):
                 "type": "boolean",
                 "description": "Whether the evaluation can return N/A for non-applicable generations.",
                 "default": False,
-            }
+            },
+            "true_is_failure": {
+                "type": "boolean",
+                "description": (
+                    "Whether a true result means the evaluation found a problem. False (the default) suits "
+                    "pass/fail evaluations, where a true result satisfied the criteria. Set it to true for "
+                    "detector-style evaluations, so a true result is counted and labeled as a fail."
+                ),
+                "default": False,
+            },
         },
         "additionalProperties": False,
     }
@@ -318,7 +327,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     )
     output_config = _OutputConfigField(
         required=False,
-        help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+        help_text=(
+            "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and "
+            "{true_is_failure} to declare that a true result means the evaluation found a problem."
+        ),
     )
     target_config = _TargetConfigField(
         required=False,
