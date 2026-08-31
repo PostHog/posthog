@@ -1718,6 +1718,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self._shared_database = None
 
     @property
+    def user_access_control(self) -> Optional[UserAccessControl]:
+        """Access-control snapshot the shared database is built with. None here; overridden by
+        AnalyticsQueryRunner with a lazily built, per-run instance so the cache fingerprint and
+        the database resolve access from the same rows."""
+        return None
+
+    @property
     def shared_database(self) -> Database:
         """One Database for every query this runner executes and for the response SQL printer.
 
@@ -1729,7 +1736,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # measure here because concurrent threads reach this path and HogQLTimings is not
             # thread-safe.
             return Database.create_for(
-                team=self.team, user=self.user, modifiers=self.modifiers, trigger="shared_kill_switch"
+                team=self.team,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                modifiers=self.modifiers,
+                trigger="shared_kill_switch",
             )
         if self._shared_database is None:
             # Concurrent query threads (funnels compare mode) can first-touch this property at the
@@ -1741,6 +1752,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         self._shared_database = Database.create_for(
                             team=self.team,
                             user=self.user,
+                            user_access_control=self.user_access_control,
                             modifiers=self.modifiers,
                             timings=self.timings,
                             trigger="shared",

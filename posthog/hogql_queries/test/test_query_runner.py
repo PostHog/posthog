@@ -261,6 +261,12 @@ class TestQueryRunner(BaseTest):
         timing_keys = [key for key in runner.timings.to_dict() if "build_shared_database" in key]
         assert timing_keys == ["./build_shared_database"]
 
+    def test_shared_database_reuses_runner_access_control_snapshot(self):
+        runner = HogQLQueryRunner(query=HogQLQuery(query="select 1"), team=self.team, user=self.user)
+        snapshot = runner.user_access_control
+        assert snapshot is not None
+        assert runner.shared_database.user_access_control is snapshot
+
     def test_shared_database_kill_switch_disables_sharing(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
