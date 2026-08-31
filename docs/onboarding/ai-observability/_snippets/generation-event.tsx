@@ -373,6 +373,18 @@ export const GenerationEvent = (): JSX.Element => {
                                 </p>
                             </td>
                         </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_cost_passthrough</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> Set this when your provider reports the real cost, such as an
+                                    LLM gateway. We keep your <code>$ai_total_cost_usd</code> and leave the input and
+                                    output costs unset.
+                                </p>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
