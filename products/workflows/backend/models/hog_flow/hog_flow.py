@@ -62,7 +62,7 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
 # allowlist keeps that gap closed by default, so adding a trigger means answering the
 # authorization question for that event. Pair a new entry with a tile in
 # products/workflows/frontend/Workflows/hogflows/registry/triggers/.
-WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset({"$slack_message_received"})
+WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset({"$slack_message_received", "$github_event_received"})
 
 # Billable action types that are subject to rate limiting and quota tracking
 # These action types incur costs and are counted against customer quotas
@@ -73,6 +73,16 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
     "function_push",  # Push notification actions
 }
 
+# Action types that send a message to a person. A workflow containing at least one of these is a
+# "messaging" workflow; everything else is an "automation". Keep in sync with the frontend's
+# WorkflowTypeTag (products/workflows/frontend/Workflows/WorkflowsTable.tsx), which renders the
+# same split, and the list API's `type` filter, which queries on it.
+MESSAGING_ACTION_TYPES: Final[list[str]] = [
+    "function_email",
+    "function_sms",
+    "function_push",
+]
+
 # Action types that read person data and therefore cannot be used in person-less ("row-scoped")
 # workflows such as those triggered by a data warehouse table row sync. Keep in sync with the
 # frontend's PERSON_DEPENDENT_ACTION_TYPES.
@@ -81,7 +91,8 @@ PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
     "random_cohort_branch",
 }
 
-# Trigger types that start a run with no person attached. Keep in sync with the frontend's
+# Trigger types that start a run with no person attached: a synced warehouse row and a Slack message
+# are both authored by something PostHog has no person record for. Keep in sync with the frontend's
 # ROW_SCOPED_TRIGGER_TYPES.
 ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-table",

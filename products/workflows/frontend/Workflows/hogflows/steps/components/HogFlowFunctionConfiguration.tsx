@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
+import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
@@ -109,6 +110,35 @@ export function buildSampleGlobals(
                 is_thread_reply: false,
                 is_ext_shared_channel: false,
                 slack_event: {},
+            },
+            timestamp: '2024-01-01T12:00:00Z',
+        }
+    } else if (isGithubEventTriggerConfig(trigger)) {
+        // Property names mirror what the GitHub trigger emits (github_workflow_events.py). No
+        // person: GitHub-triggered runs are person-less.
+        sampleGlobals.event = {
+            event: '$github_event_received',
+            distinct_id: 'octocat',
+            properties: {
+                integration_id: 1,
+                event_type: 'issues',
+                action: 'opened',
+                repository: 'PostHog/posthog',
+                repository_visibility: 'public',
+                sender: 'octocat',
+                bot_sender: null,
+                own_app: false,
+                author_association: 'MEMBER',
+                actor_access: 'write',
+                title: 'Example issue title',
+                body: 'Example issue body',
+                review_state: null,
+                number: 123,
+                url: 'https://github.com/PostHog/posthog/issues/123',
+                ref: '',
+                branch: null,
+                installation_id: 1,
+                github_event: {},
             },
             timestamp: '2024-01-01T12:00:00Z',
         }

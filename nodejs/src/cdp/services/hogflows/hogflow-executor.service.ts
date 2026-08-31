@@ -184,7 +184,8 @@ export class HogFlowExecutorService {
             const trigger = hogFlow.trigger
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
-            if (trigger.type !== 'event' && trigger.type !== 'internal-event' && !isRowScopedTrigger(trigger)) {
+            // isRowScopedTrigger covers internal-event too, alongside the two warehouse types.
+            if (trigger.type !== 'event' && !isRowScopedTrigger(trigger)) {
                 continue
             }
 

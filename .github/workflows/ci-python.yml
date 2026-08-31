@@ -72,6 +72,9 @@ jobs:
                         - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
+                        # Django templates live outside posthog/ for products, and the
+                        # code-quality job formats them with djlint
+                        - 'products/**/backend/templates/**'
                         # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
                         - 'products/stamphog/packages/pr-approval-agent/**'
@@ -191,6 +194,14 @@ jobs:
                   - name: Check formatting
                     shell: bash
                     run: ruff format --check --diff .
+
+                  - name: Check Django template formatting
+                    shell: bash
+                    run: ./bin/hogli format:html:check
+
+                  - name: Lint Django templates
+                    shell: bash
+                    run: ./bin/hogli lint:html
 
                   - name: Check hogli manifest completeness
                     shell: bash

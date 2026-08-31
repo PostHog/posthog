@@ -64,6 +64,8 @@ class HogQLContext:
     database: Optional["Database"] = None
     # Metadata discovered for a direct Postgres connection, if one is selected
     direct_postgres_connection_metadata: dict[str, Any] | None = None
+    # Query-scoped mappings preserve resolved logical tables through Trino lowering.
+    trino_table_locators: dict[str, tuple[str, str, str]] = field(default_factory=dict)
     # Set when the query executes against an external direct-SQL connection instead of PostHog's own cluster
     is_direct_query: bool = False
     # If set, will save string constants to this dict. Inlines strings into the query if None.
