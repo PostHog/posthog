@@ -3071,6 +3071,13 @@ export const workflowLogic = kea<workflowLogicType>([
                     // which would drop a schedule change the user asked a manual save to persist.
                     const saveContexts = (cache.saveContexts ??= []) as SaveContext[]
                     saveContexts.push({ initiatedByAutoSave, pendingSchedule: values.pendingSchedule })
+                    // Whether this save means to change the lifecycle. Only the enable and disable
+                    // control does, and it says so when it dispatches. Comparing the payload's
+                    // status against the stored one cannot tell the difference: that control does
+                    // not write its new status back to the form, so a form save queued behind it
+                    // carries the old value and reads as a transition back to it.
+                    const isStatusSave = cache.nextSaveChangesStatus === true
+                    cache.nextSaveChangesStatus = false
 
                     const runSave = async (): Promise<HogFlow> => {
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
@@ -3087,14 +3094,23 @@ export const workflowLogic = kea<workflowLogicType>([
                             return result
                         }
 
+                        // The newest server copy this editor has produced. A queued save must compare
+                        // and fence against the copy the save before it wrote, and that copy reaches
+                        // this cache when its response lands, which is before kea applies the result
+                        // to `originalWorkflow`. Reading the kea value instead would compare an edit
+                        // against the state from two saves ago: an edit that returns the content to
+                        // that older state looks unchanged, so its payload carries no content and
+                        // the draft keeps what the user just removed. Cleared on load, because a
+                        // reload, publish, or discard establishes a new baseline.
+                        const latest = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
                         // The form's clean baseline: the staged draft merged over the live row. Sanitized
                         // like `updates` so untouched steps compare equal. Cloned via JSON round-trip,
                         // not structuredClone: the clone only feeds the comparison, and structuredClone
                         // can yield objects whose constructors fail fast-equals' check, making every
                         // save look like a content change.
-                        const baseline = values.originalWorkflow
+                        const baseline = latest
                             ? sanitizeWorkflow(
-                                  JSON.parse(JSON.stringify(withStagedDraft(values.originalWorkflow))),
+                                  JSON.parse(JSON.stringify(withStagedDraft(latest))),
                                   values.hogFunctionTemplatesById
                               )
                             : null
@@ -3103,48 +3119,31 @@ export const workflowLogic = kea<workflowLogicType>([
                             WORKFLOW_CONTENT_FIELDS.some(
                                 (field) => !objectsEqual((updates as any)[field], (baseline as any)[field])
                             )
-                        const isStatusTransition =
-                            !!values.originalWorkflow && updates.status !== values.originalWorkflow.status
+                        const isStatusTransition = isStatusSave && !!latest && updates.status !== latest.status
                         // Content edits on an active workflow stage into its draft (publish promotes them).
                         // Metadata-only saves (rename, description) must not: staging the unchanged content
                         // would create a phantom draft identical to live.
                         const stagingDraft =
-                            values.originalWorkflow?.status === 'active' &&
-                            updates.status === 'active' &&
-                            contentChanged
+                            latest?.status === 'active' && updates.status === 'active' && contentChanged
                         // A status transition (enable/disable) toggles the lifecycle only. The button is
                         // disabled while the form is dirty, so content in the payload is at best a no-op
                         // re-send of the live row and at worst (with a staged draft merged into the form)
                         // a silent deploy of unpublished content. Metadata-only saves on active workflows
                         // strip content the same way, so unchanged content never routes to a draft.
                         const payload: Partial<HogFlow> =
-                            isStatusTransition || (values.originalWorkflow?.status === 'active' && !contentChanged)
+                            isStatusTransition || (latest?.status === 'active' && !contentChanged)
                                 ? omitWorkflowContent(updates)
                                 : { ...updates }
-                        if (!isStatusTransition) {
-                            // Only the enable/disable control changes status, and it does not write
-                            // the new value back to the form. A save queued behind that request
-                            // would otherwise carry the pre-change status and put the workflow back,
-                            // so a disabled workflow would resume running and sending.
+                        if (!isStatusSave) {
+                            // A form save must not speak about the lifecycle. Otherwise one queued
+                            // behind a disable carries the pre-change status and puts the workflow
+                            // back, so a stopped workflow resumes running and sending.
                             delete payload.status
                         }
-                        // The stamps of the newest server copy this editor has produced. A queued save
-                        // must fence against the copy the save before it wrote, and that copy reaches
-                        // this cache when its response lands, which is before kea applies the result to
-                        // `originalWorkflow`. Cleared on load, because a reload, publish, or discard
-                        // establishes a new baseline and can move the draft stamp backwards.
-                        const savedStamps = cache.lastSavedStamps as
-                            | { updated_at?: string; draft_updated_at?: string | null }
-                            | undefined
-                        const liveBase = savedStamps?.updated_at ?? values.originalWorkflow?.updated_at
+                        const liveBase = latest?.updated_at
                         // Draft writes race against other draft writes, not the live row, so the staleness
                         // baseline follows the routing: the draft's own stamp once one is staged.
-                        const loadedBase = stagingDraft
-                            ? (savedStamps?.draft_updated_at ??
-                              savedStamps?.updated_at ??
-                              values.originalWorkflow?.draft_updated_at ??
-                              values.originalWorkflow?.updated_at)
-                            : liveBase
+                        const loadedBase = stagingDraft ? (latest?.draft_updated_at ?? liveBase) : liveBase
 
                         try {
                             const result = await api.hogFlows.updateHogFlow(props.id, {
@@ -3158,10 +3157,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 // saveBaseUpdatedAt overrides the loaded timestamp after the user picks "Keep mine".
                                 base_updated_at: values.saveBaseUpdatedAt ?? loadedBase ?? null,
                             })
-                            cache.lastSavedStamps = {
-                                updated_at: result.updated_at,
-                                draft_updated_at: result.draft_updated_at ?? null,
-                            }
+                            cache.lastSavedWorkflow = result
                             return result
                         } catch (error) {
                             if (error instanceof ApiError && error.status === 409) {
@@ -3951,12 +3947,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 lemonToast.error('Fix all errors before enabling')
                 return
             }
+            // This is the one path that means to change the lifecycle. The loader reads the flag
+            // as it handles the action below, so it describes this save and no other.
+            cache.nextSaveChangesStatus = 'status' in workflow
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
-            // so a stamp kept from an earlier save would fence later saves too loosely.
-            cache.lastSavedStamps = undefined
+            // so a copy kept from an earlier save would fence later saves too loosely.
+            cache.lastSavedWorkflow = undefined
             // The form edits the staged draft when one exists; the live config keeps running underneath.
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.replayDeferredResourceEdited()

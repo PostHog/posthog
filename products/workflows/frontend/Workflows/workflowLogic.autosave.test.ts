@@ -604,6 +604,78 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.discardDisabledReason).toBeUndefined()
         })
 
+        it('still stages content when a queued save undoes the edit the previous save wrote', async () => {
+            // Comparing against kea's copy would compare this edit with the state from two saves
+            // ago. The undo then looks like no change at all, so its payload carries no content and
+            // the draft keeps the step the user just deleted, which publishing would deploy.
+            const patched: Record<string, any>[] = []
+            let releaseFirst: (() => void) | null = null
+            let seen = 0
+            const base = staged.actions
+            const withStep = [
+                ...base,
+                {
+                    id: 'delay_node',
+                    type: 'delay',
+                    name: 'Wait',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: { delay_duration: '5m' },
+                },
+            ] as HogFlow['actions']
+            // Start from a draft that holds the live steps, so reverting lands exactly back on it.
+            const loaded = makeWorkflow({
+                ...staged,
+                draft: { ...(staged.draft as any), actions: base, edges: staged.edges },
+            } as Partial<HogFlow>)
+
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/': loaded },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patched.push(body)
+                        if (++seen === 1) {
+                            await new Promise<void>((resolve) => {
+                                releaseFirst = resolve
+                            })
+                        }
+                        // A staged save answers with the live row plus the new draft blob.
+                        return [
+                            200,
+                            makeWorkflow({
+                                ...loaded,
+                                draft: { ...(loaded.draft as any), actions: body.actions ?? base },
+                                draft_updated_at: new Date(Date.parse('2026-05-01T00:02:00.000Z') + seen).toISOString(),
+                            } as Partial<HogFlow>),
+                        ]
+                    },
+                },
+            })
+
+            logic.actions.loadWorkflow()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            // Add a step, let that save start, then take it back out while it is still open.
+            logic.actions.setWorkflowValues({ actions: withStep })
+            logic.actions.markAutoSave(true)
+            logic.actions.saveWorkflow(logic.values.workflow)
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            logic.actions.setWorkflowValues({ actions: base })
+            logic.actions.markAutoSave(true)
+            logic.actions.saveWorkflow(logic.values.workflow)
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            releaseFirst?.()
+            await new Promise((resolve) => setTimeout(resolve, 400))
+
+            // The undo must reach the draft, not be dropped as "nothing changed".
+            expect(patched[1]?.actions?.map((a: any) => a.id)).toEqual(base.map((a) => a.id))
+            expect(patched[1]?.stage_draft).toBe(true)
+        })
+
         it('does not re-enable a workflow when a save is queued behind a disable', async () => {
             // The disable request is held open, so the save below queues behind it and carries the
             // form's stale status. Landing that would put a stopped workflow back into sending.
