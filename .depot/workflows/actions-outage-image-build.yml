@@ -3,11 +3,6 @@
 #
 # Pushes to posthog-cloud-prs because the posthog-cloud role is trusted only for
 # refs/heads/master, and a fix shipped this way is never on master.
-#
-# Does not work yet. The posthog-cloud-prs role trusts GitHub's OIDC issuer alone
-# and needs a statement for identity.depot.dev, and the role ARN must be
-# registered in Depot's own variable store:
-#   depot ci vars add AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE=<arn> --repo PostHog/posthog
 
 name: Actions outage image build
 
