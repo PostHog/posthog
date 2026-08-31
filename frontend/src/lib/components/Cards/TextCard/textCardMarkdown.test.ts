@@ -200,8 +200,7 @@ describe('textCardMarkdown', () => {
     })
 
     // A destination in angle brackets is markdown syntax, so the brackets must not reach the href.
-    // The trailing-parenthesis row pins a bare URL ending in an unbalanced `)`, which is dropped if
-    // the href is taken from a markdown round trip rather than from the matched text.
+    // A destination holding balanced parens must survive whole, which a naive match truncates.
     it.each([
         ['a plain destination', '`[table_name](https://us.posthog.com/x)`', 'table_name', 'https://us.posthog.com/x'],
         [
@@ -210,17 +209,16 @@ describe('textCardMarkdown', () => {
             'table_name',
             'https://us.posthog.com/x',
         ],
-        ['a bare URL', '`https://us.posthog.com/x`', 'https://us.posthog.com/x', 'https://us.posthog.com/x'],
         [
-            'a bare URL ending in an unbalanced parenthesis',
-            '`https://example.com/a)`',
-            'https://example.com/a)',
-            'https://example.com/a)',
+            'a destination holding balanced parens',
+            '`[wiki](https://en.wikipedia.org/wiki/Hog_(disambiguation))`',
+            'wiki',
+            'https://en.wikipedia.org/wiki/Hog_(disambiguation)',
         ],
         ['a relative path', '`[insights](/project/2/insights)`', 'insights', '/project/2/insights'],
         ['mailto', '`[email us](mailto:hey@example.com)`', 'email us', 'mailto:hey@example.com'],
         ['tel', '`[call us](tel:+15551234567)`', 'call us', 'tel:+15551234567'],
-    ])('promotes a code span containing %s to a link', (_, markdown, expectedText, expectedHref) => {
+    ])('links a code span containing %s', (_, markdown, expectedText, expectedHref) => {
         const textNode = codeSpanTextNode(markdown)
 
         expect(textNode).toMatchObject({ type: 'text', text: expectedText })
@@ -228,11 +226,13 @@ describe('textCardMarkdown', () => {
         expect(linkHref(textNode)).toBe(expectedHref)
     })
 
-    it('round-trips a link written inside a code span to canonical markdown', () => {
-        const doc = textCardConverter.markdownToDoc('`[table_name](https://us.posthog.com/x)`')
+    it('round-trips a link written inside a code span unchanged', () => {
+        const source = '`[table_name](https://us.posthog.com/x)`'
+        const doc = textCardConverter.markdownToDoc(source)
         const markdown = textCardConverter.docToMarkdown(doc)
 
-        expect(markdown).toBe('[`table_name`](https://us.posthog.com/x)')
+        // The author's own markdown comes back, so saving a card does not rewrite what they typed.
+        expect(markdown).toBe(source)
         expect(textCardConverter.markdownToDoc(markdown)).toEqual(doc)
     })
 
@@ -257,6 +257,10 @@ describe('textCardMarkdown', () => {
         ['a data scheme', '`[click me](data:text/html,hi)`'],
         ['a vbscript scheme', '`[click me](vbscript:msgbox)`'],
         ['no link syntax at all', '`SELECT * FROM events`'],
+        // A code span can sit inside a link already, so its bare text is left alone.
+        ['a bare URL', '`https://us.posthog.com/x`'],
+        // Emphasis characters are literal in code and must not become marks.
+        ['underscores and asterisks', '`a_b_c and *x*`'],
     ])('leaves a code span with %s as plain code', (_, markdown) => {
         const textNode = codeSpanTextNode(markdown)
 

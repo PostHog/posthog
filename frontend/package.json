@@ -172,6 +172,7 @@
         "@tanstack/react-virtual": "^3.14.3",
         "@testing-library/dom": ">=9.3.4",
         "@tiptap/core": "3.20.6",
+        "@tiptap/extension-code": "3.20.6",
         "@tiptap/extension-code-block": "3.20.6",
         "@tiptap/extension-code-block-lowlight": "3.20.6",
         "@tiptap/extension-color": "3.20.6",
