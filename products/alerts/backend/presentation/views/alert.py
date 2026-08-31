@@ -194,10 +194,12 @@ class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
 
     def to_internal_value(self, data):
         if isinstance(data, str):
-            try:
-                return self.get_queryset().get(short_id=data.strip())
-            except Insight.DoesNotExist:
-                pass
+            data = data.strip()
+            if not data.isdigit():
+                try:
+                    return self.get_queryset().get(short_id=data)
+                except Insight.DoesNotExist:
+                    pass
 
         return super().to_internal_value(data)
 
@@ -900,11 +902,15 @@ class AlertSimulateSerializer(serializers.Serializer):
     )
     detector_config = DetectorConfigField(
         required=False,
-        allow_null=True,
-        default=lambda: {"type": "zscore", "threshold": 0.95, "window": 30},
+        default=lambda: {
+            "type": "zscore",
+            "threshold": 0.95,
+            "window": 90,
+            "preprocessing": {"diffs_n": 1},
+        },
         help_text=(
-            "Detector configuration to simulate. Omit or set to null to use the default z-score detector "
-            "(threshold 0.95, window 30)."
+            "Detector configuration to simulate. Omit it to use the default daily z-score detector "
+            "(threshold 0.95, window 90, first-difference preprocessing)."
         ),
     )
     # TODO: fold series_index and date_from into a per-kind range on `config` once a second insight
@@ -939,9 +945,6 @@ class AlertSimulateSerializer(serializers.Serializer):
         return value
 
     def validate_detector_config(self, value):
-        if value is None:
-            value = {"type": "zscore", "threshold": 0.95, "window": 30}
-
         import pydantic
 
         try:

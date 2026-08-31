@@ -1593,12 +1593,22 @@ class TestAlertSimulate(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert mock_calculate.call_args.kwargs["detector_config"] == {
-            "type": "zscore",
-            "threshold": 0.95,
-            "window": 30,
-            "preprocessing": None,
-        }
+        detector_config = mock_calculate.call_args.kwargs["detector_config"]
+        assert detector_config["type"] == "zscore"
+        assert detector_config["threshold"] == 0.95
+        assert detector_config["window"] == 90
+        assert detector_config["preprocessing"]["diffs_n"] == 1
+
+    def test_simulate_null_detector_config_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["id"],
+                "detector_config": None,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_simulate_accepts_insight_short_id(self, mock_calculate) -> None:
