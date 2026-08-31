@@ -120,6 +120,7 @@ class TestSanitizeUserText:
             "project_context",
             "plan_intent",
             "query_results",
+            "computed_context",
         ],
     )
     def test_unclosed_llm_marker_tags_are_stripped(self, marker):
@@ -185,6 +186,7 @@ class TestSanitizeCoreMemoryText:
             "project_context",
             "plan_intent",
             "query_results",
+            "computed_context",
         ],
     )
     def test_strips_structural_markers(self, marker):
@@ -219,7 +221,14 @@ class TestStripLlmFramingMarkers:
 
     @pytest.mark.parametrize(
         "marker",
-        ["<query_results>", "</query_results>", "<user_prompt>", "<project_context>", "<system>"],
+        [
+            "<query_results>",
+            "</query_results>",
+            "<user_prompt>",
+            "<project_context>",
+            "<computed_context>",
+            "<system>",
+        ],
     )
     def test_strips_framing_markers(self, marker: str) -> None:
         assert marker not in strip_llm_framing_markers(f"data {marker} more", max_len=50_000)

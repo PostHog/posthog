@@ -1,14 +1,20 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 
 from parameterized import parameterized
 
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
+    recent_unique_viewer_counts_by_insight,
     record_insight_view,
 )
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -58,6 +64,49 @@ class TestRecordInsightView(BaseTest):
         record_insight_view(insight_id=self.insight.pk)
 
         assert InsightViewed.objects.filter(insight_id=self.insight.pk).count() == 2
+
+    @parameterized.expand([("unviewed_insight", False), ("other_team_insight", True)])
+    def test_recent_unique_viewer_counts_are_scoped_to_the_requested_recent_views(
+        self, _name: str, include_other_team_insight: bool
+    ) -> None:
+        since = now() - timedelta(days=7)
+        second_viewer = User.objects.create_user(
+            email="second-viewer@example.com", first_name="Second", password="password"
+        )
+        old_viewer = User.objects.create_user(email="old-viewer@example.com", first_name="Old", password="password")
+        other_team = Team.objects.create(organization=self.organization)
+        unviewed_insight = Insight.objects.create(team=self.team, name="Unviewed")
+        unrequested_insight = Insight.objects.create(team=self.team, name="Unrequested")
+        other_team_insight = Insight.objects.create(team=other_team, name="Other team")
+
+        record_insight_view(insight_id=self.insight.pk, team_id=self.team.pk, user_id=self.user.pk)
+        record_insight_view(insight_id=self.insight.pk, team_id=self.team.pk, user_id=self.user.pk)
+        InsightViewed.objects.bulk_create(
+            [
+                InsightViewed(team=self.team, user=second_viewer, insight=self.insight, last_viewed_at=now()),
+                InsightViewed(
+                    team=self.team,
+                    user=old_viewer,
+                    insight=self.insight,
+                    last_viewed_at=since - timedelta(microseconds=1),
+                ),
+                InsightViewed(team=self.team, insight=self.insight, last_viewed_at=now()),
+                InsightViewed(team=self.team, user=self.user, insight=unrequested_insight, last_viewed_at=now()),
+                InsightViewed(team=other_team, user=second_viewer, insight=other_team_insight, last_viewed_at=now()),
+            ]
+        )
+        insight_ids = {self.insight.pk, other_team_insight.pk if include_other_team_insight else unviewed_insight.pk}
+
+        with CaptureQueriesContext(connection) as queries:
+            counts = recent_unique_viewer_counts_by_insight(
+                team_id=self.team.pk,
+                insight_ids=insight_ids,
+                since=since,
+            )
+
+        assert len(queries) == 1
+        assert 'COUNT(DISTINCT "posthog_insightviewed"."user_id")' in queries[0]["sql"]
+        assert counts == {self.insight.pk: 2}
 
 
 class TestInsightReads(BaseTest):
