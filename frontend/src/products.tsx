@@ -2294,7 +2294,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.LOGS],
         category: ProductItemCategory.APP_MONITORING,
         iconType: 'logs' as FileSystemIconType,
-        iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
         href: urls.logs(),
         sceneKey: 'Logs',
         sceneKeys: [
