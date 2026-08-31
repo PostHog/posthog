@@ -6,7 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
@@ -76,6 +76,10 @@ const DragHandle = ({ listeners }: DragHandleProps): JSX.Element => (
 // The taxonomic filter's showNumericalPropsOnly flag doesn't filter warehouse schema columns,
 // so numeric-only pickers must not be fed non-numeric columns in the first place.
 const NUMERIC_SCHEMA_FIELD_TYPES: DatabaseSerializedFieldType[] = ['integer', 'float', 'decimal']
+
+// A fast double click toggles the property filter panel open and shut before the user sees it.
+// Ignore a repeat toggle click that lands inside this window so the panel stays open.
+const FILTER_TOGGLE_DEBOUNCE_MS = 250
 
 // Which warehouse tables a row's picker may offer, by the caller's typeKey. Anything not listed
 // gets the unrestricted data warehouse group.
@@ -178,6 +182,7 @@ export function ActionFilterRow({
     } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
+    const lastFilterToggleAtRef = useRef(0)
 
     let name: string | null | undefined, value: PropertyFilterValue
     const {
@@ -427,9 +432,15 @@ export function ActionFilterRow({
                 noPadding
                 active={propertyFiltersVisible}
                 onClick={() => {
-                    typeof filter.order === 'number'
-                        ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
-                        : undefined
+                    if (typeof filter.order !== 'number') {
+                        return
+                    }
+                    const now = Date.now()
+                    if (now - lastFilterToggleAtRef.current < FILTER_TOGGLE_DEBOUNCE_MS) {
+                        return
+                    }
+                    lastFilterToggleAtRef.current = now
+                    setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
                 tooltip="Show filters"
@@ -550,7 +561,7 @@ export function ActionFilterRow({
                 transition,
             }}
         >
-            <div className="ActionFilterRow-content @max-[400px]/editor-panel:flex-wrap @max-[400px]/editor-panel:gap-2 @max-[400px]/editor-panel:w-full @max-[400px]/editor-panel:items-center @max-[400px]/editor-panel:justify-between @max-[400px]/editor-panel:[&>*+*]:ml-0">
+            <div className="ActionFilterRow-content @max-[400px]/editor-panel:flex-wrap @max-[400px]/editor-panel:gap-2 @max-[400px]/editor-panel:w-full @max-[400px]/editor-panel:items-center @max-[400px]/editor-panel:[&>*+*]:ml-0">
                 {renderRow ? (
                     renderRow({
                         seriesIndicator,
@@ -573,7 +584,7 @@ export function ActionFilterRow({
                             className={clsx(
                                 'ActionFilterRow__center',
                                 rowStartElements.length > 0 &&
-                                    '@max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1 @max-[400px]/editor-panel:min-w-0 @max-[400px]/editor-panel:[&>*]:basis-full'
+                                    '@max-[400px]/editor-panel:min-w-0 @max-[400px]/editor-panel:[&>*]:basis-full'
                             )}
                         >
                             <div className="flex-1 min-w-36 overflow-hidden">{filterElement}</div>
@@ -659,7 +670,7 @@ export function ActionFilterRow({
                         </div>
                         {/* right section fixed */}
                         {(rowEndElements.length > 0 || showPopupMenu) && (
-                            <div className="ActionFilterRow__end @max-[400px]/editor-panel:gap-1 @max-[400px]/editor-panel:[height:auto]">
+                            <div className="ActionFilterRow__end @max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1 @max-[400px]/editor-panel:gap-1 @max-[400px]/editor-panel:[height:auto]">
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}

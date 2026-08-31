@@ -552,6 +552,26 @@ describe('ActionFilterRow', () => {
                 expect(document.querySelector('.ActionFilterRow-filters')).toBeInTheDocument()
             })
         })
+
+        it('keeps the panel open on a fast double click of the filter button', async () => {
+            const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1000)
+            const { logic } = setup()
+            renderRow(logic, { ...INLINE_CONTEXT, hideFilter: false })
+
+            const toggle = screen.getByTitle('Show filters')
+            await userEvent.click(toggle)
+            await waitFor(() => {
+                expect(document.querySelector('.ActionFilterRow-filters')).toBeInTheDocument()
+            })
+
+            // Without the debounce guard, a second click landing inside the double-click
+            // window flips the panel shut before the user sees it.
+            nowSpy.mockReturnValue(1055)
+            await userEvent.click(toggle)
+
+            expect(document.querySelector('.ActionFilterRow-filters')).toBeInTheDocument()
+            nowSpy.mockRestore()
+        })
     })
 
     describe('math selection', () => {
