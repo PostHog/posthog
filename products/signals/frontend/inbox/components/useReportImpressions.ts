@@ -3,16 +3,27 @@ import { useEffect, useRef } from 'react'
 
 import { captureInboxReportsImpressed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
-import { reportListLogic } from '../logics/reportListLogic'
-import { InboxReportSectionKey } from '../types'
+import { reportListLogic, sectionListLogicProps } from '../logics/reportListLogic'
+import { InboxReportSectionKey, SignalReport } from '../types'
+
+/** Where one report sits in the flat list: its 1-based rank and the state that contributed it. */
+export interface ReportRankEntry {
+    rank: number
+    sectionKey: InboxReportSectionKey
+}
 
 /**
  * Impression log for ranking-model training: record each report the first time it is actually on
- * screen in this section, with its rank at that moment. A collapsed section impresses nothing.
- * Deduped per section mount so re-renders and detail-pane round-trips don't refire.
+ * screen in the flat list, with its rank there at that moment. `rankById` covers the whole merged
+ * list; this hook impresses only the rows this state contributed, so a report matching two states'
+ * filters is recorded once, under the state that claimed it. A state the filter deselects mounts no
+ * hook and impresses nothing. Deduped per mount so re-renders and detail-pane round-trips don't
+ * refire.
  */
-export function useReportImpressions(sectionKey: InboxReportSectionKey, isOpen: boolean): void {
-    const { visibleReports, totalCount, isLoaded, loadedQueryKey, loadedContext } = useValues(reportListLogic)
+export function useReportImpressions(sectionKey: InboxReportSectionKey, rankById: Map<string, ReportRankEntry>): void {
+    const { reports, totalCount, isLoaded, loadedQueryKey, loadedContext } = useValues(
+        reportListLogic(sectionListLogicProps(sectionKey))
+    )
     // The list stays mounted (hidden) while a report/scout detail is open, so gate impressions on the
     // list actually being the visible surface.
     const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen, isRunsOpen, isTriageOpen } =
@@ -32,27 +43,23 @@ export function useReportImpressions(sectionKey: InboxReportSectionKey, isOpen: 
     const impressionQueryKeyRef = useRef('')
     useEffect(() => {
         // totalCount, loadedQueryKey, and loadedContext come from the same response as the rows (not
-        // the live filter state or the separately-loaded header count), so impressions can't be
-        // stamped with a stale total or with scope/filter context the user switched to after the
-        // request went out, and rows from the previous query are never attributed to the new one
-        // while its refetch is still in flight.
-        if (
-            !isOpen ||
-            !listVisible ||
-            !isLoaded ||
-            totalCount === null ||
-            loadedQueryKey === null ||
-            loadedContext === null
-        ) {
+        // the live filter state or the separately-loaded count), so impressions can't be stamped
+        // with a stale total or with scope/filter context the user switched to after the request
+        // went out, and rows from the previous query are never attributed to the new one while its
+        // refetch is still in flight.
+        if (!listVisible || !isLoaded || totalCount === null || loadedQueryKey === null || loadedContext === null) {
             return
         }
         if (loadedQueryKey !== impressionQueryKeyRef.current) {
             impressionQueryKeyRef.current = loadedQueryKey
             impressedIdsRef.current = new Set<string>()
         }
-        const fresh = visibleReports
-            .map((report, index) => ({ report, rank: index + 1 }))
-            .filter(({ report }) => !impressedIdsRef.current.has(report.id))
+        const fresh = reports
+            .map((report) => ({ report, entry: rankById.get(report.id) }))
+            .filter(
+                (item): item is { report: SignalReport; entry: ReportRankEntry } =>
+                    item.entry?.sectionKey === sectionKey && !impressedIdsRef.current.has(item.report.id)
+            )
         if (fresh.length === 0) {
             return
         }
@@ -60,11 +67,11 @@ export function useReportImpressions(sectionKey: InboxReportSectionKey, isOpen: 
         captureInboxReportsImpressed({
             tab: sectionKey,
             reports: fresh.map(({ report }) => report),
-            ranks: fresh.map(({ rank }) => rank),
-            listSize: visibleReports.length,
+            ranks: fresh.map(({ entry }) => entry.rank),
+            listSize: rankById.size,
             totalCount,
             hasActiveFilters: loadedContext.hasActiveFilters,
             scope: loadedContext.scope,
         })
-    }, [isOpen, listVisible, isLoaded, totalCount, visibleReports, sectionKey, loadedQueryKey, loadedContext])
+    }, [listVisible, isLoaded, totalCount, reports, sectionKey, rankById, loadedQueryKey, loadedContext])
 }
