@@ -8,13 +8,16 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
             reject(new DOMException('Aborted', 'AbortError'))
             return
         }
-        const timeoutId = setTimeout(resolve, ms)
-        if (signal) {
-            signal.addEventListener('abort', () => {
-                clearTimeout(timeoutId)
-                reject(new DOMException('Aborted', 'AbortError'))
-            })
+        const onAbort = (): void => {
+            clearTimeout(timeoutId)
+            reject(new DOMException('Aborted', 'AbortError'))
         }
+        // Remove the listener on resolve: pollForResults reuses one signal across many delay() calls
+        const timeoutId = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort)
+            resolve()
+        }, ms)
+        signal?.addEventListener('abort', onAbort, { once: true })
     })
 }
 

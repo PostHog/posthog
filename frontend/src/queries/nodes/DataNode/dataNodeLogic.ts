@@ -89,7 +89,6 @@ import {
     isSessionsQuery,
     isTracesQuery,
     isWebStatsTableQuery,
-    shouldQueryBeAsync,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
@@ -2061,7 +2060,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.setResponse(props.cachedResults)
         } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
             // Initial load should use non-force variant
-            const refreshType = shouldQueryBeAsync(props.query) ? 'async' : 'blocking'
+            const refreshType = isInsightQueryNode(props.query) ? 'async' : 'blocking'
             actions.loadData(refreshType)
         }
 

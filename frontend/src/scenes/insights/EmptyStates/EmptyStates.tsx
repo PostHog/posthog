@@ -210,11 +210,9 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
 const RetryButton = ({
     onRetry,
     query,
-    loading = false,
 }: {
     onRetry: () => void
     query?: Record<string, any> | Node | null
-    loading?: boolean
 }): JSX.Element => {
     const sideAction = query
         ? {
@@ -240,7 +238,6 @@ const RetryButton = ({
             size="small"
             type="primary"
             onClick={() => onRetry()}
-            loading={loading}
             sideAction={sideAction}
         >
             Try again
@@ -719,8 +716,6 @@ export interface InsightErrorStateProps {
     supportOnly?: boolean
     fixWithAIComponent?: JSX.Element
     onRetry?: () => void
-    /** Show a loading spinner on the retry button while the retried query runs */
-    retryLoading?: boolean
 }
 
 export function InsightErrorState({
@@ -733,7 +728,6 @@ export function InsightErrorState({
     supportOnly = false,
     fixWithAIComponent,
     onRetry,
-    retryLoading = false,
 }: InsightErrorStateProps): JSX.Element {
     const rawServerError = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? title : null
     const { preflight } = useValues(preflightLogic)
@@ -819,11 +813,7 @@ export function InsightErrorState({
 
             {!excludeActions && (
                 <div className="flex gap-2 mt-4">
-                    {onRetry ? (
-                        <RetryButton onRetry={onRetry} query={query} loading={retryLoading} />
-                    ) : (
-                        <QueryDebuggerButton query={query} />
-                    )}
+                    {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
                     {fixWithAIComponent ?? null}
                 </div>
             )}
