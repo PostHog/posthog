@@ -45,6 +45,12 @@
         border-color: var(--color-accent);
     }
 
+    &.LemonTag--info {
+        color: var(--color-blue-600);
+        background: var(--color-bg-fill-info-tertiary);
+        border-color: var(--color-border-info);
+    }
+
     &.LemonTag--warning {
         color: var(--warning);
         background-color: none;

@@ -270,6 +270,7 @@
             "type": null,
             "intents": ["web_analytics"]
         },
+        { "path": "Wizard", "category": "Analytics", "iconType": null, "type": "wizard", "intents": [] },
         {
             "path": "Workflows",
             "category": "Tools",
