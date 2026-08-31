@@ -16,7 +16,11 @@ import { isWebKitBrowser } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
-import { normalizeVerificationCode, setPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
+import {
+    clearPendingVerificationEmail,
+    normalizeVerificationCode,
+    setPendingVerificationEmail,
+} from 'scenes/authentication/shared/verificationCode'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -633,11 +637,14 @@ export const loginLogic = kea<loginLogicType>([
     })),
     listeners(({ values, actions }) => ({
         submitLoginSuccess: () => {
+            // A logged-in session reads the address from the user, so drop the stored one
+            clearPendingVerificationEmail()
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
         submitCodeVerificationSuccess: () => {
+            clearPendingVerificationEmail()
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
