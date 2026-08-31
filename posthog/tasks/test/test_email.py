@@ -43,6 +43,7 @@ from posthog.tasks.email import (
     send_new_ticket_notification,
     send_password_reset,
     send_posthog_ai_access_request,
+    send_project_moved,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
     send_wizard_pr_ready_email,
@@ -149,6 +150,32 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_send_project_moved_notifies_admins_except_mover(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        source_org, mover = create_org_team_and_user("2022-01-02 00:00:00", "mover@posthog.com")
+        admin = User.objects.create_and_join(
+            organization=source_org, email="admin@posthog.com", password=None, level=OrganizationMembership.Level.ADMIN
+        )
+        User.objects.create_and_join(
+            organization=source_org,
+            email="member@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        send_project_moved(
+            project_name="Analytics",
+            source_organization_id=str(source_org.id),
+            target_organization_name="New Home",
+            moved_by_user_id=mover.pk,
+        )
+
+        assert len(mocked_email_messages) == 1
+        # The mover already knows and members can't act on it; only the other admins are told
+        recipients = {r["raw_email"] for r in mocked_email_messages[0].to}
+        assert recipients == {admin.email}
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock

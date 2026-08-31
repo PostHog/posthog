@@ -2257,6 +2257,47 @@ def send_organization_deleted_email(
     logger.info(f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}")
 
 
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_project_moved(
+    project_name: str,
+    source_organization_id: str,
+    target_organization_name: str,
+    moved_by_user_id: int,
+) -> None:
+    """Tell admins of the losing organization that a project left, and who moved it."""
+    source_organization = Organization.objects.filter(id=source_organization_id).first()
+    if not source_organization:
+        return
+
+    admin_memberships = OrganizationMembership.objects.filter(
+        organization_id=source_organization_id,
+        level__gte=OrganizationMembership.Level.ADMIN,
+    ).select_related("user")
+    # The person who moved the project already knows; everyone else who can act on the org gets told.
+    recipients = [m.user for m in admin_memberships if m.user_id != moved_by_user_id and m.user.is_active]
+    if not recipients:
+        return
+
+    mover = User.objects.filter(id=moved_by_user_id).first()
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"project_moved_{source_organization_id}_{timezone.now().timestamp()}",
+        subject=f"{project_name} was moved out of {source_organization.name}",
+        template_name="project_moved",
+        template_context={
+            "project_name": project_name,
+            "source_organization_name": source_organization.name,
+            "target_organization_name": target_organization_name,
+            "moved_by_email": mover.email if mover else None,
+            **get_email_team_and_org_context(organization=source_organization),
+        },
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()
+
+
 @shared_task(ignore_result=True)
 def send_error_tracking_weekly_digest() -> None:
     """

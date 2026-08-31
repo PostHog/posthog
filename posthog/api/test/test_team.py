@@ -24,6 +24,7 @@ from posthog.api.team import (
     _reset_default_data_color_theme_id_cache,
 )
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
@@ -1479,6 +1480,55 @@ def team_api_test_factory():
             # Everyone else loses the pointer instead of keeping a project they cannot reach
             outsider.refresh_from_db()
             assert outsider.current_team_id is None and outsider.current_organization_id is None
+
+        def test_change_organization_logs_departure_for_source_organization(self):
+            source_org = self.organization
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+            assert res.status_code == status.HTTP_200_OK, res.json()
+
+            # The losing organization keeps a readable record even though it can no longer reach the project
+            source_project_logs = ActivityLog.objects.filter(
+                organization_id=source_org.id, scope="Project", item_id=str(self.project.pk)
+            )
+            assert source_project_logs.count() == 1
+            assert source_project_logs.first().detail["name"] == "moved to another organization"
+
+            # And one entry per environment that left, so the source org sees which ones moved
+            source_team_logs = ActivityLog.objects.filter(
+                organization_id=source_org.id, scope="Team", item_id=str(self.team.pk)
+            )
+            assert source_team_logs.count() == 1
+
+            # The receiving organization still gets its arrival entry
+            assert ActivityLog.objects.filter(organization_id=other_org.id, scope="Project").count() == 1
+
+        @patch("posthog.api.project.is_email_available", return_value=True)
+        @patch("posthog.tasks.email.send_project_moved.apply_async")
+        def test_change_organization_notifies_source_organization(self, mock_apply_async, _mock_email_available):
+            source_org = self.organization
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+            assert res.status_code == status.HTTP_200_OK, res.json()
+
+            mock_apply_async.assert_called_once_with(
+                kwargs={
+                    "project_name": self.project.name,
+                    "source_organization_id": str(source_org.id),
+                    "target_organization_name": other_org.name,
+                    "moved_by_user_id": self.user.pk,
+                }
+            )
 
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             return self._assert_config_is("session_replay_config", expected)

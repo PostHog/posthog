@@ -54,6 +54,7 @@ from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
+from posthog.email import is_email_available
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.filters import PhraseSearchFilter
@@ -1839,38 +1840,84 @@ class ProjectViewSet(
             raise exceptions.ValidationError("Project is already in the target organization.")
 
         teams = list(project.teams.all())
+        was_impersonated = is_impersonated(request)
+        project_change = Change(
+            type="Project",
+            action="changed",
+            field="organization_id",
+            before=str(current_organization.id),
+            after=str(target_organization.id),
+        )
 
         with transaction.atomic():
             project.organization_id = target_organization_id
             project.save()
 
+            # Record the arrival for the receiving organization.
             log_activity(
                 organization_id=cast(UUIDT, target_organization_id),
                 team_id=project.pk,
                 user=user,
-                was_impersonated=is_impersonated(request),
+                was_impersonated=was_impersonated,
                 scope="Project",
                 item_id=project.pk,
                 activity="updated",
-                detail=Detail(
-                    name="moved to another organization",
-                    changes=[
-                        Change(
-                            type="Project",
-                            action="changed",
-                            field="organization_id",
-                            before=str(current_organization.id),
-                            after=str(target_organization.id),
-                        )
-                    ],
-                ),
+                detail=Detail(name="moved to another organization", changes=[project_change]),
+            )
+
+            # Record the departure for the losing organization. Its members can no longer reach the
+            # project, so this org-scoped entry is their only readable record of who moved it and where.
+            log_activity(
+                organization_id=current_organization.id,
+                team_id=None,
+                user=user,
+                was_impersonated=was_impersonated,
+                scope="Project",
+                item_id=project.pk,
+                activity="updated",
+                detail=Detail(name="moved to another organization", changes=[project_change]),
             )
 
             for team in teams:
                 team.organization_id = target_organization_id
                 team.save()
 
+                # One departure entry per environment, so the losing org sees which ones left.
+                log_activity(
+                    organization_id=current_organization.id,
+                    team_id=None,
+                    user=user,
+                    was_impersonated=was_impersonated,
+                    scope="Team",
+                    item_id=team.pk,
+                    activity="updated",
+                    detail=Detail(
+                        name=str(team.name),
+                        changes=[
+                            Change(
+                                type="Team",
+                                action="changed",
+                                field="organization_id",
+                                before=str(current_organization.id),
+                                after=str(target_organization.id),
+                            )
+                        ],
+                    ),
+                )
+
             self._reconcile_current_project_of_affected_users(teams, target_organization)
+
+        if is_email_available(with_absolute_urls=True):
+            from posthog.tasks.email import send_project_moved
+
+            send_project_moved.apply_async(
+                kwargs={
+                    "project_name": project.name,
+                    "source_organization_id": str(current_organization.id),
+                    "target_organization_name": target_organization.name,
+                    "moved_by_user_id": user.pk,
+                }
+            )
 
         report_user_action(
             user,
