@@ -68,7 +68,9 @@ class ScoreSessionsBatchWorkflow(PostHogWorkflow):
         )
 
         if not plan.chunks:
-            workflow.logger.info("surfacing_scoring_sweep.no_work", estimated=plan.estimated_unscored_sessions)
+            workflow.logger.info(
+                "surfacing_scoring_sweep.no_work", extra={"estimated": plan.estimated_unscored_sessions}
+            )
             return ScoreSessionsBatchResult()
 
         results = await asyncio.gather(
@@ -108,17 +110,19 @@ def _summarize(chunks: list[ChunkSpec], results: list[ChunkResult | BaseExceptio
             if isinstance(r, ActivityError):
                 workflow.logger.warning(
                     "surfacing_scoring_sweep.chunk_activity_failed",
-                    error=str(r),
+                    extra={"error": str(r)},
                 )
             continue
         summary.total_scored += r.scored
         summary.total_fetched += r.fetched
     workflow.logger.info(
         "surfacing_scoring_sweep.tick_done",
-        chunks_dispatched=summary.chunks_dispatched,
-        chunks_failed=summary.chunks_failed,
-        total_scored=summary.total_scored,
-        total_fetched=summary.total_fetched,
+        extra={
+            "chunks_dispatched": summary.chunks_dispatched,
+            "chunks_failed": summary.chunks_failed,
+            "total_scored": summary.total_scored,
+            "total_fetched": summary.total_fetched,
+        },
     )
     record_tick_summary(
         total_scored=summary.total_scored,

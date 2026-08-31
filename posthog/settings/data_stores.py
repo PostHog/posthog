@@ -211,12 +211,12 @@ for route in product_routes:
 
     PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
-    DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+    DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3  # ty: ignore[invalid-assignment]
     DATABASES[writer_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     reader_url = os.getenv(reader_env, writer_url)
     DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
-    DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+    DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3  # ty: ignore[invalid-assignment]
     DATABASES[reader_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     if TEST:
@@ -251,7 +251,7 @@ for route in product_routes:
     if direct_url:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
-        DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10  # ty: ignore[invalid-assignment]
         _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -301,6 +301,12 @@ CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKH
 CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
+# Path to a file holding the live password. When set, it is read fresh per pool checkout so a
+# rotated short-lived token is used without a restart. CLICKHOUSE_PASSWORD is the fallback when
+# the file is missing or empty. Per-user files use CLICKHOUSE_<USER>_PASSWORD_FILE.
+# Unset by default, and left unset on purpose: the deployment sets it per user only when that user
+# is migrated to token auth, so native pools keep using the static password until then.
+CLICKHOUSE_PASSWORD_FILE: str | None = os.getenv("CLICKHOUSE_PASSWORD_FILE", None)
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
@@ -584,6 +590,17 @@ TASKS_CREATE_JWT_SECRETS = get_list(
 # request until the secret is provisioned and the worker stays on its legacy auth path (#82564).
 CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
     get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
+)
+
+# Verifies the scoped JWTs the CDP worker's customer analytics account actions send to the
+# internal account routes (the worker mints, Django verifies;
+# products/customer_analytics/backend/presentation/views/internal.py). Comma-separated,
+# newest first. Empty outside dev/test, so the internal routes reject every request until
+# the secret is provisioned and the worker stays on its legacy auth path (#82564).
+CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS = get_list(
+    get_from_env(
+        "CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET", "local-dev-customer-analytics-accounts-jwt" if DEBUG or TEST else ""
+    )
 )
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")

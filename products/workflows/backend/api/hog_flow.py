@@ -19,11 +19,18 @@ from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import requests
 import structlog
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -118,6 +125,7 @@ from products.workflows.backend.api.message_assets import (
 from products.workflows.backend.api.publish_impact import build_publish_impact
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
+    MESSAGING_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
@@ -816,6 +824,29 @@ def _has_slack_channel_filter(filters: dict) -> bool:
     return False
 
 
+def _has_exact_string_filter(filters: dict, key: str) -> bool:
+    """Whether the filters restrict the trigger by an exact, non-empty value for the given key.
+
+    Shared by the GitHub trigger's repository and event-type requirements below - both need the
+    same "is this key pinned to something" check that `_has_slack_channel_filter` does for
+    Slack's channel.
+    """
+    properties = filters.get("properties")
+    if not isinstance(properties, list):
+        return False
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("key") != key:
+            continue
+        if (prop.get("operator") or "exact") != "exact":
+            continue
+        value = prop.get("value")
+        if isinstance(value, str) and value.strip():
+            return True
+        if isinstance(value, list) and any(isinstance(item, str) and item.strip() for item in value):
+            return True
+    return False
+
+
 def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
     """Stored email sender overrides keyed by action id, live and draft variants both kept.
 
@@ -1107,10 +1138,17 @@ class HogFlowActionSerializer(serializers.Serializer):
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message|github-event, "
+            "filters?}. "
             "slack-message runs once per message posted in a connected Slack channel, and takes only "
             "filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, "
             "subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. "
+            "github-event runs once per matching GitHub delivery, and takes only filters: "
+            "{properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, "
+            "bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, "
+            "repository_visibility). repository and event_type are required, each with an exact-match filter; "
+            "without them the trigger runs on every delivery from every connected repository. Runs are "
+            "person-less, so person-dependent steps are rejected. "
             "webhook and "
             "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
             "requires template_id: 'template-source-webhook-pixel'. "
@@ -1437,6 +1475,34 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
+            elif data.get("config", {}).get("type") == "github-event":
+                # Repository, event type and actor are all properties of the delivery rather than
+                # fields of their own, so there is no config beyond the filters - same shape as
+                # slack-message.
+                filters = data.get("config", {}).get("filters", {}) or {}
+                if not isinstance(filters, dict):
+                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                filters.pop("events", None)
+                filters.pop("actions", None)
+                if not is_draft and not _has_exact_string_filter(filters, "repository"):
+                    raise serializers.ValidationError(
+                        {
+                            "filters": "Pick a repository for this trigger. Without one it runs on every delivery from every repository the GitHub app is installed on."
+                        }
+                    )
+                if not is_draft and not _has_exact_string_filter(filters, "event_type"):
+                    raise serializers.ValidationError(
+                        {"filters": "Pick at least one event, or the trigger will never fire."}
+                    )
+                # Left on the default "events" source: the internal event is event-shaped, so
+                # property filters compile against event.properties.* with no special casing.
+                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                if is_draft:
+                    if serializer.is_valid():
+                        data["config"]["filters"] = serializer.validated_data
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    data["config"]["filters"] = serializer.validated_data
             else:
                 if strict:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
@@ -1704,6 +1770,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"config": f"delay_until.expression could not be read as SQL: {e}"})
 
 
+# Caps both the variable definitions on a workflow and the variable values a single run passes,
+# so the two share one number instead of drifting. The runtime also checks dynamically set
+# variables against this same limit; each cap here front-runs that check with a clearer error.
+HOG_FLOW_VARIABLES_MAX_BYTES = 5120
+
+
 class HogFlowVariableSerializer(serializers.ListSerializer):
     child = serializers.DictField(
         child=serializers.CharField(allow_blank=True),
@@ -1720,7 +1792,7 @@ class HogFlowVariableSerializer(serializers.ListSerializer):
         # This is just a check for massive keys / default values, we also have a check for dynamically
         # set variables during execution
         total_size = sum(len(json.dumps(item)) for item in attrs)
-        if total_size > 5120:
+        if total_size > HOG_FLOW_VARIABLES_MAX_BYTES:
             raise serializers.ValidationError("Total size of variables definition must be less than 5KB")
 
         return super().validate(attrs)
@@ -1908,6 +1980,30 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
             if instance.status != HogFlowSchedule.Status.PAUSED:
                 instance.status = HogFlowSchedule.Status.ACTIVE
         return super().update(instance, validated_data)
+
+
+class HogFlowRunRequestSerializer(serializers.Serializer):
+    variables = serializers.DictField(
+        child=serializers.JSONField(allow_null=True, help_text="Override value for one workflow variable."),
+        required=False,
+        default=dict,
+        help_text="Variable value overrides, merged with the workflow's own variable defaults for this run only.",
+    )
+
+
+class HogFlowRunResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="'queued' once the invocation has been queued for execution.")
+    invocation_id = serializers.CharField(help_text="ID of the queued hog flow invocation.")
+
+
+# Same window the GitHub webhook delivery dedup uses (posthog/urls.py) — long enough to cover a
+# client retrying a slow or timed-out call well after the fact.
+HOG_FLOW_RUN_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
+HOG_FLOW_RUN_IDEMPOTENCY_IN_PROGRESS = "in_progress"
+
+
+def _hog_flow_run_idempotency_cache_key(team_id: int, hog_flow_id: str, idempotency_key: str) -> str:
+    return f"hog_flow_run_idempotency:{team_id}:{hog_flow_id}:{idempotency_key}"
 
 
 def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, float | int]:
@@ -3091,6 +3187,17 @@ def mint_audience_confirm_token(
                 OpenApiTypes.UUID,
                 description="Filter to workflows created by the user with this uuid.",
             ),
+            OpenApiParameter(
+                "type",
+                OpenApiTypes.STR,
+                enum=["messaging", "automation"],
+                description="Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.",
+            ),
+            OpenApiParameter(
+                "trigger",
+                OpenApiTypes.STR,
+                description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
+            ),
         ]
     )
 )
@@ -3120,6 +3227,7 @@ class HogFlowViewSet(
         "destroy",
         "invocations",
         "schedule_detail",
+        "run",
         "bulk_delete",
         "rerun",
         "cancel_invocations",
@@ -3227,6 +3335,17 @@ class HogFlowViewSet(
                 except ValueError:
                     raise exceptions.ValidationError({"created_by": "Must be a valid user uuid"})
                 queryset = queryset.filter(created_by__uuid=created_by)
+
+            workflow_type = self.request.GET.get("type")
+            if workflow_type:
+                if workflow_type not in ("messaging", "automation"):
+                    raise exceptions.ValidationError({"type": "Must be one of: messaging, automation"})
+                messaging_q = Q()
+                for action_type in MESSAGING_ACTION_TYPES:
+                    messaging_q |= Q(actions__contains=[{"type": action_type}])
+                queryset = (
+                    queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
+                )
 
         if self.request.GET.get("trigger"):
             try:
@@ -4859,6 +4978,97 @@ class HogFlowViewSet(
         serializer.save()
         self._report_workflow_action("hog_flow_schedule_updated", hog_flow, {"schedule_id": str(schedule.id)})
         return Response(serializer.data)
+
+    @extend_schema(
+        request=HogFlowRunRequestSerializer,
+        responses={
+            200: HogFlowRunResponseSerializer,
+            409: OpenApiResponse(description="A run with this Idempotency-Key is already in progress."),
+        },
+    )
+    @action(detail=True, methods=["POST"])
+    def run(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Fire a schedule-triggered workflow immediately, outside its regular schedule.
+
+        Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
+        dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
+        guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
+        the scheduler itself applies in `internal_process_due_schedules`.
+
+        Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
+        after a timed-out request): a repeat with the same key returns the first call's result
+        instead of firing a second AI task. Without the header, every call fires a new run.
+        """
+        hog_flow = self.get_object()
+
+        if hog_flow.status != HogFlow.State.ACTIVE:
+            raise exceptions.ValidationError("Workflow must be active to run. Enable it first.")
+
+        trigger_type = (hog_flow.trigger or {}).get("type")
+        if trigger_type != "schedule":
+            raise exceptions.ValidationError(
+                f"Only workflows with a 'schedule' trigger can be run this way (this one has '{trigger_type}')."
+            )
+
+        serializer = HogFlowRunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        variables = {var.get("key"): var.get("default") for var in hog_flow.variables or []}
+        variables.update(serializer.validated_data["variables"])
+        if len(json.dumps(variables)) > HOG_FLOW_VARIABLES_MAX_BYTES:
+            raise exceptions.ValidationError("Total size of variable overrides must be less than 5KB")
+
+        idempotency_key = request.headers.get("Idempotency-Key")
+        cache_key = (
+            _hog_flow_run_idempotency_cache_key(self.team_id, str(hog_flow.id), idempotency_key)
+            if idempotency_key
+            else None
+        )
+        if cache_key:
+            reserved = cache.add(
+                cache_key, HOG_FLOW_RUN_IDEMPOTENCY_IN_PROGRESS, timeout=HOG_FLOW_RUN_IDEMPOTENCY_TTL_SECONDS
+            )
+            if not reserved:
+                cached_result = cache.get(cache_key)
+                if cached_result == HOG_FLOW_RUN_IDEMPOTENCY_IN_PROGRESS:
+                    return Response({"detail": "A run with this Idempotency-Key is already in progress."}, status=409)
+                return Response(HogFlowRunResponseSerializer(cached_result).data)
+
+        try:
+            response = create_hog_flow_scheduled_invocation(
+                team_id=self.team_id, hog_flow_id=str(hog_flow.id), variables=variables
+            )
+        except requests.exceptions.ReadTimeout:
+            # CDP already had the request when the timeout fired, so it may already have
+            # queued the invocation — unlike a connection failure below, nothing here rules
+            # that out. Keep the reservation in place instead of releasing it: a retry with
+            # the same key gets a 409 rather than risking a second invocation for a run that
+            # already fired. The reservation still expires on its own TTL if CDP never processed it.
+            logger.exception(
+                "CDP did not respond in time for hog flow run", hog_flow_id=str(hog_flow.id), team_id=self.team_id
+            )
+            return Response(
+                {"detail": "The workflow engine did not respond in time. Wait before retrying with the same key."},
+                status=504,
+            )
+        except requests.RequestException:
+            if cache_key:
+                cache.delete(cache_key)
+            logger.exception("Failed to reach CDP for hog flow run", hog_flow_id=str(hog_flow.id), team_id=self.team_id)
+            return Response({"detail": "Could not reach the workflow engine. Try again."}, status=502)
+
+        if response.status_code != 200:
+            if cache_key:
+                cache.delete(cache_key)
+            return Response({"detail": response.text}, status=response.status_code)
+
+        result = response.json()
+        if cache_key:
+            cache.set(cache_key, result, timeout=HOG_FLOW_RUN_IDEMPOTENCY_TTL_SECONDS)
+
+        self._report_workflow_action("hog_flow_run_now", hog_flow, {})
+        return Response(HogFlowRunResponseSerializer(result).data)
 
 
 class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):

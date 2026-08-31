@@ -17,6 +17,7 @@ from posthog.schema_enums import (
     AccountsTableAccountFieldOperator as AccountsTableAccountFieldOperator,
     AccountsTableAggregation as AccountsTableAggregation,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
+    AccountsTableRelationshipOperator as AccountsTableRelationshipOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
     AccountsTableThresholdOperator as AccountsTableThresholdOperator,
     Action as Action,
@@ -176,6 +177,8 @@ from posthog.schema_enums import (
     MathGroupTypeIndex as MathGroupTypeIndex,
     MaxBillingContextBillingPeriodInterval as MaxBillingContextBillingPeriodInterval,
     MaxBillingContextSubscriptionLevel as MaxBillingContextSubscriptionLevel,
+    MCPToolQualitySortColumn as MCPToolQualitySortColumn,
+    MCPToolQualitySortDirection as MCPToolQualitySortDirection,
     MeanRetentionCalculation as MeanRetentionCalculation,
     MetaAdsConversionFallbackActionTypes as MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes as MetaAdsConversionOmniActionTypes,
@@ -281,7 +284,6 @@ from posthog.schema_enums import (
     UrlMatching as UrlMatching,
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
-    UserProductListReason as UserProductListReason,
     ValueDisplay as ValueDisplay,
     WebAgentAnalyticsQueryType as WebAgentAnalyticsQueryType,
     WebAgentContentGrouping as WebAgentContentGrouping,
@@ -337,6 +339,13 @@ class AccountsTableAccountIdFilter(BaseModel):
     )
     accountId: str
     kind: Literal["account_id"] = "account_id"
+
+
+class AccountsTableAssignedFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["assigned"] = "assigned"
 
 
 class AccountsTableCountMetric(BaseModel):
@@ -1778,6 +1787,34 @@ class LogAttributeResult(BaseModel):
     propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
 
 
+class MCPMissingCapabilitiesItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id: str
+    harness: str = Field(
+        ...,
+        description=(
+            "Resolved client label, the client's own self-reported name when"
+            ' unrecognized, or "Unidentified client" when the report carried no client'
+            " identity at all."
+        ),
+    )
+    intent: str = Field(
+        ...,
+        description=("The agent's own words for the capability it wanted, from $mcp_intent."),
+    )
+    person_properties: str = Field(
+        ...,
+        description=('JSON-encoded person email/name for display; "{}" when neither resolved.'),
+    )
+    session_id: str = Field(
+        ...,
+        description=("Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set."),
+    )
+    timestamp: str
+
+
 class MCPToolCategoryItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3023,6 +3060,17 @@ class UserBasicType(BaseModel):
     uuid: str
 
 
+class UserProductListItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    enabled: bool
+    id: str
+    product_path: str
+    updated_at: str
+
+
 class VectorSearchResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3209,6 +3257,16 @@ class AccountsTableCustomPropertyFilter(BaseModel):
         default=None,
         description=("Values interpreted according to the custom property definition's display type."),
     )
+
+
+class AccountsTableRelationshipFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    definitionId: str
+    kind: Literal["relationship"] = "relationship"
+    operator: AccountsTableRelationshipOperator
+    userIds: list[int] | None = None
 
 
 class AccountsTableRow(BaseModel):
@@ -5286,14 +5344,6 @@ class FileSystemImport(BaseModel):
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
-    reason: UserProductListReason | None = Field(
-        default=None,
-        description="Reason for custom product suggestion (from UserProductList)",
-    )
-    reasonText: str | None = Field(
-        default=None,
-        description=("Custom reason text for custom product suggestion (from UserProductList)"),
-    )
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
     sceneKey: str | None = Field(
         default=None,
@@ -8385,19 +8435,6 @@ class UsageMetricsQueryResponse(BaseModel):
             " access."
         ),
     )
-
-
-class UserProductListItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str
-    enabled: bool
-    id: str
-    product_path: str
-    reason: UserProductListReason
-    reason_text: str | None = None
-    updated_at: str
 
 
 class WebAgentAnalyticsQueryResponse(BaseModel):
@@ -12069,6 +12106,65 @@ class CachedMCPHarnessBreakdownQueryResponse(BaseModel):
     )
 
 
+class CachedMCPMissingCapabilitiesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    has_next: bool = Field(..., description="Whether more reports exist past this page.")
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPMissingCapabilitiesItem]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
 class CachedMCPToolCallBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12745,6 +12841,10 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+    totalCount: int = Field(
+        ...,
+        description="Number of tools matching the date, category, and search filters.",
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -17733,6 +17833,54 @@ class MCPHarnessBreakdownQueryResponse(BaseModel):
     )
 
 
+class MCPMissingCapabilitiesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    has_next: bool = Field(..., description="Whether more reports exist past this page.")
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPMissingCapabilitiesItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
 class MCPToolCallBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18277,6 +18425,10 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+    totalCount: int = Field(
+        ...,
+        description="Number of tools matching the date, category, and search filters.",
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -23337,6 +23489,10 @@ class QueryResponseAlternative104(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    totalCount: int = Field(
+        ...,
+        description="Number of tools matching the date, category, and search filters.",
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -23686,6 +23842,54 @@ class QueryResponseAlternative111(BaseModel):
 
 
 class QueryResponseAlternative112(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    has_next: bool = Field(..., description="Whether more reports exist past this page.")
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPMissingCapabilitiesItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class QueryResponseAlternative113(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24619,7 +24823,9 @@ class AccountsTableQuery(BaseModel):
             AccountsTableSearchFilter
             | AccountsTableTagsFilter
             | AccountsTableAssignedToFilter
+            | AccountsTableAssignedFilter
             | AccountsTableUnassignedFilter
+            | AccountsTableRelationshipFilter
             | AccountsTableAccountIdFilter
             | AccountsTableAccountFieldFilter
             | AccountsTableCustomPropertyFilter
@@ -26450,6 +26656,30 @@ class MCPHarnessBreakdownQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class MCPMissingCapabilitiesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange | None = None
+    kind: Literal["MCPMissingCapabilitiesQuery"] = "MCPMissingCapabilitiesQuery"
+    limit: int | None = Field(default=None, description="Page size; defaults to 100, capped at 500.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = Field(
+        default=None,
+        description=(
+            "Reports to skip before returning results. Combine with limit to page"
+            " through them; the response's has_next flag indicates whether more remain."
+        ),
+    )
+    response: MCPMissingCapabilitiesQueryResponse | None = None
+    search: str | None = Field(
+        default=None,
+        description="Case-insensitive substring match over the report text.",
+    )
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class MCPToolCallBreakdownQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26658,8 +26888,24 @@ class MCPToolQualityRowsQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     kind: Literal["MCPToolQualityRowsQuery"] = "MCPToolQualityRowsQuery"
+    limit: int | None = Field(
+        default=None,
+        description="Page size. The server defaults to 50 and caps this at 100.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = Field(default=None, description="Number of matching tools to skip.")
     response: MCPToolQualityRowsQueryResponse | None = None
+    search: str | None = Field(
+        default=None,
+        description="Case-insensitive substring search on the effective tool name.",
+    )
+    sortColumn: MCPToolQualitySortColumn | None = Field(
+        default=None,
+        description="Aggregate column used to order tools. Defaults to total_calls.",
+    )
+    sortDirection: MCPToolQualitySortDirection | None = Field(
+        default=None, description="Sort direction. Defaults to DESC."
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -29877,6 +30123,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative110
         | QueryResponseAlternative111
         | QueryResponseAlternative112
+        | QueryResponseAlternative113
     ]
 ):
     root: (
@@ -29988,6 +30235,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative110
         | QueryResponseAlternative111
         | QueryResponseAlternative112
+        | QueryResponseAlternative113
     )
 
 
@@ -30964,6 +31212,7 @@ class HogQLAutocomplete(BaseModel):
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
+        | MCPMissingCapabilitiesQuery
         | None
     ) = Field(
         default=None,
@@ -31089,6 +31338,7 @@ class HogQLMetadata(BaseModel):
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
+        | MCPMissingCapabilitiesQuery
         | None
     ) = Field(
         default=None,
@@ -31234,6 +31484,7 @@ class MaxInsightContext(BaseModel):
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
+        | MCPMissingCapabilitiesQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
     type: Literal["insight"] = "insight"
@@ -31375,6 +31626,7 @@ class QueryRequest(BaseModel):
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
+        | MCPMissingCapabilitiesQuery
         | PropertyValuesQuery
     ) = Field(
         ...,
@@ -31508,6 +31760,7 @@ class QuerySchemaRoot(
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
+        | MCPMissingCapabilitiesQuery
         | PropertyValuesQuery
     ]
 ):
@@ -31611,6 +31864,7 @@ class QuerySchemaRoot(
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
+        | MCPMissingCapabilitiesQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
@@ -31719,6 +31973,7 @@ class QueryUpgradeRequest(BaseModel):
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
+        | MCPMissingCapabilitiesQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
@@ -31827,6 +32082,7 @@ class QueryUpgradeResponse(BaseModel):
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
+        | MCPMissingCapabilitiesQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
 
@@ -32121,6 +32377,7 @@ class VisualizationArtifactContent(BaseModel):
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
+        | MCPMissingCapabilitiesQuery
         | PropertyValuesQuery
     )
 

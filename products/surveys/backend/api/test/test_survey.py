@@ -25,6 +25,7 @@ from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -7269,6 +7270,64 @@ class TestSurveyListTypeFilter(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["name"], "widget survey")
+
+    def test_filter_by_creator_before_paginating(self):
+        own_survey = Survey.objects.create(
+            team=self.team,
+            name="my survey",
+            type="popover",
+            questions=[],
+            created_by=self.user,
+        )
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        Survey.objects.create(
+            team=self.team,
+            name="someone else's survey",
+            type="popover",
+            questions=[],
+            created_by=other_user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?created_by={self.user.id}&limit=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertIsNone(data["next"])
+        self.assertEqual([survey["id"] for survey in data["results"]], [str(own_survey.id)])
+
+    @parameterized.expand(
+        [
+            ("draft", "draft survey"),
+            ("running", "running survey"),
+            ("complete", "complete survey"),
+        ]
+    )
+    def test_filter_by_status(self, survey_status: str, expected_name: str):
+        now = datetime.now(UTC)
+        Survey.objects.create(team=self.team, name="draft survey", type="popover", questions=[])
+        Survey.objects.create(
+            team=self.team,
+            name="running survey",
+            type="popover",
+            questions=[],
+            start_date=now,
+        )
+        Survey.objects.create(
+            team=self.team,
+            name="complete survey",
+            type="popover",
+            questions=[],
+            start_date=now - timedelta(days=1),
+            end_date=now,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?status={survey_status}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["name"], expected_name)
 
     def test_filter_by_ids(self):
         first = Survey.objects.create(team=self.team, name="first", type="popover", questions=[])

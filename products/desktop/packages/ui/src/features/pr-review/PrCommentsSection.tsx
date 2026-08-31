@@ -3,6 +3,7 @@ import { Spinner } from "@posthog/quill";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { NestedButton } from "@posthog/ui/primitives/NestedButton";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import { useMemo, useState } from "react";
 import { openExternalUrl } from "../../shell/openExternal";
 import { PrSectionHeader } from "./PrSectionHeader";
@@ -139,7 +140,7 @@ function CommentRow({ item }: { item: CommentItem }) {
       <div className="flex min-w-0 items-center gap-2 text-[11px] text-gray-11">
         {item.avatarUrl && (
           <img
-            src={item.avatarUrl}
+            src={cachedImageUrl(item.avatarUrl)}
             alt=""
             className="h-4 w-4 shrink-0 rounded-full"
           />
