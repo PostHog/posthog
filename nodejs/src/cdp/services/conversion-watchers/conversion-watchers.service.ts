@@ -44,6 +44,7 @@ export class ConversionWatchersService {
     private queuedRows: ConversionWatcherRow[] = []
     private pool: Pool | null = null
     private stopped = false
+    private inFlightFlush: Promise<void> | null = null
 
     // Owns its pool rather than taking one, mirroring the subscription matcher: the table lives in the
     // cyclotron database, which nothing else in the result-sink chain connects to. A process without
@@ -74,9 +75,15 @@ export class ConversionWatchersService {
     // shutdown paths reach this one service — the base consumer teardown, CdpRerunWorkerConsumer's
     // own stop(), and CdpApi.stop(). A consumer stopped twice must not fail its own shutdown.
     public async stop(): Promise<void> {
+        // Set first so a flush that has not started yet gets no pool and drops its rows through the
+        // failure counter, rather than opening a connection this method is about to close.
+        this.stopped = true
+        // A flush that is already running holds a pool reference and awaits between chunks. Ending the
+        // pool under it would fail the chunks it has not written yet, so wait for it to finish. Its own
+        // per-chunk handler reports any failure, and shutdown must not re-raise that.
+        await this.inFlightFlush?.catch(() => {})
         const pool = this.pool
         this.pool = null
-        this.stopped = true
         await pool?.end()
     }
 
@@ -89,7 +96,21 @@ export class ConversionWatchersService {
         gaugeConversionWatchersPending.set(this.queuedRows.length)
     }
 
+    // Published so stop() can wait for it. Cleared only by the flush that set it, so a later flush
+    // cannot have its promise dropped by an earlier one finishing.
     public async flush(): Promise<void> {
+        const flushing = this.writeQueuedRows()
+        this.inFlightFlush = flushing
+        try {
+            await flushing
+        } finally {
+            if (this.inFlightFlush === flushing) {
+                this.inFlightFlush = null
+            }
+        }
+    }
+
+    private async writeQueuedRows(): Promise<void> {
         if (!this.queuedRows.length) {
             return
         }
