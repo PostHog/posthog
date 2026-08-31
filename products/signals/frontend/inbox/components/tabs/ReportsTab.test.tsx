@@ -134,9 +134,9 @@ describe('ReportsTab', () => {
         })
     })
 
-    // The empty verdict used to be taken over the three counted states only, so a staff user on a
-    // project whose reports were all judged not actionable was told "nothing yet" while the state
-    // built to review them never loaded.
+    // The empty verdict must cover every state the current user can see, not only the counted
+    // ones: a staff user on a project whose reports are all judged not actionable still has work
+    // to review, so "nothing yet" would be wrong for them and right for everyone else.
     it.each([
         { name: 'staff is not told "nothing yet" when only Not actionable has reports', isStaff: true, empty: false },
         { name: 'non-staff sees the empty state for the same project', isStaff: false, empty: true },

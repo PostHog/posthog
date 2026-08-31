@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { JSX, useCallback, useEffect, useRef } from 'react'
 
 import { IconNotebook } from '@posthog/icons'
@@ -12,18 +12,15 @@ import { urls } from 'scenes/urls'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import type { InboxSortDirection, InboxSortField } from '../../logics/inboxFiltersLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
-    INBOX_REPORT_SECTION_KEYS,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
-    INBOX_STAFF_ONLY_REPORT_SECTION_KEYS,
     InboxReportSectionKey,
     InboxScope,
     SignalReport,
 } from '../../types'
-import { compareSignalReports } from '../../utils/reportOrdering'
+import { mergeReportRows, selectedFlatListSections } from '../../utils/flatReportList'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
@@ -31,7 +28,7 @@ import { SelfDrivingInstallingHint } from '../SelfDrivingInstallingHint'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
-import { ReportRankEntry, useReportImpressions } from '../useReportImpressions'
+import { useReportImpressions } from '../useReportImpressions'
 
 /**
  * The states that make up "the inbox" for the `Inbox viewed` event. Not actionable is left out: it
@@ -49,6 +46,7 @@ interface SectionListState {
     reports: SignalReport[]
     isLoaded: boolean
     reportsLoadFailed: boolean
+    pageLoadFailed: boolean
     reportsResponseLoading: boolean
     hasMore: boolean
 }
@@ -59,10 +57,26 @@ interface SectionListState {
  * with a type that still claims every value is there.
  */
 function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
-    const { count, countLoading, reports, isLoaded, reportsLoadFailed, reportsResponseLoading, hasMore } = useValues(
-        reportListLogic(sectionListLogicProps(sectionKey))
-    )
-    return { count, countLoading, reports, isLoaded, reportsLoadFailed, reportsResponseLoading, hasMore }
+    const {
+        count,
+        countLoading,
+        reports,
+        isLoaded,
+        reportsLoadFailed,
+        pageLoadFailed,
+        reportsResponseLoading,
+        hasMore,
+    } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
+    return {
+        count,
+        countLoading,
+        reports,
+        isLoaded,
+        reportsLoadFailed,
+        pageLoadFailed,
+        reportsResponseLoading,
+        hasMore,
+    }
 }
 
 /**
@@ -82,7 +96,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
 
 /**
  * `Inbox viewed`, fired once per Reports mount as soon as every counted state's count has settled.
- * One event per visit; it carries the whole loaded list rather than one view's slice.
+ * One event per visit, carrying the whole loaded list.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
     const { hasActiveFilters, sourceProductFilter, priorityFilter, visibleStateFilter, scope } =
@@ -112,8 +126,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         }
         firedRef.current = true
         captureInboxViewed({
-            // pinned: `tab` names the inbox page tab. Before the flat list landed it named the report
-            // view, which is no longer a surface of its own.
+            // pinned: analytics property. `tab` names the inbox page tab; dashboards group on it.
             tab: 'reports',
             reports: COUNTED_SECTION_KEYS.flatMap((key) => sections[key].reports),
             totalCount: COUNTED_SECTION_KEYS.reduce((sum, key) => sum + (sections[key].count ?? 0), 0),
@@ -160,56 +173,6 @@ function ReportsEmptyState(): JSX.Element {
     )
 }
 
-interface ReportRow {
-    report: SignalReport
-    sectionKey: InboxReportSectionKey
-}
-
-/**
- * The flat list's rows: the loaded rows of every selected state, deduplicated (a report can match
- * two states' filters, e.g. a PR'd report judged not actionable is in both Review and merge and the
- * staff Not actionable state), then ordered with the same keys the server sorted each response by.
- * Rows past a state's loaded page can sort below later-keyed rows from a shorter state until the
- * next page lands; the scroll sentinel keeps every selected state paging together.
- */
-function mergeRows(
-    sections: Record<InboxReportSectionKey, SectionListState>,
-    selected: InboxReportSectionKey[],
-    sortField: InboxSortField,
-    sortDirection: InboxSortDirection
-): ReportRow[] {
-    const seen = new Set<string>()
-    const rows: ReportRow[] = []
-    for (const sectionKey of selected) {
-        for (const report of sections[sectionKey].reports) {
-            if (!seen.has(report.id)) {
-                seen.add(report.id)
-                rows.push({ report, sectionKey })
-            }
-        }
-    }
-    const compare = compareSignalReports(sortField, sortDirection)
-    return rows.sort((a, b) => compare(a.report, b.report))
-}
-
-/** Headless per-state controller: loads the state's rows and records their impressions. */
-function StateListController({
-    sectionKey,
-    rankById,
-}: {
-    sectionKey: InboxReportSectionKey
-    rankById: Map<string, ReportRankEntry>
-}): null {
-    const { ensureLoaded } = useActions(reportListLogic(sectionListLogicProps(sectionKey)))
-    // Rows are fetched once a state is part of the rendered list — a deselected state costs one
-    // count request only.
-    useEffect(() => {
-        ensureLoaded()
-    }, [ensureLoaded])
-    useReportImpressions(sectionKey, rankById)
-    return null
-}
-
 function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     if (narrowed) {
         return 'No reports match the current filters.'
@@ -233,19 +196,12 @@ export function ReportsTab(): JSX.Element {
     const sections = useSectionStates()
     useInboxViewedEvent(sections)
 
-    const visibleSections: InboxReportSectionKey[] = INBOX_REPORT_SECTION_KEYS.filter(
-        (key) => isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)
-    )
+    const visibleSections = selectedFlatListSections([], isStaff)
     // The state filter narrows which states' rows the list shows; an empty selection means all of
     // them. `visibleStateFilter` already drops states the user cannot see (a staff-only state from
     // a shared link or persisted storage), so a hidden state can never leave this empty and a
-    // non-staff user who opens a `state=not-actionable` link still sees the full list. The
-    // intersection keeps the canonical section order, which decides which state claims a report
-    // matching two of them.
-    const selectedSections =
-        visibleStateFilter.length > 0
-            ? visibleSections.filter((key) => visibleStateFilter.includes(key))
-            : visibleSections
+    // non-staff user who opens a `state=not-actionable` link still sees the full list.
+    const selectedSections = selectedFlatListSections(visibleStateFilter, isStaff)
 
     // "Nothing yet" is a claim about the whole project, so it only holds with no filters and the
     // project-wide scope; a narrowed view that matches nothing gets the filter-aware copy instead.
@@ -257,20 +213,43 @@ export function ReportsTab(): JSX.Element {
     const countsSettled = visibleSections.every((key) => sections[key].count !== null)
     const inboxIsEmpty = unfilteredView && countsSettled && visibleSections.every((key) => sections[key].count === 0)
 
-    const rows = mergeRows(sections, selectedSections, sortField, sortDirection)
-    const rankById = new Map<string, ReportRankEntry>(
-        rows.map((row, index) => [row.report.id, { rank: index + 1, sectionKey: row.sectionKey }])
-    )
+    const reportsBySection = Object.fromEntries(visibleSections.map((key) => [key, sections[key].reports])) as Record<
+        InboxReportSectionKey,
+        SignalReport[]
+    >
+    const rows = mergeReportRows(reportsBySection, selectedSections, sortField, sortDirection)
+    useReportImpressions(rows, selectedSections)
+
+    // Rows are fetched once a state is part of the rendered list — a deselected state costs one
+    // count request only. `ensureLoaded` no-ops on states that already loaded or are in flight.
+    const selectedSectionsKey = selectedSections.join(',')
+    useEffect(() => {
+        for (const key of selectedSectionsKey.split(',')) {
+            if (key) {
+                reportListLogic(sectionListLogicProps(key as InboxReportSectionKey)).actions.ensureLoaded()
+            }
+        }
+    }, [selectedSectionsKey])
 
     const firstLoadPending = selectedSections.some((key) => !sections[key].isLoaded && !sections[key].reportsLoadFailed)
     const anyLoadFailed = selectedSections.some((key) => sections[key].reportsLoadFailed && !sections[key].isLoaded)
     const pageLoading = selectedSections.some((key) => sections[key].reportsResponseLoading)
+    const pageLoadFailed = selectedSections.some((key) => sections[key].pageLoadFailed)
     const hasMore = selectedSections.some((key) => sections[key].hasMore)
 
     // `ensureLoaded` only fetches a state with nothing loaded and nothing in flight, so retrying
     // after a partial failure refetches the failed states and leaves the loaded ones alone.
     const retryFailedSections = (): void => {
         selectedSections.forEach((key) => reportListLogic(sectionListLogicProps(key)).actions.ensureLoaded())
+    }
+    // `loadMore` self-guards on `hasMore` and in-flight requests, so this only refetches the pages
+    // that actually failed.
+    const retryFailedPages = (): void => {
+        selectedSections.forEach((key) => {
+            if (sections[key].pageLoadFailed) {
+                reportListLogic(sectionListLogicProps(key)).actions.loadMore()
+            }
+        })
     }
 
     // Read fresh state at intersection time via refs so the observer isn't rebuilt twice per page
@@ -331,10 +310,6 @@ export function ReportsTab(): JSX.Element {
             </div>
             <InboxBulkSelectionBar />
 
-            {selectedSections.map((sectionKey) => (
-                <StateListController key={sectionKey} sectionKey={sectionKey} rankById={rankById} />
-            ))}
-
             {inboxIsEmpty ? (
                 <ReportsEmptyState />
             ) : firstLoadPending ? (
@@ -380,6 +355,21 @@ export function ReportsTab(): JSX.Element {
                                 type="secondary"
                                 onClick={retryFailedSections}
                                 data-attr="inbox-report-list-retry"
+                            >
+                                Retry
+                            </LemonButton>
+                        </div>
+                    )}
+                    {/* A failed next page keeps the loaded rows and the sentinel may sit inside the
+                        viewport without re-firing, so offer an explicit way to fetch it again. */}
+                    {!pageLoading && pageLoadFailed && (
+                        <div className="flex items-center gap-2 px-1 py-2">
+                            <p className="m-0 text-sm text-tertiary">Couldn't load more reports.</p>
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={retryFailedPages}
+                                data-attr="inbox-report-list-retry-page"
                             >
                                 Retry
                             </LemonButton>

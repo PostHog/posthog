@@ -133,5 +133,53 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
         })
+
+        // A failed next page keeps the loaded rows and `hasMore`, and the scroll sentinel may sit
+        // inside the viewport without re-firing. The flag is what surfaces the retry control, and a
+        // plain `loadMore` must be able to fetch the page again.
+        it('flags a failed next page and clears the flag on a successful retry', async () => {
+            let failNextPage = true
+            useMocks({
+                get: {
+                    [REPORTS_URL]: ({ request }) => {
+                        const offset = new URL(request.url).searchParams.get('offset')
+                        if (offset && offset !== '0') {
+                            if (failNextPage) {
+                                failNextPage = false
+                                return [500, {}]
+                            }
+                            return [
+                                200,
+                                {
+                                    count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                    next: null,
+                                    previous: null,
+                                    results: SECOND_PAGE,
+                                },
+                            ]
+                        }
+                        return [
+                            200,
+                            {
+                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                next: 'http://localhost/api/projects/997/signals/reports/?offset=50',
+                                previous: null,
+                                results: FIRST_PAGE,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            logic.actions.loadMore()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.pageLoadFailed).toBe(true)
+            expect(logic.values.reports).toHaveLength(FIRST_PAGE.length)
+
+            logic.actions.loadMore()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.pageLoadFailed).toBe(false)
+            expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+        })
     })
 })

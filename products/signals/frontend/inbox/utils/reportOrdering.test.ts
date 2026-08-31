@@ -54,4 +54,17 @@ describe('compareSignalReports', () => {
         rows.sort(compareSignalReports('created_at', 'desc'))
         expect(rows.map((r) => r.id)).toEqual(['new-ready', 'new-resolved', 'old-resolved'])
     })
+
+    // DRF omits the fractional seconds when the microseconds are zero, and plain string order then
+    // puts the zero-microsecond row after every fractional one in the same second.
+    it('orders zero-microsecond timestamps against fractional ones like the database', () => {
+        const rows = [
+            report('fractional', { created_at: '2026-06-01T00:00:00.100000Z' }),
+            report('whole-second', { created_at: '2026-06-01T00:00:00Z' }),
+        ]
+        rows.sort(compareSignalReports('created_at', 'asc'))
+        expect(rows.map((r) => r.id)).toEqual(['whole-second', 'fractional'])
+        rows.sort(compareSignalReports('created_at', 'desc'))
+        expect(rows.map((r) => r.id)).toEqual(['fractional', 'whole-second'])
+    })
 })

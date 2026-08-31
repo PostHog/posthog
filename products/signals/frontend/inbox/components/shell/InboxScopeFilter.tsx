@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { userLogic } from 'scenes/userLogic'
+
 import { isTeammateInboxScope, parseTeammateInboxScope, teammateInboxScope } from '../../inboxMembership'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, InboxScope } from '../../types'
@@ -20,6 +22,7 @@ import { InboxPeoplePicker } from './InboxPeoplePicker'
 export function InboxScopeFilter(): JSX.Element {
     const { scope, availableReviewers: reviewers, availableReviewersLoading } = useValues(inboxFiltersLogic)
     const { setScope, searchAvailableReviewers } = useActions(inboxFiltersLogic)
+    const { user } = useValues(userLogic)
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
     // External reference (callback ref → state so the Popover re-anchors once mounted).
@@ -89,11 +92,15 @@ export function InboxScopeFilter(): JSX.Element {
                     setSearch(value)
                     searchAvailableReviewers(value)
                 }}
-                people={reviewers.map((reviewer) => ({
-                    uuid: reviewer.user_uuid,
-                    name: reviewer.name,
-                    email: reviewer.email,
-                }))}
+                // The pinned "For you" row already stands for the signed-in user, so their own
+                // roster row would be a second control writing a different scope for the same view.
+                people={reviewers
+                    .filter((reviewer) => reviewer.user_uuid !== user?.uuid)
+                    .map((reviewer) => ({
+                        uuid: reviewer.user_uuid,
+                        name: reviewer.name,
+                        email: reviewer.email,
+                    }))}
                 loading={availableReviewersLoading}
                 selectedUuid={scope === INBOX_SCOPE_ENTIRE_PROJECT ? null : (selectedTeammateUuid ?? undefined)}
                 forYou={{ active: isForYou, onPick: () => pick(INBOX_SCOPE_FOR_YOU) }}

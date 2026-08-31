@@ -155,6 +155,7 @@ export interface reportListLogicValues {
         scope: InboxScope
     } | null
     loadedQueryKey: string | null
+    pageLoadFailed: boolean
     primarySectionKey: InboxReportSectionKey
     reports: SignalReport[]
     reportsLoadFailed: boolean
@@ -382,12 +383,18 @@ export const reportListLogic = kea<reportListLogicType>([
     }),
 
     loaders(({ values }) => ({
-        // Cheap count-only request (limit=1) – populates the section header before its rows load.
+        // Cheap count-only request – populates the state's count before its rows load. `count_only`
+        // lets the backend answer with one `COUNT(*)`, skipping ordering, row serialization, and
+        // the per-row metadata lookups.
         count: [
             null as number | null,
             {
                 loadCount: async () => {
-                    const response = await api.signalReports.list({ ...values.listApiParams, limit: 1 })
+                    const response = await api.signalReports.list({
+                        ...values.listApiParams,
+                        limit: 1,
+                        count_only: 'true',
+                    })
                     return response.count
                 },
             },
@@ -438,6 +445,10 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         count: {
             removeReport: (state) => (state != null ? Math.max(0, state - 1) : state),
+            // A page response carries the same query's total, so reuse it instead of letting the
+            // separately-loaded count disagree with the rows on screen.
+            loadReportsSuccess: (_, { reportsResponse }) => reportsResponse.count,
+            loadMoreReportsSuccess: (_, { reportsResponse }) => reportsResponse.count,
         },
         // The first-page load failed. Kea loaders keep `reportsResponse` null on failure, so
         // `isLoaded` stays false and the section would otherwise show a skeleton forever. Reset when a
@@ -449,6 +460,18 @@ export const reportListLogic = kea<reportListLogicType>([
                 loadReports: () => false,
                 loadReportsSuccess: () => false,
                 loadReportsFailure: () => true,
+            },
+        ],
+        // A next-page fetch failed. The loaded rows and `hasMore` are unchanged, and the scroll
+        // sentinel may sit inside the viewport without re-firing, so the list must offer an explicit
+        // retry. Cleared when a page request starts or lands.
+        pageLoadFailed: [
+            false,
+            {
+                loadReports: () => false,
+                loadMoreReports: () => false,
+                loadMoreReportsSuccess: () => false,
+                loadMoreReportsFailure: () => true,
             },
         ],
     }),

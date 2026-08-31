@@ -39,6 +39,13 @@ function compareStrings(a: string, b: string): number {
     return a < b ? -1 : a > b ? 1 : 0
 }
 
+// DRF omits the fractional part when the microseconds are zero, and a plain string comparison then
+// puts "...:00Z" after "...:00.100000Z". Pad the missing fraction so the comparison matches the
+// database order.
+function timestampKey(value: string): string {
+    return value.includes('.') ? value : value.replace(/(Z|[+-]\d\d:?\d\d)$/, '.000000$1')
+}
+
 /** Comparator over reports for the given sort selection. Stable input order breaks remaining ties. */
 export function compareSignalReports(
     field: InboxSortField,
@@ -47,7 +54,9 @@ export function compareSignalReports(
     const dir = direction === 'desc' ? -1 : 1
     return (a, b) => {
         const primary =
-            field === 'priority' ? compareStrings(priorityKey(a), priorityKey(b)) : compareStrings(a[field], b[field])
+            field === 'priority'
+                ? compareStrings(priorityKey(a), priorityKey(b))
+                : compareStrings(timestampKey(a[field]), timestampKey(b[field]))
         if (primary !== 0) {
             return dir * primary
         }
@@ -56,6 +65,6 @@ export function compareSignalReports(
             return rank
         }
         // Recency tiebreak, skipped when the selected field already is updated_at.
-        return field === 'updated_at' ? 0 : compareStrings(b.updated_at, a.updated_at)
+        return field === 'updated_at' ? 0 : compareStrings(timestampKey(b.updated_at), timestampKey(a.updated_at))
     }
 }
