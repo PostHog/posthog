@@ -291,6 +291,7 @@ def run_eval_report_agent(
         period_start=inputs.period_start,
         period_end=inputs.period_end,
         report_prompt_guidance=inputs.report_prompt_guidance,
+        true_is_failure=inputs.true_is_failure,
     )
 
     agent = create_react_agent(
