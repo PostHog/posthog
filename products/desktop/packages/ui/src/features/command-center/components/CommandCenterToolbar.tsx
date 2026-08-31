@@ -95,6 +95,7 @@ export function CommandCenterToolbar({
   const setLayout = useCommandCenterStore((s) => s.setLayout);
   const clearAll = useCommandCenterStore((s) => s.clearAll);
   const optimizeLayout = useCommandCenterStore((s) => s.optimizeLayout);
+  const isComposing = useCommandCenterStore((s) => s.composer !== null);
 
   const handleSetLayout = useCallback(
     (preset: LayoutPreset) => {
@@ -134,6 +135,7 @@ export function CommandCenterToolbar({
     >
       <Select.Root
         value={layout}
+        disabled={isComposing}
         onValueChange={(v) => handleSetLayout(v as LayoutPreset)}
       >
         <Select.Trigger variant="ghost" className="text-[12px]" />
@@ -152,7 +154,8 @@ export function CommandCenterToolbar({
       <button
         type="button"
         onClick={handleOptimize}
-        className="rounded px-1.5 py-0.5 text-[12px] text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+        disabled={isComposing}
+        className="rounded px-1.5 py-0.5 text-[12px] text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12 disabled:opacity-40"
         title="Resize the grid to fit the tiles in use"
       >
         Optimize

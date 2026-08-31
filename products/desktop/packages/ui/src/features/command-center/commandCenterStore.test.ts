@@ -286,41 +286,79 @@ describe("commandCenterStore", () => {
   });
 
   describe("in-tile composer", () => {
-    it("tracks one composer per tile", () => {
-      useCommandCenterStore.getState().startCreating(2);
-      useCommandCenterStore.getState().startCreating(2);
-      expect(useCommandCenterStore.getState().creatingCells).toEqual([2]);
+    it("keeps one active composer and marks the grid curated", () => {
+      store().startCreating(2, "session-2");
+      store().startCreating(1, "session-1");
 
-      useCommandCenterStore.getState().stopCreating(2);
-      expect(useCommandCenterStore.getState().creatingCells).toEqual([]);
+      expect(store().composer).toEqual({
+        cellIndex: 1,
+        sessionId: "session-1",
+      });
+      expect(store().activeCellIndex).toBe(1);
+      expect(store().hasAutofilled).toBe(true);
+
+      store().stopCreating("session-1");
+      expect(store().composer).toBeNull();
     });
 
-    // A tile showing both a composer and its contents renders only one of
-    // them, so the other looks lost.
+    it("reserves the composing tile from late autofill", () => {
+      store().startCreating(1, "session-1");
+
+      store().autofillCells(["t1", "t2", "t3"]);
+
+      expect(store().cells).toEqual(["t1", null, "t2", "t3"]);
+      expect(store().composer).toEqual({
+        cellIndex: 1,
+        sessionId: "session-1",
+      });
+    });
+
     it.each([
       { what: "a task", fill: () => store().assignTask(1, "t1") },
       { what: "a terminal", fill: () => store().setTerminalCell(1, "term-1") },
       { what: "brainrot", fill: () => store().setBrainrotCell(1) },
       { what: "a canvas", fill: () => store().setCanvasCell(1, "canvas-1") },
     ])("closes the composer once the tile holds $what", ({ fill }) => {
-      useCommandCenterStore.setState({ creatingCells: [1, 2] });
+      store().startCreating(1, "session-1");
 
       fill();
 
-      expect(useCommandCenterStore.getState().creatingCells).toEqual([2]);
+      expect(store().composer).toBeNull();
     });
 
-    it("closes composers that optimize repacked onto a filled or dropped tile", () => {
+    it("keeps the layout stable while composing", () => {
       useCommandCenterStore.setState({
         layout: "2x2",
         cells: [null, "t1", null, null],
-        creatingCells: [0, 3],
       });
+      store().startCreating(0, "session-0");
 
-      // Packs "t1" alone: index 0 now holds it, and index 3 no longer exists.
-      useCommandCenterStore.getState().optimizeLayout([1]);
+      store().setLayout("3x2");
+      store().optimizeLayout([1]);
 
-      expect(useCommandCenterStore.getState().creatingCells).toEqual([]);
+      expect(store().layout).toBe("2x2");
+      expect(store().cells).toEqual([null, "t1", null, null]);
+      expect(store().composer).toEqual({
+        cellIndex: 0,
+        sessionId: "session-0",
+      });
+    });
+
+    it("assigns a created task only to its reserved composer", () => {
+      store().startCreating(2, "session-2");
+
+      expect(store().finishCreating("stale-session", "t1")).toBe(false);
+      expect(store().finishCreating("session-2", "t1")).toBe(true);
+      expect(store().cells[2]).toBe("t1");
+      expect(store().composer).toBeNull();
+    });
+
+    it("does not overwrite a tile replaced while creation was pending", () => {
+      store().startCreating(2, "session-2");
+      store().assignTask(2, "replacement");
+
+      expect(store().finishCreating("session-2", "created")).toBe(false);
+      expect(store().cells[2]).toBe("replacement");
     });
   });
 });

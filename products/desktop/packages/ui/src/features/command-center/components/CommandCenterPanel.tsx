@@ -10,6 +10,7 @@ import {
   Terminal,
   X,
 } from "@phosphor-icons/react";
+import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { isBrainrotCell } from "@posthog/core/command-center/grid";
 import {
   Empty,
@@ -35,6 +36,8 @@ import { secureRandomString } from "@posthog/ui/utils/random";
 import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useAuthStateValue } from "../../auth/store";
+import { useCurrentUser } from "../../auth/useCurrentUser";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
 import { useDraftStore } from "../../message-editor/draftStore";
@@ -126,10 +129,8 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   const [selectorOpen, setSelectorOpen] = useState(false);
   // The command-center terminal is unavailable on cloud-only hosts.
   const { localWorkspaces } = useHostCapabilities();
-  const isCreating = useCommandCenterStore((s) =>
-    s.creatingCells.includes(cellIndex),
-  );
-  const assignTask = useCommandCenterStore((s) => s.assignTask);
+  const composer = useCommandCenterStore((s) => s.composer);
+  const finishCreating = useCommandCenterStore((s) => s.finishCreating);
   const setBrainrotCell = useCommandCenterStore((s) => s.setBrainrotCell);
   const setTerminalCell = useCommandCenterStore((s) => s.setTerminalCell);
   const startCreating = useCommandCenterStore((s) => s.startCreating);
@@ -138,8 +139,17 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
   const setDraft = useDraftStore((s) => s.actions.setDraft);
-
-  const sessionId = getCellSessionId(cellIndex);
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const { data: currentUser } = useCurrentUser();
+  const authScope =
+    authIdentity && currentUser?.uuid
+      ? `${authIdentity}:${currentUser.uuid}`
+      : null;
+  const sessionId = authScope ? getCellSessionId(authScope, cellIndex) : null;
+  const isCreating =
+    sessionId !== null &&
+    composer?.cellIndex === cellIndex &&
+    composer.sessionId === sessionId;
 
   const handleBrainrot = useCallback(() => {
     track(ANALYTICS_EVENTS.BRAINROT_ACTIVATED, {
@@ -157,32 +167,36 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   );
 
   const handleNewTask = useCallback(() => {
-    startCreating(cellIndex);
-  }, [startCreating, cellIndex]);
+    if (sessionId) startCreating(cellIndex, sessionId);
+  }, [startCreating, cellIndex, sessionId]);
 
   // Claiming the tile is what keeps the run in the grid: without it the task
   // exists but its session has nowhere to render.
   const handleTaskCreated = useCallback(
     (task: Task) => {
-      assignTask(cellIndex, task.id);
+      if (!sessionId) {
+        void openTask(task);
+        return;
+      }
+      const assigned = finishCreating(sessionId, task.id);
       setDraft(sessionId, null);
+      // Creation may finish after the user replaced or removed the tile. The
+      // task still exists, so open it instead of overwriting newer grid state.
+      if (!assigned) void openTask(task);
     },
-    [assignTask, cellIndex, setDraft, sessionId],
+    [finishCreating, setDraft, sessionId],
   );
 
   const handleCancel = useCallback(() => {
-    stopCreating(cellIndex);
-  }, [stopCreating, cellIndex]);
+    if (sessionId) stopCreating(sessionId);
+  }, [stopCreating, sessionId]);
 
   // Cancelling here and clearing the tile elsewhere (Clear, a layout change)
   // both end composition, so the draft is dropped on the transition rather
   // than in each caller.
-  const wasCreatingRef = useRef(false);
   useEffect(() => {
-    if (wasCreatingRef.current && !isCreating) {
-      setDraft(sessionId, null);
-    }
-    wasCreatingRef.current = isCreating;
+    if (!isCreating || !sessionId) return;
+    return () => setDraft(sessionId, null);
   }, [isCreating, setDraft, sessionId]);
 
   if (isCreating) {
