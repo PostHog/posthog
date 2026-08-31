@@ -359,6 +359,10 @@ jobs:
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml pull --quiet &
+                  # personhog runs under the ingestion profile, which the pull above excludes.
+                  # Fetch its two images now, in the background, so the later "Start personhog
+                  # services" step uses local images instead of a fragile inline pull.
+                  COMPOSE_PROFILES=ingestion docker compose -f docker-compose.dev.yml pull --quiet personhog-replica personhog-router &
 
             - name: Add service hostnames to /etc/hosts
               shell: bash
@@ -417,9 +421,6 @@ jobs:
               with:
                   toolchain: 1.91.1
                   components: cargo
-
-            - name: Install protoc
-              uses: ./.github/actions/setup-protoc
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -636,6 +637,17 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: ingestion
               run: bin/ci-wait-for-docker launch personhog-replica personhog-router
+
+            - name: Wait for personhog services
+              shell: bash
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml
+                  COMPOSE_PROFILES: ingestion
+              # Seeding demo data needs personhog reachable. Block until both
+              # containers are up and print their logs on timeout, so a
+              # never-ready service reports why instead of failing the seed step
+              # later with an opaque error.
+              run: bin/ci-wait-for-docker wait --only personhog-replica personhog-router
 
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
