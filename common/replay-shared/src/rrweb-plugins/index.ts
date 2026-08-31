@@ -10,17 +10,19 @@ export const CorsPlugin: ReplayPlugin & {
     _replaceJSUrl: (value: string) => string
 } = {
     _replaceFontCssUrls: (value: string | null): string | null => {
+        // rrweb's absolutifyURLs keeps the author's quoting, so match all three url() forms:
+        // url("..."), url('...'), and unquoted url(...). The \1 backreference keeps quotes paired.
         return (
             value?.replace(
-                /url\("(https:\/\/[^\s"?#]+\.(?:eot|woff2|ttf|woff)(?:[?#][^\s"]*)?)"\)/gi,
-                `url("${PROXY_URL}/proxy?url=$1")`
+                /url\(\s*(["']?)(https?:\/\/[^\s"'?#]+\.(?:eot|woff2|ttf|woff|otf|svg)(?:[?#][^\s"')]*)?)\1\s*\)/gi,
+                `url("${PROXY_URL}/proxy?url=$2")`
             ) || null
         )
     },
 
     _replaceFontUrl: (value: string): string => {
         return value.replace(
-            /^(https:\/\/[^\s"?#]+\.(?:eot|woff2|ttf|woff)(?:[?#][^\s"]*)?)$/i,
+            /^(https?:\/\/[^\s"?#]+\.(?:eot|woff2|ttf|woff|otf|svg)(?:[?#][^\s"]*)?)$/i,
             `${PROXY_URL}/proxy?url=$1`
         )
     },
