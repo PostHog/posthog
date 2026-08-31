@@ -52,13 +52,14 @@ from ..agents import sync_built_in_agents
 from ..facade.api import resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
+    AGENT_GRANT_SCOPE_CHOICES,
     APPROVAL_STATES,
+    MCPGatewayServer,
     MCPMemberServerRevocation,
     MCPOAuthState,
     MCPServerInstallation,
     MCPServerInstallationTool,
     MCPServerTemplate,
-    MCPServiceAccount,
     MCPServiceAccountServerAccess,
     MCPToolPolicy,
     SensitiveConfig,
@@ -394,7 +395,10 @@ class InstallCustomSerializer(serializers.Serializer):
         choices=["personal", "shared"],
         required=False,
         default="personal",
-        help_text="'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.",
+        help_text=(
+            "'personal' is per-user; 'shared' makes the credential available to project members. "
+            "PostHog agents get access to the connection automatically; see agent_scope."
+        ),
     )
     # Team-wide install options remain admin-only. Agent grants follow the
     # team's allow_member_agent_access setting.
@@ -403,13 +407,14 @@ class InstallCustomSerializer(serializers.Serializer):
         default=True,
         help_text="Whether the server starts enabled for the whole team. Non-default values are admin-only.",
     )
-    agent_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+    agent_scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
         required=False,
-        default=list,
         help_text=(
-            "Service accounts to share the server with at install time. "
-            "Available to members when team settings allow member-managed agent access."
+            "How far the automatic agent grants for this connection reach. 'personal' (the default) lets "
+            "PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. "
+            "Grants are created when the caller may manage agent access: project admins always, members "
+            "when team settings allow it. Sending a value without that permission is rejected."
         ),
     )
     return_path = serializers.CharField(
@@ -440,7 +445,10 @@ class InstallTemplateSerializer(serializers.Serializer):
         choices=["personal", "shared"],
         required=False,
         default="personal",
-        help_text="'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.",
+        help_text=(
+            "'personal' is per-user; 'shared' makes the credential available to project members. "
+            "PostHog agents get access to the connection automatically; see agent_scope."
+        ),
     )
     # Team-wide install options remain admin-only. Agent grants follow the
     # team's allow_member_agent_access setting.
@@ -449,13 +457,14 @@ class InstallTemplateSerializer(serializers.Serializer):
         default=True,
         help_text="Whether the server starts enabled for the whole team. Non-default values are admin-only.",
     )
-    agent_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+    agent_scope = serializers.ChoiceField(
+        choices=AGENT_GRANT_SCOPE_CHOICES,
         required=False,
-        default=list,
         help_text=(
-            "Service accounts to share the server with at install time. "
-            "Available to members when team settings allow member-managed agent access."
+            "How far the automatic agent grants for this connection reach. 'personal' (the default) lets "
+            "PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. "
+            "Grants are created when the caller may manage agent access: project admins always, members "
+            "when team settings allow it. Sending a value without that permission is rejected."
         ),
     )
     return_path = serializers.CharField(
@@ -877,65 +886,23 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def _wants_team_gateway_options(data: dict) -> bool:
         return not data.get("team_enabled", True)
 
-    def _install_target_owner_id(self, data: dict) -> int | None:
-        """Owner of the connection this install flow would end up delegating.
-
-        A personal install is keyed on the caller, so it is always the caller's.
-        A shared install reuses a row keyed on (team, url) that another member
-        may own, and there is no such row yet when the install creates one.
-        """
-        user_id = cast(User, self.request.user).id
-        if data.get("scope", "personal") != "shared":
-            return user_id
-        url = (data.get("url") or "").strip()
-        template_id = data.get("template_id")
-        if not url and template_id:
-            template = MCPServerTemplate.objects.filter(id=template_id, is_active=True).first()
-            url = template.url if template is not None else ""
-        if not url:
-            return user_id
-        existing = MCPServerInstallation.objects.filter(team_id=self.team_id, url=url, scope="shared").first()
-        return existing.user_id if existing is not None else user_id
+    def _can_manage_agent_access(self) -> bool:
+        return self._is_project_admin() or members_can_manage_agent_access(self.team_id)
 
     def _validate_gateway_options(self, data: dict) -> None:
-        """Validate team-level options and agent grants before creating rows."""
+        """Validate team-level options and the agent grant scope before creating rows."""
         if self._wants_team_gateway_options(data) and not self._is_project_admin():
             raise PermissionDenied("Only project admins can set team availability.")
-
-        agent_ids = set(data.get("agent_ids") or [])
-        if not agent_ids:
-            return
-        if not self._is_project_admin() and not members_can_manage_agent_access(self.team_id):
+        if data.get("agent_scope") is not None and not self._can_manage_agent_access():
             raise PermissionDenied("Only project admins can share servers with agents in this project.")
-
-        built_in_agent_ids = {account.id for account in sync_built_in_agents(self.team)}
-        if not agent_ids.issubset(built_in_agent_ids):
-            raise serializers.ValidationError({"agent_ids": "Select only the PostHog agents listed for this project."})
-
-        # Rejected here rather than while applying the grants: by then the
-        # install has already written the gateway rows and the credential, and
-        # a 4xx would leave that half-finished install behind.
-        if self._install_target_owner_id(data) != cast(User, self.request.user).id:
-            raise serializers.ValidationError(
-                {"agent_ids": "You can only share a connection you set up yourself with an agent."}
-            )
 
     def _apply_gateway_options(self, installation: MCPServerInstallation, data: dict) -> None:
         """Register the installation with the gateway and apply install-time
-        team options (enablement, personal connections, agent shares).
+        team options (enablement, agent shares).
 
         Called only once the install is persisted for good; `_validate_gateway_options`
-        has already gated team options and agent grants.
+        has already gated team options and the agent scope.
         """
-        agent_ids = set(data.get("agent_ids") or [])
-        accounts_by_id = {
-            account.id: account for account in MCPServiceAccount.objects.for_team(self.team_id).filter(id__in=agent_ids)
-        }
-        if agent_ids != set(accounts_by_id):
-            raise serializers.ValidationError(
-                {"agent_ids": "One or more selected PostHog agents are no longer available. Refresh and try again."}
-            )
-
         user = cast(User, self.request.user)
         server = link_installation_to_gateway(installation, created_by=user)
 
@@ -945,8 +912,28 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 server.is_team_enabled = team_enabled
                 server.save(update_fields=["is_team_enabled", "updated_at"])
 
-        for account in accounts_by_id.values():
-            MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
+        # A grant lends the granter's own connection, so a shared install that
+        # reused another member's row lends nothing.
+        if installation.user_id == user.id and self._can_manage_agent_access():
+            self._grant_built_in_agents(installation, server, user, data.get("agent_scope"))
+
+    def _grant_built_in_agents(
+        self,
+        installation: MCPServerInstallation,
+        server: MCPGatewayServer,
+        user: User,
+        agent_scope: str | None,
+    ) -> None:
+        """Share the connection with every built-in agent. A connection is shared
+        with agents by default; the scope decides how far that share reaches.
+
+        Reconnecting binds the fresh credential to grants that already exist,
+        because deleting a connection nulls their installation rather than
+        removing them. Such a grant keeps its scope unless the request names one,
+        so a reconnect that omits `agent_scope` never demotes a team share.
+        """
+        for account in sync_built_in_agents(self.team):
+            access, created = MCPServiceAccountServerAccess.objects.for_team(self.team_id).get_or_create(
                 service_account=account,
                 gateway_server=server,
                 user=user,
@@ -954,8 +941,20 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     "team_id": self.team_id,
                     "installation": installation,
                     "granted_by": user,
+                    "scope": agent_scope or "personal",
                 },
             )
+            if created:
+                continue
+            update_fields: list[str] = []
+            if access.installation_id != installation.id:
+                access.installation = installation
+                update_fields.append("installation")
+            if agent_scope is not None and access.scope != agent_scope:
+                access.scope = agent_scope
+                update_fields.append("scope")
+            if update_fields:
+                access.save(update_fields=update_fields)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)

@@ -6,6 +6,7 @@ logic surface and model classes so the isolation boundary stays clean: presentat
 into ``logic`` or ``models`` directly.
 """
 
+from ..logic.analytics import certification_target_name
 from ..logic.certifications import (
     certifications_for_team,
     certify,
@@ -48,6 +49,7 @@ __all__ = [
     "approved_metric_names_for_team",
     "bulk_approve_metrics",
     "bulk_soft_delete_metrics",
+    "certification_target_name",
     "certifications_for_team",
     "certify",
     "compute_drift",

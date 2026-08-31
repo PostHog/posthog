@@ -62,7 +62,7 @@ import {
     parseFailureReason,
     parseIneligibleReason,
     OBSERVATION_TRIGGER_TAG,
-    type ScannerType,
+    SUCCEEDED_OUTPUT_LABEL,
 } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
 import { ObservationLabelControl } from './ObservationLabelControl'
@@ -73,13 +73,6 @@ export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
-    classifier: 'Categories',
-    summarizer: 'Summary',
-    monitor: 'Verdict',
-    scorer: 'Score',
 }
 
 function AutoSeekToTime({
