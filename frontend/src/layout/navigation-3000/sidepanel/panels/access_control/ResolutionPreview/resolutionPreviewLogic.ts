@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 export interface ResolutionChangeSubject {
-    type: 'everyone' | 'role' | 'member'
+    type: 'default' | 'role' | 'member'
     id: string | null
     name: string
 }

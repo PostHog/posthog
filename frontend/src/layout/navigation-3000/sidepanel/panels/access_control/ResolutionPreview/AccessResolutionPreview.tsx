@@ -72,9 +72,7 @@ function SubjectCell({ change }: { change: ResolutionChange }): JSX.Element {
             <span className="font-semibold max-w-60 truncate" title={change.subject.name}>
                 {change.subject.name}
             </span>
-            <LemonTag size="small">
-                {change.subject.type === 'role' ? 'role' : change.subject.type === 'everyone' ? 'default' : 'member'}
-            </LemonTag>
+            <LemonTag size="small">{change.subject.type}</LemonTag>
         </div>
     )
 }

@@ -33,7 +33,7 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
 
         assert len(changes) == 1
         change = changes[0]
-        assert change.subject.type == "everyone"
+        assert change.subject.type == "default"
         assert change.scope == "object"
         assert change.object_id == str(self.dashboard.id)
         assert change.object_name == "Growth KPIs"
@@ -95,7 +95,7 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
 
         changes = self._changes()
 
-        assert [(change.subject.type, change.object_id) for change in changes] == [("everyone", str(self.dashboard.id))]
+        assert [(change.subject.type, change.object_id) for change in changes] == [("default", str(self.dashboard.id))]
 
     def test_parent_resource_row_is_compared_against_child_objects(self):
         # Resolution consults the parent resource (session_recording) for playlist objects, so
@@ -196,7 +196,7 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
         assert data["summary"]["total"] == 1
         assert data["summary"]["loses"] == 1
         change = data["changes"][0]
-        assert change["subject"] == {"type": "everyone", "id": None, "name": "Everyone"}
+        assert change["subject"] == {"type": "default", "id": None, "name": "Everyone"}
         assert change["object_name"] == "Growth KPIs"
         assert change["project_id"] == self.team.id
         assert change["project_name"] == self.team.name

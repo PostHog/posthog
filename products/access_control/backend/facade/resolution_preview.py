@@ -35,7 +35,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 
-SubjectType = Literal["everyone", "role", "member"]
+SubjectType = Literal["default", "role", "member"]
 
 # Rows on these resources resolve the same under both ladders, or have no object model to load
 _SKIPPED_RESOURCES = frozenset({"organization", "plugin"})
@@ -128,7 +128,7 @@ def _subject_key(row: AccessControl) -> tuple:
         return ("member", str(row.organization_member_id))
     if row.role_id is not None:
         return ("role", str(row.role_id))
-    return ("everyone",)
+    return ("default",)
 
 
 def _build_subjects(
@@ -162,7 +162,7 @@ def _build_subjects(
 
     subjects: list[_Subject] = [
         _Subject(
-            ref=SubjectRef(type="everyone", id=None, name="Everyone"),
+            ref=SubjectRef(type="default", id=None, name="Everyone"),
             access=SubjectAccessControl(user_access_control.user, team, org_membership=acting_membership),
             member_user_id=None,
         )
@@ -298,7 +298,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
     for resource, pool in resource_rows.items():
         relevant = _relevant_subject_keys(pool)
         for subject in subjects:
-            if subject.ref.type == "everyone" or (subject.ref.type, subject.ref.id) not in relevant:
+            if subject.ref.type == "default" or (subject.ref.type, subject.ref.id) not in relevant:
                 continue
             compare(
                 subject,
@@ -328,7 +328,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
         explicit_keys_by_object: dict[str, set[tuple]] = {}
         resource_wide_keys: set[tuple] = set()
         for row in rows_by_resource.get(resource, []):
-            if _subject_key(row) == ("everyone",):
+            if _subject_key(row) == ("default",):
                 continue
             if row.resource_id is None:
                 resource_wide_keys.add(_subject_key(row))
@@ -341,13 +341,13 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
             resource_wide_keys |= {
                 _subject_key(row)
                 for row in rows_by_resource.get(cast(str, parent), [])
-                if _subject_key(row) != ("everyone",)
+                if _subject_key(row) != ("default",)
             }
         for subject in subjects:
-            key = ("everyone",) if subject.ref.type == "everyone" else (subject.ref.type, subject.ref.id)
+            key = ("default",) if subject.ref.type == "default" else (subject.ref.type, subject.ref.id)
             # The everyone subject is always compared: the object default vs resource level
             # case names no subject
-            subject_is_resource_wide = key == ("everyone",) or key in resource_wide_keys
+            subject_is_resource_wide = key == ("default",) or key in resource_wide_keys
             for object_id in object_ids:
                 if not subject_is_resource_wide and key not in explicit_keys_by_object.get(object_id, set()):
                     continue
