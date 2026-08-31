@@ -442,6 +442,75 @@ describe('workflowLogic auto-save', () => {
         })
     })
 
+    describe('a save that overlaps another save', () => {
+        let serverUpdatedAt: string
+        let rejected: number
+        let releaseFirstPatch: (() => void) | null
+        let firstPatchSeen: Promise<void>
+
+        beforeEach(async () => {
+            serverUpdatedAt = '2026-05-01T00:00:00.000Z'
+            rejected = 0
+            releaseFirstPatch = null
+            let markFirstPatchSeen = (): void => {}
+            firstPatchSeen = new Promise<void>((resolve) => {
+                markFirstPatchSeen = resolve
+            })
+            let patches = 0
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => [
+                        200,
+                        makeWorkflow({ updated_at: serverUpdatedAt }),
+                    ],
+                },
+                patch: {
+                    // Stands in for perform_update, which rejects a write whose base_updated_at is
+                    // older than the stored stamp with a 409.
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patches += 1
+                        // Hold the first save open so the second one overlaps it, the way a slow
+                        // save on a large workflow does.
+                        if (patches === 1) {
+                            await new Promise<void>((resolve) => {
+                                releaseFirstPatch = resolve
+                                markFirstPatchSeen()
+                            })
+                        }
+                        if (body.base_updated_at && body.base_updated_at < serverUpdatedAt) {
+                            rejected += 1
+                            return [409, { detail: 'stale_update', code: 'stale_update' }]
+                        }
+                        serverUpdatedAt = new Date(Date.parse(serverUpdatedAt) + 1000).toISOString()
+                        return [200, makeWorkflow({ updated_at: serverUpdatedAt, name: body.name })]
+                    },
+                },
+            })
+
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        it('does not raise the conflict banner at the only editor', async () => {
+            logic.actions.setWorkflowValue('name', 'Renamed by me')
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+            await firstPatchSeen
+
+            // The user clicks "Save draft" while the auto-save is still in flight.
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            releaseFirstPatch?.()
+            await new Promise((resolve) => setTimeout(resolve, 200))
+
+            expect({ rejected, banner: logic.values.externallyEdited }).toEqual({ rejected: 0, banner: false })
+        })
+    })
+
     describe('navigation guard', () => {
         it('does not fire save on unmount (no silent flush)', async () => {
             initKeaTests()

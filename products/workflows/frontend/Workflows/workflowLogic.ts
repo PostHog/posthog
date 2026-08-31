@@ -3002,7 +3002,7 @@ export const workflowLogic = kea<workflowLogicType>([
         setDeferredResourceEdited: (event: ResourceEditedEvent | null) => ({ event }),
         replayDeferredResourceEdited: true,
     }),
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values, actions, cache }) => ({
         originalWorkflow: [
             null as HogFlow | null,
             {
@@ -3039,91 +3039,129 @@ export const workflowLogic = kea<workflowLogicType>([
                     return api.hogFlows.getHogFlow(props.id)
                 },
                 saveWorkflow: async (updates: HogFlow) => {
-                    updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
+                    // `isAutoSave` is one shared reducer, not a per-request value. A manual save
+                    // dispatched while an auto-save is still in flight sets it to false, so the
+                    // auto-save's own 409 would then take the manual path and raise the banner.
+                    // Read the origin at dispatch time, while it still describes this save.
+                    const initiatedByAutoSave = values.isAutoSave
 
-                    if (!props.id || props.id === 'new') {
-                        const result = await api.hogFlows.createHogFlow(updates)
+                    const runSave = async (): Promise<HogFlow> => {
+                        updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
-                        if (props.templateId) {
-                            posthog.capture('hog_flow_created_from_template', {
-                                workflow_id: result.id,
-                                template_id: props.templateId,
-                            })
-                        }
-                        return result
-                    }
+                        if (!props.id || props.id === 'new') {
+                            const result = await api.hogFlows.createHogFlow(updates)
 
-                    // The form's clean baseline: the staged draft merged over the live row. Sanitized
-                    // like `updates` so untouched steps compare equal. Cloned via JSON round-trip,
-                    // not structuredClone: the clone only feeds the comparison, and structuredClone
-                    // can yield objects whose constructors fail fast-equals' check, making every
-                    // save look like a content change.
-                    const baseline = values.originalWorkflow
-                        ? sanitizeWorkflow(
-                              JSON.parse(JSON.stringify(withStagedDraft(values.originalWorkflow))),
-                              values.hogFunctionTemplatesById
-                          )
-                        : null
-                    const contentChanged =
-                        !baseline ||
-                        WORKFLOW_CONTENT_FIELDS.some(
-                            (field) => !objectsEqual((updates as any)[field], (baseline as any)[field])
-                        )
-                    const isStatusTransition =
-                        !!values.originalWorkflow && updates.status !== values.originalWorkflow.status
-                    // Content edits on an active workflow stage into its draft (publish promotes them).
-                    // Metadata-only saves (rename, description) must not: staging the unchanged content
-                    // would create a phantom draft identical to live.
-                    const stagingDraft =
-                        values.originalWorkflow?.status === 'active' && updates.status === 'active' && contentChanged
-                    // A status transition (enable/disable) toggles the lifecycle only. The button is
-                    // disabled while the form is dirty, so content in the payload is at best a no-op
-                    // re-send of the live row and at worst (with a staged draft merged into the form)
-                    // a silent deploy of unpublished content. Metadata-only saves on active workflows
-                    // strip content the same way, so unchanged content never routes to a draft.
-                    const payload: Partial<HogFlow> =
-                        isStatusTransition || (values.originalWorkflow?.status === 'active' && !contentChanged)
-                            ? omitWorkflowContent(updates)
-                            : updates
-                    // Draft writes race against other draft writes, not the live row, so the staleness
-                    // baseline follows the routing: the draft's own stamp once one is staged.
-                    const loadedBase = stagingDraft
-                        ? (values.originalWorkflow?.draft_updated_at ?? values.originalWorkflow?.updated_at)
-                        : values.originalWorkflow?.updated_at
-
-                    try {
-                        return await api.hogFlows.updateHogFlow(props.id, {
-                            ...payload,
-                            ...(stagingDraft ? { stage_draft: true } : {}),
-                            // A staged save's metadata still writes live; fence that write with the
-                            // live stamp so it can't overwrite a concurrent metadata edit the
-                            // draft-stamp baseline wouldn't catch.
-                            ...(stagingDraft && values.originalWorkflow?.updated_at
-                                ? { base_live_updated_at: values.originalWorkflow.updated_at }
-                                : {}),
-                            // Let the server reject the save if a newer copy exists (optimistic concurrency).
-                            // saveBaseUpdatedAt overrides the loaded timestamp after the user picks "Keep mine".
-                            base_updated_at: values.saveBaseUpdatedAt ?? loadedBase ?? null,
-                        })
-                    } catch (error) {
-                        if (error instanceof ApiError && error.status === 409) {
-                            if (values.isAutoSave && values.pendingSchedule === false) {
-                                // An auto-save losing the race is not a decision point: the user never
-                                // asked to overwrite anything, so reconcile to the newer copy silently.
-                                // A pending schedule change is the exception: only a manual save
-                                // persists it, and the reload would wipe it, so that gets the banner.
-                                actions.setSyncingExternalEdit(true)
-                                actions.loadWorkflow()
-                            } else {
-                                // A newer version exists (SSE event likely missed): surface the reconcile
-                                // banner, which carries the actionable Reload / Keep mine choice. No toast,
-                                // as it would just duplicate the banner (the global kea handler already
-                                // skips 409).
-                                actions.setExternallyEdited(true)
+                            if (props.templateId) {
+                                posthog.capture('hog_flow_created_from_template', {
+                                    workflow_id: result.id,
+                                    template_id: props.templateId,
+                                })
                             }
+                            return result
                         }
-                        throw error
+
+                        // The form's clean baseline: the staged draft merged over the live row. Sanitized
+                        // like `updates` so untouched steps compare equal. Cloned via JSON round-trip,
+                        // not structuredClone: the clone only feeds the comparison, and structuredClone
+                        // can yield objects whose constructors fail fast-equals' check, making every
+                        // save look like a content change.
+                        const baseline = values.originalWorkflow
+                            ? sanitizeWorkflow(
+                                  JSON.parse(JSON.stringify(withStagedDraft(values.originalWorkflow))),
+                                  values.hogFunctionTemplatesById
+                              )
+                            : null
+                        const contentChanged =
+                            !baseline ||
+                            WORKFLOW_CONTENT_FIELDS.some(
+                                (field) => !objectsEqual((updates as any)[field], (baseline as any)[field])
+                            )
+                        const isStatusTransition =
+                            !!values.originalWorkflow && updates.status !== values.originalWorkflow.status
+                        // Content edits on an active workflow stage into its draft (publish promotes them).
+                        // Metadata-only saves (rename, description) must not: staging the unchanged content
+                        // would create a phantom draft identical to live.
+                        const stagingDraft =
+                            values.originalWorkflow?.status === 'active' &&
+                            updates.status === 'active' &&
+                            contentChanged
+                        // A status transition (enable/disable) toggles the lifecycle only. The button is
+                        // disabled while the form is dirty, so content in the payload is at best a no-op
+                        // re-send of the live row and at worst (with a staged draft merged into the form)
+                        // a silent deploy of unpublished content. Metadata-only saves on active workflows
+                        // strip content the same way, so unchanged content never routes to a draft.
+                        const payload: Partial<HogFlow> =
+                            isStatusTransition || (values.originalWorkflow?.status === 'active' && !contentChanged)
+                                ? omitWorkflowContent(updates)
+                                : updates
+                        // The stamps of the newest server copy this editor has produced. A queued save
+                        // must fence against the copy the save before it wrote, and that copy reaches
+                        // this cache when its response lands, which is before kea applies the result to
+                        // `originalWorkflow`. Cleared on load, because a reload, publish, or discard
+                        // establishes a new baseline and can move the draft stamp backwards.
+                        const savedStamps = cache.lastSavedStamps as
+                            | { updated_at?: string; draft_updated_at?: string | null }
+                            | undefined
+                        const liveBase = savedStamps?.updated_at ?? values.originalWorkflow?.updated_at
+                        // Draft writes race against other draft writes, not the live row, so the staleness
+                        // baseline follows the routing: the draft's own stamp once one is staged.
+                        const loadedBase = stagingDraft
+                            ? (savedStamps?.draft_updated_at ??
+                              savedStamps?.updated_at ??
+                              values.originalWorkflow?.draft_updated_at ??
+                              values.originalWorkflow?.updated_at)
+                            : liveBase
+
+                        try {
+                            const result = await api.hogFlows.updateHogFlow(props.id, {
+                                ...payload,
+                                ...(stagingDraft ? { stage_draft: true } : {}),
+                                // A staged save's metadata still writes live; fence that write with the
+                                // live stamp so it can't overwrite a concurrent metadata edit the
+                                // draft-stamp baseline wouldn't catch.
+                                ...(stagingDraft && liveBase ? { base_live_updated_at: liveBase } : {}),
+                                // Let the server reject the save if a newer copy exists (optimistic concurrency).
+                                // saveBaseUpdatedAt overrides the loaded timestamp after the user picks "Keep mine".
+                                base_updated_at: values.saveBaseUpdatedAt ?? loadedBase ?? null,
+                            })
+                            cache.lastSavedStamps = {
+                                updated_at: result.updated_at,
+                                draft_updated_at: result.draft_updated_at ?? null,
+                            }
+                            return result
+                        } catch (error) {
+                            if (error instanceof ApiError && error.status === 409) {
+                                if (initiatedByAutoSave && values.pendingSchedule === false) {
+                                    // An auto-save losing the race is not a decision point: the user never
+                                    // asked to overwrite anything, so reconcile to the newer copy silently.
+                                    // A pending schedule change is the exception: only a manual save
+                                    // persists it, and the reload would wipe it, so that gets the banner.
+                                    actions.setSyncingExternalEdit(true)
+                                    actions.loadWorkflow()
+                                } else {
+                                    // A newer version exists (SSE event likely missed): surface the reconcile
+                                    // banner, which carries the actionable Reload / Keep mine choice. No toast,
+                                    // as it would just duplicate the banner (the global kea handler already
+                                    // skips 409).
+                                    actions.setExternallyEdited(true)
+                                }
+                            }
+                            throw error
+                        }
                     }
+
+                    // Saves run one at a time. Every save fences on `base_updated_at`, taken from the
+                    // newest server copy this editor knows about. A save that starts while another is
+                    // still in flight carries a baseline the server has already moved past, so it comes
+                    // back 409 and the user sees the "updated elsewhere" banner for their own edit. The
+                    // reported case is a click on "Save draft" as the auto-save debounce fires.
+                    const previous = (cache.saveChain as Promise<unknown> | undefined) ?? Promise.resolve()
+                    const current = previous.then(runSave, runSave)
+                    cache.saveChain = current.then(
+                        () => undefined,
+                        () => undefined
+                    )
+                    return current
                 },
             },
         ],
@@ -3827,6 +3865,9 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
+            // This response is now the save baseline. Discarding a draft moves its stamp backwards,
+            // so a stamp kept from an earlier save would fence later saves too loosely.
+            cache.lastSavedStamps = undefined
             // The form edits the staged draft when one exists; the live config keeps running underneath.
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.replayDeferredResourceEdited()
