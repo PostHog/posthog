@@ -29,24 +29,22 @@ nothing — and they are a few percent of job rows and minutes. A row is a copy 
 executions (cost, retry pressure, duration percentiles) must exclude them; the flag is defined here
 so nobody re-derives it.
 
-The flag is derived by joining each job against the duplicated ``(run_id, name, started_at,
-completed_at)`` groups from a second, narrow aggregate scan of the source, never by a window function
-over the wide rows. A window makes ClickHouse sort every selected column of its entire input in
-memory before it can evaluate, and an outer date filter cannot pass a window step (only a filter on
-partition-by columns can), so on the floorless exposed views every query would sort the team's whole
-job history and exceed the per-query memory limit. The aggregate reads only the five columns the flag
-needs, and its HAVING keeps only the duplicated groups, so the join's in-memory side scales with the
-re-runs rather than with the history.
+A narrow aggregate scan finds the duplicated ``(run_id, name, started_at, completed_at)`` groups,
+and each job LEFT JOINs against them. Never compute this flag with a window function: a window sorts
+every selected column of its whole input in memory, and an outer date filter cannot pass a window
+step. The exposed views have no scan floor, so a windowed flag made every query sort the team's
+entire job history and exceed the per-query memory limit. The aggregate reads five columns and keeps
+only the duplicated groups, so memory scales with the re-runs, not the history.
 
 The raw ``created_at`` string rides along as ``created_at_raw`` (unparsed) because ISO-8601 strings
 compare correctly lexicographically. A parsed-column predicate never pushes down to the parquet/S3
 scan, so a raw-column floor (``created_at_raw >= '<date>'``) is the only windowing predicate the scan
 can prune on — the parsed ``created_at`` stays the precise filter, the raw twin lets the scan skip.
 A caller's own outer ``created_at_raw`` predicate can prune the jobs scan, but never the duplicate
-scan, which reads no ``created_at_raw``. Windowed callers therefore pass ``created_floor=True``,
-which puts the same coarse floor in a prefilter on the RAW column inside the shared table source that
-BOTH scans read, and register the ``{job_created_floor}`` placeholder (see
-``run_started_floor_constant``, shared with the runs builder). The trade is exact: a run whose
+scan, which reads no ``created_at_raw``. Windowed callers therefore pass ``created_floor=True`` and
+register the ``{job_created_floor}`` placeholder (see ``run_started_floor_constant``, shared with
+the runs builder). The floor is a prefilter on the RAW column inside the shared table source, so it
+bounds both scans. The trade is exact: a run whose
 earlier attempt falls below the floor loses the evidence that its later attempt is a copy, so a
 boundary re-run reads as billable — the same coarseness the floor already has, and why the floor sits
 a day below the window.
@@ -103,9 +101,9 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
             ) AS provisioning_seconds,
             -- A matched row shares its exact start/finish with another attempt of the same job; it is
             -- a copy when a LOWER attempt exists. An unmatched row (single occurrence, or NULL
-            -- timestamps, which never satisfy the join keys) reads first_attempt as NULL, and the
-            -- comparison lands 0. min(run_attempt) is Nullable at the source, so the LEFT JOIN's
-            -- non-match default is NULL, never 0 — a 0 default would flag every unmatched row.
+            -- timestamps, which never match the join keys) reads first_attempt as NULL, so the
+            -- comparison yields 0. min(run_attempt) stays Nullable, which makes the LEFT JOIN
+            -- non-match default NULL rather than 0 (a 0 default would flag every unmatched row).
             ifNull(job.run_attempt > dupes.first_attempt, 0) AS is_rerun_copy
         FROM (
             SELECT
