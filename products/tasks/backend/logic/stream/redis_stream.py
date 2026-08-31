@@ -484,6 +484,7 @@ class TaskRunRedisStream:
                 try:
                     await pipe.watch(completed_key)
                     if await pipe.exists(completed_key):
+                        await self._redis_client.expire(self._stream_key, self._completed_timeout)
                         return
 
                     pipe.multi()
@@ -503,6 +504,7 @@ class TaskRunRedisStream:
     async def _mark_complete_for_tests(self) -> None:
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         if await self._redis_client.exists(completed_key):
+            await self._redis_client.expire(self._stream_key, self._completed_timeout)
             return
 
         await self.write_event({"type": "STREAM_STATUS", "status": "complete"}, ttl=self._completed_timeout)
@@ -525,6 +527,7 @@ class TaskRunRedisStream:
                     last_sequence_raw = await pipe.get(sequence_key)
                     last_sequence = _normalize_redis_int(last_sequence_raw)
                     if await pipe.exists(completed_key):
+                        await self._redis_client.expire(self._stream_key, self._completed_timeout)
                         return
 
                     if last_sequence != final_sequence:
@@ -556,6 +559,7 @@ class TaskRunRedisStream:
         last_sequence = _normalize_redis_int(last_sequence_raw)
 
         if await self._redis_client.exists(completed_key):
+            await self._redis_client.expire(self._stream_key, self._completed_timeout)
             return
 
         if last_sequence != final_sequence:
@@ -573,6 +577,9 @@ class TaskRunRedisStream:
         """Write an error sentinel to signal stream failure."""
         await self.write_event(
             {"type": "STREAM_STATUS", "status": "error", "error": error[:500]}, ttl=self._completed_timeout
+        )
+        await self._redis_client.set(
+            get_task_run_stream_completed_key(self._stream_key), "1", ex=self._sequence_timeout
         )
 
     async def delete_stream(self) -> bool:
@@ -640,7 +647,8 @@ def publish_task_run_stream_event(run_id: str, event: dict, use_dedicated: bool 
     raw = json.dumps(event)
     try:
         stream_id = client.xadd(stream_key, {DATA_KEY: raw}, maxlen=TASK_RUN_STREAM_MAX_LENGTH, approximate=True)
-        client.expire(stream_key, TASK_RUN_STREAM_TIMEOUT)
+        completed = client.exists(get_task_run_stream_completed_key(stream_key))
+        client.expire(stream_key, TASK_RUN_STREAM_COMPLETED_TIMEOUT if completed else TASK_RUN_STREAM_TIMEOUT)
         return _normalize_stream_id(stream_id)
     except Exception:
         logger.exception("task_run_stream_publish_failed", run_id=run_id)
