@@ -184,8 +184,10 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
     property_lists = [filters.get("properties") or []]
     for entity in filters.get("events") or []:
         if isinstance(entity, dict):
-            if entity.get("type") not in (None, "events"):
-                # An action entity smuggled into the events list would compile too.
+            if entity.get("type") != "events":
+                # A typeless entity compiles without its event-name predicate (a
+                # match-all branch), and an action entity smuggled into the events
+                # list would compile too.
                 raise AlertValidationError(f"Alert event filters must have type events, got: {entity.get('type')}.")
             property_lists.append(entity.get("properties") or [])
     for property_list in property_lists:
