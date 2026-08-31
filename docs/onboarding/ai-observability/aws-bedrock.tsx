@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { GO_OTEL_TAB } from './_snippets/go-otel-tab'
 import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -34,6 +35,7 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     npm install @aws-sdk/client-bedrock-runtime @opentelemetry/instrumentation-aws-sdk @opentelemetry/sdk-node @opentelemetry/resources @posthog/ai
                                 `,
                             },
+                            GO_OTEL_TAB,
                         ]}
                     />
                 </>

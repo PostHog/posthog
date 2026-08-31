@@ -194,7 +194,11 @@ function CodeBlock({
         const block = codeBlocks[0]
         return (
             <div className="my-4">
-                <CodeSnippet language={getLanguage(block.language)}>{block.code}</CodeSnippet>
+                {block.language === 'prose' ? (
+                    <LemonMarkdown disableDocsRedirect={true}>{block.code}</LemonMarkdown>
+                ) : (
+                    <CodeSnippet language={getLanguage(block.language)}>{block.code}</CodeSnippet>
+                )}
                 {hostHint}
             </div>
         )
@@ -219,7 +223,11 @@ function CodeBlock({
                     }))}
                 />
             )}
-            <CodeSnippet language={getLanguage(selectedBlock.language)}>{selectedBlock.code}</CodeSnippet>
+            {selectedBlock.language === 'prose' ? (
+                <LemonMarkdown disableDocsRedirect={true}>{selectedBlock.code}</LemonMarkdown>
+            ) : (
+                <CodeSnippet language={getLanguage(selectedBlock.language)}>{selectedBlock.code}</CodeSnippet>
+            )}
             {hostHint}
         </div>
     )
