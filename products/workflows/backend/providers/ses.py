@@ -5,6 +5,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from itertools import batched
+from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -12,6 +13,7 @@ from django.conf import settings
 import boto3
 import dns.name
 import dns.resolver
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
 
@@ -30,6 +32,12 @@ ISP_METRICS: tuple[str, ...] = ("SEND", "DELIVERY", "PERMANENT_BOUNCE", "COMPLAI
 
 # SES caps a BatchGetMetricData request at ten queries.
 METRIC_QUERY_BATCH_SIZE = 10
+
+# The breakdown runs inside a web request, and the fan-out is one query per domain, provider and
+# metric, issued in sequence. Without a ceiling an unresponsive SES holds a worker for minutes on
+# boto3's 60 second default. Past the budget the caller gets no breakdown, which is the same
+# degradation as any other SES failure and better than partial counts, whose rates would be wrong.
+METRIC_QUERY_BUDGET_SECONDS = 20.0
 
 
 @frozen
@@ -75,6 +83,15 @@ class SESProvider:
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
+        )
+        # Separate client for the metric fan-out only, so bounding it cannot slow identity and
+        # tenant calls, which are allowed to take longer.
+        self.ses_v2_metrics_client = boto3.client(
+            "sesv2",
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
+            config=Config(connect_timeout=2, read_timeout=5, retries={"max_attempts": 1}),
         )
 
     def _tenant_name_for_team(self, team_id: int) -> str:
@@ -551,8 +568,13 @@ class SESProvider:
                     )
 
         series: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        deadline = monotonic() + METRIC_QUERY_BUDGET_SECONDS
         for batch in batched(queries, METRIC_QUERY_BATCH_SIZE, strict=False):
-            response = self.ses_v2_client.batch_get_metric_data(Queries=list(batch))  # type: ignore[arg-type]
+            if monotonic() > deadline:
+                raise TimeoutError(
+                    f"SES metric queries exceeded {METRIC_QUERY_BUDGET_SECONDS}s for {len(domains)} domain(s)"
+                )
+            response = self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(batch))  # type: ignore[arg-type]
             for result in response.get("Results", []):
                 isp, metric = query_subjects[result["Id"]]
                 buckets = series[(isp, metric)]
@@ -566,12 +588,14 @@ class SESProvider:
                 # than breaking the panel. Log it so a systematic failure stays visible. A
                 # malformed ISP name is different: SES fails the whole request, which the caller
                 # turns into an absent breakdown.
+                # "message" is reserved: LogRecord already has one, and passing it in `extra`
+                # raises KeyError inside makeRecord, turning a logged warning into a lost breakdown.
                 logger.warning(
                     "SES metric query failed",
                     extra={
                         "query": query_subjects.get(error.get("Id", "")),
                         "code": error.get("Code"),
-                        "message": error.get("Message"),
+                        "error_message": error.get("Message"),
                     },
                 )
 

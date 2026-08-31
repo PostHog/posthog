@@ -649,6 +649,38 @@ class TestGetIdentityIspMetrics(TestCase):
             ("2026-08-02", 100, 0.2),
         ]
 
+    def test_a_partial_query_failure_leaves_the_other_metrics_intact(self):
+        # SES reports per-query failures in Errors while still returning Results. Logging one used
+        # to raise KeyError, because "message" is reserved on LogRecord, so a single failed query
+        # took down the whole breakdown instead of understating one metric.
+        def respond(Queries):
+            return {
+                "Results": [
+                    {"Id": q["Id"], "Timestamps": [datetime(2026, 8, 1, tzinfo=UTC)], "Values": [100]}
+                    for q in Queries
+                    if q["Metric"] == "SEND"
+                ],
+                "Errors": [
+                    {"Id": q["Id"], "Code": "ACCESS_DENIED", "Message": "denied"}
+                    for q in Queries
+                    if q["Metric"] != "SEND"
+                ],
+            }
+
+        self.mock_client.batch_get_metric_data.side_effect = lambda Queries: respond(Queries)
+
+        # assertLogs raises the level so the record is actually built. Without it the warning is
+        # gated out under pytest and never reaches makeRecord, which is how the reserved-key crash
+        # stayed invisible in tests while failing in production, where WARNING is enabled.
+        with self.assertLogs("products.workflows.backend.providers.ses", level="WARNING") as logs:
+            rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail"])
+
+        assert any("SES metric query failed" in line for line in logs.output)
+        assert [row.isp for row in rows] == ["Gmail"]
+        assert rows[0].emails_sent == 100
+        # The failed metrics stay at zero rather than removing the provider.
+        assert rows[0].delivery_rate == 0.0
+
     def test_daily_series_skips_buckets_with_no_sends(self):
         self._serve_series(
             {

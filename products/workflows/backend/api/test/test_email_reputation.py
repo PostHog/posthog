@@ -75,6 +75,7 @@ class TestEmailReputationAPI(APIBaseTest):
             "aws": None,
             "reputation": None,
             "workflows": [],
+            "isps": [],
             "email_sending_suspended": False,
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
