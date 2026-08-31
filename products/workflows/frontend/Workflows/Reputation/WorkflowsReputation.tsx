@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -163,8 +161,9 @@ function DeliveryTrend({ isp }: { isp: IspSendingHealthApi }): JSX.Element | nul
 }
 
 function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_ISP_SENDING_HEALTH] || isps.length === 0) {
+    // The API returns [] unless the flag and access checks pass on its side, so gating on isps alone
+    // keeps one decision. A second client flag check can bucket differently and hide returned rows.
+    if (isps.length === 0) {
         return null
     }
     return (
