@@ -3142,6 +3142,25 @@ class _ScriptedReader:
         pass
 
 
+class TestQuietRunSlotAdvance:
+    """A run that decodes nothing releases the WAL it examined, so a quiet publication on a busy
+    source stops retaining WAL until the lag safety net drops the slot. The peek must have reached
+    the end of the backlog first: a short read leaves records below that position unexamined."""
+
+    @pytest.mark.parametrize("drained,expected_advances", [(True, ["0/900"]), (False, [])])
+    def test_quiet_run_advances_only_after_the_backlog_drained(self, drained, expected_advances):
+        source = _make_source()
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [_make_schema("users", source=source)]
+        act.reader = MagicMock(last_commit_end_lsn=None)
+        act._pre_read_position = "0/900"
+        act._backlog_drained = drained
+
+        act._handle_no_changes([])
+
+        assert [c.args[0] for c in act.reader.confirm_position.call_args_list] == expected_advances
+
+
 class TestSuccessRepaintGuards:
     """A run finishing after the sweeper marked the source broken must not repaint the schema
     healthy — that hides the breakage from the UI and from the failure digest email."""
@@ -3301,48 +3320,6 @@ class TestCDCBoundedReadLoop:
 
         assert len(reader.upto_nchanges_calls) == 1  # no second peek despite a full page
         assert schema.status == "Completed"  # the run still finalizes what it read
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
-    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_no_events_on_an_undrained_backlog_leaves_the_slot(
-        self,
-        mock_close_conns,
-        MockJob,
-        MockSourceModel,
-        mock_get_schemas,
-        mock_get_adapter,
-        MockS3Writer,
-        MockProducer,
-        mock_activity,
-        monkeypatch,
-    ):
-        # A full page whose rows all decode to nothing we sync, stopped by the deadline before the
-        # backlog drained. The pre-read position covers WAL this run never looked at, so advancing
-        # to it would drop the unread tail.
-        monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDC_READ_SOFT_DEADLINE_SECONDS", 0
-        )
-        reader = _ScriptedReader([([], CDC_MAX_CHANGES_PER_READ, None)])
-
-        self._run_with_reader(
-            mock_activity,
-            MockProducer,
-            MockS3Writer,
-            mock_get_adapter,
-            mock_get_schemas,
-            MockSourceModel,
-            MockJob,
-            mock_close_conns,
-            reader,
-        )
-
-        assert reader.confirmed_positions == []
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
