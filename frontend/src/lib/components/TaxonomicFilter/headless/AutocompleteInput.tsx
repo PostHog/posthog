@@ -1875,8 +1875,9 @@ export function useTaxonomicAutocompleteShortcutItems(): {
                 // never set `group.excludedProperties`, so read that root map keyed by the source group too.
                 const rootExcluded = sourceGroupType ? excludedProperties?.[sourceGroupType] : undefined
                 const isExcluded =
-                    entry?.group.excludedProperties?.includes(pinnedValue as string) ||
-                    rootExcluded?.includes(pinnedValue as string)
+                    pinnedValue != null &&
+                    (entry?.group.excludedProperties?.includes(pinnedValue as string) ||
+                        rootExcluded?.includes(pinnedValue))
                 if (isExcluded) {
                     return null
                 }

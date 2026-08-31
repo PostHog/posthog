@@ -520,7 +520,7 @@ export interface infiniteListLogicMeta {
         contextFilteredPinnedItems: (
             pinnedFilterItems: TaxonomicDefinitionTypes[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            excludedProperties: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined
+            arg: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined
         ) => TaxonomicDefinitionTypes[]
         isSoleSubstantiveGroup: (
             listGroupType: TaxonomicFilterGroupType,
