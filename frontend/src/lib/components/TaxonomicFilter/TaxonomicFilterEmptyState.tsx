@@ -114,7 +114,9 @@ const DataWarehouseEmptyState = ({ isLoading = false }: { isLoading?: boolean })
     // Carry the current page so the source wizard can send the user back here after they add a
     // source, instead of stranding them on the wizard with no way to return.
     const returnUrl = `${currentLocation.pathname}${currentLocation.search}${currentLocation.hash}`
-    const returnLabel = sceneConfig?.name ?? 'the previous page'
+    // Some scenes (the shared metric editor) configure an empty name. An empty label is dropped
+    // downstream and strands the user, so fall back on any falsy value, not just null/undefined.
+    const returnLabel = sceneConfig?.name || 'the previous page'
 
     return (
         <EmptyState
