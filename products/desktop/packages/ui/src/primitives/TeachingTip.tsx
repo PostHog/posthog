@@ -11,6 +11,7 @@ import {
   isHintRetired,
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
+import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
@@ -78,20 +79,25 @@ export function TeachingTip({
     setOffered({ open, moment });
     if (open) setHidden(false);
   }
-  const episode = useRef({ showing: false, recorded: false });
+  const inFront = useRendererWindowFocusStore((state) => state.focused);
+  const episode = useRef({ recorded: false });
   const offerable =
     tipsEnabled &&
     !isHintRetired(id, discountOwnShowing(hint, episode.current.recorded));
   const showing = open && offerable && hydrated && !hidden;
   useEffect(() => {
-    if (showing && !episode.current.showing) {
-      episode.current.recorded = true;
-      useSettingsStore.getState().recordHintShown(id);
-    } else if (!showing) {
+    if (!showing) {
       episode.current.recorded = false;
+      return;
     }
-    episode.current.showing = showing;
-  }, [showing, id]);
+    // A turn ending puts the tip back up whether or not anybody is watching,
+    // and turns run long enough that the window is often behind another app by
+    // then. Nothing is taught there, so spend the showing once the window comes
+    // back in front. Focus leaving and returning is still the same showing.
+    if (!inFront || episode.current.recorded) return;
+    episode.current.recorded = true;
+    useSettingsStore.getState().recordHintShown(id);
+  }, [showing, inFront, id]);
 
   return (
     <Popover

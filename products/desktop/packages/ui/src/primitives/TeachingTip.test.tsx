@@ -2,6 +2,7 @@ import {
   DEFAULT_HINT_MAX,
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
+import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
 import { Theme } from "@radix-ui/themes";
 import {
   act,
@@ -23,7 +24,13 @@ beforeEach(() => {
     tipsEnabled: true,
     _hasHydrated: true,
   });
+  // Whether the test runner's document reports focus is beside the point of
+  // every test that is not about it.
+  useRendererWindowFocusStore.setState({ focused: true });
 });
+
+const windowInFront = (focused: boolean) =>
+  act(() => useRendererWindowFocusStore.setState({ focused }));
 
 function tip(id: string, open: boolean, moment?: number) {
   return (
@@ -105,6 +112,42 @@ describe("TeachingTip", () => {
       await expectNoTip();
     },
   );
+
+  // Turns run long enough that people leave, and every one of them takes the
+  // tip down and puts it back. Counting those would run the lesson out behind
+  // another app's window, before anybody had a chance to read it.
+  it("spends no showings while the window is not in front", async () => {
+    windowInFront(false);
+    const { rerender } = render(tip("tip-away", true, 1));
+
+    for (let turn = 1; turn <= DEFAULT_HINT_MAX + 1; turn++) {
+      rerender(tip("tip-away", false, turn));
+      rerender(tip("tip-away", true, turn));
+    }
+    rerender(tip("tip-away", false, DEFAULT_HINT_MAX + 2));
+    await expectNoTip();
+    windowInFront(true);
+    rerender(tip("tip-away", true, DEFAULT_HINT_MAX + 2));
+
+    await findTip();
+  });
+
+  // Coming back to the window is not the tip appearing again; it is the same
+  // one, still up, still unread.
+  it("spends one showing however often the window loses focus", async () => {
+    const { rerender } = render(tip("tip-flapping", true, 1));
+    await findTip();
+
+    for (let flap = 0; flap < DEFAULT_HINT_MAX; flap++) {
+      windowInFront(false);
+      windowInFront(true);
+    }
+    rerender(tip("tip-flapping", false, 1));
+    await expectNoTip();
+    rerender(tip("tip-flapping", true, 2));
+
+    await findTip();
+  });
 
   // "Hide" writes the same `hints` entry the toast hints answer, so a lesson
   // learned from either surface ends for both.
