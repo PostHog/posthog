@@ -452,6 +452,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             # follows a merge: an event sent under an anonymous distinct id reports the person it
             # was later merged into. Matching on it reaches pre-identification sessions directly,
             # the same way the person profile's replay tab does.
+            #
+            # This trusts person_distinct_id_overrides to hold the merge. A merge that reached
+            # person_distinct_ids but not the overrides table would be missed here and found by
+            # the distinct-id expansion below, which reads the other table. The two are written
+            # by the same merge path, so they only diverge while one lags.
             return self._build_sessions_query(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
