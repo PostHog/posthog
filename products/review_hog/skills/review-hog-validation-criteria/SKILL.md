@@ -37,6 +37,14 @@ Keep it if the flagged code, as written and as actually reached, would cause one
   quadratic behavior.
 - **Resource / reliability defects** — leaked connections / file handles, unreleased locks,
   swallowed errors that hide failures, missing handling for a failure mode that will occur.
+- **Needless complexity the PR itself introduces** — dead code, an option or parameter nothing
+  reads, an abstraction with a single implementation, a defensive guard for a state upstream types
+  or validation already rule out, an unreachable fallback. Keep it only when the finding names the
+  concrete mechanism, the evidence it is unneeded (call sites counted, types checked, or the
+  existing utility it duplicates), and a removal that is safe. This is the inverse of the
+  overengineering drop below: that bullet drops asks to **add** machinery; a grounded ask to
+  **delete** machinery the PR added is a real maintainability problem, even though removing it
+  changes no behavior.
 
 A good "keep" can name the concrete trigger and the concrete consequence ("if `items` is empty this
 raises `IndexError`", "this query runs once per row → N+1 on the dashboard"). If you can't name both,
@@ -46,8 +54,9 @@ be skeptical.
 
 Drop it if it is any of:
 
-- **Overengineering** — "extract this", "add an abstraction/interface", "make it configurable",
-  "future-proof for a case that isn't in scope".
+- **Overengineering** — asks to add machinery: "extract this", "add an abstraction/interface",
+  "make it configurable", "future-proof for a case that isn't in scope". (An evidence-backed ask to
+  _remove_ machinery the PR added falls under the needless-complexity keep above, not here.)
 - **Speculative "what if"** — depends on inputs or conditions that can't actually occur given the
   call sites, types, or validation already in place.
 - **Defensive-coding paranoia** — guarding against `None`/errors that upstream types or invariants
