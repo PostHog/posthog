@@ -82,23 +82,14 @@ ACTIVITY_RETRY_POLICY = RetryPolicy(
 
 
 class SandboxPhaseError(Exception):
-    """Marks the review activity's paid phase: the attempt provisioned a sandbox, or found that an
-    earlier attempt already did.
-
-    Nothing retries yet, so today this only names the phase in the failure record. It is the marker
-    a later retry policy excludes, so a provisioned box and a reviewer agent that ran are never paid
-    for twice. See SANDBOX_RETRY_POLICY.
+    """Marks the paid phase of the review activity: this attempt made a sandbox, or found the claim
+    of an earlier one. SANDBOX_RETRY_POLICY excludes this type, so no run pays for a review twice.
     """
 
 
-# Still one attempt. The review activity's setup (database reads, the GitHub installation token, the
-# minted gateway token) costs nothing and is safe to repeat, so it should retry, and the activity now
-# carries what makes that safe: SandboxPhaseError marks the paid phase, and the run records the claim
-# that stops a timeout or a lost worker provisioning a second sandbox.
-#
-# Raising maximum_attempts belongs in a separate change that lands after this one has rolled out.
-# Workflow and activity tasks share one unversioned queue, so during a rolling deploy a new workflow
-# worker would schedule against an old activity worker, which writes no claim and raises no marker.
-# A paid-phase failure there would retry and bill a second review. Once every worker carries the
-# marker and the claim, the policy can move.
+# One attempt. The activity setup costs nothing and is safe to repeat, and the activity marks its
+# paid phase and records a claim. A higher count belongs in a later change, after this one is on
+# every worker: workflow and activity tasks share one unversioned queue, so a rolling deploy lets a
+# new workflow worker schedule against an old activity worker that writes no claim. A paid-phase
+# failure would then bill a second review.
 SANDBOX_RETRY_POLICY = RetryPolicy(maximum_attempts=1)

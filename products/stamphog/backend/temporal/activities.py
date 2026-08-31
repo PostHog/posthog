@@ -484,25 +484,16 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         environment_variables=environment,
         outbound_domain_allowlist=_sandbox_egress_allowlist(),
     )
-    # Everything above this line is free to repeat, so it keeps its own exception type and stays
-    # retryable. From the create() call on, the run has provisioned infrastructure and may have paid
-    # an LLM bill, so every failure leaves as a SandboxPhaseError and SANDBOX_RETRY_POLICY stops.
+    # The steps above cost nothing and keep their own exception type. From here the run makes a
+    # sandbox and can run the reviewer, so failures raise SandboxPhaseError, which the retry policy
+    # excludes. Both statements stay outside the try below, so the refusal keeps its own type and a
+    # failed write stays retryable.
     #
-    # The marker cannot be the only guard. Temporal enforces the start-to-close timeout itself and
-    # retries a lost worker, and neither path raises anything this function could mark. So record
-    # that the paid phase began, and refuse an attempt that finds the record: one run provisions at
-    # most one sandbox, whatever ended the attempt before it. Both sit outside the try below: the
-    # refusal must not be re-wrapped, and a failed stamp write is a plain database error over work
-    # that has cost nothing yet, so it stays retryable.
-    # Read the claim from the writer instead of trusting the copy loaded at the top of this activity.
-    # The two attempts that can reach here are separated by the start-to-close timeout, so an attempt
-    # that stalled through its own timeout sees the replacement's claim here and stops rather than
-    # provisioning beside it. Merging onto this row also keeps whatever the replacement wrote.
-    #
-    # This is a read then a write, not an atomic claim: two attempts interleaving between the two
-    # statements would both pass. Accepted, because reaching that needs one attempt to resume in the
-    # same instant its own 30-minute timeout fires. Closing it properly needs a dedicated column and
-    # a conditional update.
+    # Temporal applies the start-to-close timeout and retries a lost worker. Neither path raises a
+    # type this code can mark, so the claim is what stops a second sandbox. Read it from the writer,
+    # because a stalled attempt holds a copy from before its replacement wrote. Read and then write
+    # is not atomic: two attempts in the same instant both pass. A column and a conditional update
+    # would close that.
     latest_output = (
         ReviewRun.objects.for_team(input.team_id)
         .using(router.db_for_write(ReviewRun))
@@ -543,20 +534,17 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         run.save(update_fields=["output", "updated_at"])
 
         if result.exit_code != 0:
-            # The reviewer ran over an untrusted PR head, so its stderr can carry repository content
-            # and anything a contributor put where the engine would echo it. Keep that in the worker
-            # log and raise without it, because the text below now reaches run.error.
+            # The reviewer reads an untrusted PR head, so its stderr can contain repository content.
+            # This message reaches run.error, so keep the stderr in the worker log only.
             activity.logger.error(
                 f"Reviewer exited with code {result.exit_code} for run {run.id}: "
                 f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
             )
             raise RuntimeError(f"reviewer exited with code {result.exit_code}")
     except Exception as exc:
-        # Name the failing type and nothing else. Every step in this phase touches the sandbox, whose
-        # output derives from an untrusted PR head, and this message reaches run.error, which anyone
-        # with stamphog:read can read without access to the repository. The setup phase above keeps
-        # its full text: it fails on our own infrastructure, which is what has to be diagnosable, and
-        # the workflow logs the complete error either way.
+        # Give the type only. Every step in this phase touches the sandbox, and anyone with
+        # stamphog:read can read run.error without access to the repository. The setup phase above
+        # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
         raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
 
     activity.logger.info(f"Reviewer completed for run {run.id}")
@@ -1153,10 +1141,8 @@ def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) ->
     try:
         overlay = yaml.safe_load(repo_text)
     except yaml.YAMLError as exc:
-        # PyYAML quotes the offending source, and an unknown tag puts repo-defined text on the very
-        # first line, which is the part that survives into run.error. That field is readable with
-        # stamphog:read by people who need no access to the repository, so keep the parser's own
-        # text in the worker log and raise without it.
+        # PyYAML puts the bad tag on the first line, and run.error keeps that line. Anyone with
+        # stamphog:read can read it without access to the repository, so log the parser text instead.
         activity.logger.error(f"Malformed YAML in .stamphog/policy.yml for {repo}: {exc}")
         raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
     if not isinstance(overlay, dict):

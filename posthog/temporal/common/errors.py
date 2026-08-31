@@ -60,15 +60,11 @@ def resolve_exception_class(exc: BaseException) -> str:
 
 
 def describe_failure(exc: BaseException) -> str:
-    """Render "OriginalType: message" for a failure recorded outside the worker logs.
+    """Name the exception that failed, for a record kept outside the worker logs.
 
-    ``str()`` of an ``ActivityError`` is always "Activity task failed", so a record built from it
-    identifies nothing. ``ApplicationError`` already prefixes its own ``type``, which Temporal fills
-    with the original class name, so the unwrapped cause needs no prefix of its own. A plain Python
-    exception (raised in-process, or by a test harness that drives activities directly) carries no
-    type anywhere in its text, so name it here.
-
-    The result is bounded because it usually rides a Temporal payload.
+    ``str()`` of an ``ActivityError`` is always "Activity task failed". ``ApplicationError`` prints
+    its own ``type``, which Temporal sets to the original class name. A plain exception prints no
+    type, so this function adds it. The result goes in a Temporal payload, so it has a size limit.
     """
     cause: BaseException = unwrap_temporal_cause(exc) or exc
     described = str(cause) if isinstance(cause, ApplicationError) else f"{type(cause).__name__}: {cause}"
