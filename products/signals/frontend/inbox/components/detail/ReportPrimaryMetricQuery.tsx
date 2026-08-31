@@ -90,6 +90,25 @@ export function ReportPrimaryMetricQuery({
                             </div>
                             <span className="text-xs text-tertiary">Current window</span>
                         </>
+                    ) : snapshot ? (
+                        <>
+                            <div className="text-2xl font-semibold leading-tight tabular-nums text-primary">
+                                {snapshot}
+                            </div>
+                            <p className="m-0 text-xs text-tertiary">
+                                No value for this window. Showing the latest saved value.
+                            </p>
+                            {metric.value_at ? (
+                                <span className="text-xs text-tertiary">
+                                    Measured <TZLabel time={metric.value_at} />
+                                </span>
+                            ) : null}
+                            {metric.comparison && formattedComparison ? (
+                                <span className="text-xs text-tertiary">
+                                    {metric.comparison.label}: {formattedComparison}
+                                </span>
+                            ) : null}
+                        </>
                     ) : (
                         <span className="text-xs text-tertiary">No value for this window.</span>
                     )}

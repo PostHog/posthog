@@ -291,6 +291,24 @@ describe('ReportMetrics', () => {
         expect(screen.getByText('Previous window: 5 users')).toBeInTheDocument()
     })
 
+    it('falls back to the saved primary value when the live query returns no series', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': [200, { result: [] }],
+            },
+        })
+
+        render(
+            <ReportMetrics reportId="empty-series-primary" metrics={[makeMetric({ role: 'primary', comparison })]} />
+        )
+
+        expect(
+            await screen.findByText(/No value for this window\. Showing the latest saved value\./)
+        ).toBeInTheDocument()
+        expect(screen.getByText('9 users')).toBeInTheDocument()
+        expect(screen.getByText('Previous window: 5 users')).toBeInTheDocument()
+    })
+
     it('shows the saved primary value without a load error when the query is omitted', () => {
         render(<ReportMetrics reportId="omitted-primary" metrics={[makeMetric({ role: 'primary', query: null })]} />)
 
