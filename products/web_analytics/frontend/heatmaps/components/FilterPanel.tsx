@@ -8,6 +8,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { SectionSetting } from 'lib/components/heatmaps/HeatMapsSettings'
+import { HeatmapEventFilter } from 'lib/components/heatmaps/types'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -204,7 +205,12 @@ export function FilterPanel({
                                             bordered
                                             filters={{ events: commonFilters?.events ?? [] }}
                                             setFilters={(filters) => {
-                                                setCommonFilters?.({ ...commonFilters, events: filters.events ?? [] })
+                                                setCommonFilters?.({
+                                                    ...commonFilters,
+                                                    // ActionFilter types events as the loose Record shape; narrow
+                                                    // back to what heatmapDataLogic serializes.
+                                                    events: (filters.events ?? []) as HeatmapEventFilter[],
+                                                })
                                             }}
                                             typeKey="heatmap-events"
                                             buttonCopy="Add event"

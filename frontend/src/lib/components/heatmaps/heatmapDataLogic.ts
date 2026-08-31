@@ -711,6 +711,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         setCommonFilters: () => {
+            // The open drill-down lists interactions for the filters it was opened with. Close it so it
+            // can't show sessions the new filters exclude; the user reselects a hotspot on the new overlay.
+            actions.clearSelectedArea()
             actions.loadHeatmap()
         },
         setHeatmapFilters: () => {

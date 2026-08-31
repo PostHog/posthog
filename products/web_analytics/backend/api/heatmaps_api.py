@@ -102,6 +102,9 @@ EVENT_FILTER_SESSION_BUFFER = timedelta(days=1)
 # project's HogQL database exposes. Accept only the types the heatmap filter offers.
 EVENT_FILTER_PROPERTY_TYPES = frozenset({"element", "event"})
 
+# Each selected event adds one events-table session subquery, so cap how many a request can stack.
+MAX_EVENT_FILTERS = 10
+
 logger = structlog.get_logger(__name__)
 
 HEATMAP_CONTENT_REQUESTS = Counter(
@@ -388,6 +391,8 @@ class HeatmapsRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("events must be valid JSON")
         if not isinstance(events, list) or not all(isinstance(entity, dict) for entity in events):
             raise serializers.ValidationError("events must be a JSON array of event objects")
+        if len(events) > MAX_EVENT_FILTERS:
+            raise serializers.ValidationError(f"events cannot have more than {MAX_EVENT_FILTERS} entries")
         for entity in events:
             if not isinstance(entity.get("id"), str):
                 raise serializers.ValidationError("each event must have a string 'id'")
