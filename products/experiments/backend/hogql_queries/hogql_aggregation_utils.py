@@ -84,7 +84,16 @@ def extract_aggregation_and_inner_expr(
             # Most aggregation functions take the expression as the first argument
             inner_expression = expr.args[0]
         else:
-            # For functions like count() with no arguments, we emit 1
+            # A missing argument is only valid for aggregates that support zero args, like count().
+            # sum(), avg(), uniqExact(), and countIf() need one argument. HogQL rejects the empty
+            # call, but the rebuild would aggregate a per-row constant 1 and report a wrong number,
+            # so reject it instead.
+            if not _aggregation_allows_no_args(aggregation_function):
+                raise ValidationError(
+                    f"The aggregation {aggregation_function}() must take an argument, e.g. sum(properties.revenue). "
+                    "Only count() can be used without one."
+                )
+            # count() and other zero-argument aggregates aggregate a per-row 1.
             inner_expression = ast.Constant(value=1)
 
         # Extract parameters for parametric aggregations (e.g., quantile(0.90))
@@ -139,6 +148,20 @@ _NON_NUMERIC_AGGREGATIONS = frozenset(
 def aggregation_needs_numeric_input(function_name: str) -> bool:
     """Check if an aggregation function requires numeric input (i.e. needs toFloat wrapping)."""
     return function_name.lower() not in _NON_NUMERIC_AGGREGATIONS
+
+
+def _aggregation_allows_no_args(function_name: str) -> bool:
+    """Whether an aggregation is valid with no arguments, e.g. count(). Reads the arity metadata."""
+    normalized_name = function_name.lower()
+    for name, meta in HOGQL_AGGREGATIONS.items():
+        if name.lower() == normalized_name:
+            return meta.min_args == 0
+    for functions_dict in (HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS):
+        meta = functions_dict.get(normalized_name)
+        if meta is not None:
+            return meta.min_args == 0
+    # An aggregate always resolves in one of the dicts above; keep the old fallback if it does not.
+    return True
 
 
 def build_aggregation_call(

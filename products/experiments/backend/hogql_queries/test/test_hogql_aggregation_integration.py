@@ -58,6 +58,10 @@ class TestHogQLAggregationIntegration(BaseTest):
             # case has none, so both branches of the extraction must reject it.
             ("filter_where", "sum(properties.revenue) FILTER (WHERE properties.paid)"),
             ("within_group", "quantile(0.5) WITHIN GROUP (ORDER BY properties.revenue)"),
+            # A missing argument used to fall back to a per-row 1, so sum() reported an event count.
+            # Only count() may be used without an argument.
+            ("sum_no_args", "sum()"),
+            ("count_if_no_args", "countIf()"),
         ]
     )
     def test_rejects_compound_aggregate_expressions(self, _name: str, expr: str):
