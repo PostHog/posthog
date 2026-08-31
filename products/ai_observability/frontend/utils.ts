@@ -10,7 +10,7 @@ import { hogql } from '~/queries/utils'
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
     EVALUATION_NOT_SKIPPED_HOGQL,
-    EVALUATION_PASSED_HOGQL,
+    EVALUATION_RESULT_TRUE_HOGQL,
     EVALUATION_RUNS_QUERY_LIMIT,
 } from './evaluations/constants'
 import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
@@ -1322,7 +1322,7 @@ export async function queryEvaluationRunsStats(params: {
         SELECT
             count() as total,
             countIf(properties.$ai_evaluation_result IS NOT NULL AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as applicable,
-            countIf(${hogql.raw(EVALUATION_PASSED_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as passed
+            countIf(${hogql.raw(EVALUATION_RESULT_TRUE_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as passed
         FROM events
         WHERE
             event = '$ai_evaluation'

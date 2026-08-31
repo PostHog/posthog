@@ -8,7 +8,13 @@ import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
-import { HogEvaluation, LLMJudgeEvaluation, SentimentEvaluation } from './types'
+import {
+    EvaluationConfig,
+    EvaluationOutputConfig,
+    HogEvaluation,
+    LLMJudgeEvaluation,
+    SentimentEvaluation,
+} from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
     {
@@ -51,6 +57,29 @@ const mockProviderKeys: LLMProviderKey[] = [
         api_version_display: null,
     },
 ]
+
+const evaluationWithOutputConfig = (id: string, outputConfig: EvaluationOutputConfig): EvaluationConfig =>
+    ({
+        id,
+        name: `Evaluation ${id}`,
+        description: '',
+        directory_id: null,
+        enabled: true,
+        status: 'active',
+        status_reason: null,
+        status_reason_detail: null,
+        evaluation_type: 'llm_judge',
+        evaluation_config: { prompt: 'Prompt' },
+        output_type: 'boolean',
+        output_config: outputConfig,
+        conditions: [],
+        target: 'generation',
+        target_config: {},
+        model_configuration: null,
+        total_runs: 0,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+    }) as EvaluationConfig
 
 const evaluationWithKey = (
     id: string,
@@ -340,6 +369,18 @@ describe('llmEvaluationsLogic', () => {
             logic.actions.restoreEvaluationSuccess(olderEvaluation)
 
             expect(logic.values.evaluations).toEqual([newerEvaluation, olderEvaluation])
+        })
+    })
+
+    describe('detectorEvaluationIds', () => {
+        it('lists only evaluations whose true result is a failure', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluationsSuccess([
+                    evaluationWithOutputConfig('detector', { true_is_failure: true }),
+                    evaluationWithOutputConfig('quality', { true_is_failure: false }),
+                    evaluationWithOutputConfig('legacy', {}),
+                ])
+            }).toMatchValues({ detectorEvaluationIds: ['detector'] })
         })
     })
 })

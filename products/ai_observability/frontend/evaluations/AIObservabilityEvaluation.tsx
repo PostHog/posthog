@@ -44,7 +44,7 @@ import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { EVALUATION_PASSED_HOGQL, EVALUATION_RUNS_QUERY_LIMIT } from './constants'
+import { EVALUATION_RESULT_TRUE_HOGQL, EVALUATION_RUNS_QUERY_LIMIT } from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReports,
@@ -147,7 +147,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                   event: '$ai_evaluation',
                                   custom_name: `${evaluation.name} — Pass rate`,
                                   math: HogQLMathType.HogQL,
-                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${EVALUATION_PASSED_HOGQL}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
+                                  math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${EVALUATION_RESULT_TRUE_HOGQL}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
                                   properties: [
                                       {
                                           key: '$ai_evaluation_id',

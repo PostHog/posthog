@@ -10,7 +10,7 @@ import { ChartDisplayType, HogQLMathType, PropertyFilterType, PropertyOperator }
 
 // eslint-disable-next-line import/no-cycle
 import { PASS_RATE_SUCCESS_THRESHOLD } from './components/EvaluationMetrics'
-import { EVALUATION_PASSED_HOGQL } from './constants'
+import { EVALUATION_RESULT_TRUE_HOGQL } from './constants'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig } from './types'
 
@@ -205,7 +205,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                                 properties.$ai_evaluation_id as evaluation_id,
                                 count() as runs_count,
                                 countIf(properties.$ai_evaluation_result IS NOT NULL) as applicable_count,
-                                countIf(${EVALUATION_PASSED_HOGQL}) as pass_count
+                                countIf(${EVALUATION_RESULT_TRUE_HOGQL}) as pass_count
                             FROM events
                             WHERE event = '$ai_evaluation' AND {filters}
                             GROUP BY evaluation_id
@@ -321,7 +321,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                             event: '$ai_evaluation',
                             math: HogQLMathType.HogQL,
                             // Pass rate excludes N/A results, returns 0 if all results are N/A
-                            math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${EVALUATION_PASSED_HOGQL}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
+                            math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${EVALUATION_RESULT_TRUE_HOGQL}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
                             properties: [
                                 {
                                     key: '$ai_evaluation_id',
