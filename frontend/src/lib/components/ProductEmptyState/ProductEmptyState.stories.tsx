@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 
 import type { Mocks } from '~/mocks/utils'
 
+import { actionsEmptyState } from 'products/actions/frontend/emptyState/actionsEmptyState'
 import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
@@ -166,3 +167,12 @@ export const ReplayVisionNeedsSetup: ProductEmptyStateStory = productEmptyStateS
         },
     }
 )
+
+// Actions detection lists actions on mount - answer "none yet".
+const actionsMocks = {
+    get: { '/api/projects/:team_id/actions/': [200, { count: 0, results: [] }] },
+} as const
+
+export const ActionsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(actionsEmptyState, 'needs-setup', {
+    mocks: actionsMocks,
+})
