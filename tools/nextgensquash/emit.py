@@ -18,6 +18,8 @@ from django.db.migrations.writer import MigrationWriter  # noqa: E402
 
 import networkx as nx
 
+from posthog.migration_helpers import squash_idempotent
+
 from . import cyclebreak, planning
 
 
@@ -798,7 +800,7 @@ class Emitter:
                 replaces=[],
                 atomic=False,  # CREATE INDEX CONCURRENTLY can't run inside a transaction
             )
-            return [stub, initial, addons]
+            return self._single_leaf([stub, initial, addons])
 
         # Build a model_name -> ModelState map to look up each field's Field instance.
         models_by_name = {ms.name.lower(): ms for ms in self._models_in_app()}
@@ -812,7 +814,7 @@ class Emitter:
             if field is None:
                 continue
             addfield_ops.append(
-                dj_migrations.AddField(
+                squash_idempotent.AddFieldIfMissing(
                     model_name=fk.from_model,
                     name=fk.field_name,
                     field=field,
@@ -821,16 +823,18 @@ class Emitter:
             finalize_dep_apps.add(fk.to_app)
         # Re-add any indexes/constraints we lifted out of the initial CreateModels.
         for model_name, idx in deferred_indexes:
-            addfield_ops.append(dj_migrations.AddIndex(model_name=model_name, index=idx))
+            addfield_ops.append(squash_idempotent.AddIndexIfMissing(model_name=model_name, index=idx))
         for model_name, c in deferred_constraints:
-            addfield_ops.append(dj_migrations.AddConstraint(model_name=model_name, constraint=c))
+            addfield_ops.append(squash_idempotent.AddConstraintIfMissing(model_name=model_name, constraint=c))
         # Restore the full unique_together / index_together sets now that every
         # deferred field exists.
         for model_name, key, full in deferred_togethers:
             if key == "unique_together":
-                addfield_ops.append(dj_migrations.AlterUniqueTogether(name=model_name, unique_together=full))
+                addfield_ops.append(
+                    squash_idempotent.AlterUniqueTogetherIfMissing(name=model_name, unique_together=full)
+                )
             else:
-                addfield_ops.append(dj_migrations.AlterIndexTogether(name=model_name, index_together=full))
+                raise RuntimeError(f"index_together deferral for {model_name} has no idempotent emitter")
 
         # finalize_fks depends on this app's initial + every foreign app's
         # initial, so its target tables exist. We deliberately do NOT depend on
@@ -848,7 +852,7 @@ class Emitter:
             replaces=[],
         )
         if not addon_ops:
-            return [stub, initial, finalize]
+            return self._single_leaf([stub, initial, finalize])
         addons = SquashFile(
             app=self.app,
             name=self.SCHEMA_ADDONS_NAME,
@@ -857,7 +861,24 @@ class Emitter:
             replaces=[],
             atomic=False,
         )
-        return [stub, initial, finalize, addons]
+        return self._single_leaf([stub, initial, finalize, addons])
+
+    def _single_leaf(self, files: list[SquashFile]) -> list[SquashFile]:
+        """Make the last squash file depend on the app's last young migration.
+
+        Without this edge the app has two leaves (young chain + squash tail)
+        and Django refuses to migrate. The edge points squash -> young, never
+        young -> squash: on an existing DB the young migration is applied
+        while finalize/addons are not, and an applied migration with an
+        unapplied empty-replaces parent fails check_consistent_history. The
+        reversed edge is safe because every finalize/addons op is idempotent —
+        on existing DBs they run once as fast no-ops and get recorded.
+        """
+        young_names = [m.ref.name for m in self.squasher.young.values() if m.ref.app == self.app]
+        if young_names:
+            leaf = files[-1]
+            leaf.dependencies = sorted({*leaf.dependencies, (self.app, max(young_names))})
+        return files
 
 
 class FileWriter:
