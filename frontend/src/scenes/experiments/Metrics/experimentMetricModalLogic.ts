@@ -26,6 +26,7 @@ export interface experimentMetricModalLogicValues {
     isCreateMode: boolean
     isEditMode: boolean
     isModalOpen: boolean
+    isSavingMetric: boolean
     metric: ExperimentMetric | null
 }
 
@@ -40,6 +41,9 @@ export interface experimentMetricModalLogicActions {
     ) => {
         context: MetricContext
         metric: ExperimentMetricUnion | undefined
+    }
+    setIsSavingMetric: (isSaving: boolean) => {
+        isSaving: boolean
     }
     setMetric: (metric?: ExperimentMetric) => {
         metric: ExperimentMetricUnion | undefined
@@ -67,6 +71,7 @@ export const experimentMetricModalLogic = kea<experimentMetricModalLogicType>([
         openExperimentMetricModal: (context: MetricContext, metric?: ExperimentMetric) => ({ metric, context }),
         closeExperimentMetricModal: true,
         setMetric: (metric?: ExperimentMetric) => ({ metric }),
+        setIsSavingMetric: (isSaving: boolean) => ({ isSaving }),
     }),
 
     reducers({
@@ -96,6 +101,14 @@ export const experimentMetricModalLogic = kea<experimentMetricModalLogicType>([
             false,
             {
                 openExperimentMetricModal: (_, { metric }) => !!metric,
+                closeExperimentMetricModal: () => false,
+            },
+        ],
+        isSavingMetric: [
+            false,
+            {
+                setIsSavingMetric: (_, { isSaving }) => isSaving,
+                openExperimentMetricModal: () => false,
                 closeExperimentMetricModal: () => false,
             },
         ],

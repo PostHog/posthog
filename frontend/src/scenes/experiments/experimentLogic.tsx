@@ -2961,7 +2961,9 @@ export const experimentLogic = kea<experimentLogicType>([
             })
         },
         updateExposureCriteria: async () => {
-            actions.updateExperiment({
+            // Await the save before refreshing so results recompute against the persisted criteria,
+            // matching updateExperimentSettings below.
+            await asyncActions.updateExperiment({
                 exposure_criteria: {
                     ...values.experiment.exposure_criteria,
                 },

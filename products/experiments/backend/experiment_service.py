@@ -3751,8 +3751,19 @@ class ExperimentService:
                         base_snapshot_sent=original_experiment is not None,
                     )
                     return experiment
-                locked_conflict = ExperimentVersionConflict(current_version=locked_version)
-                if client_version is not None:
+                # The racer changed real state, so re-run the same merge against the now-locked
+                # row instead of rejecting outright. A write that touches only fields the racer
+                # left alone merges cleanly and saves; only a genuine same-field or same-metric
+                # overlap conflicts. Rejecting here unconditionally is what made an unrelated
+                # version bump (commonly the running-time calculator's auto-save on results load)
+                # 409 a user's metric save with an empty conflicting_fields list.
+                if update_saved_metrics:
+                    # saved_metrics_ids was popped out of update_data above; restore it so the
+                    # re-merge reconciles saved-metric links too, then take the merged result back.
+                    update_data["saved_metrics_ids"] = saved_metrics_data
+                try:
+                    self._resolve_concurrent_update(experiment, update_data, original_experiment, locked_version)
+                except ExperimentVersionConflict as locked_conflict:
                     self._report_update_conflict(
                         experiment,
                         request=report_request,
@@ -3761,7 +3772,17 @@ class ExperimentService:
                         base_snapshot_sent=original_experiment is not None,
                         conflict=locked_conflict,
                     )
-                raise locked_conflict
+                    raise
+                if update_saved_metrics:
+                    saved_metrics_data = update_data.pop("saved_metrics_ids", []) or []
+                self._report_update_conflict(
+                    experiment,
+                    request=report_request,
+                    resolution="merged",
+                    versions_behind=locked_version - client_version,
+                    base_snapshot_sent=original_experiment is not None,
+                    merged_fields=sorted(set(update_data) - {"get_feature_flag_key"}),
+                )
             update_data["version"] = locked_version + 1
 
             # --- saved metrics sync (update-in-place) -----------

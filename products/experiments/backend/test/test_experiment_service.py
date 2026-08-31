@@ -2151,6 +2151,70 @@ class TestExperimentService(APIBaseTest):
         assert stored.description == "their edit"
         assert stored.version == version + 1
 
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_unrelated_write_racing_the_lock_window_merges_instead_of_conflicting(self, mock_report_user_action):
+        # The running-time calculator auto-saves running_time_calculation on results load, bumping the
+        # version. When that lands in the window between a user's metric save resolving unlocked and its
+        # row lock, the save must still merge — the two edits touch different fields — instead of 409ing.
+        experiment = self._create_draft_experiment(flag_key="lock-window-merge")
+        service = self._service()
+        version = experiment.version or 0
+        stored_metric = (experiment.metrics or [])[0]
+        new_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "m2",
+            "source": {"kind": "EventsNode", "event": "signed_up"},
+        }
+        calculator_write = {"minimum_detectable_effect": 30, "recommended_running_time": 14}
+
+        with self._concurrent_write_in_lock_window(experiment.pk, running_time_calculation=calculator_write):
+            result = service.update_experiment(
+                experiment,
+                {
+                    "metrics": [stored_metric, new_metric],
+                    "version": version,
+                    "original_experiment": {"metrics": [stored_metric], "metrics_secondary": []},
+                },
+                serializer_context=service._build_serializer_context(),
+                allow_unknown_events=True,
+            )
+
+        # The metric was added and the calculator's concurrent write survives untouched.
+        assert result.version == version + 2
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert {metric["uuid"] for metric in (stored.metrics or [])} == {"m1", "m2"}
+        assert stored.running_time_calculation == calculator_write
+        assert stored.version == version + 2
+        concurrency_events = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment update concurrency"
+        ]
+        assert [call.args[2]["resolution"] for call in concurrency_events] == ["merged"]
+
+    def test_conflicting_write_racing_the_lock_window_names_the_field_when_a_base_is_sent(self):
+        # With a base snapshot the re-merge under the lock distinguishes a true same-field conflict from
+        # an unrelated one, so the 409 names the diverged field instead of coming back empty.
+        experiment = self._create_draft_experiment(flag_key="lock-window-named-conflict")
+        service = self._service()
+        version = experiment.version or 0
+        base_description = experiment.description
+
+        with self._concurrent_write_in_lock_window(experiment.pk, description="their edit"):
+            with self.assertRaises(ExperimentVersionConflict) as ctx:
+                service.update_experiment(
+                    experiment,
+                    {
+                        "description": "my edit",
+                        "version": version,
+                        "original_experiment": {"description": base_description},
+                    },
+                )
+
+        assert ctx.exception.conflicting_fields == ["description"]
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert stored.description == "their edit"
+        assert stored.version == version + 1
+
     def test_duplicate_metrics_update_racing_the_lock_window_ignores_fingerprint_churn(self):
         experiment = self._create_draft_experiment(flag_key="lock-window-fingerprint")
         service = self._service()

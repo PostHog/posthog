@@ -108,7 +108,6 @@ export function ExperimentView(): JSX.Element {
         setExperiment,
         setExposureCriteria,
         updateExposureCriteria,
-        updateExperimentMetrics,
         addSharedMetricsToExperiment,
         removeSharedMetricFromExperiment,
         removeMetric,
@@ -190,7 +189,7 @@ export function ExperimentView(): JSX.Element {
                     <ExperimentMetricModal
                         experiment={experiment}
                         exposureCriteria={exposureCriteria}
-                        onSave={(metric, context) => {
+                        onSave={async (metric, context) => {
                             const metrics = experiment[context.field]
                             const isNew = !metrics.some(({ uuid }) => uuid === metric.uuid)
 
@@ -200,7 +199,11 @@ export function ExperimentView(): JSX.Element {
                                     : metrics.map((m) => (m.uuid === metric.uuid ? metric : m)),
                             })
 
-                            updateExperimentMetrics()
+                            // Await the save so the button stays in its loading state and the modal
+                            // only closes once the write resolves — no second concurrent PATCH.
+                            // useActions dispatchers don't return the listener's promise, so reach
+                            // for the async action on the keyed logic.
+                            await experimentLogic({ experimentId }).asyncActions.updateExperimentMetrics()
                             closeExperimentMetricModal()
                         }}
                         onDelete={(metric, context) => {
