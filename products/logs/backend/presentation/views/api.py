@@ -5,6 +5,7 @@ import datetime as dt
 
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
@@ -25,6 +26,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
@@ -81,6 +83,7 @@ __all__ = [
 ]
 
 tracer = trace.get_tracer(__name__)
+logger = structlog.get_logger(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 
 
@@ -1344,10 +1347,32 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except QueryError as e:
+            # A bad query shape, such as an invalid custom expression, is a client error.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except CH_TRANSIENT_ERRORS:
+            # ClickHouse is busy or briefly unavailable. Return a retryable 503 instead of a bare 500.
+            # Some of these errors carry raw ClickHouse text (S3 paths, replica identity), so send a
+            # fixed message rather than str(e), which would leak infrastructure internals.
+            return Response(
+                {"error": "Couldn't build the sparkline because the query service is busy. Try again in a moment."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except ExposedCHQueryError as e:
+            # A user-safe ClickHouse error, such as a scan that reads too much data. Keep it a clean 400.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            # Log the cause server-side so the failure is diagnosable, then return a generic 500.
+            logger.exception("logs_sparkline_query_failed", team_id=self.team.pk)
+            return Response(
+                {"error": "Couldn't build the sparkline. The error was logged and we'll look into it."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(

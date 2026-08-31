@@ -4,11 +4,16 @@ from datetime import datetime
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.errors import QueryError
+
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -52,3 +57,26 @@ class TestSparklineApi(ClickhouseTestMixin, APIBaseTest):
         # local time when comparing against the (UTC) live_logs_checkpoint.
         for bucket in buckets:
             self.assertIsNotNone(datetime.fromisoformat(bucket["time"]).tzinfo)
+
+    @parameterized.expand(
+        [
+            # A bad query shape and a user-safe ClickHouse error are client errors.
+            ("query_error", QueryError("bad expression"), status.HTTP_400_BAD_REQUEST),
+            ("exposed_ch_error", ExposedCHQueryError("scan reads too much data"), status.HTTP_400_BAD_REQUEST),
+            # A busy cluster is retryable.
+            ("transient_ch_error", ClickHouseAtCapacity(), status.HTTP_503_SERVICE_UNAVAILABLE),
+            # Anything else stays a 500, but with a real message instead of a bare detail-free one.
+            ("unknown_error", RuntimeError("boom"), status.HTTP_500_INTERNAL_SERVER_ERROR),
+        ]
+    )
+    def test_sparkline_runner_failure_maps_to_status(self, _name, raised, expected_status):
+        # The runner call had no exception handling, so every failure fell through to DRF's
+        # default 500 with a detail-free "A server error occurred." body.
+        with patch(
+            "products.logs.backend.presentation.views.api.SparklineQueryRunner.run",
+            side_effect=raised,
+        ):
+            response = self._sparkline({"dateRange": _FIXTURE_WINDOW}, expected_status=expected_status)
+        body = response.json()
+        self.assertIn("error", body)
+        self.assertNotIn("detail", body)
