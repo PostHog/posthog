@@ -172,6 +172,10 @@ class TestErrorTrackingAlerts(APIBaseTest):
             ),
             ("missing_integration", {"destinations": [{"channel_type": "slack", "config": {"channel": "C1"}}]}),
             (
+                "typeless_event_entity",
+                {"filters": {"events": [{"id": "$error_tracking_issue_created"}]}},
+            ),
+            (
                 "person_property_filter",
                 {"filters": {"properties": [{"key": "email", "value": "@example.com", "type": "person"}]}},
             ),
