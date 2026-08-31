@@ -157,6 +157,12 @@ def produce_issue_lifecycle_event_on_commit(
         # the cost. A queued dispatch is planned before any broad rollout.
         status_property = properties.get("status")
         assignee_property_value = properties.get("assignee")
+        # Notifications only need counts; the id lists stay on the internal event.
+        delivery_extra: dict[str, str] = {}
+        for id_list_key, count_key in (("merged_issue_ids", "merged_count"), ("split_issue_ids", "split_count")):
+            id_list = properties.get(id_list_key)
+            if isinstance(id_list, list):
+                delivery_extra[count_key] = str(len(id_list))
         start_alert_delivery_workflow(
             team_id=team_id,
             event=event,
@@ -167,6 +173,7 @@ def produce_issue_lifecycle_event_on_commit(
             status=status_property if isinstance(status_property, str) else None,
             assignee=assignee_property_value if isinstance(assignee_property_value, str) else None,
             actor_email=actor_email,
+            extra=delivery_extra or None,
         )
 
     transaction.on_commit(_produce)

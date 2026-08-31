@@ -15,7 +15,11 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
-from products.error_tracking.backend.temporal.alerts.delivery import deliver_alert_notifications, plan_alert_deliveries
+from products.error_tracking.backend.temporal.alerts.delivery import (
+    AlertDeliveryError,
+    deliver_alert_notifications,
+    plan_alert_deliveries,
+)
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 
@@ -164,13 +168,129 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
         assert reply[0].thread is not None
         assert reply[0].thread.id == thread.id
 
-    def test_planned_delivery_is_reported_through_the_real_logger(self):
-        # The planning log runs structlog with the real processor chain: a kwarg
-        # that collides with structlog's positional `event` raises on every
-        # planned destination and fails the whole activity.
-        self._create_alert(triggers=["issue_created"])
 
-        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
+class TestSlackThreadDelivery(AlertTestMixin):
+    def _mock_slack(self):
+        slack_integration = patch("products.error_tracking.backend.temporal.alerts.delivery.SlackIntegration")
+        mock = slack_integration.start()
+        self.addCleanup(slack_integration.stop)
+        client = mock.return_value.client
+        client.chat_postMessage.return_value = {"channel": "C0123", "ts": "111.222"}
+        return client
+
+    def _thread(self, alert, *, rooted=True) -> ErrorTrackingAlertThread:
+        with team_scope(self.team.id):
+            return ErrorTrackingAlertThread.objects.create(
+                team=self.team,
+                alert=alert,
+                issue=self.issue,
+                destination=alert.destinations.get(),
+                external_ref={"channel": "C0123", "ts": "111.222"} if rooted else {},
+                root_headline="🔴 New issue" if rooted else "",
+            )
+
+    def test_opener_posts_root_and_stores_thread_state(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert delivered == 1
+        client.chat_postMessage.assert_called_once()
+        kwargs = client.chat_postMessage.call_args.kwargs
+        assert kwargs["channel"] == "C0123"
+        assert "TypeError" in kwargs["text"]
+        with team_scope(self.team.id):
+            thread = ErrorTrackingAlertThread.objects.get(alert=alert, issue=self.issue)
+        assert thread.external_ref == {"channel": "C0123", "ts": "111.222"}
+        assert thread.root_headline == "🔴 New issue"
+        assert thread.delivered_notification_ids == ["notif-1"]
+
+    def test_reply_posts_into_thread_and_edits_root_on_status_change(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._thread(alert)
+
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_resolved", notification_id="notif-2", status="Resolved")
+        )
+
+        assert delivered == 1
+        reply_kwargs = client.chat_postMessage.call_args.kwargs
+        assert reply_kwargs["channel"] == "C0123"
+        assert reply_kwargs["thread_ts"] == "111.222"
+        assert "Resolved by dev@example.com" in reply_kwargs["text"]
+        edit_kwargs = client.chat_update.call_args.kwargs
+        assert edit_kwargs["ts"] == "111.222"
+        # The headline is the thread's identity: a status edit never changes it.
+        assert edit_kwargs["text"].startswith("🔴 New issue")
+
+    def test_redelivered_notification_is_not_posted_twice(self):
+        client = self._mock_slack()
+        self._create_alert(triggers=["issue_created"])
+        inputs = self._inputs("$error_tracking_issue_created")
+
+        assert deliver_alert_notifications(inputs) == 1
+        assert deliver_alert_notifications(inputs) == 0
+
+        client.chat_postMessage.assert_called_once()
+
+    def test_unrooted_thread_leaves_reply_unclaimed(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        thread = self._thread(alert, rooted=False)
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_resolved"))
+
+        assert delivered == 0
+        client.chat_postMessage.assert_not_called()
+        thread.refresh_from_db()
+        assert thread.delivered_notification_ids == []
+
+    def test_repointed_destination_replies_in_original_channel(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._thread(alert)
+        with team_scope(self.team.id):
+            destination = alert.destinations.get()
+            destination.config = {"channel": "C0456"}
+            destination.save()
+
+        deliver_alert_notifications(self._inputs("$error_tracking_issue_resolved", notification_id="notif-2"))
+
+        # A provider thread cannot move: replies stay in the thread's own channel.
+        assert client.chat_postMessage.call_args.kwargs["channel"] == "C0123"
+
+    def test_missing_integration_skips_without_raising(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        with team_scope(self.team.id):
+            alert.destinations.update(integration=None)
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert delivered == 0
+        client.chat_postMessage.assert_not_called()
+
+    def test_failed_destination_does_not_block_others_and_surfaces_for_retry(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        with team_scope(self.team.id):
+            alert.destinations.create(
+                team=self.team,
+                channel_type="slack",
+                integration=self.integration,
+                config={"channel": "C0456"},
+            )
+        client.chat_postMessage.side_effect = [Exception("channel archived"), {"channel": "C0456", "ts": "333.444"}]
+
+        with self.assertRaises(AlertDeliveryError):
+            deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert client.chat_postMessage.call_count == 2
+        with team_scope(self.team.id):
+            rooted = [t for t in ErrorTrackingAlertThread.objects.filter(issue=self.issue) if t.external_ref.get("ts")]
+        assert len(rooted) == 1
 
 
 class TestAlertDeliveryDispatch(AlertTestMixin):
