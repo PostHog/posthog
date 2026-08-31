@@ -819,10 +819,10 @@ export interface AlertTestDeliveryResponseApi {
 }
 
 export interface AlertSimulateApi {
-    /** Insight ID to simulate the detector on. */
-    insight: number
-    /** Detector configuration to simulate. */
-    detector_config: DetectorConfigApi
+    /** Numeric insight ID or saved insight short ID to simulate the detector on. */
+    insight: number | string
+    /** Detector configuration to simulate. Omit or set to null to use the default z-score detector (threshold 0.95, window 30). */
+    detector_config?: DetectorConfigApi | null
     /** Zero-based index of the series to analyze (trends insights only). */
     series_index?: number
     /**
