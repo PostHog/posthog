@@ -7,6 +7,8 @@ from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import dateutil.parser
@@ -16,7 +18,8 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
+from posthog.models import ActivityLog, EventDefinition, Organization, Tag, TaggedItem, Team
+from posthog.settings import EE_AVAILABLE
 
 from products.actions.backend.models.action import Action
 
@@ -684,6 +687,92 @@ class TestEventDefinitionExcludeStale(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         names = {row["name"] for row in response.json()["results"]}
         assert names == expected_names
+
+
+class TestEventDefinitionListQueryShape(APIBaseTest):
+    def test_page_and_count_are_bounded_in_sql(self) -> None:
+        # A RawQuerySet has no `count()` and no lazy slicing, so a page taken in Python has to load
+        # every event definition in the project first. That makes `?limit=1` cost the same as
+        # fetching the whole project, which is how a project with very many events stalls this
+        # endpoint until the caller gives up.
+        EventDefinition.objects.bulk_create(
+            [EventDefinition(team=self.team, name=f"list_shape_event_{i}") for i in range(10)]
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/?limit=1")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["count"] == 10
+
+        definition_queries = [q["sql"] for q in captured.captured_queries if "FROM posthog_eventdefinition" in q["sql"]]
+        count_queries = [sql for sql in definition_queries if "count(*)" in sql]
+        row_queries = [sql for sql in definition_queries if "count(*)" not in sql]
+
+        assert count_queries, "the total has to come from a count query, not from len() over every row"
+        assert row_queries and all("LIMIT" in sql for sql in row_queries)
+        # A FULL OUTER JOIN stops the planner from pushing the project predicate below the join, so
+        # the scope filter runs over the whole tenant-shared table instead of seeking
+        # `event_definition_proj_uniq`. Assert the join we do want too, or this passes for free on
+        # a build without the enterprise extension, where no join is emitted at all.
+        if EE_AVAILABLE:
+            assert all("LEFT JOIN ee_enterpriseeventdefinition" in sql for sql in definition_queries)
+        assert not any("FULL OUTER JOIN" in sql for sql in definition_queries)
+
+    @parameterized.expand(
+        [
+            ("single tag", '["billing"]', {"billed_event"}),
+            ("several tags", '["billing", "pii"]', {"billed_event", "personal_event"}),
+            ("unmatched tag", '["nothing_has_this"]', set()),
+        ]
+    )
+    def test_tags_filter_matches_only_tagged_events(
+        self, _description: str, tags_param: str, expected_names: set[str]
+    ) -> None:
+        # The tag match moved into the page query when paging moved into SQL. Matching in Python
+        # after the page is cut would filter within one page and report a count for a different
+        # row set.
+        self._tag_event("billed_event", "billing")
+        self._tag_event("personal_event", "pii")
+        EventDefinition.objects.create(team=self.team, name="untagged_event")
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/?tags={tags_param}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["name"] for row in response.json()["results"]} == expected_names
+        assert response.json()["count"] == len(expected_names)
+
+    def test_unparseable_tags_filter_is_ignored(self) -> None:
+        self._tag_event("billed_event", "billing")
+        EventDefinition.objects.create(team=self.team, name="untagged_event")
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/?tags=not-json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["name"] for row in response.json()["results"]} == {"billed_event", "untagged_event"}
+
+    def _tag_event(self, event_name: str, tag_name: str) -> None:
+        event_definition = EventDefinition.objects.create(team=self.team, name=event_name)
+        tag, _ = Tag.objects.get_or_create(name=tag_name, team=self.team)
+        TaggedItem.objects.create(tag=tag, event_definition=event_definition)
+
+
+class TestEventDefinitionListStatementTimeout(APIBaseTest):
+    def test_cancelled_list_query_returns_a_retryable_503(self) -> None:
+        # Postgres cancels the statement, psycopg raises, and Django re-raises it as a bare
+        # OperationalError. Without the handler that renders as a 500, so the caller cannot tell a
+        # list that took too long apart from a project with no events.
+        slow_count_sql = "SELECT count(*) FROM (SELECT pg_sleep(3)) s WHERE %(project_id)s IS NOT NULL"
+
+        with (
+            patch("posthog.api.event_definition.create_event_definitions_count_sql", return_value=slow_count_sql),
+            patch("posthog.taxonomy.definition_listing.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["code"] == "event_definitions_timeout"
 
 
 @dataclasses.dataclass
