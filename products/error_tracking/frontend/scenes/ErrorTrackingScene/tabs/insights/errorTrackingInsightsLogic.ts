@@ -78,6 +78,8 @@ export interface errorTrackingInsightsLogicValues {
     mergedFilterGroup: UniversalFiltersGroup // issueFiltersLogic
     timezone: string // teamLogic
     affectedUsersQuery: InsightVizNode<TrendsQuery>
+    appRows: ReleaseRow[]
+    appRowsLoading: boolean
     bucketKeys: string[]
     comparisonTotals: ComparisonTotals
     comparisonTotalsLoading: boolean
@@ -93,8 +95,6 @@ export interface errorTrackingInsightsLogicValues {
     loadFailed: boolean
     metrics: InsightsMetrics
     metricsLoading: boolean
-    appRows: ReleaseRow[]
-    appRowsLoading: boolean
     releaseRows: ReleaseRow[]
     releaseRowsLoading: boolean
     summaryBuckets: SummaryBucket[]
@@ -136,21 +136,6 @@ export interface errorTrackingInsightsLogicActions {
     filterByBand: (filters: BandFilter[]) => {
         filters: BandFilter[]
     }
-    loadComparisonTotals: (_: void) => void
-    loadComparisonTotalsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadComparisonTotalsSuccess: (
-        comparisonTotals: ComparisonTotals,
-        payload?: void
-    ) => {
-        comparisonTotals: ComparisonTotals
-        payload?: void
-    }
     loadAppRows: (_: void) => void
     loadAppRowsFailure: (
         error: string,
@@ -164,6 +149,21 @@ export interface errorTrackingInsightsLogicActions {
         payload?: void
     ) => {
         appRows: ReleaseRow[]
+        payload?: void
+    }
+    loadComparisonTotals: (_: void) => void
+    loadComparisonTotalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadComparisonTotalsSuccess: (
+        comparisonTotals: ComparisonTotals,
+        payload?: void
+    ) => {
+        comparisonTotals: ComparisonTotals
         payload?: void
     }
     loadInsights: () => void
