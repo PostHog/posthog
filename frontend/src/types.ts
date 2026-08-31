@@ -5454,6 +5454,7 @@ export enum BehavioralLifecycleType {
 }
 
 export enum TimeUnitType {
+    Hour = 'hour',
     Day = 'day',
     Week = 'week',
     Month = 'month',

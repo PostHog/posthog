@@ -168,5 +168,8 @@ describe('durations utils', () => {
         it('1 year to 365 days', () => {
             expect(calculateDays(1, TimeUnitType.Year)).toEqual(365)
         })
+        it('24 hours to 1 day', () => {
+            expect(calculateDays(24, TimeUnitType.Hour)).toEqual(1)
+        })
     })
 })

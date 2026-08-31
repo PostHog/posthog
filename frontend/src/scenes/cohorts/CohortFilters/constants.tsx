@@ -161,6 +161,9 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
         label: 'Units',
         type: FieldOptionsType.TimeUnits,
         values: {
+            [TimeUnitType.Hour]: {
+                label: 'hours',
+            },
             [TimeUnitType.Day]: {
                 label: 'days',
             },
