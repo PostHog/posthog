@@ -469,39 +469,43 @@ describe('API helper', () => {
             text: () => Promise.resolve(JSON.stringify(FAKE_FETCH_RESULT)),
         })
 
-        it.each([502, 503, 504])('retries a %s GET and resolves once a retry succeeds', async (status) => {
-            fakeFetch.mockResolvedValueOnce(gatewayFailure(status)).mockResolvedValueOnce(success())
+        it.each([502, 503, 504])(
+            'retries a %s on the query endpoint and resolves once a retry succeeds',
+            async (status) => {
+                fakeFetch.mockResolvedValueOnce(gatewayFailure(status)).mockResolvedValueOnce(success())
 
-            const promise = api.get('api/environments/2/insights')
-            await jest.advanceTimersByTimeAsync(500)
+                const promise = api.create('api/environments/2/query', {})
+                await jest.advanceTimersByTimeAsync(500)
 
-            await expect(promise).resolves.toEqual(FAKE_FETCH_RESULT)
-            expect(fakeFetch).toHaveBeenCalledTimes(2)
-        })
+                await expect(promise).resolves.toEqual(FAKE_FETCH_RESULT)
+                expect(fakeFetch).toHaveBeenCalledTimes(2)
+            }
+        )
 
-        it('retries a 503 on a POST, since the origin never processed it', async () => {
+        it('retries the query endpoint when the URL carries a kind segment', async () => {
             fakeFetch.mockResolvedValueOnce(gatewayFailure(503)).mockResolvedValueOnce(success())
 
-            const promise = api.create('api/environments/2/query', {})
+            const promise = api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' })
             await jest.advanceTimersByTimeAsync(500)
 
-            await expect(promise).resolves.toEqual(FAKE_FETCH_RESULT)
+            await promise
             expect(fakeFetch).toHaveBeenCalledTimes(2)
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/HogQLQuery/')
         })
 
-        it('does not replay a 504 on a POST, which may already have applied', async () => {
-            fakeFetch.mockResolvedValue(gatewayFailure(504))
+        it('does not retry a transient failure outside the query endpoint', async () => {
+            fakeFetch.mockResolvedValue(gatewayFailure(503))
 
-            const error = await api.create('api/environments/2/query', {}).catch((e) => e)
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
 
-            expect(error.status).toBe(504)
+            expect(error.status).toBe(503)
             expect(fakeFetch).toHaveBeenCalledTimes(1)
         })
 
         it('gives up after the retry budget and throws the gateway error', async () => {
             fakeFetch.mockResolvedValue(gatewayFailure(503))
 
-            const promise = api.get('api/environments/2/insights').catch((e) => e)
+            const promise = api.create('api/environments/2/query', {}).catch((e) => e)
             await jest.advanceTimersByTimeAsync(2000)
             const error = await promise
 

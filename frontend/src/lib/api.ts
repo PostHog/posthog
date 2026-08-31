@@ -7544,25 +7544,26 @@ function captureClientRequestFailure(properties: {
     }
 }
 
-/** Methods safe to replay when a request may already have reached the origin (a 504 timeout). */
-const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS'])
-
 const MAX_TRANSIENT_RETRIES = 2
 const TRANSIENT_RETRY_BASE_DELAY_MS = 400
 
 /**
- * Whether a transient gateway failure (502/503/504) is safe to retry. A 502 or 503 means the origin
- * never processed the request, so any method can be replayed. A 504 means it may have, so only
- * idempotent methods retry, because replaying a mutation could apply it twice.
+ * The analytics query endpoint is a POST, but it reads data, so replaying it cannot duplicate a
+ * write. The path is `.../query/` or `.../query/<Kind>/` (e.g. `/query/HogQLQuery/`), so allow one
+ * optional trailing kind segment. A poll by client query id ends in a uuid and does not match.
  */
-function shouldRetryTransientFailure(status: number, method: string): boolean {
-    if (!isTransientGatewayStatus(status)) {
-        return false
-    }
-    if (status === 504) {
-        return IDEMPOTENT_METHODS.has(method.toUpperCase())
-    }
-    return true
+function isReadOnlyQueryEndpoint(url: string): boolean {
+    return /\/query(\/[a-zA-Z]+)?\/?$/.test(requestPathname(url))
+}
+
+/**
+ * Whether a transient gateway failure (502/503/504) is safe to retry. Only the read-only query
+ * endpoint retries: it backs every query-driven surface, including the person profile, and cannot
+ * duplicate a write. Replaying an arbitrary request could apply a mutation twice, so nothing else
+ * retries here.
+ */
+function shouldRetryTransientFailure(status: number, url: string): boolean {
+    return isTransientGatewayStatus(status) && isReadOnlyQueryEndpoint(url)
 }
 
 async function handleFetch(
@@ -7639,7 +7640,7 @@ async function handleFetch(
 
         // A transient gateway failure usually clears on retry, so replay it with backoff before
         // surfacing the error. This is the automatic version of the reload a user would do by hand.
-        if (shouldRetryTransientFailure(response.status, method) && transientRetryCount < MAX_TRANSIENT_RETRIES) {
+        if (shouldRetryTransientFailure(response.status, url) && transientRetryCount < MAX_TRANSIENT_RETRIES) {
             await delay(TRANSIENT_RETRY_BASE_DELAY_MS * 2 ** transientRetryCount)
             return await handleFetch(url, method, fetcher, isRetry, transientRetryCount + 1)
         }
