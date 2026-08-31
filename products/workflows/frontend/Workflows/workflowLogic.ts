@@ -204,6 +204,7 @@ export interface workflowLogicValues {
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
     deferredResourceEdited: ResourceEditedEvent | null
+    discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
     edgesByActionId: Record<string, HogFlowEdge[]>
     externallyEdited: boolean
@@ -2940,6 +2941,10 @@ export interface workflowLogicMeta {
             hasUnsavedChanges: boolean,
             draftActionPending: 'discard' | 'publish' | null
         ) => string | undefined
+        discardDisabledReason: (
+            hasUnsavedChanges: boolean,
+            draftActionPending: 'discard' | 'publish' | null
+        ) => string | undefined
     }
 }
 
@@ -3716,6 +3721,18 @@ export const workflowLogic = kea<workflowLogicType>([
                 // Publish promotes the staged draft, so edits still sitting in the form would not
                 // go out. Auto-save clears this a few seconds after the user stops typing.
                 return hasUnsavedChanges ? 'Save your changes first' : undefined
+            },
+        ],
+
+        discardDisabledReason: [
+            (s) => [s.hasUnsavedChanges, s.draftActionPending],
+            (hasUnsavedChanges: boolean, draftActionPending: 'publish' | 'discard' | null): string | undefined => {
+                if (draftActionPending === 'publish') {
+                    return 'Publishing is in progress'
+                }
+                // Discarding reloads the workflow, which drops whatever the form still holds. The
+                // user only agreed to lose the staged draft, so block until the form is clean.
+                return hasUnsavedChanges ? 'Save or clear your changes first' : undefined
             },
         ],
     }),

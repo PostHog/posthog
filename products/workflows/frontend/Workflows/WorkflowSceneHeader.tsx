@@ -8,6 +8,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { urls } from 'scenes/urls'
@@ -39,6 +40,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         workflowHasErrors,
         workflowUserAccessLevel,
         publishDisabledReason,
+        discardDisabledReason,
         showDraftActions,
     } = useValues(workflowLogic)
     const {
@@ -299,45 +301,45 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             // under a pointer that had not left the button.
                             <>
                                 {showDraftActions && (
-                                    <>
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.Workflow}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={workflowUserAccessLevel ?? undefined}
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Workflow}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={workflowUserAccessLevel ?? undefined}
+                                    >
+                                        <LemonButton
+                                            data-attr="workflow-publish"
+                                            type={hasUnsavedChanges ? 'secondary' : 'primary'}
+                                            size="small"
+                                            onClick={() => publishDraft()}
+                                            loading={draftActionPending === 'publish'}
+                                            disabledReason={publishDisabledReason}
+                                            // Discarding is rare and destructive, so it sits in the
+                                            // menu rather than next to the button a person aims for.
+                                            sideAction={{
+                                                'data-attr': 'workflow-draft-actions',
+                                                'aria-label': 'More draft actions',
+                                                dropdown: {
+                                                    placement: 'bottom-end',
+                                                    overlay: (
+                                                        <LemonMenuOverlay
+                                                            items={[
+                                                                {
+                                                                    label: 'Discard draft',
+                                                                    icon: <IconTrash />,
+                                                                    status: 'danger',
+                                                                    onClick: () => discardDraft(),
+                                                                    disabledReason: discardDisabledReason,
+                                                                    'data-attr': 'workflow-discard-draft',
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ),
+                                                },
+                                            }}
                                         >
-                                            <LemonButton
-                                                data-attr="workflow-discard-draft"
-                                                type="secondary"
-                                                size="small"
-                                                status="danger"
-                                                onClick={() => discardDraft()}
-                                                loading={draftActionPending === 'discard'}
-                                                disabledReason={
-                                                    draftActionPending === 'publish'
-                                                        ? 'Publishing is in progress'
-                                                        : undefined
-                                                }
-                                            >
-                                                Discard draft
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.Workflow}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={workflowUserAccessLevel ?? undefined}
-                                        >
-                                            <LemonButton
-                                                data-attr="workflow-publish"
-                                                type={hasUnsavedChanges ? 'secondary' : 'primary'}
-                                                size="small"
-                                                onClick={() => publishDraft()}
-                                                loading={draftActionPending === 'publish'}
-                                                disabledReason={publishDisabledReason}
-                                            >
-                                                Publish
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                    </>
+                                            Publish
+                                        </LemonButton>
+                                    </AccessControlAction>
                                 )}
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Workflow}

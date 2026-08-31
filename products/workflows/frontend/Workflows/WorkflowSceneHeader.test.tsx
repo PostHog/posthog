@@ -50,11 +50,9 @@ const ACTIVE_WITH_DRAFT = {
 
 // The label and order of the buttons a person points at, as rendered.
 const toolbar = (): string[] =>
-    Array.from(
-        document.querySelectorAll(
-            '[data-attr="workflow-discard-draft"],[data-attr="workflow-publish"],[data-attr="workflow-save"]'
-        )
-    ).map((el) => `${el.getAttribute('data-attr')}:${el.textContent ?? ''}`)
+    Array.from(document.querySelectorAll('[data-attr="workflow-publish"],[data-attr="workflow-save"]')).map(
+        (el) => `${el.getAttribute('data-attr')}:${el.textContent ?? ''}`
+    )
 
 describe('WorkflowSceneHeader', () => {
     let logic: ReturnType<typeof workflowLogic.build>
@@ -91,11 +89,7 @@ describe('WorkflowSceneHeader', () => {
 
         // Auto-save has just landed: a draft is staged and the form is clean.
         const clean = toolbar()
-        expect(clean).toEqual([
-            'workflow-discard-draft:Discard draft',
-            'workflow-publish:Publish',
-            'workflow-save:Save draft',
-        ])
+        expect(clean).toEqual(['workflow-publish:Publish', 'workflow-save:Save draft'])
 
         act(() => {
             logic.actions.setWorkflowValue('name', 'Still typing')

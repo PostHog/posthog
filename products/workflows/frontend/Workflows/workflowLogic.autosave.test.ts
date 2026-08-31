@@ -555,6 +555,8 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.showDraftActions).toBe(true)
             // Publish promotes the staged draft, not what is on screen.
             expect(logic.values.publishDisabledReason).toBe('Save your changes first')
+            // Discarding reloads the workflow, which would drop the edits still in the form.
+            expect(logic.values.discardDisabledReason).toBe('Save or clear your changes first')
         })
 
         it('allows publish once auto-save clears the unsaved edits', async () => {
@@ -565,6 +567,7 @@ describe('workflowLogic auto-save', () => {
             await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
 
             expect(logic.values.publishDisabledReason).toBeUndefined()
+            expect(logic.values.discardDisabledReason).toBeUndefined()
         })
     })
 
