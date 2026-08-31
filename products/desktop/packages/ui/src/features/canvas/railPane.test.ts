@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isRestorableVisitHref,
   RAIL_PANE_ROOT,
   railPaneForPath,
   railPaneHasSidebar,
@@ -44,6 +45,42 @@ describe("railPaneForPath", () => {
   ])("leaves %s with Spaces", (path) => {
     expect(railPaneForPath(path)).toBe("spaces");
   });
+});
+
+describe("isRestorableVisitHref", () => {
+  it.each([
+    ["spaces", "/spaces/chan-1/tasks/task-1"],
+    ["spaces", "/tasks/task-1"],
+    ["spaces", "/new"],
+    ["activity", "/activity?task=task-1"],
+    ["inbox", "/inbox/pulls/report-1"],
+    ["home", "/"],
+  ] as const)("lets %s replay %s", (pane, href) => {
+    expect(isRestorableVisitHref(pane, href)).toBe(true);
+  });
+
+  // Settings and the other overlays classify to the spaces fallback, so pane
+  // equality alone would replay them from a Spaces click.
+  it.each([
+    "/settings",
+    "/settings/general",
+    "/settings/general?from=rail",
+    "/folders/folder-1",
+    "/skills",
+    "/mcp-servers",
+  ])("never replays %s for Spaces", (href) => {
+    expect(isRestorableVisitHref("spaces", href)).toBe(false);
+  });
+
+  it.each([
+    ["spaces", "/activity"],
+    ["activity", "/spaces/chan-1"],
+  ] as const)(
+    "does not let %s replay another destination's %s",
+    (pane, href) => {
+      expect(isRestorableVisitHref(pane, href)).toBe(false);
+    },
+  );
 });
 
 describe("railPaneHasSidebar", () => {

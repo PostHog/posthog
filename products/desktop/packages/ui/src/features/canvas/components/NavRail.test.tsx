@@ -320,6 +320,23 @@ describe("NavRail", () => {
       expect(useChannelPaneStore.getState().pane).toBe("list");
     });
 
+    // A settings href could land in the spaces memory (overlays classify to
+    // the spaces fallback), and a Spaces click must not replay it: the pick
+    // lands on the destination's root instead.
+    it("ignores a remembered visit that is not a Spaces page", async () => {
+      const user = userEvent.setup();
+      mocks.fullPath = "/activity";
+      rememberVisits({
+        spaces: { href: "/settings/general", listOpen: false },
+      });
+      render(<NavRail />);
+
+      await user.click(screen.getByLabelText("Spaces"));
+
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(mocks.navigateToSpaces).toHaveBeenCalledOnce();
+    });
+
     it("returns to the space pane when the list was not open", async () => {
       const user = userEvent.setup();
       useChannelPaneStore.setState({ pane: "list" });

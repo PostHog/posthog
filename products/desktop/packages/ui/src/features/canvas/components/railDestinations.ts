@@ -12,7 +12,10 @@ import type { RailVisit } from "@posthog/shared";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
 import { readMirror } from "@posthog/ui/features/browser-tabs/tabsSync";
 import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
-import type { NavRailPane } from "@posthog/ui/features/canvas/railPane";
+import {
+  isRestorableVisitHref,
+  type NavRailPane,
+} from "@posthog/ui/features/canvas/railPane";
 import {
   applyTabViewState,
   showChannelList,
@@ -137,8 +140,14 @@ export function pickRailDestination(
   const visit = lastVisitForActiveTab(destination.pane);
   // A remembered visit that IS where we already are restores nothing, and the
   // click would look dead. Fall through to the destination's root instead, so
-  // a pick always goes somewhere.
-  if (visit && visit.href !== currentHref()) restoreVisit(visit);
+  // a pick always goes somewhere. An href that is not this destination's page
+  // (an overlay, another pane's route) is bad persisted state — replaying it
+  // would send the click somewhere else entirely, so it falls through too.
+  const restorable =
+    visit &&
+    visit.href !== currentHref() &&
+    isRestorableVisitHref(destination.pane, visit.href);
+  if (restorable) restoreVisit(visit);
   else destination.onPick();
 }
 

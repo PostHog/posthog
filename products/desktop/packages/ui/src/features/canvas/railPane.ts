@@ -75,6 +75,35 @@ export function getRailPane(): NavRailPane {
   return railPaneForMatches(getCurrentMatches());
 }
 
+// Full-window pages that render over the shell rather than inside a rail
+// destination. They fall into the "spaces" fallback only so the chrome stays
+// mounted beneath them; a rail visit must never remember one. /skills and
+// /mcp-servers redirect into /settings.
+const OVERLAY_ROOTS = ["/settings", "/folders", "/skills", "/mcp-servers"];
+
+function isOverlayPath(path: string): boolean {
+  return OVERLAY_ROOTS.some(
+    (root) => path === root || path.startsWith(`${root}/`),
+  );
+}
+
+/**
+ * Whether an href may be recorded — and later replayed — as a rail visit for
+ * `pane`. One predicate for the writer (BrowserTabStrip) and the restore path
+ * (pickRailDestination), so what a destination remembers is exactly what a
+ * click on it may reopen: never an overlay, never another destination's page.
+ * Checking on restore too disarms bad hrefs already persisted in a tab's
+ * view state.
+ */
+export function isRestorableVisitHref(
+  pane: NavRailPane,
+  href: string,
+): boolean {
+  const path = href.replace(/[?#].*$/, "");
+  if (isOverlayPath(path)) return false;
+  return railPaneForPath(path) === pane;
+}
+
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
   "spaces",
   "activity",
