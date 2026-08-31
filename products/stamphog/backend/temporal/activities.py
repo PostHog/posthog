@@ -949,6 +949,12 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     first_error_line = (input.error.splitlines() or [""])[0][:300]
     if run.status in TERMINAL_STATUSES:
         activity.logger.warning(f"Run {run.id} already {run.status}; keeping it, error was: {first_error_line}")
+        # A retry that died between the FAILED save below and the notice finds its own run already
+        # terminal. The status is right and must not be rewritten, but the author is still owed the
+        # notice, so finish that one step rather than returning into the silence this path removes.
+        # Only for FAILED: any other terminal state belongs to a run that delivered a verdict.
+        if run.status == ReviewRunStatus.FAILED:
+            _post_failure_notice(StamphogGitHubClient(run.pull_request.repo_config.installation_id), run, input.team_id)
         return
     # A prior post_verdict attempt may have approved on GitHub and then exhausted retries before the
     # terminal save — the id is persisted, the verdict is not, and without a future delivery nothing
@@ -990,25 +996,14 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
 
     # Until now a failed run told the author nothing: the 👀 went away and no verdict ever arrived,
     # which reads exactly like a review still in progress. Say so on the same COMMENT-review surface
-    # a non-approval uses, so every outcome for a head lands in one list. Fail-open like the sweep
-    # above, because a GitHub error must not undo the terminal save.
+    # a non-approval uses, so every outcome for a head lands in one list.
     #
     # Only when this run is the one that reached FAILED. A newer delivery can supersede it between the
     # load above and that update, which leaves the update matching no rows; posting anyway would tell
     # the author their review did not complete while its replacement is still running, or has already
     # approved the same head.
     if marked_failed:
-        try:
-            _post_non_approval_review(
-                client,
-                repo,
-                run,
-                pull_request,
-                input.team_id,
-                _failure_body(pull_request.repo_config, self_driving=bool((run.output or {}).get("inbox_review"))),
-            )
-        except Exception:
-            activity.logger.exception(f"Failed to post the failure notice for run {run.id}")
+        _post_failure_notice(client, run, input.team_id)
 
     with ph_scoped_capture() as capture:
         capture(
@@ -1355,27 +1350,34 @@ def _post_non_approval_review(
     ReviewRun.objects.for_team(team_id).filter(id=run.id).update(output=run.output, updated_at=timezone.now())
 
 
-def _failure_body(repo_config: StamphogRepoConfig, *, self_driving: bool) -> str:
-    """What the PR shows when a run ended without producing a verdict.
+FAILURE_NOTICE_BODY = (
+    "**The review did not complete.**\n\n"
+    "Stamphog hit an error and produced no verdict for this commit.\n\n"
+    "Push a new commit to try again."
+)
 
-    No error text. The cause is internal infrastructure detail that the author cannot act on, and
-    this lands on a public pull request; it stays on the run and in the worker logs instead.
 
-    The retry line has to name something that actually starts a run. Unlike a refusal, a failure
-    leaves the trigger label in place, so a label-mode author has to remove it before GitHub sends
-    another `labeled` event. A self-driving inbox run ignores that route: it bypasses review mode,
-    and its re-review carve-out answers only to synchronize, reopen and base retarget, so a new
-    commit is the one thing that starts another run for it.
+def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: int) -> None:
+    """Tell the PR that this run produced no verdict, once.
+
+    A new commit is the retry route for every repository, which is why the notice names no other.
+    A failure leaves the trigger label in place, so in label mode a push carries the label and
+    starts a run, while re-adding the label does nothing for ten minutes (the per-PR cooldown
+    `process_pull_request_event` arms rejects it). A self-driving run ignores the label either way:
+    it bypasses review mode and re-reviews only on synchronize, reopen and base retarget.
+
+    No error text. The cause is infrastructure detail the author cannot act on, and this lands on a
+    public pull request; it stays on the run and in the worker logs instead.
+
+    Fail-open, like the orphan sweep beside the caller: a GitHub error must not undo a terminal save.
+    `_post_non_approval_review` records its review id, so a retry that reaches here again is a no-op.
     """
-    relabels = repo_config.review_mode == ReviewMode.LABEL and not self_driving
-    retry = (
-        f"Remove and re-add the `{repo_config.trigger_label}` label to try again."
-        if relabels
-        else "Push a new commit to try again."
-    )
-    return (
-        f"**The review did not complete.**\n\nStamphog hit an error and produced no verdict for this commit.\n\n{retry}"
-    )
+    try:
+        _post_non_approval_review(
+            client, run.pull_request.repo_config.repository, run, run.pull_request, team_id, FAILURE_NOTICE_BODY
+        )
+    except Exception:
+        activity.logger.exception(f"Failed to post the failure notice for run {run.id}")
 
 
 def _comment_id(obj: dict) -> int | None:

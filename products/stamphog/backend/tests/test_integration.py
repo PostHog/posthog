@@ -292,23 +292,18 @@ def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
 
 
 @pytest.mark.parametrize(
-    "review_mode,self_driving,expected_retry",
-    [
-        (ReviewMode.LABEL, False, "Remove and re-add the `stamphog` label to try again."),
-        (ReviewMode.ALL, False, "Push a new commit to try again."),
-        # A self-driving inbox run bypasses review mode and never re-reviews on `labeled`, so the
-        # label instruction would send its reader down a route that starts nothing.
-        (ReviewMode.LABEL, True, "Push a new commit to try again."),
-    ],
-    ids=["label_mode_says_relabel", "all_mode_says_push", "self_driving_ignores_label_mode"],
+    "review_mode,self_driving",
+    [(ReviewMode.LABEL, False), (ReviewMode.ALL, False), (ReviewMode.LABEL, True)],
+    ids=["label_mode", "all_mode", "self_driving"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_failed_run_says_so_on_the_pull_request(
-    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, self_driving: bool, expected_retry: str
+    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, self_driving: bool
 ) -> None:
-    # A failed run used to leave the author with a 👀 that vanished and nothing else, which reads
-    # exactly like a review still running. The retry line has to name a route that starts a run, or
-    # the notice sends its reader somewhere that does nothing.
+    # A failed run used to leave the author with a vanished eyes reaction and nothing else, which
+    # reads exactly like a review still running. The retry line names a push in every mode because
+    # that is the only route that always starts a run: a failure leaves the trigger label in place,
+    # so re-adding it is rejected by the per-PR cooldown, and a self-driving run ignores labels.
     repo_config = _repo_config(team.id)
     repo_config.review_mode = review_mode
     repo_config.save()
@@ -334,7 +329,8 @@ def test_a_failed_run_says_so_on_the_pull_request(
     assert len(notices) == 1
     body = notices[0]["body"]["body"]
     assert body.startswith("**The review did not complete.**")
-    assert expected_retry in body
+    assert "Push a new commit to try again." in body
+    assert "label" not in body  # the cooldown makes a relabel the one route that can do nothing
     # The cause belongs on the run and in the worker logs, never on a public pull request.
     assert "modal refused the box" not in body
 
@@ -361,6 +357,32 @@ def test_a_superseded_run_posts_no_failure_notice(team, stamphog_chain: Stamphog
     run.refresh_from_db()
     assert run.status == ReviewRunStatus.SUPERSEDED  # the terminal guard held
     assert [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"] == []
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_retry_finishes_a_notice_the_previous_attempt_never_posted(team, stamphog_chain: StamphogChain) -> None:
+    # The activity marks the run FAILED, then removes its reaction and sweeps GitHub, then posts. An
+    # attempt that dies in that window leaves a FAILED run with no notice, and the retry meets its own
+    # terminal status. Returning there would restore the silence this path exists to remove.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha-resumed"
+    stamphog_chain.recorder.register_pr(REPO, 116, _pr_object(116, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=116, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.FAILED
+    )
+
+    _run_activity(mark_review_failed, MarkReviewFailedInput(str(run.id), team.id, "RuntimeError: worker lost"))
+
+    notices = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"]
+    assert len(notices) == 1
+    assert notices[0]["body"]["body"].startswith("**The review did not complete.**")
+
+    # And only once: the recorded review id makes a further retry a no-op.
+    _run_activity(mark_review_failed, MarkReviewFailedInput(str(run.id), team.id, "RuntimeError: worker lost"))
+    assert len([w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"]) == 1
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
