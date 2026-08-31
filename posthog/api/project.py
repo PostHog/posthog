@@ -1875,7 +1875,8 @@ class ProjectViewSet(
                 scope="Project",
                 item_id=project.pk,
                 activity="updated",
-                detail=Detail(name="moved to another organization", changes=[project_change]),
+                # Name the project itself; the losing org can no longer resolve it any other way.
+                detail=Detail(name=str(project.name), changes=[project_change]),
             )
 
             for team in teams:
