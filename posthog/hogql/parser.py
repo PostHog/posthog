@@ -486,11 +486,11 @@ class _PythonOnlyFunctionGuard(TraversingVisitor):
     functions out of every user-written query on every backend. AST that Python code builds
     (placeholders, query runners) never passes through here."""
 
-    def visit_call(self, node: ast.Call):
+    def visit_call(self, node: ast.Call) -> None:
         self._check(node.name)
         super().visit_call(node)
 
-    def visit_window_function(self, node: ast.WindowFunction):
+    def visit_window_function(self, node: ast.WindowFunction) -> None:
         self._check(node.name)
         super().visit_window_function(node)
 

@@ -1,6 +1,6 @@
 import re
 import copy
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -544,7 +544,7 @@ def select_session_property_values(
     order_by: str,
     search_term: Optional[str],
     recent_sessions_only: Optional[ast.Expr] = None,
-) -> list:
+) -> list[tuple[Any, ...]]:
     """The 20 most common values of one raw sessions column among the newest 100k stored rows.
 
     The raw table holds aggregate states, and finalizeAggregation reads each stored row as-is.
