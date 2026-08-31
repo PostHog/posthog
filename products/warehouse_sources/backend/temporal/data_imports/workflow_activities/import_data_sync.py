@@ -69,6 +69,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.his
     history_start_for_schema,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.proxy_errors import (
+    UNRESOLVABLE_SOURCE_HOST_PENDING,
     UnresolvableSourceHostError,
     unresolvable_host_behind_proxy,
 )
@@ -555,6 +556,43 @@ POSTHOG_DATABASE_UNAVAILABLE_MESSAGE = (
 )
 
 
+# How long the source's hostname must stay missing before the sync is disabled. A wall-clock span
+# rather than a run count, so a schema on a fast cadence gets the same protection from a short DNS
+# outage as one that syncs daily. The hosts this targets have been unreachable for weeks, so the
+# wait costs nothing against the retrying it prevents.
+_UNRESOLVABLE_HOST_GRACE = dt.timedelta(hours=6)
+
+# Bound on how far back the streak scan reads. A schema on a five-minute cadence produces about 72
+# runs inside the grace window, so this leaves room for that plus a wide margin.
+_UNRESOLVABLE_HOST_SCAN_LIMIT = 250
+
+
+@database_sync_to_async_pool
+def _unresolvable_host_streak_started_at(team_id: int, schema_id: uuid.UUID, run_id: str) -> Optional[dt.datetime]:
+    """When the unbroken run of unresolvable-hostname failures began, or None if this run is the first.
+
+    The schema's own job history is the record, so no extra state is stored: each run inside the
+    grace window records `UNRESOLVABLE_SOURCE_HOST_PENDING`, and any other terminal outcome ends the
+    streak. A successful run therefore clears it without anything having to reset a counter.
+    """
+    recent_runs = (
+        ExternalDataJob.objects.filter(team_id=team_id, schema_id=schema_id, status__in=TERMINAL_JOB_STATUSES)
+        .exclude(pk=run_id)
+        .order_by("-created_at")
+        .values_list("created_at", "status", "latest_error")[:_UNRESOLVABLE_HOST_SCAN_LIMIT]
+    )
+
+    streak_started_at: Optional[dt.datetime] = None
+    for created_at, status, latest_error in recent_runs:
+        if status != ExternalDataJob.Status.FAILED:
+            break
+        if UNRESOLVABLE_SOURCE_HOST_PENDING not in (latest_error or ""):
+            break
+        streak_started_at = created_at
+
+    return streak_started_at
+
+
 async def _handle_import_error(
     job_inputs: PipelineInputs,
     logger: FilteringBoundLogger,
@@ -669,22 +707,6 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
-    # The egress proxy resolves the destination for us, so a hostname that no longer exists comes
-    # back as a CONNECT failure rather than a resolver error. Sources list that gateway status in
-    # get_retryable_errors, which is right for a proxy that is briefly unwell and wrong for a host
-    # that is gone. Classify it here, ahead of those lists, so a deleted source host stops the sync
-    # instead of being retried on every scheduled run.
-    dead_host = await unresolvable_host_behind_proxy(error)
-    if dead_host is not None:
-        # The job's internal error is `str(cause.cause)`, so the stable message has to sit on the
-        # exception handed to handle_non_retryable_error for Any_Source_Errors to match it and
-        # disable the schema. Keep the original as __cause__ so the proxy detail stays debuggable.
-        dns_error = UnresolvableSourceHostError(dead_host)
-        dns_error.__cause__ = error
-        await handle_non_retryable_error(
-            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(dns_error), logger, dns_error
-        )
-
     # RESTClientRetryableError only escapes the shared REST engine's own tenacity retry loop once
     # that budget (rate limits, transient 5xx, connection resets/timeouts) is exhausted — the same
     # "reaches us only after internal retries exhaust" contract as get_retryable_errors below.
@@ -726,6 +748,40 @@ async def _handle_import_error(
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
         raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from error
+
+    # The egress proxy resolves the destination for us, so a hostname that no longer exists comes
+    # back as a CONNECT failure rather than a resolver error. Sources list that gateway status in
+    # get_retryable_errors, which is right for a proxy that is briefly unwell and wrong for a host
+    # that is gone. Classify it ahead of those lists so a deleted source host stops the sync instead
+    # of being retried on every scheduled run.
+    #
+    # This sits below every check that identifies PostHog's own infrastructure, because the
+    # warehouse's own S3 traffic also egresses through that proxy unless the bypass flag is on
+    # (products/data_warehouse/backend/s3_proxy.py). Those checks must claim their errors first, or
+    # a failure of ours could be reported to the customer as their dead hostname.
+    dead_host = await unresolvable_host_behind_proxy(error)
+    if dead_host is not None:
+        # A hostname can go missing for minutes without the source being gone: a zone edit, a DNS
+        # provider hiccup, or a cached negative answer. Disabling the schema makes the customer
+        # re-enable it by hand, so wait for the condition to hold across separate scheduled runs
+        # before acting. handle_non_retryable_error's own cushion cannot serve here because its
+        # counter is keyed on the run, so all of its attempts sit inside this one run.
+        unresolvable_since = await _unresolvable_host_streak_started_at(
+            job_inputs.team_id, job_inputs.schema_id, job_inputs.run_id
+        )
+        if unresolvable_since is None or dt.datetime.now(dt.UTC) - unresolvable_since < _UNRESOLVABLE_HOST_GRACE:
+            await logger.awarning(f"{UNRESOLVABLE_SOURCE_HOST_PENDING}: {dead_host}")
+            await logger.adebug("Source hostname did not resolve - retrying until the grace window passes")
+            raise NonReportableError(f"{UNRESOLVABLE_SOURCE_HOST_PENDING}: {dead_host}") from error
+
+        # The job's internal error is `str(cause.cause)`, so the stable message has to sit on the
+        # exception handed to handle_non_retryable_error for Any_Source_Errors to match it and
+        # disable the schema. Keep the original as __cause__ so the proxy detail stays debuggable.
+        dns_error = UnresolvableSourceHostError(dead_host)
+        dns_error.__cause__ = error
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(dns_error), logger, dns_error
+        )
 
     # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel
     # auth, a widened column type) are raised from shared pipeline code, not any one source. The

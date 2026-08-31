@@ -1,7 +1,7 @@
 import uuid
 import socket
 import contextlib
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.proxy_errors import (
     UNRESOLVABLE_SOURCE_HOST_ERROR,
+    UNRESOLVABLE_SOURCE_HOST_PENDING,
     UnresolvableSourceHostError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
@@ -137,6 +138,73 @@ class TestGetModelsPrefetchesSource(BaseTest):
 
         with self.assertNumQueries(0):
             models.job.folder_path()
+
+
+class TestUnresolvableHostStreak(BaseTest):
+    def _schema(self) -> tuple[ExternalDataSource, ExternalDataSchema]:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Salesforce"
+        )
+        schema = ExternalDataSchema.objects.create(name="Account", team=self.team, source=source, sync_type_config={})
+        return source, schema
+
+    def _job(
+        self,
+        source: ExternalDataSource,
+        schema: ExternalDataSchema,
+        status: str,
+        minutes_ago: int,
+        latest_error: str | None = None,
+    ) -> ExternalDataJob:
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=status, latest_error=latest_error
+        )
+        ExternalDataJob.objects.filter(pk=job.pk).update(created_at=datetime.now(UTC) - timedelta(minutes=minutes_ago))
+        job.refresh_from_db()
+        return job
+
+    def _streak_started_at(self, schema: ExternalDataSchema, run_id: str) -> datetime | None:
+        return cast(Any, module._unresolvable_host_streak_started_at).func(self.team.pk, schema.pk, run_id)
+
+    def test_streak_spans_consecutive_unresolvable_failures(self) -> None:
+        source, schema = self._schema()
+        pending = f"{UNRESOLVABLE_SOURCE_HOST_PENDING}: gone.example.com"
+        oldest = self._job(source, schema, ExternalDataJob.Status.FAILED, 400, pending)
+        self._job(source, schema, ExternalDataJob.Status.FAILED, 200, pending)
+        current = self._job(source, schema, ExternalDataJob.Status.RUNNING, 0)
+
+        started_at = self._streak_started_at(schema, str(current.pk))
+
+        assert started_at is not None
+        assert int(started_at.timestamp()) == int(oldest.created_at.timestamp())
+
+    def test_a_successful_run_ends_the_streak(self) -> None:
+        # Without this the streak reaches back past a recovery, so a source that broke, worked
+        # again, and broke a minute ago would be disabled on that minute-old failure.
+        source, schema = self._schema()
+        pending = f"{UNRESOLVABLE_SOURCE_HOST_PENDING}: gone.example.com"
+        self._job(source, schema, ExternalDataJob.Status.FAILED, 400, pending)
+        self._job(source, schema, ExternalDataJob.Status.COMPLETED, 300)
+        recent = self._job(source, schema, ExternalDataJob.Status.FAILED, 10, pending)
+        current = self._job(source, schema, ExternalDataJob.Status.RUNNING, 0)
+
+        started_at = self._streak_started_at(schema, str(current.pk))
+
+        assert started_at is not None
+        assert int(started_at.timestamp()) == int(recent.created_at.timestamp())
+
+    def test_a_different_failure_ends_the_streak(self) -> None:
+        source, schema = self._schema()
+        self._job(source, schema, ExternalDataJob.Status.FAILED, 400, "Something else entirely")
+        current = self._job(source, schema, ExternalDataJob.Status.RUNNING, 0)
+
+        assert self._streak_started_at(schema, str(current.pk)) is None
+
+    def test_no_prior_runs_means_no_streak(self) -> None:
+        source, schema = self._schema()
+        current = self._job(source, schema, ExternalDataJob.Status.RUNNING, 0)
+
+        assert self._streak_started_at(schema, str(current.pk)) is None
 
 
 @pytest.mark.asyncio
@@ -590,8 +658,11 @@ async def test_proxy_failure_for_a_dead_host_beats_the_sources_retryable_gateway
     logger.aexception = mock.AsyncMock()
     logger.adebug = mock.AsyncMock()
 
+    stale = datetime.now(UTC) - module._UNRESOLVABLE_HOST_GRACE - timedelta(minutes=1)
+
     with (
         mock.patch.object(socket, "getaddrinfo", side_effect=socket.gaierror(socket.EAI_NONAME, "not known")),
+        mock.patch.object(module, "_unresolvable_host_streak_started_at", new=mock.AsyncMock(return_value=stale)),
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
         mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
     ):
@@ -607,6 +678,51 @@ async def test_proxy_failure_for_a_dead_host_beats_the_sources_retryable_gateway
     assert isinstance(routed, UnresolvableSourceHostError)
     assert UNRESOLVABLE_SOURCE_HOST_ERROR in str(routed)
     assert routed.__cause__ is error
+    logger.aexception.assert_not_awaited()
+
+
+@parameterized.expand(
+    [
+        # Nothing before this run: a single missing lookup must never disable a sync on its own.
+        ("first_occurrence", None),
+        # Seen before, but not for long enough that a short DNS outage is ruled out.
+        ("inside_grace", timedelta(minutes=30)),
+    ]
+)
+@pytest.mark.asyncio
+async def test_a_recently_unresolvable_host_keeps_retrying_instead_of_disabling(_name: str, age: timedelta | None):
+    # A hostname can go missing for minutes without the source being gone (a zone edit, a DNS
+    # provider hiccup, a cached negative answer). Disabling on that costs the customer a manual
+    # re-enable, so the condition has to outlast the grace window first.
+    error = ProxyError(
+        "HTTPSConnectionPool(host='gone.example.com', port=443): Max retries exceeded with url: /? "
+        "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 502 Bad gateway')))"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    started_at = None if age is None else datetime.now(UTC) - age
+
+    with (
+        mock.patch.object(socket, "getaddrinfo", side_effect=socket.gaierror(socket.EAI_NONAME, "not known")),
+        mock.patch.object(module, "_unresolvable_host_streak_started_at", new=mock.AsyncMock(return_value=started_at)),
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        with pytest.raises(NonReportableError) as raised:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_not_awaited()
+    # The recorded text is what the next run counts, and it must not carry the permanent marker or
+    # the finalization activity would disable the schema on this very run.
+    assert UNRESOLVABLE_SOURCE_HOST_PENDING in str(raised.value)
+    assert UNRESOLVABLE_SOURCE_HOST_ERROR not in str(raised.value)
     logger.aexception.assert_not_awaited()
 
 
@@ -1016,6 +1132,10 @@ async def test_integration_failure_is_classified_before_the_bare_404_rule():
     [
         ("integration_credential", "INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE"),
         ("posthog_database", "POSTHOG_DATABASE_UNAVAILABLE_MESSAGE"),
+        # Recorded on every run inside the unresolvable-host grace window. A pattern matching it
+        # would disable the schema on the first missing lookup, which is the whole thing the grace
+        # window exists to prevent.
+        ("unresolvable_host_pending", "UNRESOLVABLE_SOURCE_HOST_PENDING"),
     ]
 )
 def test_the_customer_facing_message_matches_no_non_retryable_pattern(_name: str, message_attr: str):

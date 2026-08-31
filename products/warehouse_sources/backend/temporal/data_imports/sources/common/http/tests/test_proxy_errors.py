@@ -1,3 +1,4 @@
+import time
 import socket
 
 import pytest
@@ -36,6 +37,49 @@ async def test_only_a_definitive_nxdomain_is_treated_as_permanent(
 ):
     with mock.patch.object(socket, "getaddrinfo", side_effect=resolver_error):
         assert await proxy_errors.unresolvable_host_behind_proxy(ProxyError(PROXY_502)) == expected
+
+
+@pytest.mark.asyncio
+async def test_a_resolver_error_that_is_not_a_name_verdict_does_not_escape():
+    # `getaddrinfo` raises UnicodeError (not OSError) for a DNS label over 63 characters. Letting it
+    # escape replaces the source's real error with a spurious one inside the shared error handler,
+    # which loses the actual cause and burns the retry budget.
+    long_label = "a" * 64
+    error = ProxyError(
+        f"HTTPSConnectionPool(host='{long_label}.example.com', port=443): Max retries exceeded "
+        "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 502 Bad gateway')))"
+    )
+
+    assert await proxy_errors.unresolvable_host_behind_proxy(error) is None
+
+
+@pytest.mark.asyncio
+async def test_host_comes_from_the_pool_repr_not_from_echoed_response_text():
+    # A source can echo `host='...'` back in a response body. Taking the first match in the message
+    # would resolve that text, get NXDOMAIN, and disable a schema whose real host is alive.
+    error = ProxyError(
+        'Source responded: {"detail": "host=\'wat is this\' Cannot connect to proxy."} '
+        "HTTPSConnectionPool(host='real-and-alive.example.com', port=443)"
+    )
+
+    with mock.patch.object(socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]) as resolve:
+        assert await proxy_errors.unresolvable_host_behind_proxy(error) is None
+
+    assert resolve.call_args.args[0] == "real-and-alive.example.com"
+
+
+@pytest.mark.asyncio
+async def test_a_resolver_that_does_not_answer_in_time_stays_retryable():
+    # `getaddrinfo` has no timeout of its own, so a wedged resolver would otherwise hold this path
+    # until the activity's own start-to-close timeout.
+    def _hang(*_args: object, **_kwargs: object) -> None:
+        time.sleep(30)
+
+    with (
+        mock.patch.object(proxy_errors, "_RESOLVE_TIMEOUT_SECONDS", 0.05),
+        mock.patch.object(socket, "getaddrinfo", side_effect=_hang),
+    ):
+        assert await proxy_errors.unresolvable_host_behind_proxy(ProxyError(PROXY_502)) is None
 
 
 @pytest.mark.asyncio
