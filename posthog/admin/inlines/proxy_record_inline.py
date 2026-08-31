@@ -1,5 +1,8 @@
+from django.http import HttpRequest
+
 from django_admin_inline_paginator.admin import TabularInlinePaginated
 
+from posthog.models.organization import Organization
 from posthog.models.proxy_record import ProxyRecord
 
 
@@ -24,9 +27,9 @@ class ProxyRecordInline(TabularInlinePaginated):
 
     ordering = ("-created_at",)
 
-    def has_add_permission(self, request, obj=None):
+    def has_add_permission(self, request: HttpRequest, obj: Organization | None = None) -> bool:
         # Proxy records are created via the app, not the admin
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: HttpRequest, obj: Organization | None = None) -> bool:
         return False

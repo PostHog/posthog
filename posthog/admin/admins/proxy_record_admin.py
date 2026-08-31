@@ -47,7 +47,7 @@ class ProxyRecordAdmin(admin.ModelAdmin):
         url = reverse("admin:posthog_organization_change", args=[obj.organization_id])
         return format_html('<a href="{}">{}</a>', url, obj.organization.name)
 
-    @admin.display(description="Created By", ordering="created_by__email")
+    @admin.display(description="Created by", ordering="created_by__email")
     def created_by_link(self, obj: ProxyRecord) -> str:
         if not obj.created_by:
             return "-"
