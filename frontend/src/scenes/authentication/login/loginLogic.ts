@@ -14,7 +14,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
-import { getRelativeNextPath } from 'lib/utils/url'
+import { getRelativeNextPath, isBackendOnlyPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
@@ -70,14 +70,6 @@ function precheckFallback(email: string): PrecheckResponseType {
     }
 }
 
-// Routes that should be handled by Django, not the React router
-const BACKEND_ONLY_ROUTES = [
-    '/login/vercel/continue',
-    '/oauth/authorize',
-    '/toolbar_oauth/authorize',
-    '/toolbar_oauth/check',
-]
-
 const PROJECT_PATH_PREFIX = '/project/'
 
 // True when the path targets a project other than the one we're currently in. A client-side
@@ -110,7 +102,7 @@ export function handleLoginRedirect(): void {
     }
 
     // Check if this is a backend-only route that shouldn't go through the React router
-    if (BACKEND_ONLY_ROUTES.some((route) => nextURL.startsWith(route))) {
+    if (isBackendOnlyPath(nextURL)) {
         window.location.href = nextURL
         return
     }

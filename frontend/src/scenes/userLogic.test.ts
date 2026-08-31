@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -186,6 +187,32 @@ describe('userLogic', () => {
                     },
                 }),
             })
+        })
+    })
+
+    describe('credential review redirect', () => {
+        const userNeedingReview = { ...MOCK_DEFAULT_USER, requires_credential_review: true }
+
+        it('replaces to the interstitial and carries the destination as next', async () => {
+            router.actions.push('/project/997/insights/abc123?edit=true')
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.loadUserSuccess(userNeedingReview as any)
+            }).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toBe('/account/credential-review')
+            expect(router.values.searchParams.next).toBe('/project/997/insights/abc123?edit=true')
+        })
+
+        it('does not redirect again once dismissed in the session', async () => {
+            userLogic.actions.credentialReviewDismissed()
+            router.actions.push('/project/997/insights/abc123')
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.loadUserSuccess(userNeedingReview as any)
+            }).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toBe('/project/997/insights/abc123')
         })
     })
 

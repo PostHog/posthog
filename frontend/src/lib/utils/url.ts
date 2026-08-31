@@ -222,6 +222,20 @@ function resolveSameOriginPath(candidate: string, location: Location): string | 
     }
 }
 
+// Routes Django serves, not the React router. Navigating to one client-side mounts the SPA shell
+// without the server-injected page context the route needs, so callers must use a full page
+// navigation instead.
+const BACKEND_ONLY_ROUTES = [
+    '/login/vercel/continue',
+    '/oauth/authorize',
+    '/toolbar_oauth/authorize',
+    '/toolbar_oauth/check',
+]
+
+export function isBackendOnlyPath(path: string): boolean {
+    return BACKEND_ONLY_ROUTES.some((route) => path.startsWith(route))
+}
+
 export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
     if (!nextPath || typeof nextPath !== 'string') {
         return null
