@@ -4,7 +4,8 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 /**
  * Codes on a 403 that mean something other than "you lack access to this resource". Each has its
  * own recovery flow in `apiStatusLogic` (2FA setup or verification, re-auth, a verified-domain
- * block, read-only impersonation), so it must not route to the AccessDenied scene.
+ * block, read-only impersonation, or a blocked impersonation path), so it must not route to the
+ * AccessDenied scene.
  */
 const NON_ACCESS_DENIED_403_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',
@@ -12,6 +13,7 @@ const NON_ACCESS_DENIED_403_CODES: ReadonlySet<string> = new Set([
     'sensitive_action_required_reauth',
     'verified_domain_required',
     'impersonation_read_only',
+    'impersonation_path_blocked',
 ])
 
 /**

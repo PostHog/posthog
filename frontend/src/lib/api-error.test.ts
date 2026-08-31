@@ -92,9 +92,11 @@ describe('api-error', () => {
             ['a 403 with an unrecognized code', { status: 403, code: 'not_a_known_code' }, true],
             // Codes with their own recovery flow must not route to the AccessDenied scene.
             ['a 2FA setup gate', { status: 403, code: 'two_factor_setup_required' }, false],
+            ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
             ['a verified-domain block', { status: 403, code: 'verified_domain_required' }, false],
             ['a read-only impersonation block', { status: 403, code: 'impersonation_read_only' }, false],
+            ['a blocked impersonation path', { status: 403, code: 'impersonation_path_blocked' }, false],
             // Not a 403 at all.
             ['a 401', { status: 401 }, false],
             ['a 500', { status: 500 }, false],
@@ -121,6 +123,7 @@ describe('api-error', () => {
             // These 403 codes have their own toast flow but no scene gate, so they stay reportable.
             ['a verified-domain block', { status: 403, code: 'verified_domain_required' }, true],
             ['a read-only impersonation block', { status: 403, code: 'impersonation_read_only' }, true],
+            ['a blocked impersonation path', { status: 403, code: 'impersonation_path_blocked' }, true],
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
@@ -139,6 +142,13 @@ describe('api-error', () => {
             const body = { detail: "You don't have access to the project.", code: 'permission_denied' }
             const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
 
+            expect(shouldReportApiFailure(error)).toBe(false)
+        })
+
+        it('treats an empty-body 403 as handled access denial', async () => {
+            const error = await ApiError.fromResponse(new Response(null, { status: 403 }))
+
+            expect(isAccessDeniedError(error)).toBe(true)
             expect(shouldReportApiFailure(error)).toBe(false)
         })
     })

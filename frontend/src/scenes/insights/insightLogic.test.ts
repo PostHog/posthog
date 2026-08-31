@@ -1197,6 +1197,21 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('accessDeniedToInsight', () => {
+        it('clears when the insight is loaded again', async () => {
+            logic = insightLogic({ dashboardItemId: Insight42, doNotLoad: true })
+            logic.mount()
+            logic.actions.setAccessDeniedToInsight()
+            expect(logic.values.accessDeniedToInsight).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadInsight(Insight42)
+            }).toDispatchActions(['loadInsightSuccess'])
+
+            expect(logic.values.accessDeniedToInsight).toBe(false)
+        })
+    })
+
     describe('editingDisabledReason', () => {
         it.each([
             ['overrides present', { filtersOverride: { date_from: '-7d' } }, 'Discard overrides to edit the insight.'],

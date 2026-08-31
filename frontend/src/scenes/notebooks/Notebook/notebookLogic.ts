@@ -834,7 +834,14 @@ export const notebookLogic = kea<notebookLogicType>([
                 closeShareModal: () => false,
             },
         ],
-        accessDeniedToNotebook: [false, { setAccessDeniedToNotebook: () => true }],
+        accessDeniedToNotebook: [
+            false,
+            {
+                setAccessDeniedToNotebook: () => true,
+                loadNotebook: () => false,
+                loadNotebookSuccess: () => false,
+            },
+        ],
         localContent: [
             null as JSONContent | null,
             { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },

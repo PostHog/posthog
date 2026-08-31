@@ -857,7 +857,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 return { ...state, dashboards: state.dashboards?.filter((d: number) => d !== id) }
             },
         },
-        accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
+        accessDeniedToInsight: [
+            false,
+            {
+                setAccessDeniedToInsight: () => true,
+                loadInsight: () => false,
+                loadInsightSuccess: () => false,
+            },
+        ],
         insightMissing: [false, { setInsightMissing: () => true, loadInsight: () => false }],
         /** The insight's state as it is in the database. */
         savedInsight: [
