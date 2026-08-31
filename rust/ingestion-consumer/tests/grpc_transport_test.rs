@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
-use ingestion_consumer::transport::TransportError;
+use ingestion_consumer::transport::{SendError, TransportError};
 use ingestion_consumer::types::SerializedKafkaMessage;
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
     WorkerIngest, WorkerIngestServer,
@@ -42,10 +42,12 @@ enum AckMode {
 }
 
 /// Manual mode: the test drives the worker's acks through this.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum ManualAck {
     Ok { seq: u64, accepted: u32 },
     Nack(u64),
+    /// Send this ack frame exactly as given, for protocol-violation tests.
+    Raw(SubBatchAck),
 }
 
 type ManualAcks = Arc<Mutex<Option<mpsc::UnboundedReceiver<ManualAck>>>>;
@@ -99,6 +101,7 @@ impl WorkerIngest for MockWorker {
                                 error: "poisoned".to_string(),
                                 timed_out: vec![],
                             },
+                            ManualAck::Raw(ack) => ack,
                         };
                         let _ = tx.send(Ok(IngestStreamResponse {
                             msg: Some(ingest_stream_response::Msg::Ack(ack)),
@@ -763,6 +766,127 @@ async fn the_soft_budget_rides_frames_but_not_split_chunks() {
         vec![30_000, 0, 0, 0],
         "one budgeted frame, then three unbudgeted split chunks"
     );
+}
+
+/// Drive one manual-mode round trip: send a two-message budgeted sub-batch
+/// (seq 1), wait for it to reach the worker, answer with `ack`, and return
+/// the send's outcome.
+async fn send_and_ack_raw(ack: SubBatchAck) -> Result<u32, SendError> {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    transport.set_soft_budget_ms(30_000);
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], false);
+    wait_for_received(&mock, 1).await;
+    ack_tx.send(ManualAck::Raw(ack)).unwrap();
+    pending.wait().await
+}
+
+#[tokio::test]
+async fn malformed_partial_acks_fence_with_the_messages_returned() {
+    // Fail closed: an ack whose dispositions don't cover the sub-batch (or
+    // that claims timeouts outside a PARTIAL) must fence and hand the
+    // messages back for replay. Trusting it instead would silently lose the
+    // messages the list mis-describes.
+    let cases: Vec<(&str, SubBatchAck)> = vec![
+        (
+            "partial with no timed_out entries",
+            SubBatchAck {
+                seq: 1,
+                status: SubBatchStatus::Partial as i32,
+                accepted: 2,
+                error: String::new(),
+                timed_out: vec![],
+            },
+        ),
+        (
+            "partial with an out-of-range index",
+            SubBatchAck {
+                seq: 1,
+                status: SubBatchStatus::Partial as i32,
+                accepted: 1,
+                error: String::new(),
+                timed_out: vec![5],
+            },
+        ),
+        (
+            "partial with a duplicate index",
+            SubBatchAck {
+                seq: 1,
+                status: SubBatchStatus::Partial as i32,
+                accepted: 0,
+                error: String::new(),
+                timed_out: vec![1, 1],
+            },
+        ),
+        (
+            "partial whose counts do not cover the sub-batch",
+            SubBatchAck {
+                seq: 1,
+                status: SubBatchStatus::Partial as i32,
+                accepted: 2,
+                error: String::new(),
+                timed_out: vec![1],
+            },
+        ),
+        (
+            "ok carrying timed_out entries",
+            SubBatchAck {
+                seq: 1,
+                status: SubBatchStatus::Ok as i32,
+                accepted: 2,
+                error: String::new(),
+                timed_out: vec![1],
+            },
+        ),
+    ];
+    for (case, ack) in cases {
+        let err = match send_and_ack_raw(ack).await {
+            Ok(accepted) => panic!("{case}: must fail the send, got accepted={accepted}"),
+            Err(err) => err,
+        };
+        assert!(
+            matches!(err.error, TransportError::WorkerStreamFailed(_)),
+            "{case}: fences as a fault, not backpressure"
+        );
+        assert_eq!(err.messages.len(), 2, "{case}: messages come back for replay");
+    }
+}
+
+#[tokio::test]
+async fn a_partial_ack_for_an_unbudgeted_sub_batch_fences() {
+    // This consumer sent no budget, so the worker had nothing to time out; a
+    // PARTIAL here is a protocol violation, not backpressure.
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], false);
+    wait_for_received(&mock, 1).await;
+    ack_tx
+        .send(ManualAck::Raw(SubBatchAck {
+            seq: 1,
+            status: SubBatchStatus::Partial as i32,
+            accepted: 1,
+            error: String::new(),
+            timed_out: vec![1],
+        }))
+        .unwrap();
+
+    let err = pending.wait().await.expect_err("protocol violation fences");
+    assert!(matches!(err.error, TransportError::WorkerStreamFailed(_)));
+    assert_eq!(err.messages.len(), 2, "messages come back for replay");
 }
 
 #[tokio::test]

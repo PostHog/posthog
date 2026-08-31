@@ -43,7 +43,7 @@ use dashmap::DashMap;
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_client::WorkerIngestClient;
 use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
-    KafkaMessage, StreamHello, SubBatch, SubBatchStatus,
+    KafkaMessage, StreamHello, SubBatch, SubBatchAck, SubBatchStatus,
 };
 use metrics::{counter, gauge, histogram};
 use prost::Message;
@@ -330,6 +330,10 @@ struct LedgerEntry {
     deadline: tokio::time::Instant,
     /// When the sub-batch went on the wire, for the send-to-ack latency histogram.
     sent_at: std::time::Instant,
+    /// Whether the frame carried a non-zero soft budget. Only a budgeted
+    /// frame may be acked PARTIAL; a partial ack for an unbudgeted frame is a
+    /// protocol violation and fences.
+    budgeted: bool,
     /// The worker's accepted count once acked. The entry stays in the ledger
     /// until every earlier entry is acked too, so a fence still reaches it.
     acked: Option<u32>,
@@ -550,6 +554,11 @@ impl WorkerStreamRunner {
             let Some(item) = item else { break };
             let seq = *next_seq;
             *next_seq += 1;
+            let soft_budget_ms = if item.unbudgeted {
+                0
+            } else {
+                self.soft_budget_ms
+            };
             let request = IngestStreamRequest {
                 msg: Some(ingest_stream_request::Msg::SubBatch(SubBatch {
                     seq,
@@ -557,11 +566,7 @@ impl WorkerStreamRunner {
                     messages: item.messages.iter().map(to_proto_message).collect(),
                     replay: item.replay,
                     assignment_epoch: self.assignment_epoch.load(Ordering::Relaxed),
-                    soft_budget_ms: if item.unbudgeted {
-                        0
-                    } else {
-                        self.soft_budget_ms
-                    },
+                    soft_budget_ms,
                 })),
             };
             // tonic gzips the frame after this point, so only the raw size is observable here.
@@ -574,6 +579,7 @@ impl WorkerStreamRunner {
                 item,
                 deadline,
                 sent_at: std::time::Instant::now(),
+                budgeted: soft_budget_ms > 0,
                 acked: None,
             });
             if !sent {
@@ -683,7 +689,8 @@ impl WorkerStreamRunner {
             );
             return Err(self.fence(None, ledger, queue, "sub-batch nacked"));
         }
-        if response.status != SubBatchStatus::Ok as i32 {
+        let is_partial = response.status == SubBatchStatus::Partial as i32;
+        if response.status != SubBatchStatus::Ok as i32 && !is_partial {
             // BUSY, or any status this consumer predates: transient
             // backpressure, not a fault. Fence in order (the ordered stream
             // cannot retry one sub-batch in place) but as retriable, so the
@@ -698,12 +705,43 @@ impl WorkerStreamRunner {
         }
         let was_full = ledger.len() >= self.max_unacked;
         let Some(entry) = ledger
-            .iter_mut()
+            .iter()
             .find(|e| e.seq == response.seq && e.acked.is_none())
         else {
             warn!(worker = %self.worker_url, seq = response.seq, "Ack for unknown seq — fencing worker stream");
             return Err(self.fence(None, ledger, queue, "unknown ack seq"));
         };
+        // Fail closed on the disposition shape: proto3 cannot distinguish an
+        // unset list from an empty one, so acceptance is never derived from
+        // `timed_out` without these checks — a worker bug becomes a fence and
+        // a replay instead of silently lost messages.
+        if let Some(reason) = ack_shape_error(entry.item.messages.len(), entry.budgeted, &response)
+        {
+            warn!(
+                worker = %self.worker_url,
+                seq = response.seq,
+                status = response.status,
+                reason,
+                "Invalid ack shape — fencing worker stream"
+            );
+            return Err(self.fence(None, ledger, queue, reason));
+        }
+        if is_partial {
+            // Fence in order as retriable: the whole sub-batch, acked prefix
+            // included, replays through the deferral path, which is ordinary
+            // at-least-once redelivery.
+            warn!(
+                worker = %self.worker_url,
+                seq = response.seq,
+                timed_out = response.timed_out.len(),
+                "Partial ack — fencing worker stream as retriable"
+            );
+            return Err(self.fence_with(true, None, ledger, queue, "partial ack"));
+        }
+        let entry = ledger
+            .iter_mut()
+            .find(|e| e.seq == response.seq && e.acked.is_none())
+            .expect("entry found above");
         entry.acked = Some(response.accepted);
         self.record_send_duration(entry);
         counter!(
@@ -864,6 +902,36 @@ enum StreamEnd {
     Failed(Fence),
     /// The stream ended cleanly with nothing outstanding.
     Idle,
+}
+
+/// Validate an OK or PARTIAL ack's disposition shape against the frame it
+/// resolves, returning the fence reason on a violation. PARTIAL requires a
+/// budgeted frame, a non-empty `timed_out` list of unique in-range indices,
+/// and `accepted + timed_out.len()` covering the frame exactly; OK requires
+/// the list empty.
+fn ack_shape_error(message_count: usize, budgeted: bool, ack: &SubBatchAck) -> Option<&'static str> {
+    if ack.status != SubBatchStatus::Partial as i32 {
+        return (!ack.timed_out.is_empty()).then_some("timed_out on a non-partial ack");
+    }
+    if !budgeted {
+        // This consumer sent no budget on the frame (none configured, or a
+        // split chunk), so the worker had nothing to time out.
+        return Some("partial ack for an unbudgeted sub-batch");
+    }
+    if ack.timed_out.is_empty() {
+        return Some("partial ack with no timed_out entries");
+    }
+    let mut seen = vec![false; message_count];
+    for &index in &ack.timed_out {
+        match seen.get_mut(index as usize) {
+            Some(slot) if !*slot => *slot = true,
+            _ => return Some("partial ack with an out-of-range or duplicate index"),
+        }
+    }
+    if ack.accepted as usize + ack.timed_out.len() != message_count {
+        return Some("partial ack dispositions do not cover the sub-batch");
+    }
+    None
 }
 
 fn to_proto_message(message: &SerializedKafkaMessage) -> KafkaMessage {
