@@ -1359,7 +1359,7 @@ from = [
 
 [[modules]]
 path = "products.apm"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.alerts"]
 layer = "modules"
 
 [[modules]]
