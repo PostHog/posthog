@@ -156,9 +156,7 @@ def get_cached_organization_memberships(user: User) -> list[OrganizationMembersh
     if isinstance(cached, list):
         return [_prepare_cached_membership(membership, user) for membership in cached]
 
-    memberships = list(
-        _organization_membership_model().objects.filter(user_id=user.id).select_related("organization")
-    )
+    memberships = list(_organization_membership_model().objects.filter(user_id=user.id).select_related("organization"))
     for membership in memberships:
         get_cached_organization(membership.organization_id)
         membership._state.fields_cache.pop("organization", None)
