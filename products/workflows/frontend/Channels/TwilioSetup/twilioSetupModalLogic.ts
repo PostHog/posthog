@@ -1,4 +1,4 @@
-import { MakeLogicType, connect, kea, path, props } from 'kea'
+import { MakeLogicType, connect, kea, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
@@ -154,6 +154,16 @@ export const twilioSetupModalLogic = kea<twilioSetupModalLogicType>([
                     throw error
                 }
             },
+        },
+    })),
+    listeners(({ actions, values }) => ({
+        setTwilioIntegrationValue: () => {
+            // Kea Forms keeps manual errors until a field is touched, and includes them in the
+            // form's error gate. A rejection flags both keys, so editing one field would leave the
+            // other's error and block the next submit. Clear both as soon as either field changes.
+            if (Object.keys(values.twilioIntegrationManualErrors).length > 0) {
+                actions.setTwilioIntegrationManualErrors({})
+            }
         },
     })),
 ])
