@@ -77,7 +77,17 @@ describe('CollapsibleFrame', () => {
         ['vendor', { ...baseFrame, in_app: false }, /vendor frame/i],
         ['unresolved', { ...baseFrame, resolved: false }, /not resolved yet/i],
         ['resolved without source', baseFrame, /source map was not uploaded/i],
-        ['unidentified', { ...baseFrame, resolved_name: null, mangled_name: '', source: null }, /could not identify/i],
+        [
+            'unidentified with an address',
+            {
+                ...baseFrame,
+                resolved_name: null,
+                mangled_name: '',
+                source: null,
+                junk_drawer: { raw_frame: { instruction_addr: '0x00000001010444e4' } },
+            },
+            /could not identify/i,
+        ],
     ])('explains a %s frame', (_name, frame, matcher) => {
         renderFrame(frame, true)
         expect(screen.getByText(matcher)).toBeInTheDocument()
@@ -88,5 +98,12 @@ describe('CollapsibleFrame', () => {
 
         expect(screen.getByText('This frame is resolved, but its source code is not available.')).toBeInTheDocument()
         expect(screen.queryByText(/source map/i)).not.toBeInTheDocument()
+    })
+
+    it('does not recommend symbol sets when an unidentified frame has no address', () => {
+        renderFrame({ ...baseFrame, resolved_name: null, mangled_name: '', source: null }, true)
+
+        expect(screen.getByText(/nothing to identify it with/i)).toBeInTheDocument()
+        expect(screen.queryByText(/symbol sets/i)).not.toBeInTheDocument()
     })
 })

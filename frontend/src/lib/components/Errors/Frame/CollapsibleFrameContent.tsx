@@ -5,7 +5,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameContext, ErrorTrackingStackFrameRecord } from '../types'
-import { SYMBOL_SETS_DOC_LINK, formatFunctionName } from '../utils'
+import { SYMBOL_SETS_DOC_LINK, formatFunctionName, getInstructionAddress } from '../utils'
 import { CodeVariablesInlineBanner } from './CodeVariablesInlineBanner'
 import { FrameContext } from './FrameContext'
 import { getFrameLanguage } from './frameLanguage'
@@ -56,12 +56,17 @@ function getEmptyStateMessage(frame: ErrorTrackingStackFrame, loading: boolean):
         return 'Loading source code...'
     }
     if (!formatFunctionName(frame) && !frame.source) {
-        return (
-            <>
-                PostHog could not identify this frame, so there is no source code to show. <UploadSymbolSetsLink /> to
-                symbolicate it.
-            </>
-        )
+        // Symbol sets can only symbolicate a frame we can match by address. Without one, the upload
+        // cannot help, so mirror the header and state the SDK gap instead of linking to the docs.
+        if (getInstructionAddress(frame)) {
+            return (
+                <>
+                    PostHog could not identify this frame, so there is no source code to show. <UploadSymbolSetsLink />{' '}
+                    to symbolicate it.
+                </>
+            )
+        }
+        return 'The SDK sent no function name, file name or memory address for this frame, so there is nothing to identify it with.'
     }
     if (!frame.in_app) {
         return 'This is a vendor frame, so its source code is not available.'
