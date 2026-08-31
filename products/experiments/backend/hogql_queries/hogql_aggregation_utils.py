@@ -157,9 +157,9 @@ def _aggregation_allows_no_args(function_name: str) -> bool:
         if name.lower() == normalized_name:
             return meta.min_args == 0
     for functions_dict in (HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS):
-        meta = functions_dict.get(normalized_name)
-        if meta is not None:
-            return meta.min_args == 0
+        func_meta = functions_dict.get(normalized_name)
+        if func_meta is not None:
+            return func_meta.min_args == 0
     # An aggregate always resolves in one of the dicts above; keep the old fallback if it does not.
     return True
 
