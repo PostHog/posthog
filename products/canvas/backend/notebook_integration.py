@@ -1,4 +1,3 @@
-import re
 from typing import Any
 from uuid import UUID
 
@@ -10,32 +9,8 @@ from products.canvas.backend import build_service
 from products.canvas.backend.artifacts import create_canvas_artifact_url
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import has_errors, synthetic_source_project, validate_source_project
+from products.tasks.backend.facade import api as tasks_facade
 
-_READ_FRAME_RE = re.compile(r"\bph\s*\.\s*readFrame\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
-_NOTEBOOK_SOURCE_RESTRICTIONS: tuple[tuple[re.Pattern[str], str, str], ...] = (
-    (
-        re.compile(
-            r"\bph\s*\.\s*readFrame\b(?!\s*\()|\bph\s*\[\s*[\"']readFrame[\"']\s*\]"
-            r"|\b(?:const|let|var)\s*\{[^}]*\breadFrame\b[^}]*\}\s*=\s*ph\b"
-        ),
-        "notebook_frame_indirect_access",
-        "Use ph.readFrame() directly with a literal dataframe name.",
-    ),
-    (
-        re.compile(r"\bph\s*(?:\.\s*state\b|\[\s*[\"']state[\"']\s*\])"),
-        "notebook_state_access_not_allowed",
-        "Notebook widgets cannot access Canvas state directly. Use ph.readFrame() for dataframe input.",
-    ),
-    (
-        re.compile(
-            r"\b(?:window|globalThis|self|document|top|parent)\s*(?:\.\s*(?:location|navigation|open)\b|\[\s*[\"'](?:location|navigation|open)[\"']\s*\])"
-            r"|(?<![\w.])(?:location|navigation)\s*(?:\.|\[|=)"
-            r"|(?<![\w.])open\s*\("
-        ),
-        "notebook_navigation_not_allowed",
-        "Notebook widgets cannot navigate or open browser contexts.",
-    ),
-)
 _NETWORK_DIAGNOSTICS = {"network_fetch", "network_xhr"}
 _LEGACY_FRAME_BRIDGE_START = "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */"
 _LEGACY_FRAME_BRIDGE_END = "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */"
@@ -88,6 +63,8 @@ class NotebookCanvasSourceInvalidError(NotebookCanvasError):
 
 
 def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name: str, context: str) -> UUID:
+    if not tasks_facade.channel_exists(team_id, channel_id, user_id):
+        raise NotebookCanvasNotFoundError
     return (
         Canvas.objects.for_team(team_id)
         .create(
@@ -102,7 +79,7 @@ def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name
     )
 
 
-def _source_project(source: str) -> dict[str, Any]:
+def _source_project(source: str, input_names: list[str]) -> dict[str, Any]:
     project = synthetic_source_project(source)
     files = project["files"]
     if isinstance(files, dict) and isinstance(index_html := files.get("index.html"), str):
@@ -116,7 +93,7 @@ def _source_project(source: str) -> dict[str, Any]:
             "inlineQueries": False,
             "captureEvents": [],
             "state": ["user"],
-            "notebookFrames": True,
+            "notebookFrames": list(input_names),
         },
         "network": {"origins": []},
     }
@@ -132,34 +109,10 @@ def _strip_legacy_frame_bridge(source: str) -> str:
 
 
 def validate_notebook_canvas_source(source: str, input_names: list[str]) -> list[dict[str, Any]]:
-    allowed_frames = set(input_names)
-    diagnostics = validate_source_project(_source_project(source))
-    diagnostics = [
+    return [
         {**diagnostic, "severity": "error"} if diagnostic.get("code") in _NETWORK_DIAGNOSTICS else diagnostic
-        for diagnostic in diagnostics
+        for diagnostic in validate_source_project(_source_project(source, input_names))
     ]
-    for pattern, code, message in _NOTEBOOK_SOURCE_RESTRICTIONS:
-        if pattern.search(source):
-            diagnostics.append({"severity": "error", "code": code, "message": message})
-    for match in _READ_FRAME_RE.finditer(source):
-        frame_name = match.group(1)
-        if frame_name is None:
-            diagnostics.append(
-                {
-                    "severity": "error",
-                    "code": "notebook_frame_must_be_literal",
-                    "message": "ph.readFrame() requires a literal dataframe name.",
-                }
-            )
-        elif frame_name not in allowed_frames:
-            diagnostics.append(
-                {
-                    "severity": "error",
-                    "code": "notebook_frame_not_allowed",
-                    "message": f'Dataframe "{frame_name}" is not available to this visualization.',
-                }
-            )
-    return diagnostics
 
 
 def prepare_notebook_canvas_source(
@@ -181,7 +134,7 @@ def prepare_notebook_canvas_source(
     if canvas is None or not User.objects.filter(id=user_id).exists():
         raise NotebookCanvasNotFoundError
 
-    project = _source_project(source)
+    project = _source_project(source, input_names)
     if has_errors(validate_notebook_canvas_source(source, input_names)):
         raise NotebookCanvasSourceInvalidError
 
