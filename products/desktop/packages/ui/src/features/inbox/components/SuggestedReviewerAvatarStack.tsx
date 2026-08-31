@@ -31,6 +31,7 @@ const MAX_VISIBLE = 4;
 // Keep this stable because autocapture insights and UI tests can depend on it.
 const REMOVE_SELF_DATA_ATTR = "inbox-remove-self-from-reviewers";
 const REMOVE_SELF_LABEL = "Remove me from reviewers";
+const NOT_FOR_ME_LABEL = "Not for me";
 
 interface SuggestedReviewerAvatarStackProps {
   report: SignalReport;
@@ -107,7 +108,7 @@ export function SuggestedReviewerAvatarStack({
     });
   };
 
-  return (
+  const reviewerPopover = (
     <Popover>
       <PopoverTrigger
         render={
@@ -183,5 +184,34 @@ export function SuggestedReviewerAvatarStack({
         ) : null}
       </PopoverContent>
     </Popover>
+  );
+
+  const showDirectRemove =
+    currentReviewer != null &&
+    reviewerArtefact != null &&
+    (surface === "list_row" || surface === "triage");
+
+  return (
+    <span className="flex items-center gap-1.5">
+      {reviewerPopover}
+      {showDirectRemove && (
+        <Button
+          type="button"
+          variant="link-muted"
+          size="xs"
+          className="h-auto p-0 text-[12px] no-underline hover:no-underline"
+          data-attr={REMOVE_SELF_DATA_ATTR}
+          loading={isPending}
+          title="Remove only you from this report's suggested reviewers"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            removeSelf();
+          }}
+        >
+          {NOT_FOR_ME_LABEL}
+        </Button>
+      )}
+    </span>
   );
 }

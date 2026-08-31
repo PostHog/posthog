@@ -369,6 +369,13 @@ function ReportSummarySlots({
           />
         </DetailSection>
       )}
+      {/* Charts answer "how much and how fast?" more quickly than prose, so
+          keep them above the longer analysis sections. */}
+      {report.charts && report.charts.length > 0 && (
+        <DetailSection Icon={ChartLineUpIcon} title="Charts">
+          <ReportChartsSection reportId={report.id} charts={report.charts} />
+        </DetailSection>
+      )}
       {split.sections.map((section, index) => (
         <DetailSection
           key={`${section.title}-${index}`}
@@ -386,13 +393,6 @@ function ReportSummarySlots({
           />
         </DetailSection>
       ))}
-      {/* Charts stay outside the collapsibles: in-prose chart links jump to
-          these anchors, and a jump into a folded section lands nowhere. */}
-      {report.charts && report.charts.length > 0 && (
-        <DetailSection Icon={ChartLineUpIcon} title="Charts">
-          <ReportChartsSection reportId={report.id} charts={report.charts} />
-        </DetailSection>
-      )}
     </>
   );
 }

@@ -24,6 +24,7 @@ import {
   Spinner,
   Textarea,
 } from "@posthog/quill";
+import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type { SignalReport, Task } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
@@ -74,11 +75,10 @@ interface ReportVerdictBannerProps {
   askHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
-  /**
-   * Called after an action opens the report's conversation dock. Surfaces
-   * without a dock (the triage card) navigate to the report here.
-   */
+  /** Called after an action opens the report's conversation dock. */
   onEngaged?: () => void;
+  /** Analytics and behavior context for actions rendered in this banner. */
+  surface?: InboxReportActionSurface;
 }
 
 /**
@@ -93,6 +93,7 @@ export function ReportVerdictBanner({
   askHotkey,
   initialEngagementOnly = false,
   onEngaged,
+  surface = "detail_pane",
 }: ReportVerdictBannerProps) {
   const compact = variant === "header-actions";
   const buttonClass = BIG_BUTTON;
@@ -139,7 +140,7 @@ export function ReportVerdictBanner({
 
   const verdict = deriveReportVerdict(report, { hasExistingPr });
 
-  const fireAction = useReportActionTracker(report);
+  const fireAction = useReportActionTracker(report, surface);
   const openTask = useOpenTask();
   const queryClient = useQueryClient();
   const [prOpen, setPrOpen] = useState(false);
@@ -196,7 +197,7 @@ export function ReportVerdictBanner({
   // right there). Running reports keep it out of the banner — the header's
   // Dismiss covers that rare case.
   const { dialog: dismissDialog, openDialog: openDismissDialog } =
-    useInboxReportDismissAction(report);
+    useInboxReportDismissAction(report, surface);
   const canArchiveHere =
     report.status === "ready" ||
     report.status === "failed" ||
@@ -224,8 +225,13 @@ export function ReportVerdictBanner({
   const handleOpenTask = useCallback(() => {
     if (!continuableTask) return;
     fireAction("open_task");
+    if (surface === "triage") {
+      setChatOpen(true);
+      onEngaged?.();
+      return;
+    }
     void openTask(continuableTask);
-  }, [continuableTask, fireAction, openTask]);
+  }, [continuableTask, fireAction, onEngaged, openTask, setChatOpen, surface]);
 
   const handleAsk = useCallback(() => {
     if (isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading) {
@@ -365,7 +371,7 @@ export function ReportVerdictBanner({
           data-attr="inbox-report-view-task"
         >
           <ArrowsOutSimpleIcon />
-          View task
+          {surface === "triage" ? "Continue in chat" : "View task"}
         </Button>
       ) : report.status === "ready" && !hasExistingPr && canCreatePr ? (
         <Popover

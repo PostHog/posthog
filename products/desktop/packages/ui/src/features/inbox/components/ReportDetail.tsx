@@ -4,6 +4,7 @@ import {
   AskAboutSelection,
   quoteSelection,
 } from "@posthog/ui/features/inbox/components/AskAboutSelection";
+import { ReportActivitySection } from "@posthog/ui/features/inbox/components/detail/ReportActivitySection";
 import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
@@ -53,8 +54,8 @@ export function ReportDetail({
 /**
  * A report reads story-first: the summary and charts, then the evidence.
  * The document stays pure content while its conversation owns follow-up
- * actions. Pipeline machinery (runs, activity logs, reviewer reasoning)
- * deliberately doesn't render.
+ * actions. Activity stays available but collapsed so someone can tell whether
+ * work already started without letting the implementation log dominate.
  *
  * The report owns its own scroll so the chat dock can sit full-height beside
  * it: reading and asking share one screen, and highlighting a passage quotes
@@ -109,7 +110,9 @@ function ReportDetailContent({
           summarySection={{ Icon: FileTextIcon, title: "Summary" }}
           footer={<ReportFeedbackFooter report={report} />}
           evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-        />
+        >
+          <ReportActivitySection reportId={report.id} />
+        </InboxDetailFrame>
       </div>
       <AskAboutSelection containerRef={contentRef} onAsk={handleAsk} />
       {chatOpen && <ReportChatSidebar report={report} />}

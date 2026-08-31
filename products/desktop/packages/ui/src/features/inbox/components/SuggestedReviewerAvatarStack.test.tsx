@@ -138,17 +138,7 @@ describe("SuggestedReviewerAvatarStack", () => {
       <SuggestedReviewerAvatarStack report={report} artefacts={artefacts} />,
     );
 
-    await user.click(
-      screen.getByRole("button", {
-        name: "View suggested reviewer rationale",
-      }),
-    );
-    const button = await screen.findByRole("button", {
-      name: "Remove me from reviewers",
-    });
-    expect(
-      screen.getByText("Recently changed the affected request parser."),
-    ).toBeTruthy();
+    const button = screen.getByRole("button", { name: "Not for me" });
 
     await user.click(button);
 
@@ -166,5 +156,26 @@ describe("SuggestedReviewerAvatarStack", () => {
       },
     );
     document.removeEventListener("click", onCardClick);
+  });
+
+  it("keeps the personal shortcut visible in triage and out of detail", () => {
+    const { rerender } = render(
+      <SuggestedReviewerAvatarStack
+        report={report}
+        artefacts={artefacts}
+        surface="triage"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Not for me" })).toBeTruthy();
+    expect(mocks.lastSurface).toBe("triage");
+
+    rerender(
+      <SuggestedReviewerAvatarStack
+        report={report}
+        artefacts={artefacts}
+        surface="detail_pane"
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Not for me" })).toBeNull();
   });
 });

@@ -2,7 +2,6 @@ import { ClockCounterClockwiseIcon } from "@phosphor-icons/react";
 import { ArtefactLogList } from "@posthog/ui/features/inbox/components/detail/ArtefactLogList";
 import { RightColumnSection } from "@posthog/ui/features/inbox/components/RightColumnSection";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { Text } from "@radix-ui/themes";
 
 /**
  * The report's artefact log ("Activity"), shared by every report detail
@@ -36,9 +35,9 @@ export function ReportActivitySection({
       collapsible
       defaultCollapsed
       rightSlot={
-        <Text className="cursor-default select-none text-[12px] text-gray-10 tabular-nums">
+        <span className="cursor-default select-none text-[12px] text-gray-10 tabular-nums">
           {artefacts.length} entr{artefacts.length === 1 ? "y" : "ies"}
-        </Text>
+        </span>
       }
     >
       <ArtefactLogList

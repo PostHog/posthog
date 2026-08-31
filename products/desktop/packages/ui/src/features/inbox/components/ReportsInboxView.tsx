@@ -15,7 +15,7 @@ import {
   REPORTS_INBOX_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
 import { partitionInboxReports } from "@posthog/core/inbox/reportInboxSections";
-import { INBOX_SCOPE_FOR_YOU } from "@posthog/core/inbox/reportMembership";
+import { inboxReviewerScopeValue } from "@posthog/core/inbox/reportMembership";
 import {
   deriveHeadline,
   humanizeReportTitle,
@@ -146,7 +146,7 @@ export function ReportsInboxView() {
     sourceProductFilter,
     priorityFilter,
     searchQuery,
-    isDefaultScope: scope === INBOX_SCOPE_FOR_YOU,
+    scope: inboxReviewerScopeValue(scope),
   });
 
   // Keep paging rows in (capped) so the sections have bodies to render —
@@ -188,10 +188,12 @@ export function ReportsInboxView() {
 
   if (triageFocusEnabled && focusMode) {
     return (
-      <div className="h-full min-h-0 overflow-y-auto">
+      <div className="h-full min-h-0">
         <ReportTriageFocus
           reports={sections.decision}
           allReports={allReports}
+          scope={scope}
+          hasActiveFilters={hasActiveFilters}
           onExit={() => setFocusMode(false)}
         />
       </div>
@@ -437,7 +439,7 @@ function InboxReportRow({ report }: { report: SignalReport }) {
     ? parsePrUrl(report.implementation_pr_url)
     : null;
   const { actionButton: archiveButton, dialog: archiveDialog } =
-    useInboxReportDismissAction(report);
+    useInboxReportDismissAction(report, "list_row");
   const { pointerHandlers } = useInboxReportDetailPrefetch({
     to: "/inbox/reports/$reportId",
     params: { reportId: report.id },
