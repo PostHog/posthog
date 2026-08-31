@@ -422,11 +422,10 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// overflow routing.
     ///
     /// Prep lives in this file rather than the outputs layer because it
-    /// reads state the sink owns (the topic registry, the replay envelope
-    /// setting) and produces a Kafka-shaped `ProduceRecord` with a concrete
-    /// topic and partition key. Keeping it off the `Sink` trait is what
-    /// matters for the layering: callers above can prep and publish as
-    /// separate phases.
+    /// reads state the sink owns — the topic registry, the replay envelope
+    /// setting — to resolve the concrete destination and partition key the
+    /// payload carries. Keeping it off the `Sink` trait is what matters for
+    /// the layering: callers above can prep and publish as separate phases.
     ///
     /// Not `async`: there are no await points, and keeping it
     /// synchronous lets `prepare_batch`'s serial fast path call it inline
