@@ -384,9 +384,11 @@ jobs:
             - name: Lint with Oxlint
               run: pnpm exec oxlint --quiet
 
-            # Oxlint has no cyclomatic complexity rule; complexity 11-15 annotates a
-            # warning, >15 fails. Scoped to the PR's own diff — no repo-wide baseline.
-            # Skip on an unrebased branch: bin/lint-complexity.mjs may not exist yet.
+            # Oxlint has no cyclomatic complexity rule. Warn-only while the backlog
+            # settles: findings annotate the diff and land in the shared CI report
+            # comment, never a job failure. Scoped to the PR's own diff, no repo-wide
+            # baseline. Skip on unrebased branches: bin/lint-complexity.mjs may not
+            # exist yet.
             - name: Check cyclomatic complexity of changed files
               if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
               env:
@@ -399,7 +401,18 @@ jobs:
                       exit 0
                   fi
                   # xargs re-parses the escape format, keeping escaped paths whole.
-                  printf '%s' "$CHANGED_FILES" | xargs -r node bin/lint-complexity.mjs
+                  printf '%s' "$CHANGED_FILES" | xargs -r node bin/lint-complexity.mjs --report complexity-findings-ts.json
+
+            - name: Post CI report — complexity
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-complexity-section.mjs ] && [ -f complexity-findings-ts.json ]; then
+                      node .github/scripts/post-complexity-section.mjs typescript complexity-findings-ts.json
+                  else
+                      echo "Skipping the complexity report section: script or findings not on this branch"
+                  fi
 
             - name: Check markdown formatting with oxfmt
               run: pnpm exec oxfmt --check "**/*.{md,mdx}"

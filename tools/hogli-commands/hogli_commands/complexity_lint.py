@@ -1,10 +1,10 @@
 """Cyclomatic complexity lint, scoped to changed files.
 
-Complexity 11-15 is a warning, above 15 an error — only errors exit non-zero.
-Python goes through ruff's C901 (repo-wide C901 stays off in pyproject.toml
-because of the existing-violation backlog; this surfaces it for files a branch
-actually touches). TypeScript goes through ``bin/lint-complexity.mjs`` because
-oxlint has no complexity rule.
+Findings above a threshold of 10 are warnings; the check never fails a build
+(advisory while the pre-existing violation backlog settles). Python goes
+through ruff's C901 (repo-wide C901 stays off in pyproject.toml for the same
+reason; this surfaces it for files a branch actually touches). TypeScript goes
+through ``bin/lint-complexity.mjs`` because oxlint has no complexity rule.
 
     hogli lint:complexity                     # changed files vs origin/master
     hogli lint:complexity path/to/file.py     # explicit files
@@ -18,16 +18,15 @@ import re
 import json
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import click
 from hogli.manifest import REPO_ROOT
 
 from hogli_commands.change_detection import changed_files, matches_globs
 
-# bin/lint-complexity.mjs declares the same thresholds; a test binds the two.
+# bin/lint-complexity.mjs declares the same threshold; a test binds the two.
 WARN_AT = 10
-ERROR_AT = 15
 
 # The complexity-linted trees: the posthog, ee, products, and frontend folders.
 # Python exclusions (products/desktop, generated grammar) come from pyproject's
@@ -46,10 +45,6 @@ class Finding:
     column: int
     name: str
     complexity: int
-
-    @property
-    def severity(self) -> str:
-        return "error" if self.complexity > ERROR_AT else "warning"
 
 
 def _python_findings(files: list[str]) -> list[Finding]:
@@ -97,19 +92,27 @@ def _ts_findings(files: list[str]) -> list[Finding]:
 
 
 def _report(finding: Finding) -> None:
-    message = f"`{finding.name}` has cyclomatic complexity {finding.complexity} (warn >{WARN_AT}, error >{ERROR_AT})"
-    click.echo(f"{finding.file}:{finding.line}:{finding.column} {finding.severity}: {message}")
+    message = f"`{finding.name}` has cyclomatic complexity {finding.complexity} (warn >{WARN_AT})"
+    click.echo(f"{finding.file}:{finding.line}:{finding.column}: warning: {message}")
     if os.environ.get("GITHUB_ACTIONS") == "true":
         click.echo(
-            f"::{finding.severity} file={finding.file},line={finding.line},col={finding.column},"
-            f"title=lint:complexity::{message}"
+            f"::warning file={finding.file},line={finding.line},col={finding.column},title=lint:complexity::{message}"
         )
 
 
-@click.command(name="lint:complexity", help="Check cyclomatic complexity of changed Python/TypeScript files.")
+@click.command(
+    name="lint:complexity", help="Check cyclomatic complexity of changed Python/TypeScript files (warn-only)."
+)
 @click.argument("files", nargs=-1)
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
-def cmd_lint_complexity(files: tuple[str, ...], against: str | None) -> None:
+@click.option(
+    "--report",
+    "report_path",
+    type=click.Path(dir_okay=False, writable=True),
+    default=None,
+    help="Also write the findings as JSON to this path (used by the CI report poster).",
+)
+def cmd_lint_complexity(files: tuple[str, ...], against: str | None, report_path: str | None) -> None:
     paths = list(files) if files else changed_files(against)
     present = [f for f in paths if (REPO_ROOT / f).is_file()]
     python_files = [f for f in present if matches_globs(f, PYTHON_SCOPE)]
@@ -140,10 +143,10 @@ def cmd_lint_complexity(files: tuple[str, ...], against: str | None) -> None:
 
     for finding in findings:
         _report(finding)
-    warnings = sum(f.severity == "warning" for f in findings)
-    errors = sum(f.severity == "error" for f in findings)
-    summary = f"complexity: {checked} file(s) checked — {warnings} warning(s), {errors} error(s)"
+    summary = f"complexity: {checked} file(s) checked, {len(findings)} warning(s)"
     if degraded:
         summary += " (incomplete: some files were skipped, see above)"
     click.echo(summary, err=True)
-    raise SystemExit(1 if errors else 0)
+    if report_path is not None:
+        with open(report_path, "w") as f:
+            json.dump([asdict(finding) for finding in findings], f)

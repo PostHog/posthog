@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
-from hogli_commands.complexity_lint import ERROR_AT, WARN_AT, _python_findings
+from hogli_commands.complexity_lint import WARN_AT, Finding, _python_findings
 
 runner = CliRunner()
 
@@ -16,24 +17,38 @@ def _branchy_function(name: str, branches: int) -> str:
 
 
 class TestComplexityLint:
-    def test_ruff_findings_classify_warning_and_error(self, tmp_path) -> None:
-        # Complexity = branches + 1: 11 branches → 12 (warning), 16 branches → 17 (error).
+    @pytest.mark.parametrize(
+        ("branches", "name", "expected"),
+        [
+            pytest.param(9, "at_ten", [], id="at_threshold_not_reported"),
+            pytest.param(11, "warns", [("warns", 12)], id="just_above_threshold_warns"),
+            # No error tier: any complexity above the threshold is a warning only.
+            pytest.param(16, "errors", [("errors", 17)], id="well_above_still_warns"),
+        ],
+    )
+    def test_findings_above_threshold_are_warnings(self, tmp_path, branches: int, name: str, expected: list) -> None:
+        # Complexity = branches + 1.
         target = tmp_path / "sample.py"
-        target.write_text(_branchy_function("warns", 11) + _branchy_function("errors", 16))
+        target.write_text(_branchy_function(name, branches))
 
-        findings = sorted(_python_findings([str(target)]), key=lambda f: f.line)
+        findings = _python_findings([str(target)])
 
-        assert [(f.name, f.complexity, f.severity) for f in findings] == [
-            ("warns", 12, "warning"),
-            ("errors", 17, "error"),
-        ]
+        assert [(f.name, f.complexity) for f in findings] == expected
 
-    def test_at_thresholds_is_not_reported(self, tmp_path) -> None:
-        # 10 is the warn threshold, not yet a warning.
-        target = tmp_path / "sample.py"
-        target.write_text(_branchy_function("at_ten", 9))
+    def test_cli_reports_warnings_without_failing(self, tmp_path) -> None:
+        # The check is advisory: even a high-complexity finding must exit 0 and be
+        # written to the --report file the CI report poster reads.
+        finding = Finding(file="posthog/tasks/usage_report.py", line=1, column=1, name="f", complexity=17)
+        report_path = tmp_path / "findings.json"
+        with patch("hogli_commands.complexity_lint._python_findings", return_value=[finding]):
+            result = runner.invoke(
+                cli, ["lint:complexity", "posthog/tasks/usage_report.py", "--report", str(report_path)]
+            )
 
-        assert _python_findings([str(target)]) == []
+        assert result.exit_code == 0
+        assert "warning" in result.output
+        assert "17" in result.output
+        assert finding.name in report_path.read_text()
 
     @patch("hogli_commands.complexity_lint._python_findings", return_value=[])
     def test_only_scoped_files_are_checked(self, mock_findings: MagicMock) -> None:
@@ -52,12 +67,13 @@ class TestComplexityLint:
         assert result.exit_code == 0
         mock_findings.assert_called_once_with(["posthog/tasks/usage_report.py"])
 
-    def test_thresholds_match_the_typescript_linter(self) -> None:
-        # The mjs is invoked directly by ci-frontend.yml, so it declares its own
-        # thresholds — this pins them to the Python side's.
+    def test_thresholds_and_ci_contract_match_the_typescript_linter(self) -> None:
+        # The mjs is invoked directly by ci-frontend.yml, so its threshold and its
+        # --report flag (whose file the CI report poster reads) are pinned to the
+        # Python side's contract.
         mjs = (REPO_ROOT / "bin" / "lint-complexity.mjs").read_text()
         assert f"const WARN_AT = {WARN_AT}\n" in mjs
-        assert f"const ERROR_AT = {ERROR_AT}\n" in mjs
+        assert "indexOf('--report')" in mjs
 
 
 class TestPreflightSoftCheck:
@@ -76,9 +92,7 @@ class TestPreflightSoftCheck:
         mock_stale: MagicMock,
         mock_emit: MagicMock,
     ) -> None:
-        warning = (
-            "frontend/src/scenes/sceneTypes.ts:1:1 warning: `f` has cyclomatic complexity 12 (warn >10, error >15)"
-        )
+        warning = "frontend/src/scenes/sceneTypes.ts:1:1: warning: `f` has cyclomatic complexity 12 (warn >10)"
         mock_run.return_value = MagicMock(returncode=0, stdout=warning + "\n", stderr="")
         result = runner.invoke(cli, ["ci:preflight", "--strict"])
         assert result.exit_code == 0

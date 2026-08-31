@@ -7,15 +7,17 @@
  * no complexity rule yet, so this uses the TypeScript compiler API directly.
  *
  * Usage:
- *   node bin/lint-complexity.mjs [--json] <files...>
+ *   node bin/lint-complexity.mjs [--json] [--report <path>] <files...>
  *
- * Functions above WARN_AT are warnings, above ERROR_AT errors; only errors exit
- * non-zero. `--json` emits the findings as JSON for `hogli lint:complexity`,
- * which owns all human-readable output. A test binds the thresholds here to the
- * Python side (test_complexity_lint.py) so the two cannot drift.
+ * Findings above WARN_AT are warnings; the check never fails a job (advisory
+ * while the pre-existing backlog settles). `--json` emits the findings as
+ * JSON for `hogli lint:complexity`, which owns human-readable output.
+ * `--report <path>` writes the same JSON to a file while printing human
+ * output and annotations (used by CI to post the CI report section). A test
+ * binds the thresholds here to the Python side (test_complexity_lint.py).
  */
 
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { createRequire } from 'module'
 import { dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
@@ -27,7 +29,6 @@ const require = createRequire(resolve(repoRoot, 'frontend', 'package.json'))
 const ts = require('typescript')
 
 const WARN_AT = 10
-const ERROR_AT = 15
 
 const FUNCTION_KINDS = new Set([
     ts.SyntaxKind.FunctionDeclaration,
@@ -121,7 +122,9 @@ const EXCLUDED = [/(^|\/)node_modules\//, /(^|\/)generated\//, /\.d\.ts$/, /^pro
 
 const args = process.argv.slice(2)
 const asJson = args.includes('--json')
-const files = args.filter((arg) => arg !== '--json')
+const reportIdx = args.indexOf('--report')
+const reportPath = reportIdx === -1 ? null : args[reportIdx + 1]
+const files = args.filter((arg, index) => arg !== '--json' && arg !== '--report' && index !== reportIdx + 1)
 
 const findings = []
 for (const file of files) {
@@ -134,22 +137,21 @@ for (const file of files) {
     findings.push(...lintFile(file).filter((finding) => finding.complexity > WARN_AT))
 }
 
-let errors = 0
 for (const finding of findings) {
-    const severity = finding.complexity > ERROR_AT ? 'error' : 'warning'
-    errors += severity === 'error'
     if (asJson) {
         continue
     }
-    const message = `\`${finding.name}\` has cyclomatic complexity ${finding.complexity} (warn >${WARN_AT}, error >${ERROR_AT})`
-    console.info(`${finding.file}:${finding.line}:${finding.column} ${severity}: ${message}`)
+    const message = `\`${finding.name}\` has cyclomatic complexity ${finding.complexity} (warn >${WARN_AT})`
+    console.info(`${finding.file}:${finding.line}:${finding.column}: warning: ${message}`)
     if (process.env.GITHUB_ACTIONS === 'true') {
         console.info(
-            `::${severity} file=${finding.file},line=${finding.line},col=${finding.column},title=lint:complexity::${message}`
+            `::warning file=${finding.file},line=${finding.line},col=${finding.column},title=lint:complexity::${message}`
         )
     }
 }
 if (asJson) {
     console.info(JSON.stringify(findings))
 }
-process.exit(errors > 0 ? 1 : 0)
+if (reportPath) {
+    writeFileSync(reportPath, JSON.stringify(findings))
+}

@@ -194,10 +194,10 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
-            # Complexity 11-15 annotates a warning, >15 fails; scoped to the PR's own
-            # diff because the pre-existing violation backlog keeps C901 off repo-wide.
-            # Skip on an unrebased branch: the `lint:complexity` hogli command may not
-            # be registered yet.
+            # Warn-only while the pre-existing violation backlog settles: findings annotate
+            # the diff and land in the shared CI report comment, never a job failure.
+            # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
+            # unrebased branches: the lint:complexity command may not be registered yet.
             - name: Check cyclomatic complexity of changed files
               if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
               shell: bash
@@ -211,7 +211,18 @@ jobs:
                       exit 0
                   fi
                   # xargs re-parses the escape format, keeping escaped paths whole.
-                  printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli lint:complexity
+                  printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli lint:complexity --report complexity-findings-python.json
+
+            - name: Post CI report — complexity
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-complexity-section.mjs ] && [ -f complexity-findings-python.json ]; then
+                      node .github/scripts/post-complexity-section.mjs python complexity-findings-python.json
+                  else
+                      echo "Skipping the complexity report section: script or findings not on this branch"
+                  fi
 
             - parallel:
                   - name: Check for syntax errors, import sort, and code style violations

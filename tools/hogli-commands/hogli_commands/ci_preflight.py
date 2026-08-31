@@ -69,9 +69,9 @@ class DiffCheck:
     # so nested workspaces like products/desktop validate their own lockfile instead
     # of the root one. Capability (node_modules present) is checked per workspace.
     workspace_scoped: bool = False
-    # A zero exit with output is a warning worth showing, not a clean pass — for
-    # checks whose command distinguishes warn (exit 0 + findings) from fail (exit 1).
-    # Warnings never block and never count toward the advisory footer.
+    # A zero exit with output is a warning worth showing, not a clean pass —
+    # for advisory checks whose findings print on stdout with exit 0. Warnings
+    # never block and never count toward the advisory footer.
     soft: bool = False
     matched: list[str] = field(default_factory=list)
 
@@ -119,7 +119,7 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="complexity",
-        label="cyclomatic complexity (warn >10, fail >15)",
+        label="cyclomatic complexity (warn >10)",
         # From complexity_lint.py so preflight and the command can't drift on scope.
         triggers=[*PYTHON_SCOPE, *TYPESCRIPT_SCOPE],
         verify=["hogli", "lint:complexity"],
