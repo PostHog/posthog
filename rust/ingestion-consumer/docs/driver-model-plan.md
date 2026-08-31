@@ -97,10 +97,12 @@ The order matters: the completion-time flush keeps per-key order only because ba
 
 **Goal:** Deferred work drains at ack speed, on one primary path.
 
-- The settlement release exists behind `DISPATCHER_EAGER_DEFERRED_FLUSH`, default off and not set in production. A charts PR enables it first. Rollback is that values change.
+- The eager flush is not removed. It is the settlement dispatch of the target design, under its old name. The design doc maps it: eager flush becomes normal settlement and dispatch.
+- The path exists behind `DISPATCHER_EAGER_DEFERRED_FLUSH`, default off and not set in production. A charts PR enables it first, so the mechanism soaks while the completion-time flush stays as the backstop. Rollback is that values change.
 - Two cases never see a settlement today: a group that was unroutable (its key had no send in flight), and a key whose failed send suppressed the release.
 - Add a parked-retry deadline for them: a timer retries every deferring key that has no send in flight, with backoff.
 - Count drains per path. After this change, the completion-time flush must find an empty stash in normal operation.
+- The flag disappears in change 5: when `batch` mode is deleted, settlement dispatch is the only behavior and there is nothing to toggle.
 
 ### 5. Batch completion stops flushing (logic)
 
