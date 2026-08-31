@@ -22,23 +22,26 @@ These components stay as they are: the stream runners, the P2C router, the apert
 
 Work proceeds in cycles.
 Each cycle delivers one outcome: a property of the system that holds from then on.
-A cycle has four phases:
+A cycle has five phases:
 
 1. **Prepare**: structure changes that carve the seams. No behavior change.
 2. **Implement**: build the new component, fully tested, not selected.
-3. **Switchover**: config selects the new component. Staged where possible: shadow, then canary, then all lanes. The config is the rollback.
-4. **Cleanup**: one deletion removes the old component and the switch.
+3. **Verify**: prove the new component against production before it takes over. A verify change adds observation only: a shadow comparison, a gauge, a dry-run report. Verification with no new code is a soak with a stated exit criterion, not a PR.
+4. **Switchover**: config selects the new component. Canary one lane, then all lanes. The config is the rollback.
+5. **Cleanup**: one deletion removes the old component and the switch.
 
 Rules:
 
 - Each change is one PR.
-- Prepare, implement, and cleanup changes do not change behavior. The e2e tests must pass without edits.
+- Prepare, implement, verify, and cleanup changes do not change behavior. The e2e tests must pass without edits.
 - Only a switchover may change behavior. Some do not (a switchover with identical output is still staged and reversible).
+- Every cycle names its verify evidence: the metrics to read and the exit criterion.
 - Old code is deleted in cleanup, never edited.
 - Dead code is deleted before a seam is carved around it. A cleanup of a switch that never shipped can open a cycle (change 1).
 - A structural outcome with no behavior change needs no switchover. Review and the e2e tests control its risk. The table labels such a change Structure (change 13).
 - A cycle's cleanup lands only after its switchover holds on all lanes.
 - Swap the smallest piece that removes the most complexity. Components that already match the target design are not rebuilt.
+- A change must not alter the meaning of an existing metric. Metrics of deleted machinery are deleted with it.
 - The commit sentinel and the key-order sentinel stay enabled through every cycle.
 
 Cycle 1 lands first: two fast, behavior-preserving complexity wins with no dependency on anything else.
@@ -50,13 +53,14 @@ That is where the complexity concentrates — the pins, the stash, and the flush
 The single-owner event loop follows as its own outcome (cycle 4), once the scheduler is simple.
 
 Each change ends with its interface impact: the types it adds, modifies, or removes.
+A change that adds metrics lists their names.
 
 | # | Cycle | Phase | Change |
 | --- | --- | --- | --- |
 | 1 | 1 one resolve protocol | Cleanup | Delete the dead eager flush |
 | 2 | 1 one resolve protocol | Prepare | Extract fence-safe send resolution |
 | 3 | 2 frontier commits | Implement | Add the offset ledger module |
-| 4 | 2 frontier commits | Switchover | Run the ledger in shadow mode |
+| 4 | 2 frontier commits | Verify | Run the ledger in shadow mode |
 | 5 | 2 frontier commits | Switchover | Commit from the ledger frontier |
 | 6 | 2 frontier commits | Cleanup | Delete the old commit computation |
 | 7 | 3 per-key order | Prepare | Demux polls into groups |
@@ -87,13 +91,15 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 Outcome: the eager send path is gone, and every send resolves through one fence-safe helper.
 This cycle has no switchover: the eager flush was never enabled, and the helper encodes the current order.
 
+**Verify:** the e2e suite. Both changes preserve behavior. The stash gauges (`ingestion_consumer_dispatcher_stashed_*`) must not change shape after the eager deletion.
+
 ### 1. Delete the dead eager flush (cleanup)
 
 **Task:** Remove the eager deferred flush. The flag that enables it is off everywhere.
 
 **Goal:** One send origin fewer before any seam is carved.
 
-- `DISPATCHER_EAGER_DEFERRED_FLUSH` is default off, and no deployment sets it. Confirm against a fresh charts checkout before this ships.
+- `DISPATCHER_EAGER_DEFERRED_FLUSH` is default off, and no deployment sets it. Confirm against a fresh charts checkout and the live deployments before this ships.
 - The completion-time flush already does all the draining in production. Behavior does not change.
 - Carrying the eager path through the seam extraction would preserve code that does not run.
 
@@ -122,6 +128,9 @@ This cycle has no switchover: the eager flush was never enabled, and the helper 
 
 Outcome: commit contiguity is a property of a data structure, not of completion order.
 
+**Verify:** change 4 compares the frontier with every real commit on all lanes.
+Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across deploys and rebalances, and `ingestion_consumer_ledger_uncommitted_offsets` returns toward zero when a lane is idle — the ring drains.
+
 ### 3. Add the offset ledger module (implement)
 
 **Task:** Create `ledger.rs` with a per-partition offset ring. Do not wire it in.
@@ -141,7 +150,7 @@ Outcome: commit contiguity is a property of a data structure, not of completion 
 
 - Add `OffsetLedger` in `ledger.rs`: `charge`, `complete`, `frontier` (non-mutating), `take_frontier` (consuming). No callers yet. The name avoids a clash with the stream runner's internal un-acked ledger.
 
-### 4. Run the ledger in shadow mode (switchover)
+### 4. Run the ledger in shadow mode (verify)
 
 **Task:** Wire the ledger next to the commit path. Compare its frontier with each real commit. Do not change what the consumer commits.
 
@@ -154,13 +163,18 @@ Outcome: commit contiguity is a property of a data structure, not of completion 
 - After the comparison, call `take_frontier` at the same commit point. The ledger drains identically in shadow and active modes. Without this, the shadow ring grows without bound.
 - On a mismatch: increment a counter and log the partition with both offsets. Do not block the commit.
 - On revoke, drop the partition's ledger. This mirrors the commit sentinel's `forget_partitions`.
-- Soak on all lanes. The exit criterion is a mismatch count of zero across deploys and rebalances.
+- Soak on all lanes until the cycle's exit criterion holds.
 
 **Interfaces:**
 
 - Modify `Config`: add the ledger mode.
 - Modify `IngestionConsumer`: own one `OffsetLedger` per partition. Charge in `collect_batch`, complete on poll completion, compare in `commit_offsets`.
 - Modify the revoke path (`SentinelContext`): drop revoked partitions' ledgers.
+
+**Metrics:**
+
+- Add `ingestion_consumer_ledger_mismatch_total` (counter): frontier vs committed offset disagreement.
+- Add `ingestion_consumer_ledger_uncommitted_offsets` (gauge, per partition): ring depth. Also the leak detector — it must drain at commit points.
 
 ### 5. Commit from the ledger frontier (switchover)
 
@@ -191,10 +205,16 @@ Outcome: commit contiguity is a property of a data structure, not of completion 
 
 - Modify `IngestionConsumer::commit_offsets`: frontier only.
 - Modify `Config`: remove the ledger mode.
+- Remove `ingestion_consumer_ledger_mismatch_total`. The comparison it counts is gone; the commit sentinel remains the invariant check.
 
 ## Cycle 3: one rule preserves per-key order
 
 Outcome: at most one outstanding request per key is the only ordering mechanism. Pins, the stash, and the flush paths are gone.
+
+**Verify:** the deterministic seam tests in change 10 script arrivals, settlements, and failures.
+A production shadow is impossible here: the scheduler's decisions change which sends exist, so state diverges immediately.
+The canary in change 11 is the production proof.
+Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transport_duration_seconds` and the `ingestion_consumer_messages_processed_total` rate unchanged, and the no-progress watchdog quiet.
 
 ### 7. Demux polls into groups (prepare)
 
@@ -238,6 +258,10 @@ Outcome: at most one outstanding request per key is the only ordering mechanism.
 - Modify `main.rs`: construct one `Batcher` from the existing transport, registry, and router. The consumer no longer sees the dispatcher.
 - Internalize `Dispatcher`'s resolve methods (`on_sub_batch_*`, `defer_failed`): only the batcher calls them.
 
+**Metrics:**
+
+- Add `ingestion_consumer_group_completions_total` (counter) and its accepted-message sum. Cross-check: the sum tracks `ingestion_consumer_messages_processed_total`.
+
 ### 9. Extract the scheduler seam (prepare)
 
 **Task:** Move every ordering and placement decision inside the batcher behind one interface. Keep the current semantics.
@@ -275,6 +299,10 @@ Outcome: at most one outstanding request per key is the only ordering mechanism.
 
 - Add `KeyTableScheduler` and `KeyTable` in `key_table.rs`: per-key FIFO, outstanding flag, parked list. Implements `Scheduler`. Tests only, no production callers.
 
+**Metrics:**
+
+- Add, emitted when selected: `ingestion_consumer_key_table_keys`, `ingestion_consumer_key_table_queued_messages`, `ingestion_consumer_key_table_outstanding_keys`, `ingestion_consumer_key_table_parked_keys` (gauges), and `ingestion_consumer_parked_retries_total` (counter).
+
 ### 11. Switch to the key-table scheduler (switchover)
 
 **Task:** Select the key-table scheduler with config. Canary one lane, then roll out.
@@ -284,7 +312,7 @@ Outcome: at most one outstanding request per key is the only ordering mechanism.
 - The switch changes the ordering rule and nothing else. Placement, transport, and completion accounting do not change in this PR.
 - At most one outstanding request per key preserves per-key order. Nothing else does, and nothing else must.
 - This is proposal 2 of the design doc: sticky pins are removed. Measure worker key-cache locality before and after (open question 3).
-- Watch: the key-order sentinel, ack latency, and the no-progress watchdog.
+- Watch the cycle's exit metrics, and the key-table gauges for queue growth.
 - Rollback is the config switch back to the old scheduler.
 
 **Interfaces:**
@@ -307,11 +335,14 @@ Outcome: at most one outstanding request per key is the only ordering mechanism.
 - Remove `PinStashScheduler`, `PinTable`, `Stash`, and `sticky_pin_for`.
 - Remove the scheduler selection from `Config`.
 - Modify `Dispatcher`: remove the dead resolve plumbing (`clears_deferral`, `send_failed`, the flush driver).
+- Remove the pin and stash metrics (`ingestion_consumer_dispatcher_pins_total`, `ingestion_consumer_dispatcher_stashed_*`, the deferral counters). The key-table gauges replace them.
 
 ## Cycle 4: the batcher is one single-owner event loop
 
 Outcome: one task owns all batcher state. The mutex and the callback structure are gone.
 This is a deliberate structural outcome, not tidy-up: it is the largest single concurrency simplification in the plan.
+
+**Verify:** the e2e suite and review. The change is behavior-identical, and the consumer-facing metrics must not move.
 
 ### 13. Collapse the batcher into one event loop (structure)
 
@@ -345,10 +376,14 @@ This is a deliberate structural outcome, not tidy-up: it is the largest single c
 - Remove `FenceGuard` from `transport.rs` and `Fence` with its settle loop from `grpc_transport.rs`.
 - Modify `SendError`: drop the fence-guard field.
 - Keep `TransportError` and the `WorkerStreamRunner` reconnect logic.
+- Remove `ingestion_consumer_worker_stream_fenced_sub_batches_total`. Stream teardowns stay counted.
 
 ## Cycle 5: a stalled key stalls only its partition
 
 Outcome: commits advance per partition as groups complete. Needs cycles 2 and 3.
+
+**Verify:** the commit sentinel checks every commit, and `ingestion_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
+Exit criterion at the canary: zero sentinel violations, and a stalled partition no longer moves the commit rate of other partitions.
 
 ### 15. Complete polls in any order (switchover)
 
@@ -382,6 +417,9 @@ Outcome: commits advance per partition as groups complete. Needs cycles 2 and 3.
 
 Outcome: uncommitted work never exceeds the budget, in events and bytes. The in-flight admission cap is gone.
 
+**Verify:** change 17's gauges run on all lanes with the budget unset.
+Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admission cap's occupancy, and the pause gauge stays flat at zero.
+
 ### 17. Add the budget accounting (implement)
 
 **Task:** Track uncommitted work in events and bytes. Ship with no budget set: the admission cap still governs alone.
@@ -398,6 +436,11 @@ Outcome: uncommitted work never exceeds the budget, in events and bytes. The in-
 - Modify `Config`: add the budget, default unset.
 - Modify `IngestionConsumer`: track charge and refund through `OffsetLedger`. No polling change while the budget is unset.
 
+**Metrics:**
+
+- Add `ingestion_consumer_budget_outstanding_events` and `ingestion_consumer_budget_outstanding_bytes` (gauges).
+- Add `ingestion_consumer_budget_paused` (gauge, 0 or 1) and `ingestion_consumer_budget_pauses_total` (counter). Both stay flat until change 18.
+
 ### 18. Enable the budget (switchover)
 
 **Task:** Set the budget per lane. Pause the poll at the limit and resume on refund.
@@ -407,7 +450,7 @@ Outcome: uncommitted work never exceeds the budget, in events and bytes. The in-
 - A charts values PR sets the budget lane by lane. The admission cap and the budget both bound work during the transition.
 - Derive the first values from the current config: events near the batch size times the cap, bytes from the byte bound. The effective bound then does not change at the switchover.
 - Pause and resume the poll at the budget limit. Do not stop servicing Kafka callbacks.
-- Watch the pause gauge and consumer lag. Rollback is unsetting the values.
+- Watch the pause gauge and `ingestion_lag_ms`. Rollback is unsetting the values.
 
 **Interfaces:**
 
@@ -424,10 +467,14 @@ Outcome: uncommitted work never exceeds the budget, in events and bytes. The in-
 **Interfaces:**
 
 - Remove `max_in_flight_batches` from `Config` and the admission bookkeeping from `IngestionConsumer`.
+- Remove `ingestion_consumer_in_flight_batches`. The budget gauges replace it.
 
 ## Cycle 7: workers receive target-sized requests
 
 Outcome: request size tracks target T, and fan-out is demand-driven. No cleanup: body splitting stays as a defence.
+
+**Verify:** with the pack budget at zero, the packer emits on arrival and the e2e suite passes unchanged.
+Exit criterion after the targets: the request-size histograms center near T, and `ingestion_lag_ms` does not regress.
 
 ### 20. Add the packer (implement)
 
@@ -447,6 +494,11 @@ Outcome: request size tracks target T, and fan-out is demand-driven. No cleanup:
 - Modify `Dispatch`: one request may carry runs from several keys.
 - Modify `Config`: add T and `PACK_LATENCY_BUDGET`, default zero. The worker proto does not change.
 
+**Metrics:**
+
+- Add `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` (histograms): the size of each sent request.
+- Add `ingestion_consumer_pack_emits_total` (counter, reason `arrival`, `full`, or `deadline`).
+
 ### 21. Set the packing targets (switchover)
 
 **Task:** Set T and the pack budget per lane.
@@ -454,7 +506,7 @@ Outcome: request size tracks target T, and fan-out is demand-driven. No cleanup:
 **Goal:** Workers receive target-sized requests.
 
 - A charts values PR sets the targets lane by lane.
-- Watch request size, worker occupancy, and end-to-end latency. Rollback is a pack budget of zero.
+- Watch the request-size histograms, worker occupancy, and end-to-end latency. Rollback is a pack budget of zero.
 
 **Interfaces:**
 
@@ -464,6 +516,9 @@ Outcome: request size tracks target T, and fan-out is demand-driven. No cleanup:
 
 Outcome: request RTT governs the number of requests in flight.
 
+**Verify:** with adaptation off, change 22 reports the decisions it would make.
+Exit criterion: `ingestion_consumer_governor_adjustments_total` shows shrink signals under induced worker latency and stays quiet under normal load.
+
 ### 22. Add the governor (implement)
 
 **Task:** Add the permit pool and the RTT EWMA. Ship with adaptation off: permits mirror the current per-worker cap.
@@ -472,6 +527,7 @@ Outcome: request RTT governs the number of requests in flight.
 
 - Grow the pool by one when ready work waits, no permit is free, and RTT is within budget.
 - Shrink the pool by one when the RTT EWMA exceeds `REQUEST_LATENCY_BUDGET`.
+- With adaptation off, compute and report every decision without applying it. The signal is verifiable before it constrains.
 - Bound the pool with a configured minimum and maximum.
 - Keep the 503 backoff in the transport. Exclude 503 waits from the RTT signal.
 - Cap each stream channel at `DEPTH_MAX`.
@@ -481,13 +537,18 @@ Outcome: request RTT governs the number of requests in flight.
 - Add `Governor` in the batcher loop: the permit pool and the RTT EWMA, adaptation off.
 - Modify `Config`: add `REQUEST_LATENCY_BUDGET`, the permit bounds, and `DEPTH_MAX`.
 
+**Metrics:**
+
+- Add `ingestion_consumer_governor_permits` (gauge) and `ingestion_consumer_request_rtt_seconds` (gauge, the EWMA).
+- Add `ingestion_consumer_governor_adjustments_total` (counter, direction `grow` or `shrink`). With adaptation off, it counts would-be decisions.
+
 ### 23. Enable RTT adaptation (switchover)
 
 **Task:** Turn adaptation on. Request RTT governs the permit pool.
 
 **Goal:** Concurrency shrinks when the worker pool is unhealthy.
 
-- Canary one lane. Watch permit counts, RTT, and throughput under induced worker latency.
+- Canary one lane. Watch the permit gauge, the RTT EWMA, and throughput under induced worker latency.
 - Rollback is the adaptation switch.
 
 **Interfaces:**
@@ -507,6 +568,9 @@ Outcome: request RTT governs the number of requests in flight.
 ## Cycle 9: partitions hand off cleanly
 
 Outcome: a revocation drains in bounded time, and a wedged partition fails the process instead of hanging. Needs cycle 3.
+
+**Verify:** e2e rebalance tests with the drain on, then the canary rebalance in change 27.
+Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the deadline, and `ingestion_consumer_drain_dropped_messages_total` matches the expected replay volume.
 
 ### 25. Add revoke and drained markers (prepare)
 
@@ -537,13 +601,18 @@ Outcome: a revocation drains in bounded time, and a wedged partition fails the p
 - Modify `IngestionConsumer` and `OffsetLedger`: the final commit, the refund of abandoned charge, and the stall deadline.
 - Modify `Config`: add the drain switch, default off.
 
+**Metrics:**
+
+- Add `ingestion_consumer_drain_duration_seconds` (histogram) and `ingestion_consumer_drain_dropped_messages_total` (counter): drain time and replay volume per revocation.
+- Add `ingestion_consumer_partition_stalls_total` (counter): stall-deadline expiries.
+
 ### 27. Enable the drain (switchover)
 
 **Task:** Turn the drain on. Canary one lane through a rebalance.
 
 **Goal:** Rebalances hand partitions off with a bounded drain.
 
-- Watch rebalance duration, replay volume, and the drained markers. Rollback is the switch.
+- Watch the cycle's exit metrics and the drained markers. Rollback is the switch.
 
 **Interfaces:**
 
@@ -558,6 +627,19 @@ Outcome: a revocation drains in bounded time, and a wedged partition fails the p
 **Interfaces:**
 
 - Remove the no-drain path and the drain switch from `Config`. Keep the epoch checks.
+
+## Monitoring
+
+The steady-state dashboard after the migration:
+
+- Delivery: `ingestion_lag_ms`, the `ingestion_consumer_messages_processed_total` rate, and the two sentinel violation counters, which must stay at zero.
+- Commits: `ingestion_consumer_ledger_uncommitted_offsets` per partition (frontier lag, and the ring-leak detector) and the `ingestion_consumer_offset_commits_total` rate.
+- Scheduling: the key-table gauges and `ingestion_consumer_parked_retries_total`.
+- Admission: the budget gauges and `ingestion_consumer_budget_paused`.
+- Requests: the request-size histograms, `ingestion_consumer_transport_duration_seconds`, `ingestion_consumer_governor_permits`, and `ingestion_consumer_request_rtt_seconds`.
+- Rebalance: `ingestion_consumer_drain_duration_seconds` and `ingestion_consumer_drain_dropped_messages_total`.
+
+The budget occupancy and the request-size histograms are also the worker-autoscaling signals from section 5 of the design doc.
 
 ## Later work
 
