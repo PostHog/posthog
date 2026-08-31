@@ -71,6 +71,9 @@ export function openDismissReportDialog({
                 </LemonField>
                 <LemonField name="note" label="Note" info="Optional. The agent reads it on its next run.">
                     <LemonTextArea
+                        // stopPropagation keeps Enter in this multi-line note from reaching the dialog
+                        // form and dismissing the report (and closing its PR) mid-sentence.
+                        stopPropagation
                         // With the reason already chosen, the note is the only thing left to type.
                         // Never focus otherwise: the hotkey flow reads digits as reason picks.
                         autoFocus={initialReason != null}
