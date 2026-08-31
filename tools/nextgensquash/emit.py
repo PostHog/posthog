@@ -574,8 +574,12 @@ class Emitter:
         """
         deps: set[tuple[str, str]] = {(self.app, prior_squash)}
         date_token = self._date_token
+        # Emit skips claimed apps with no models left in the final state (all
+        # moved away, e.g. llm_analytics) — no squash file exists for them, so
+        # no dep may point at one.
+        apps_with_models = {a for (a, _) in self.state.models}
         for app in {m.ref.app for m in self.squasher.old.values()}:
-            if app == self.app:
+            if app == self.app or app not in apps_with_models:
                 continue
             # Match the post-emit naming convention; see INITIAL_NAME / FINALIZE_NAME.
             has_finalize = bool(self.cycle_breaker.deferred_for_app(app))

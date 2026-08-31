@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from . import loading
+from . import loading, retire
 
 
 def _run_install(args: argparse.Namespace) -> None:
@@ -219,6 +219,17 @@ def _strip_replaces_from_claimed_squashes(squash_paths: list[Path], target_dir: 
         # the squash files themselves so they don't create `sqlmigrate` prefix
         # ambiguity or graph collisions with our newly emitted squash files.
         if not loading.MigrationTree._PRIOR_SQUASH_RE.search(p.stem):
+            # A claimed HISTORICAL squash (e.g. posthog's ancient
+            # 0001_initial_squashed_0284_*) keeps its file but must lose its
+            # `replaces=`: our fold removes its node from the graph, and the
+            # loader then crashes resolving that node's own replacement entry
+            # (NodeNotFoundError). Emptying replaces makes it a plain
+            # migration our fold removes cleanly. Safe: check_replacements
+            # stamped its name on every live DB years ago.
+            mod = load_module(p)
+            if mod is not None and (getattr(mod.Migration, "replaces", []) or []):
+                if retire._empty_replaces_in_squash(p):
+                    deleted.append(p)
             continue
         mod = load_module(p)
         if mod is None:
