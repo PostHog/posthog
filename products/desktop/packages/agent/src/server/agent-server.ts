@@ -508,6 +508,8 @@ export class AgentServer {
   private config: AgentServerConfig;
   private sessionReadyBootMs?: number;
   private sessionInitMs?: number;
+  private httpReadyBootMs?: number;
+  private commandDispatchedRunId?: string;
   private barrierReleasedAtMs?: number;
   private bootTracker: AgentBootTracker;
   private logger: Logger;
@@ -959,9 +961,11 @@ export class AgentServer {
           port: this.config.port,
         },
         () => {
+          this.httpReadyBootMs = Math.round(process.uptime() * 1000);
+          this.bootTracker.markHttpReady(this.httpReadyBootMs);
           this.logger.debug(
             `HTTP server listening on port ${this.config.port}`,
-            { bootMs: Math.round(process.uptime() * 1000) },
+            { bootMs: this.httpReadyBootMs },
           );
           resolve();
         },
@@ -1380,6 +1384,7 @@ export class AgentServer {
               }
             } else {
               const runPrompt = () => {
+                this.emitFirstCommandDispatched();
                 const promptResult = commandSession.clientConnection.prompt({
                   sessionId: commandSession.acpSessionId,
                   prompt,
@@ -1702,7 +1707,10 @@ export class AgentServer {
       return;
     }
 
-    this.bootTracker = new AgentBootTracker(payload.run_id);
+    this.bootTracker = new AgentBootTracker(
+      payload.run_id,
+      this.httpReadyBootMs,
+    );
     this.initializationPromise = this._doInitializeSession(
       payload,
       sseController,
@@ -2318,6 +2326,7 @@ export class AgentServer {
       if (!session) {
         throw new Error("Agent session ended before the turn could be sent");
       }
+      this.emitFirstCommandDispatched();
       const attempt = continueInterruptedTurn
         ? {
             sessionId: session.acpSessionId,
@@ -5513,6 +5522,24 @@ ${commonInstructions}
       // `this.session` assignment) or before its SSE controller attaches.
       this.pendingEvents.push(event);
     }
+  }
+
+  private emitFirstCommandDispatched(): void {
+    if (!this.session) return;
+    const runId = this.session.payload.run_id;
+    if (this.commandDispatchedRunId === runId) return;
+    this.commandDispatchedRunId = runId;
+    const notification = {
+      jsonrpc: "2.0" as const,
+      method: POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
+      params: {},
+    };
+    this.broadcastEvent({
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification,
+    });
+    this.session.logWriter.appendRawLine(runId, JSON.stringify(notification));
   }
 
   private flushPreSessionEvents(): void {
