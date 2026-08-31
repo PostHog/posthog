@@ -1,8 +1,11 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import {
+    type CreatedResources,
+    SAMPLE_HOGQL_QUERIES,
     TEST_ORG_ID,
     TEST_PROJECT_ID,
+    cleanupResources,
     createTestClient,
     createTestContext,
     generateUniqueKey,
@@ -16,12 +19,42 @@ import type { Context } from '@/tools/types'
 describe('Annotations', { concurrent: false }, () => {
     let context: Context
     const createdAnnotationIds: number[] = []
+    const createdResources: CreatedResources = {
+        featureFlags: [],
+        insights: [],
+        dashboards: [],
+        surveys: [],
+        actions: [],
+        cohorts: [],
+    }
 
     const createTool = GENERATED_TOOLS['annotation-create']!()
     const listTool = GENERATED_TOOLS['annotations-list']!()
     const retrieveTool = GENERATED_TOOLS['annotation-retrieve']!()
     const updateTool = GENERATED_TOOLS['annotations-partial-update']!()
     const deleteTool = GENERATED_TOOLS['annotation-delete']!()
+
+    async function createTestInsight(name: string): Promise<{ id: number }> {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<{ id: number }>({
+            method: 'POST',
+            path: `/api/projects/${projectId}/insights/`,
+            body: { name, query: SAMPLE_HOGQL_QUERIES.pageviews, saved: true },
+        })
+        createdResources.insights.push(result.id)
+        return result
+    }
+
+    async function createTestDashboard(name: string): Promise<{ id: number }> {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<{ id: number }>({
+            method: 'POST',
+            path: `/api/projects/${projectId}/dashboards/`,
+            body: { name },
+        })
+        createdResources.dashboards.push(result.id)
+        return result
+    }
 
     beforeAll(async () => {
         validateEnvironmentVariables()
@@ -39,6 +72,7 @@ describe('Annotations', { concurrent: false }, () => {
             }
         }
         createdAnnotationIds.length = 0
+        await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
     describe('annotation-create tool', () => {
@@ -72,6 +106,40 @@ describe('Annotations', { concurrent: false }, () => {
 
             expect(annotation.id).toBeTruthy()
             expect(annotation.content).toBe(params.content)
+
+            createdAnnotationIds.push(annotation.id)
+        })
+
+        it('should scope an annotation to an insight via dashboard_item', async () => {
+            const insight = await createTestInsight(generateUniqueKey('Ann insight'))
+
+            const result = await createTool.handler(context, {
+                content: `Insight annotation ${generateUniqueKey('ins-ann')}`,
+                date_marker: '2024-01-15T12:00:00Z',
+                scope: 'dashboard_item' as const,
+                dashboard_item: insight.id,
+            })
+            const annotation = parseToolResponse(result)
+
+            expect(annotation.scope).toBe('dashboard_item')
+            expect(annotation.dashboard_item).toBe(insight.id)
+
+            createdAnnotationIds.push(annotation.id)
+        })
+
+        it('should scope an annotation to a dashboard via dashboard_id', async () => {
+            const dashboard = await createTestDashboard(generateUniqueKey('Ann dashboard'))
+
+            const result = await createTool.handler(context, {
+                content: `Dashboard annotation ${generateUniqueKey('dash-ann')}`,
+                date_marker: '2024-01-15T12:00:00Z',
+                scope: 'dashboard' as const,
+                dashboard_id: dashboard.id,
+            })
+            const annotation = parseToolResponse(result)
+
+            expect(annotation.scope).toBe('dashboard')
+            expect(annotation.dashboard_id).toBe(dashboard.id)
 
             createdAnnotationIds.push(annotation.id)
         })
@@ -181,6 +249,27 @@ describe('Annotations', { concurrent: false }, () => {
 
             expect(updated.id).toBe(created.id)
             expect(updated.emoji).toBe('🚀')
+        })
+
+        it('should attach an annotation to an insight', async () => {
+            const insight = await createTestInsight(generateUniqueKey('Attach insight'))
+            const createResult = await createTool.handler(context, {
+                content: `Attach target ${generateUniqueKey('attach')}`,
+                date_marker: '2024-07-01T00:00:00Z',
+                scope: 'project' as const,
+            })
+            const created = parseToolResponse(createResult)
+            createdAnnotationIds.push(created.id)
+
+            const result = await updateTool.handler(context, {
+                id: created.id,
+                scope: 'dashboard_item' as const,
+                dashboard_item: insight.id,
+            })
+            const updated = parseToolResponse(result)
+
+            expect(updated.scope).toBe('dashboard_item')
+            expect(updated.dashboard_item).toBe(insight.id)
         })
 
         it('should update annotation scope', async () => {

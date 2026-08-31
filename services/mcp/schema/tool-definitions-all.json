@@ -514,7 +514,7 @@
         }
     },
     "annotation-create": {
-        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`. Optionally set an `emoji` to show in place of the default badge on the chart.",
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and the visibility `scope`. Scope it to a single chart with `dashboard_item` (an insight ID) and `scope: dashboard_item`, to one dashboard with `dashboard_id` and `scope: dashboard`, or to the current `project` or the whole `organization`. Optionally set an `emoji` to show in place of the default badge on the chart.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Create annotation",
@@ -570,7 +570,7 @@
         }
     },
     "annotations-partial-update": {
-        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility scope (`project` or `organization`), or its `emoji`. Only the fields you provide are updated.",
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility `scope`, its target (`dashboard_item` for an insight, `dashboard_id` for a dashboard), or its `emoji`. When you set `scope` to `dashboard_item` or `dashboard`, set the matching target ID too. Only the fields you provide are updated.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Update annotation",
