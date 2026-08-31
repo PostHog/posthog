@@ -495,7 +495,7 @@ export function InboxDetailFrame({
                         {reportActions.map((action) => (
                             <LemonButton
                                 key={action.key}
-                                type="secondary"
+                                type={action.primary ? 'primary' : 'secondary'}
                                 size="small"
                                 icon={action.icon}
                                 loading={action.loading}
