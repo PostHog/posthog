@@ -13,9 +13,11 @@ from slack_sdk.errors import SlackApiError
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
+    SubscriptionReportContext,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
@@ -26,9 +28,20 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    InsightReportEvidence,
+    ReportContextEvidence,
+    ReportContextSelection,
+    compute_report_context_fingerprint,
+)
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportContexts,
+    AiReportInsightContext,
+    AiReportResult,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
 
@@ -432,11 +445,29 @@ class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
         [
             # The write is conditional on the planning-time prompt: an edit that landed mid-generation
             # (clearing the plan via save()) must not be overwritten with a plan for the old prompt.
-            ("prompt_unchanged_persists", "original prompt?", True),
-            ("prompt_changed_noops", "edited mid-generation?", False),
+            (
+                "prompt_and_context_unchanged_persists",
+                "original prompt?",
+                compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[]),
+                True,
+            ),
+            (
+                "prompt_changed_noops",
+                "edited mid-generation?",
+                compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[]),
+                False,
+            ),
+            (
+                "context_identifiers_changed_noops",
+                "original prompt?",
+                compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[123]),
+                False,
+            ),
         ]
     )
-    def test_persist_is_conditional_on_planning_prompt(self, _name: str, current_prompt: str, written: bool) -> None:
+    def test_persist_is_conditional_on_planning_prompt_and_context_fingerprint(
+        self, _name: str, current_prompt: str, planning_fingerprint: str, written: bool
+    ) -> None:
         sub = Subscription.objects.create(
             team=self.team,
             prompt=current_prompt,
@@ -446,12 +477,43 @@ class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
             interval=1,
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
         )
-        plan = {"version": 1, "plan": {}}
+        plan = {"version": 1, "plan": {}, "context_fingerprint": planning_fingerprint}
 
         _persist_ai_query_plan(sub.id, self.team.id, "original prompt?", plan)
 
         sub.refresh_from_db()
         assert sub.ai_query_plan == (plan if written else None)
+
+    def test_real_selected_context_mutation_prevents_stale_plan_persistence(self) -> None:
+        sub = Subscription.objects.create(
+            team=self.team,
+            prompt="original prompt?",
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        first = Insight.objects.create(team=self.team, created_by=self.user, name="First", query={})
+        second = Insight.objects.create(team=self.team, created_by=self.user, name="Second", query={})
+        selected = SubscriptionContext.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            subscription=sub,
+            insight=first,
+        )
+        plan = {
+            "version": 1,
+            "plan": {},
+            "context_fingerprint": compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[first.id]),
+        }
+
+        selected.insight = second
+        selected.save(update_fields=["insight"])
+        written = _persist_ai_query_plan(sub.id, self.team.id, sub.prompt, plan)
+
+        sub.refresh_from_db()
+        assert written is False
+        assert sub.ai_query_plan is None
 
 
 class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
@@ -546,10 +608,32 @@ class TestFreezePlanPersistence:
         sub.ai_query_plan = ai_query_plan
         return sub
 
-    def _context(self, sub: MagicMock) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
+    def _context(self, sub: MagicMock) -> SubscriptionReportContext:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
-        return MagicMock(), MagicMock(), window, sub.ai_query_plan
+        return SubscriptionReportContext(
+            team=MagicMock(),
+            user=MagicMock(),
+            prompt=sub.prompt,
+            window=window,
+            ai_query_plan=sub.ai_query_plan,
+            context_selection=ReportContextSelection(),
+        )
+
+    def _report_context(self) -> ReportContextEvidence:
+        return ReportContextEvidence(
+            fingerprint=compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[321]),
+            dashboards=(),
+            insights=(
+                InsightReportEvidence(
+                    id=321,
+                    name="Signup trend",
+                    events=("user signed up",),
+                    status="success",
+                    content="Signup result: 12",
+                ),
+            ),
+        )
 
     async def test_first_run_persists_freshly_generated_plan(self) -> None:
         sub = self._subscription(ai_query_plan=None)
@@ -560,6 +644,10 @@ class TestFreezePlanPersistence:
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
             patch(
+                f"{_DELIVERY}.resolve_report_context",
+                new=AsyncMock(return_value=self._report_context()),
+            ) as mock_report_context,
+            patch(
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
                     return_value=AiReportResult(
@@ -569,13 +657,60 @@ class TestFreezePlanPersistence:
                         plan_to_persist=fresh_plan,
                     )
                 ),
-            ),
+            ) as mock_gen,
             patch(f"{_DELIVERY}._persist_ai_query_plan") as mock_persist,
         ):
             await build_ai_subscription_report(sub)
 
         # The plan generated on the first delivery is frozen onto the (id, team_id)-scoped subscription.
         mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan)
+        mock_report_context.assert_awaited_once_with(sub, ReportContextSelection())
+        assert mock_gen.await_args is not None
+        assert mock_gen.await_args.kwargs["formatted_context"] == "Signup result: 12"
+        assert mock_gen.await_args.kwargs["context_event_names"] == ("user signed up",)
+        assert mock_gen.await_args.kwargs["context_fingerprint"] == self._report_context().fingerprint
+        assert mock_gen.await_args.kwargs["context_provenance"] == AiReportContexts(
+            insights=(
+                AiReportInsightContext(
+                    id=321,
+                    name="Signup trend",
+                    events=("user signed up",),
+                    status="success",
+                ),
+            )
+        )
+
+    async def test_all_failed_context_is_not_forwarded_as_computed_evidence(self) -> None:
+        sub = self._subscription(ai_query_plan=None)
+        failed_context = ReportContextEvidence(
+            fingerprint=compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[321]),
+            dashboards=(),
+            insights=(
+                InsightReportEvidence(
+                    id=321,
+                    name="Unavailable insight",
+                    events=(),
+                    status="failed",
+                    content="Insight context unavailable.",
+                ),
+            ),
+        )
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=failed_context)),
+            patch(
+                f"{_DELIVERY}.generate_ai_report",
+                new=AsyncMock(
+                    return_value=AiReportResult(
+                        markdown="# R", diagnostics=(), window_end_utc="2026-06-29T16:00:00+00:00"
+                    )
+                ),
+            ) as mock_gen,
+        ):
+            await build_ai_subscription_report(sub)
+
+        assert mock_gen.await_args is not None
+        assert mock_gen.await_args.kwargs["formatted_context"] == ""
 
     async def test_persist_failure_does_not_abort_the_delivery(self) -> None:
         # The report is already generated when the freeze write runs; a transient DB error must not
@@ -589,6 +724,10 @@ class TestFreezePlanPersistence:
         )
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(
+                f"{_DELIVERY}.resolve_report_context",
+                new=AsyncMock(return_value=self._report_context()),
+            ),
             patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)),
             patch(f"{_DELIVERY}._persist_ai_query_plan", side_effect=Exception("db blip")),
             patch(f"{_DELIVERY}.capture_exception") as mock_capture,
@@ -603,6 +742,10 @@ class TestFreezePlanPersistence:
         sub = self._subscription(ai_query_plan=frozen)
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)) as mock_ctx,
+            patch(
+                f"{_DELIVERY}.resolve_report_context",
+                new=AsyncMock(return_value=self._report_context()),
+            ),
             patch(
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(

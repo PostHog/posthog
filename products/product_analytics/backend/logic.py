@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import Count, OuterRef, QuerySet, Subquery
 from django.utils.timezone import now
 
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
@@ -79,6 +79,10 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
     return recently_viewed
 
 
+def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
+    return list(Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids))
+
+
 def recent_viewers_by_insight(
     *, team_id: int, insight_ids: Collection[int], since: datetime, max_per_insight: int
 ) -> dict[int, list["User"]]:
@@ -101,6 +105,22 @@ def recent_viewers_by_insight(
         if len(bucket) < max_per_insight:
             bucket.append(view.user)
     return viewers_by_insight
+
+
+def recent_unique_viewer_counts_by_insight(
+    *, team_id: int, insight_ids: Collection[int], since: datetime
+) -> dict[int, int]:
+    return dict(
+        InsightViewed.objects.filter(
+            team_id=team_id,
+            insight_id__in=insight_ids,
+            last_viewed_at__gte=since,
+            user_id__isnull=False,
+        )
+        .values("insight_id")
+        .annotate(viewer_count=Count("user_id", distinct=True))
+        .values_list("insight_id", "viewer_count")
+    )
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:

@@ -8,6 +8,8 @@ from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -31,6 +33,7 @@ from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
 )
+from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
@@ -126,6 +129,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "dashboard_export_insights": [],
             "prompt": None,
             "ai_prompt_config": {},
+            "contexts": [],
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -2830,6 +2834,397 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert data["insight"] is None
         assert data["dashboard"] is None
 
+    def test_create_and_read_mixed_contexts(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth overview", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Weekly signups",
+            short_id="signup12",
+        )
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(contexts=[{"dashboard_id": dashboard.id}, {"insight_id": insight.id}]),
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert created.json()["contexts"] == [
+            {"dashboard_id": dashboard.id, "dashboard_name": "Growth overview"},
+            {"insight_id": insight.id, "insight_short_id": "signup12", "insight_name": "Weekly signups"},
+        ]
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["contexts"] == created.json()["contexts"]
+        assert set(
+            SubscriptionContext.objects.for_team(self.team.id)
+            .filter(subscription_id=created.json()["id"])
+            .values_list("team_id", flat=True)
+        ) == {self.team.id}
+
+    def test_read_omits_a_malformed_cross_team_context(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(send_test_now=False),
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        foreign_dashboard = Dashboard.objects.create(team=other_team, name="Foreign dashboard", created_by=self.user)
+        SubscriptionContext.objects.for_team(self.team.id).bulk_create(
+            [
+                SubscriptionContext(
+                    team_id=self.team.id,
+                    subscription_id=created.json()["id"],
+                    dashboard_id=foreign_dashboard.id,
+                )
+            ]
+        )
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
+
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["contexts"] == []
+        assert "Foreign dashboard" not in retrieved.content.decode()
+
+    def test_patch_omitting_contexts_preserves_them(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(contexts=[{"dashboard_id": dashboard.id}], send_test_now=False),
+        )
+
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"title": "Renamed", "send_test_now": False},
+        )
+
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        assert updated.json()["contexts"] == [{"dashboard_id": dashboard.id, "dashboard_name": "Growth"}]
+
+    def test_patch_empty_contexts_clears_them(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(contexts=[{"dashboard_id": dashboard.id}], send_test_now=False),
+        )
+
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"contexts": [], "send_test_now": False},
+        )
+
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        assert updated.json()["contexts"] == []
+        assert (
+            not SubscriptionContext.objects.for_team(self.team.id).filter(subscription_id=created.json()["id"]).exists()
+        )
+
+    def test_patch_contexts_replaces_the_complete_collection(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        old_dashboard = Dashboard.objects.create(team=self.team, name="Old", created_by=self.user)
+        new_insight = Insight.objects.create(team=self.team, created_by=self.user, name="New", short_id="new12345")
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(contexts=[{"dashboard_id": old_dashboard.id}], send_test_now=False),
+        )
+
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"contexts": [{"insight_id": new_insight.id}], "send_test_now": False},
+        )
+
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        assert updated.json()["contexts"] == [
+            {"insight_id": new_insight.id, "insight_short_id": "new12345", "insight_name": "New"}
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "more_than_three",
+                lambda self: [
+                    {"dashboard_id": Dashboard.objects.create(team=self.team, name=str(index)).id} for index in range(4)
+                ],
+            ),
+            ("duplicate", lambda self: [{"dashboard_id": self._context_dashboard().id}] * 2),
+            ("both_identifiers", lambda self: [{"dashboard_id": 1, "insight_id": 1}]),
+            ("neither_identifier", lambda self: [{}]),
+            (
+                "cross_team",
+                lambda self: [
+                    {
+                        "dashboard_id": Dashboard.objects.create(
+                            team=Team.objects.create(organization=self.organization, name="Other"), name="Foreign"
+                        ).id
+                    }
+                ],
+            ),
+            ("deleted", lambda self: [{"dashboard_id": self._context_dashboard(deleted=True).id}]),
+        ]
+    )
+    def test_rejects_invalid_contexts(self, mock_is_cloud, mock_flag, mock_sync, _name, contexts_factory):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(contexts=contexts_factory(self)),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"].split("__", 1)[0] == "contexts"
+
+    def _context_dashboard(self, **kwargs) -> Dashboard:
+        return Dashboard.objects.create(team=self.team, name="Context dashboard", created_by=self.user, **kwargs)
+
+    def test_rejects_contexts_on_traditional_subscriptions(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        context = self._context_dashboard()
+        insight = Insight.objects.create(team=self.team, created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                **self._insight_payload(),
+                "insight": insight.id,
+                "contexts": [{"dashboard_id": context.id}],
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "contexts"
+
+    def test_context_replacement_rolls_back_subscription_and_rows(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        old_dashboard = self._context_dashboard()
+        first_new = Insight.objects.create(team=self.team, created_by=self.user, name="First")
+        second_new = Insight.objects.create(team=self.team, created_by=self.user, name="Second")
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(contexts=[{"dashboard_id": old_dashboard.id}], send_test_now=False),
+        )
+        subscription = Subscription.objects.get(id=created.json()["id"])
+        Subscription.objects.filter(id=subscription.id).update(ai_query_plan={"version": 1, "plan": {}})
+        original_save = SubscriptionContext.save
+        saves = 0
+
+        def fail_second_save(context: SubscriptionContext, *args, **kwargs):
+            nonlocal saves
+            saves += 1
+            if saves == 2:
+                raise RuntimeError("forced context write failure")
+            return original_save(context, *args, **kwargs)
+
+        with (
+            patch.object(SubscriptionContext, "save", autospec=True, side_effect=fail_second_save),
+            patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+                {
+                    "title": "Must roll back",
+                    "contexts": [{"insight_id": first_new.id}, {"insight_id": second_new.id}],
+                },
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        usage_captures = [
+            call for call in mock_capture.call_args_list if call.kwargs.get("event") == "ai subscription updated"
+        ]
+        assert usage_captures == []
+        subscription.refresh_from_db()
+        assert subscription.title == "Weekly AI report"
+        assert subscription.ai_query_plan == {"version": 1, "plan": {}}
+        restored_context = SubscriptionContext.objects.for_team(self.team.id).get(subscription=subscription)
+        assert restored_context.dashboard_id == old_dashboard.id
+        assert restored_context.insight_id is None
+
+    def test_subscription_usage_capture_runs_after_context_transaction_commits(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(send_test_now=False),
+        )
+
+        with (
+            patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+                {"title": "Committed title", "send_test_now": False},
+            )
+            usage_captures = [
+                call for call in mock_capture.call_args_list if call.kwargs.get("event") == "ai subscription updated"
+            ]
+            assert usage_captures == []
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        usage_captures = [
+            call for call in mock_capture.call_args_list if call.kwargs.get("event") == "ai subscription updated"
+        ]
+        assert len(usage_captures) == 1
+
+    @parameterized.expand(
+        [
+            ("dashboard", Dashboard),
+            ("insight", Insight),
+        ]
+    )
+    def test_context_target_save_succeeds_without_team_scope(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, target_model
+    ):
+        self._mock_temporal(mock_sync)
+        subscription = Subscription.objects.create(
+            team=self.team,
+            created_by=self.user,
+            prompt="How are signups changing?",
+            target_type="email",
+            target_value="owner@example.com",
+            frequency="weekly",
+            start_date=timezone.now(),
+        )
+        target: Dashboard | Insight
+        context_kwargs: dict[str, Dashboard | Insight]
+        if target_model is Dashboard:
+            target = Dashboard.objects.create(team=self.team, name="Original dashboard", created_by=self.user)
+            context_kwargs = {"dashboard": target}
+        else:
+            target = Insight.objects.create(team=self.team, name="Original insight", created_by=self.user)
+            context_kwargs = {"insight": target}
+        SubscriptionContext.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            subscription=subscription,
+            **context_kwargs,
+        )
+
+        target.name = "Updated context target"
+        target.save(update_fields=["name"])
+
+        target.refresh_from_db()
+        assert target.name == "Updated context target"
+
+    @parameterized.expand(
+        [
+            ("changed_set", False, True),
+            ("same_set_reordered", True, False),
+        ]
+    )
+    def test_context_set_change_invalidates_plan_and_drives_redelivery(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, same_set, expects_delivery
+    ):
+        self._enable_ai()
+        mock_client = self._mock_temporal(mock_sync)
+        first = self._context_dashboard()
+        second = Insight.objects.create(team=self.team, created_by=self.user, name="Second")
+        third = Insight.objects.create(team=self.team, created_by=self.user, name="Third")
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                contexts=[{"dashboard_id": first.id}, {"insight_id": second.id}], send_test_now=False
+            ),
+        )
+        subscription = Subscription.objects.get(id=created.json()["id"])
+        frozen_plan = {"version": 1, "plan": {}}
+        Subscription.objects.filter(id=subscription.id).update(ai_query_plan=frozen_plan)
+        mock_client.start_workflow.reset_mock()
+        contexts = (
+            [{"insight_id": second.id}, {"dashboard_id": first.id}]
+            if same_set
+            else [{"dashboard_id": first.id}, {"insight_id": third.id}]
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"contexts": contexts}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        subscription.refresh_from_db()
+        assert subscription.ai_query_plan == (frozen_plan if same_set else None)
+        assert mock_client.start_workflow.call_count == int(expects_delivery)
+
+    def test_traditional_resource_type_ignores_context_rows(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        root_insight = Insight.objects.create(team=self.team, created_by=self.user)
+        root_dashboard = Dashboard.objects.create(team=self.team, name="Root", created_by=self.user)
+        context = self._context_dashboard()
+        subscriptions = [
+            Subscription.objects.create(
+                team=self.team,
+                created_by=self.user,
+                insight=root_insight,
+                target_type="email",
+                target_value="a@example.com",
+                frequency="weekly",
+                start_date=timezone.now(),
+            ),
+            Subscription.objects.create(
+                team=self.team,
+                created_by=self.user,
+                dashboard=root_dashboard,
+                target_type="email",
+                target_value="a@example.com",
+                frequency="weekly",
+                start_date=timezone.now(),
+            ),
+        ]
+        for subscription in subscriptions:
+            SubscriptionContext.objects.for_team(self.team.id).create(
+                team_id=subscription.team_id, subscription=subscription, dashboard=context
+            )
+
+        responses = [
+            self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}").json()
+            for subscription in subscriptions
+        ]
+
+        assert [response["resource_type"] for response in responses] == ["insight", "dashboard"]
+
+    def test_context_serialization_prefetches_targets(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        dashboard = self._context_dashboard()
+        insight = Insight.objects.create(team=self.team, created_by=self.user, name="Context insight")
+        for index, target in enumerate((dashboard, insight)):
+            subscription = Subscription.objects.create(
+                team=self.team,
+                created_by=self.user,
+                prompt=f"Prompt {index}",
+                target_type="email",
+                target_value="a@example.com",
+                frequency="weekly",
+                start_date=timezone.now(),
+            )
+            context_kwargs = {"dashboard": target} if isinstance(target, Dashboard) else {"insight": target}
+            SubscriptionContext.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                subscription=subscription,
+                **context_kwargs,
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        context_queries = [query["sql"] for query in queries if 'FROM "posthog_subscription_context"' in query["sql"]]
+        assert len(context_queries) == 1
+        dashboard_target_queries = [query["sql"] for query in queries if 'FROM "posthog_dashboard"' in query["sql"]]
+        insight_target_queries = [query["sql"] for query in queries if 'FROM "posthog_insight"' in query["sql"]]
+        assert dashboard_target_queries == []
+        assert insight_target_queries == []
+
     def test_create_ai_subscription_persists_trimmed_prompt(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
@@ -3197,6 +3592,25 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
     def _sub_on_an_ai_prompt(self) -> Subscription:
         return self._subscription_for(prompt="How did signups do last week?")
 
+    def _ai_sub_with_contexts(self, *targets: Insight | Dashboard) -> Subscription:
+        subscription = self._sub_on_an_ai_prompt()
+        for target in targets:
+            context_kwargs = {"insight": target} if isinstance(target, Insight) else {"dashboard": target}
+            SubscriptionContext.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                subscription=subscription,
+                **context_kwargs,
+            )
+        return subscription
+
+    @staticmethod
+    def _rename_context_target(target: Insight | Dashboard, name: str) -> None:
+        if isinstance(target, Insight):
+            Insight.objects.filter(pk=target.pk).update(name=name)
+        else:
+            Dashboard.objects.filter(pk=target.pk).update(name=name)
+        target.name = name
+
     def _sub_exporting_an_insight_restricted_afterwards(self) -> Subscription:
         exported = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
         subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(exported))
@@ -3294,6 +3708,98 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self._delivery_for(subscription)
 
         self._assert_visibility(subscription, sees_subscription=sees_subscription, sees_deliveries=sees_deliveries)
+
+    @parameterized.expand(
+        [
+            ("restricted insight", "restricted_insight"),
+            ("restricted dashboard", "restricted_dashboard"),
+        ]
+    )
+    def test_ai_subscription_with_any_unreadable_live_context_is_hidden(self, _name, target_attribute):
+        subscription = self._ai_sub_with_contexts(self.open_insight, getattr(self, target_attribute))
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert subscription.id not in [row["id"] for row in listed.json()["results"]]
+        assert retrieved.status_code == status.HTTP_403_FORBIDDEN, retrieved.json()
+
+    def test_ai_subscription_with_a_context_dashboard_containing_an_unreadable_tile_is_hidden(self):
+        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+        subscription = self._ai_sub_with_contexts(dashboard)
+        self._delivery_for(subscription)
+
+        self._assert_visibility(subscription, sees_subscription=False, sees_deliveries=False)
+
+    def test_historical_delivery_keeps_context_authorization_after_contexts_are_cleared(self):
+        subscription = self._ai_sub_with_contexts(self.restricted_insight)
+        self._delivery_for(subscription, context_insight_ids=[self.restricted_insight.id])
+        SubscriptionContext.objects.for_team(self.team.id).filter(subscription=subscription).delete()
+
+        self._assert_visibility(subscription, sees_subscription=True, sees_deliveries=False)
+
+    @parameterized.expand(
+        [
+            ("restricted insight", "restricted_insight"),
+            ("restricted dashboard", "restricted_dashboard"),
+        ]
+    )
+    def test_delivery_list_hides_ai_subscription_with_unreadable_context(self, _name, target_attribute):
+        target = getattr(self, target_attribute)
+        secret_name = f"Private context {uuid4()}"
+        self._rename_context_target(target, secret_name)
+        subscription = self._ai_sub_with_contexts(target)
+        delivery = self._delivery_for(subscription)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == []
+        assert str(delivery.id) not in response.content.decode()
+        assert str(target.id) not in response.content.decode()
+        assert secret_name not in response.content.decode()
+
+    @parameterized.expand(
+        [
+            ("restricted insight", "restricted_insight"),
+            ("restricted dashboard", "restricted_dashboard"),
+        ]
+    )
+    def test_delivery_detail_forbids_ai_subscription_with_unreadable_context(self, _name, target_attribute):
+        target = getattr(self, target_attribute)
+        secret_name = f"Private context {uuid4()}"
+        self._rename_context_target(target, secret_name)
+        subscription = self._ai_sub_with_contexts(target)
+        delivery = self._delivery_for(subscription)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/{delivery.id}/"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert str(delivery.id) not in response.content.decode()
+        assert str(target.id) not in response.content.decode()
+        assert secret_name not in response.content.decode()
+
+    @parameterized.expand(
+        [
+            ("restricted insight", "restricted_insight", "insight_id"),
+            ("restricted dashboard", "restricted_dashboard", "dashboard_id"),
+        ]
+    )
+    def test_cannot_add_an_unreadable_context(self, _name, target_attribute, identifier):
+        subscription = self._sub_on_an_ai_prompt()
+        target = getattr(self, target_attribute)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+            {"contexts": [{identifier: target.id}], "send_test_now": False},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "contexts"
+        assert "Viewer access" in response.json()["detail"]
 
     def _create_on_a_restricted_insight(self):
         return self.client.post(

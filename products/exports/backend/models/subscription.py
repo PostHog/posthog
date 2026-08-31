@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -522,12 +522,22 @@ def subscription_saved(sender, instance, created, raw, using, **kwargs):
 
     if instance.created_by and instance.resource_info:
         event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
-        report_user_action(
-            instance.created_by,
-            event_name,
-            instance.get_analytics_metadata(),
-            team=instance.team,
-            analytics_props=subscription_request_analytics_props.get(),
+        user = instance.created_by
+        properties = instance.get_analytics_metadata()
+        team = instance.team
+        analytics_props = subscription_request_analytics_props.get()
+
+        # External analytics must reflect committed subscription writes.
+        # In autocommit mode, this runs immediately.
+        transaction.on_commit(
+            lambda: report_user_action(
+                user,
+                event_name,
+                properties,
+                team=team,
+                analytics_props=analytics_props,
+            ),
+            using=using,
         )
 
 
@@ -597,6 +607,9 @@ class SubscriptionDelivery(UUIDModel):
     # Content snapshot
     exported_asset_ids: ArrayField = ArrayField(models.IntegerField(), default=list)
     content_snapshot = models.JSONField(default=dict)
+
+    context_dashboard_ids = ArrayField(models.IntegerField(), default=list)
+    context_insight_ids = ArrayField(models.IntegerField(), default=list)
 
     # AI-generated summary sent in the delivery, when summary_enabled is on for the subscription.
     # None when no summary is attached.

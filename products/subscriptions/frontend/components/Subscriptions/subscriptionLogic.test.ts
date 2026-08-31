@@ -5,8 +5,10 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,7 +16,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, SubscriptionType } from '~/types'
 
-import { subscriptionLogic } from './subscriptionLogic'
+import type { SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
+import { subscriptionLogic, SubscriptionFormType, SubscriptionLogicProps } from './subscriptionLogic'
+import { MAX_CONTEXTS } from './utils'
 
 jest.mock('posthog-js')
 
@@ -26,6 +31,17 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 const Insight1 = '1' as InsightShortId
+
+const DASHBOARD_CONTEXT: SubscriptionContextApi = {
+    dashboard_id: 9,
+    dashboard_name: 'Activation overview',
+}
+
+const INSIGHT_CONTEXT: SubscriptionContextApi = {
+    insight_id: 12,
+    insight_short_id: 'signup-conversion',
+    insight_name: 'Signup conversion',
+}
 
 export const fixtureSubscriptionResponse = (id: number, args: Partial<SubscriptionType> = {}): SubscriptionType =>
     ({
@@ -71,6 +87,8 @@ describe('subscriptionLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]: true })
         userLogic.mount()
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         newLogic = subscriptionLogic({
@@ -674,7 +692,7 @@ describe('subscriptionLogic', () => {
         ],
     ])('records the channel recency for %s', async (_label, subscription, expectedIds) => {
         await expectLogic(newLogic, () => {
-            newLogic.actions.submitSubscriptionSuccess(subscription as SubscriptionType)
+            newLogic.actions.submitSubscriptionSuccess({ ...subscription, contexts: [] } as SubscriptionFormType)
         }).toFinishListeners()
 
         expect(getRecentSlackChannelIds(7)).toEqual(expectedIds)
@@ -744,6 +762,189 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.dashboard).toBeUndefined()
         expect(capturedBody?.insight).toBeUndefined()
     })
+
+    it('keeps generated context values typed, rejects duplicates, and caps additions in the listener', async () => {
+        const contextLogic = subscriptionLogic({ id: 'new' })
+        contextLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(contextLogic).toFinishListeners()
+
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.addContext(INSIGHT_CONTEXT)
+        contextLogic.actions.addContext({
+            insight_id: 13,
+            insight_short_id: 'retention-trend',
+            insight_name: 'Retention trend',
+        })
+        contextLogic.actions.addContext({
+            dashboard_id: 14,
+            dashboard_name: 'Overflow dashboard',
+        })
+        await expectLogic(contextLogic).toFinishListeners()
+
+        expect(contextLogic.values.subscription.contexts).toEqual([
+            DASHBOARD_CONTEXT,
+            INSIGHT_CONTEXT,
+            {
+                insight_id: 13,
+                insight_short_id: 'retention-trend',
+                insight_name: 'Retention trend',
+            },
+        ])
+        expect(contextLogic.values.subscription.contexts).toHaveLength(MAX_CONTEXTS)
+
+        contextLogic.actions.removeContext(INSIGHT_CONTEXT)
+        await expectLogic(contextLogic).toFinishListeners()
+        expect(contextLogic.values.subscription.contexts).toEqual([
+            DASHBOARD_CONTEXT,
+            {
+                insight_id: 13,
+                insight_short_id: 'retention-trend',
+                insight_name: 'Retention trend',
+            },
+        ])
+        contextLogic.unmount()
+    })
+
+    it('submits the exact unified context array without traditional AI root targets', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 44, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const contextLogic = subscriptionLogic({ dashboardId: 9, dashboardName: 'Activation overview', id: 'new' })
+        contextLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(contextLogic).toFinishListeners()
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.addContext(INSIGHT_CONTEXT)
+        contextLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Compare activation and signup conversion',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+
+        contextLogic.actions.submitSubscription()
+        await expectLogic(contextLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.contexts).toEqual([{ dashboard_id: 9 }, { insight_id: 12 }])
+        expect(capturedBody?.dashboard).toBeUndefined()
+        expect(capturedBody?.insight).toBeUndefined()
+        expect(capturedBody).not.toHaveProperty('context_dashboards')
+        expect(capturedBody).not.toHaveProperty('context_insights')
+        expect(capturedBody).not.toHaveProperty('context_items')
+        contextLogic.unmount()
+    })
+
+    it('omits contexts while the rollout flag is disabled', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 45, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]: false })
+        const contextLogic = subscriptionLogic({ id: 'new' })
+        contextLogic.mount()
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Summarize activation',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+
+        contextLogic.actions.submitSubscription()
+        await expectLogic(contextLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody).not.toHaveProperty('contexts')
+        contextLogic.unmount()
+    })
+
+    it('hydrates edit context and submits an explicit empty array to clear it', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': {
+                    ...fixtureSubscriptionResponse(1, {
+                        resource_type: 'ai_prompt',
+                        prompt: 'Compare activation and signup conversion',
+                    }),
+                    contexts: [DASHBOARD_CONTEXT, INSIGHT_CONTEXT],
+                },
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { ...fixtureSubscriptionResponse(1), ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const editLogic = subscriptionLogic({ id: 1 })
+        editLogic.mount()
+        router.actions.push('/subscriptions/1/edit')
+        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+
+        expect(editLogic.values.subscription.contexts).toEqual([DASHBOARD_CONTEXT, INSIGHT_CONTEXT])
+        editLogic.actions.removeContext(DASHBOARD_CONTEXT)
+        editLogic.actions.removeContext(INSIGHT_CONTEXT)
+        editLogic.actions.submitSubscription()
+        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.contexts).toEqual([])
+        editLogic.unmount()
+    })
+
+    it.each<[string, SubscriptionLogicProps, string, SubscriptionContextApi]>([
+        [
+            'dashboard',
+            { id: 'new', dashboardId: 9, dashboardName: 'Activation overview' },
+            '/dashboard/9/subscriptions/new',
+            DASHBOARD_CONTEXT,
+        ],
+        [
+            'insight',
+            { id: 'new', insightShortId: 'signup-conversion' as InsightShortId, insightName: 'Signup conversion' },
+            '/insights/signup-conversion/subscriptions/new',
+            INSIGHT_CONTEXT,
+        ],
+    ])(
+        'prefills the current %s only after a new subscription becomes an AI report',
+        async (_, props, path, context) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team/insights/': { results: [{ id: 12 }] },
+                },
+            })
+            const contextLogic = subscriptionLogic(props)
+            contextLogic.mount()
+            router.actions.push(path)
+            await expectLogic(contextLogic).toFinishAllListeners()
+
+            expect(contextLogic.values.subscription.contexts).toEqual([])
+            expect(contextLogic.values.subscription.dashboard).toBeUndefined()
+            expect(contextLogic.values.subscription.insight).toBeUndefined()
+
+            contextLogic.actions.setSubscriptionValue('resource_type', 'ai_prompt')
+            await expectLogic(contextLogic).toFinishAllListeners()
+
+            expect(contextLogic.values.subscription.contexts).toEqual([context])
+            expect(contextLogic.values.subscription.dashboard).toBeUndefined()
+            expect(contextLogic.values.subscription.insight).toBeUndefined()
+            contextLogic.unmount()
+        }
+    )
 
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;

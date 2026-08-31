@@ -569,10 +569,16 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
         # field changes in the same save (signal_exclusions only governs whether the signal fires).
         "next_delivery_date",
+        # Context rows use a fail-closed team manager that has no scope during signal handling.
+        "contexts",
         # FK to a connected Slack integration. The generic field-diff captures the related object,
         # which isn't JSON-serializable for the change detail (same reason FeatureFlag/Experiment
         # exclude their FK relations) — without this, editing a subscription's integration 500s the save.
         "integration",
+    ],
+    "Dashboard": [
+        # Context rows use a fail-closed team manager during signal handling.
+        "subscription_contexts_as_dashboard",
     ],
     "Cohort": [
         "version",
@@ -639,6 +645,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "is_user",
     ],
     "Insight": [
+        # Context rows use a fail-closed team manager during signal handling.
+        "subscription_contexts_as_insight",
         "filters_hash",
         "refreshing",
         "dive_dashboard",
