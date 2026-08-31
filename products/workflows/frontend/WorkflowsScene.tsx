@@ -34,7 +34,6 @@ import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
-import { WorkflowsIncidentReplayBanner } from './WorkflowsIncidentReplayBanner'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -326,7 +325,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     support to get sending re-enabled.
                 </LemonBanner>
             )}
-            <WorkflowsIncidentReplayBanner />
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>

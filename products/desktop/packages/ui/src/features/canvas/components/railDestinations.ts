@@ -5,6 +5,7 @@ import {
   HouseSimple,
   type IconProps,
   Lightning,
+  ListMagnifyingGlassIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
@@ -28,6 +29,7 @@ import {
   navigateToCanvases,
   navigateToChannel,
   navigateToCommandCenter,
+  navigateToFeeds,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
@@ -57,15 +59,19 @@ export interface RailDestination {
    * from landing on its root. Defaults to `onPick`.
    */
   onReclick?: () => void;
+  placement?: "top" | "bottom";
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
-  enabled?: (flags: {
-    home: boolean;
-    inbox: boolean;
-    loops: boolean;
-    context: boolean;
-  }) => boolean;
+  enabled?: (flags: RailFlags) => boolean;
+}
+
+export interface RailFlags {
+  home: boolean;
+  inbox: boolean;
+  loops: boolean;
+  context: boolean;
+  savedSearches: boolean;
 }
 
 /**
@@ -73,7 +79,7 @@ export interface RailDestination {
  * is view state — but the destinations that own the whole screen have no column
  * to put it in, so leaving one is part of the pick.
  */
-export function showSpaces(): void {
+function showSpaces(): void {
   const channelId = useCurrentChannelStore.getState().currentChannelId;
   if (!channelId) {
     showChannelList();
@@ -136,7 +142,7 @@ export function pickRailDestination(
   else destination.onPick();
 }
 
-export const RAIL_DESTINATIONS: readonly RailDestination[] = [
+const RAIL_DESTINATIONS: readonly RailDestination[] = [
   {
     pane: "home",
     label: "Home",
@@ -205,6 +211,16 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     enabled: (flags) => flags.loops,
   },
   {
+    pane: "feeds",
+    label: "Saved searches",
+    analyticsId: "search",
+    Icon: ListMagnifyingGlassIcon,
+    href: "/feeds",
+    onPick: navigateToFeeds,
+    placement: "bottom",
+    enabled: (flags) => flags.savedSearches,
+  },
+  {
     pane: "context",
     label: "Context",
     analyticsId: "contexts",
@@ -215,11 +231,8 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
 ];
 
-export function visibleRailDestinations(flags: {
-  home: boolean;
-  inbox: boolean;
-  loops: boolean;
-  context: boolean;
-}): readonly RailDestination[] {
+export function visibleRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
   return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
 }
