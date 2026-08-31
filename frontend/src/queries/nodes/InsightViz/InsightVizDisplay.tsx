@@ -350,7 +350,9 @@ export function InsightVizDisplay({
         // A trends tile with an empty response used to fall through to a blank chart, because only
         // funnels had an empty state here. Render the shared empty state so a valid insight with no
         // rows reads as "no data" instead of a broken tile. On a dashboard the refresh hint above
-        // handles the empty case first, so this only shows for a standalone insight.
+        // handles the never-loaded case, where both result keys are nullish. This branch covers the
+        // loaded-but-empty case, which shows for standalone insights and dashboard tiles alike, so it
+        // passes the dashboard telemetry props.
         if (
             activeView === InsightType.TRENDS &&
             !erroredQueryId &&
@@ -362,6 +364,7 @@ export function InsightVizDisplay({
                     heading={context?.emptyStateHeading}
                     detail={context?.emptyStateDetail}
                     sampleDataVariant={trendsSampleDataVariant(display)}
+                    insightProps={insightProps}
                 />
             )
         }
