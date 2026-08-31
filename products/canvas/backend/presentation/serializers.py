@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
@@ -115,7 +116,11 @@ class CanvasSerializer(serializers.ModelSerializer):
         help_text="Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
     )
     created_by = UserBasicSerializer(read_only=True)
-    pinned = serializers.SerializerMethodField(help_text="Whether the canvas is pinned to its channel.")
+    pinned = serializers.SerializerMethodField(help_text="Whether the requesting user pinned the canvas.")
+    pinned_at = serializers.SerializerMethodField(help_text="When the requesting user pinned the canvas, or null.")
+    personal_pinned_at = serializers.SerializerMethodField(
+        help_text="When the requesting user pinned the canvas, or null."
+    )
     url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
 
     class Meta:
@@ -131,6 +136,7 @@ class CanvasSerializer(serializers.ModelSerializer):
             "generation_task_id",
             "pinned",
             "pinned_at",
+            "personal_pinned_at",
             "current_version_id",
             "published_build_id",
             "component_meta",
@@ -141,8 +147,28 @@ class CanvasSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    @extend_schema_field(serializers.BooleanField(help_text="Whether the requesting user pinned the canvas."))
     def get_pinned(self, canvas: Canvas) -> bool:
-        return canvas.pinned_at is not None
+        return self.get_pinned_at(canvas) is not None
+
+    @extend_schema_field(
+        serializers.DateTimeField(
+            allow_null=True,
+            help_text="When the requesting user pinned the canvas, or null.",
+        )
+    )
+    def get_pinned_at(self, canvas: Canvas) -> datetime | None:
+        value = getattr(canvas, "viewer_pinned_at", None)
+        return value if isinstance(value, datetime) else None
+
+    @extend_schema_field(
+        serializers.DateTimeField(
+            allow_null=True,
+            help_text="When the requesting user pinned the canvas, or null.",
+        )
+    )
+    def get_personal_pinned_at(self, canvas: Canvas) -> datetime | None:
+        return self.get_pinned_at(canvas)
 
     def get_url(self, canvas: Canvas) -> str:
         return canvas_url(canvas)
@@ -216,10 +242,14 @@ class CanvasUpdateSerializer(serializers.Serializer):
         help_text="Updated canvas description (for components, the store-search text).",
     )
     channel_id = serializers.UUIDField(required=False, help_text="Id of the space the canvas belongs to.")
-    pinned = serializers.BooleanField(required=False, help_text="Whether the canvas is pinned in its channel.")
+    pinned = serializers.BooleanField(required=False, help_text="Whether the requesting user pinned the canvas.")
     generation_task_id = serializers.UUIDField(
         required=False, allow_null=True, help_text="Task currently generating this canvas, or null to clear it."
     )
+
+
+class CanvasPinRequestSerializer(serializers.Serializer):
+    pinned = serializers.BooleanField(help_text="Whether to pin the canvas for the requesting user.")
 
 
 class CanvasSourceAssetSerializer(serializers.Serializer):

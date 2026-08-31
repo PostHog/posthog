@@ -23,7 +23,7 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
-from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasPin, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
@@ -563,7 +563,48 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         )
         assert response.json()["pinned"] is False
 
-    def test_moving_canvas_clears_channel_pin(self):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"name": "Must not persist", "pinned": True, "generation_task_id": str(uuid4())},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Canvas.objects.for_team(self.team.id).get(id=canvas_id).name == "Renamed"
+        assert not CanvasPin.objects.for_team(self.team.id).filter(user=self.user, canvas_id=canvas_id).exists()
+
+    def test_canvas_pin_is_personal_to_the_requesting_user(self):
+        canvas_id = self._create_canvas()
+        canvas_url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/"
+        pin_url = f"{canvas_url}pin/"
+
+        response = self.client.post(pin_url, {"pinned": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["pinned"] is True
+        assert response.json()["personal_pinned_at"] is not None
+        assert CanvasPin.objects.for_team(self.team.id).filter(user=self.user, canvas_id=canvas_id).exists()
+
+        other_user = self._create_user("canvas-pin-teammate@example.com")
+        self.client.force_login(other_user)
+        response = self.client.get(canvas_url)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["pinned"] is False
+        assert response.json()["personal_pinned_at"] is None
+
+        response = self.client.post(pin_url, {"pinned": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["pinned"] is True
+        assert CanvasPin.objects.for_team(self.team.id).filter(canvas_id=canvas_id).count() == 2
+
+        self.client.force_login(self.user)
+        response = self.client.post(pin_url, {"pinned": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["pinned"] is False
+
+        self.client.force_login(other_user)
+        assert self.client.get(canvas_url).json()["pinned"] is True
+
+    def test_moving_canvas_keeps_personal_pin(self):
         canvas_id = self._create_canvas()
         with team_scope(self.team.id):
             destination = Channel.objects.create(team=self.team, name="destination", created_by=self.user)
@@ -580,7 +621,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["pinned"] is False
+        assert response.json()["pinned"] is True
         assert self._changes(self._activity("updated")[-1]) == [
             {
                 "type": "Canvas",
@@ -588,8 +629,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
                 "field": "channel",
                 "before": str(self.channel.id),
                 "after": str(destination.id),
-            },
-            {"type": "Canvas", "action": "changed", "field": "pinned", "before": True, "after": False},
+            }
         ]
 
     def test_generation_task_pointer_validates_team(self):

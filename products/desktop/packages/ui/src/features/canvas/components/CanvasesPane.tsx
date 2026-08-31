@@ -11,6 +11,7 @@ import {
   Autocomplete,
   AutocompleteItem,
   AutocompleteList,
+  AvatarGroup,
   cn,
   Empty,
   EmptyDescription,
@@ -32,6 +33,10 @@ import { useAllCanvases } from "@posthog/ui/features/canvas/hooks/useDashboards"
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import {
+  PinnedBadge,
+  TaskStatusTooltips,
+} from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -209,7 +214,7 @@ export function CanvasesPane({
                         onClick={() => open(canvas)}
                       >
                         {iconForTemplate(canvas.templateId, { size: 14 })}
-                        <span className="min-w-0">
+                        <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px]">
                             {canvas.name}
                           </span>
@@ -220,6 +225,18 @@ export function CanvasesPane({
                             {canvas.createdBy ?? "Unknown"} · {lastViewedLabel}
                           </span>
                         </span>
+                        {canvas.pinnedAt != null ? (
+                          <TaskStatusTooltips>
+                            <AvatarGroup
+                              stacked
+                              reverse
+                              size="xs"
+                              className="ml-auto shrink-0"
+                            >
+                              <PinnedBadge />
+                            </AvatarGroup>
+                          </TaskStatusTooltips>
+                        ) : null}
                       </AutocompleteItem>
                     );
                   })}

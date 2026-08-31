@@ -7,7 +7,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
 from products.canvas.backend import teaching
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.models import Canvas, CanvasPin
 from products.canvas.backend.source import has_errors, validate_source_project
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.tasks.backend.models import Channel
@@ -65,7 +65,7 @@ class TestSeedTeachingCanvas(TestCase):
 
         canvas = self._tours().get()
         self.assertEqual(canvas.id, canvas_id)
-        self.assertIsNotNone(canvas.pinned_at)
+        self.assertTrue(CanvasPin.objects.for_team(self.team.id).filter(canvas=canvas, user=self.user).exists())
         self.assertIsNotNone(canvas.current_source_version_id)
 
     def test_a_second_seed_reuses_the_first_tour(self):
@@ -90,7 +90,7 @@ class TestSeedTeachingCanvas(TestCase):
         self.assertEqual(self._seed(refresh=True), first)
         canvas = self._tours().get()
         self.assertFalse(canvas.deleted)
-        self.assertIsNotNone(canvas.pinned_at)
+        self.assertTrue(CanvasPin.objects.for_team(self.team.id).filter(canvas=canvas, user=self.user).exists())
         self.assertIsNotNone(canvas.current_source_version_id)
 
     def test_a_tour_whose_publish_failed_heals_on_the_next_seed(self):

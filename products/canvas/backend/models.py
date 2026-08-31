@@ -52,7 +52,8 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     # than a FK: Task lives in the tasks app and a schema-level FK would chain
     # the two products' migrations together for a soft pointer.
     generation_task_id = models.UUIDField(null=True, blank=True)
-    # Set when the canvas is pinned to its channel (shared across users).
+    # DEPRECATED: Personal pins live in CanvasPin. Keep this column during the
+    # rollout so older application instances can complete requests safely.
     pinned_at = models.DateTimeField(null=True, blank=True)
 
     current_source_version = models.ForeignKey(
@@ -84,6 +85,21 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
                 condition=~Q(kind="freeform"),
                 name="canvas_kind_store",
             ),
+        ]
+
+
+class CanvasPin(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
+    user = models.ForeignKey(
+        "posthog.User", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="+")
+    pinned_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "posthog_canvas_pin"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "canvas"], name="canvas_pin_team_user_canvas_unique")
         ]
 
 

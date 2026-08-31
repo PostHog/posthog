@@ -1,5 +1,5 @@
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -106,6 +106,25 @@ describe("CanvasesPane", () => {
 
     expect(screen.getByText("Today")).toBeInTheDocument();
     expect(screen.getByText("Yesterday")).toBeInTheDocument();
+  });
+
+  it("marks only the pinned canvas and labels the pin", () => {
+    mocks.dashboards = [
+      canvas("canvas-first", "First canvas", 2),
+      { ...canvas("canvas-pinned", "Pinned canvas", 1), pinnedAt: 5 },
+    ];
+
+    render(<CanvasesPane />);
+
+    const pin = screen.getByRole("img", { name: "Pinned" });
+    expect(pin).toBeInTheDocument();
+
+    fireEvent.focus(pin);
+
+    expect(screen.getByText("Pinned")).toHaveAttribute(
+      "data-slot",
+      "tooltip-content",
+    );
   });
 
   it("moves through canvases from the search input and opens the highlighted row", async () => {

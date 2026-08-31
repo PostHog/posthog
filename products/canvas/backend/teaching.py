@@ -12,12 +12,12 @@ from typing import Any
 from uuid import UUID
 
 from django.db import connection, transaction
-from django.utils import timezone
 
 from posthog.models.user import User
 
 from products.canvas.backend import build_service
 from products.canvas.backend.models import Canvas
+from products.canvas.backend.pinning import set_canvas_pinned
 from products.canvas.backend.source import synthetic_source_project
 
 TEACHING_CANVAS_TEMPLATE_ID = "desktop-onboarding-teaching"
@@ -534,10 +534,10 @@ def seed_teaching_canvas(*, team_id: int, channel_id: UUID, user: User, refresh:
                 return None
             if existing.deleted:
                 existing.deleted = False
-                existing.pinned_at = timezone.now()
-                existing.save(update_fields=["deleted", "pinned_at"])
+                existing.save(update_fields=["deleted"])
             if refresh or existing.current_source_version_id is None:
                 _publish_tour(existing, user)
+            set_canvas_pinned(canvas=existing, user_id=user.id, pinned=True)
             return existing.id
         canvas = Canvas.objects.create(
             team_id=team_id,
@@ -547,8 +547,8 @@ def seed_teaching_canvas(*, team_id: int, channel_id: UUID, user: User, refresh:
             template_id=TEACHING_CANVAS_TEMPLATE_ID,
             description=TEACHING_CANVAS_DESCRIPTION,
             context=TEACHING_CANVAS_CONTEXT,
-            pinned_at=timezone.now(),
             created_by=user,
         )
+        set_canvas_pinned(canvas=canvas, user_id=user.id, pinned=True)
         _publish_tour(canvas, user)
         return canvas.id

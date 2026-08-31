@@ -34,7 +34,7 @@ export const dashboardRecordSchema = z.object({
   createdByUuid: z.string().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
-  // Epoch ms the canvas was pinned to its channel; absent = not pinned.
+  // Epoch ms when the requesting user pinned the canvas; absent = not pinned.
   pinnedAt: z.number().optional(),
   // Head source version — pass as expected_current_version_id when publishing.
   currentVersionId: z.string().nullish(),
@@ -154,7 +154,6 @@ export const setGenerationTaskInput = z.object({
   taskId: z.string().nullable(),
 });
 
-// Pin (or unpin) a canvas to its channel (shared across users).
 export const setPinnedInput = z.object({
   id: z.string().min(1),
   pinned: z.boolean(),

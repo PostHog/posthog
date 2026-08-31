@@ -218,8 +218,6 @@ export function useDashboardMutations() {
     // created canvas from its generation prompt.
     renameDashboard: (id: string, name: string) =>
       rename.mutateAsync({ id, name }),
-    // Pin (or unpin) a canvas to its channel (shared across users), so the pin
-    // shows in the channel's Pinned menu for every member.
     setPinned: (id: string, pinned: boolean) =>
       setPinned.mutateAsync({ id, pinned }),
     fileDashboard: (id: string, channelId: string) =>

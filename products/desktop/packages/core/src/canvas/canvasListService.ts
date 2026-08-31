@@ -48,6 +48,7 @@ export interface CanvasListViewModel {
   settings: CanvasListSettings;
   personalSpaceSelected: boolean;
   creatorOptions: CanvasCreatorOption[];
+  /** Every canvas the list shows, in the order the sections render them. */
   canvases: DashboardRecord[];
   sections: CanvasListSection[];
 }
@@ -223,6 +224,21 @@ function sortCanvasList(
   });
 }
 
+/**
+ * A pin holds a canvas at the top of the group it already belongs to, instead
+ * of lifting it into a pinned group of its own, so a space or date header still
+ * says what every row beneath it is. The partition is stable, so pinned
+ * canvases keep the chosen sort order among themselves, and a list with no
+ * grouping gets its pins first.
+ */
+function pinnedFirst(canvases: readonly DashboardRecord[]): DashboardRecord[] {
+  const pinned = canvases.filter((canvas) => canvas.pinnedAt != null);
+  if (pinned.length === 0 || pinned.length === canvases.length) {
+    return [...canvases];
+  }
+  return [...pinned, ...canvases.filter((canvas) => canvas.pinnedAt == null)];
+}
+
 function groupCanvasList(
   canvases: readonly DashboardRecord[],
   grouping: CanvasListGrouping,
@@ -230,49 +246,57 @@ function groupCanvasList(
   now: Date,
 ): CanvasListSection[] {
   if (canvases.length === 0) return [];
-  if (grouping === "none") {
-    return [{ key: "all", label: null, canvases: [...canvases] }];
-  }
 
-  if (grouping === "space") {
-    const sections = new Map<string, CanvasListSection>();
+  let sections: CanvasListSection[];
+  if (grouping === "none") {
+    sections = [{ key: "all", label: null, canvases: [...canvases] }];
+  } else if (grouping === "space") {
+    const sectionsBySpace = new Map<string, CanvasListSection>();
     for (const canvas of canvases) {
       const key = `space:${canvas.channelId}`;
-      const section = sections.get(key);
+      const section = sectionsBySpace.get(key);
       if (section) {
         section.canvases.push(canvas);
       } else {
-        sections.set(key, {
+        sectionsBySpace.set(key, {
           key,
           label: spaceNames.get(canvas.channelId) ?? "Unknown space",
           canvases: [canvas],
         });
       }
     }
-    return [...sections.values()];
-  }
-
-  const sections = new Map<
-    string,
-    { timestamp: number; canvases: DashboardRecord[] }
-  >();
-  for (const canvas of canvases) {
-    const key = getLocalDayKey(canvas.createdAt);
-    const section = sections.get(key);
-    if (section) {
-      section.canvases.push(canvas);
-    } else {
-      sections.set(key, { timestamp: canvas.createdAt, canvases: [canvas] });
+    sections = [...sectionsBySpace.values()];
+  } else {
+    const sectionsByDate = new Map<
+      string,
+      { timestamp: number; canvases: DashboardRecord[] }
+    >();
+    for (const canvas of canvases) {
+      const key = getLocalDayKey(canvas.createdAt);
+      const section = sectionsByDate.get(key);
+      if (section) {
+        section.canvases.push(canvas);
+      } else {
+        sectionsByDate.set(key, {
+          timestamp: canvas.createdAt,
+          canvases: [canvas],
+        });
+      }
     }
+
+    sections = [...sectionsByDate.entries()]
+      .sort(([, first], [, second]) => second.timestamp - first.timestamp)
+      .map(([key, section]) => ({
+        key: `date:${key}`,
+        label: formatShortDayLabel(section.timestamp, now),
+        canvases: section.canvases,
+      }));
   }
 
-  return [...sections.entries()]
-    .sort(([, first], [, second]) => second.timestamp - first.timestamp)
-    .map(([key, section]) => ({
-      key: `date:${key}`,
-      label: formatShortDayLabel(section.timestamp, now),
-      canvases: section.canvases,
-    }));
+  return sections.map((section) => ({
+    ...section,
+    canvases: pinnedFirst(section.canvases),
+  }));
 }
 
 @injectable()
@@ -292,6 +316,13 @@ export class CanvasListService {
       ]),
     );
 
+    const sections = groupCanvasList(
+      canvases,
+      settings.grouping,
+      spaceNames,
+      input.now ?? new Date(),
+    );
+
     return {
       settings,
       personalSpaceSelected: Boolean(
@@ -302,13 +333,10 @@ export class CanvasListService {
         input.currentUser,
         settings.spaceIds,
       ),
-      canvases,
-      sections: groupCanvasList(
-        canvases,
-        settings.grouping,
-        spaceNames,
-        input.now ?? new Date(),
-      ),
+      // Flattened from the sections rather than the sort, so the keyboard walks
+      // the rows in the order a reader sees them.
+      canvases: sections.flatMap((section) => section.canvases),
+      sections,
     };
   }
 
