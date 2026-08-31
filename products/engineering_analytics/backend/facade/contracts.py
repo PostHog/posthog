@@ -17,7 +17,7 @@ with runtime validation on construction, so a mapper that hands back the wrong
 shape fails at the facade boundary instead of producing malformed JSON later.
 
 Provider-specific shapes (GitHub column names, nesting) never reach here — the
-read layer maps them into these types. Reviewers, deploys, and file paths are
+read layer maps them into these types. Reviewers and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
@@ -1110,6 +1110,46 @@ class ReadyToMergeBucket:
     p50_seconds: float | None
 
 
+class DeliveryStage(StrEnum):
+    """A pre-merge leg of a PR's path to production, named for the timestamps that bound it.
+
+    - ``OPEN_TO_GATE``: ``created_at`` to the PR's first merge-queue gate run starting; review,
+      rework, idle time, and the wait for a queue slot stay fused here.
+    - ``GATE_TO_MERGE``: that gate run starting to ``merged_at``.
+
+    The post-merge leg is ``DoraOverview.median_merge_to_deploy_seconds``.
+    """
+
+    OPEN_TO_GATE = "open_to_gate"
+    GATE_TO_MERGE = "gate_to_merge"
+
+
+@dataclass(frozen=True)
+class DeliveryStageTiming:
+    """One leg's timings over the PRs where both of its bounds were observed. ``pr_count`` is
+    that leg's own denominator: a PR that skipped the queue has no gate legs."""
+
+    stage: DeliveryStage
+    median_seconds: float | None
+    p90_seconds: float | None
+    pr_count: int
+
+
+@dataclass(frozen=True)
+class DeliveryPipeline:
+    """Where a change's wall-clock time goes between opening a PR and its merge.
+
+    Bots and drafts excluded, per the locked cycle-time recipe; the merge-queue fields on
+    ``RepoOverview`` count all authors instead. The leg medians do not sum to a cycle-time
+    median: a median of sums is not a sum of medians.
+    """
+
+    merged_pr_count: int
+    # A leg with no observed pair still ships, with a zero count and None timings, so a
+    # consumer renders the whole pipeline rather than a hole.
+    stages: list[DeliveryStageTiming]
+
+
 @dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
@@ -1216,6 +1256,8 @@ class RepoOverview:
     ready_to_merge_series: list[ReadyToMergeBucket]
     # Bucket width of `ready_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     ready_to_merge_series_granularity: str
+    # Bots and drafts excluded, unlike the headline counts above.
+    delivery_pipeline: DeliveryPipeline
 
 
 @dataclass(frozen=True)

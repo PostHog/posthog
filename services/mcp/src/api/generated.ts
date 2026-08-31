@@ -1343,6 +1343,23 @@ export namespace Schemas {
     } as const;
     export type AccountsTableUnassignedFilter = typeof AccountsTableUnassignedFilterValue;
 
+    export type AccountsTableRelationshipOperator = typeof AccountsTableRelationshipOperator[keyof typeof AccountsTableRelationshipOperator];
+
+
+    export const AccountsTableRelationshipOperator = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+    } as const;
+
+    export interface AccountsTableRelationshipFilter {
+      definitionId: string;
+      kind?: 'relationship';
+      operator: AccountsTableRelationshipOperator;
+      userIds?: number[] | null;
+    }
+
     /**
      * Requested direct Account fields, keyed by their typed field reference.
      */
@@ -1429,7 +1446,7 @@ export namespace Schemas {
       /** Columns to load for each account. Account identity fields are always returned. */
       columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */
-      filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableAssignedFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)[] | null;
+      filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableAssignedFilter | AccountsTableUnassignedFilter | AccountsTableRelationshipFilter | AccountsTableAccountIdFilter | AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)[] | null;
       /** Include churned accounts. Churned accounts are hidden by default. */
       includeChurned?: boolean | null;
       /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -7092,6 +7109,7 @@ export namespace Schemas {
       ReplaySavedFilters: 'replay_saved_filters',
       RevenueAnalyticsProperties: 'revenue_analytics_properties',
       AccountFields: 'account_fields',
+      AccountRelationships: 'account_relationships',
       AccountCustomProperties: 'account_custom_properties',
       Resources: 'resources',
       ErrorTrackingProperties: 'error_tracking_properties',
@@ -27056,6 +27074,45 @@ export namespace Schemas {
     }
 
     /**
+     * * `open_to_gate` - OPEN_TO_GATE
+     * * `gate_to_merge` - GATE_TO_MERGE
+     */
+    export type DeliveryStageTimingStageEnum = typeof DeliveryStageTimingStageEnum[keyof typeof DeliveryStageTimingStageEnum];
+
+
+    export const DeliveryStageTimingStageEnum = {
+      OpenToGate: 'open_to_gate',
+      GateToMerge: 'gate_to_merge',
+    } as const;
+
+    export interface DeliveryStageTiming {
+      /** Which leg this is: 'open_to_gate' (created_at to the PR's first merge-queue gate run starting) or 'gate_to_merge' (that gate run to merged_at). The post-merge leg is the DORA endpoint's median_merge_to_deploy_seconds.
+       *
+       * * `open_to_gate` - OPEN_TO_GATE
+       * * `gate_to_merge` - GATE_TO_MERGE */
+      stage: DeliveryStageTimingStageEnum;
+      /**
+         * Median seconds for this leg. Null when no PR in the window has both of its bounds observed.
+         * @nullable
+         */
+      median_seconds: number | null;
+      /**
+         * 90th-percentile seconds for this leg. Null when not observed.
+         * @nullable
+         */
+      p90_seconds: number | null;
+      /** PRs behind this leg's figures: those with an observed gate run. A PR that skipped the merge queue has no gate legs, so read a median against this count, not merged_pr_count. */
+      pr_count: number;
+    }
+
+    export interface DeliveryPipeline {
+      /** The legs, ordered open to merge. A leg with nothing observed still appears, with a zero pr_count and null timings. The leg medians do not sum to a cycle-time median: a median of sums is not a sum of medians. */
+      stages: DeliveryStageTiming[];
+      /** PRs merged in the window with bots and drafts excluded. A narrower population than RepoOverview.merged_pr_count, which counts all authors. */
+      merged_pr_count: number;
+    }
+
+    /**
      * * `pending` - Pending
      * * `generated` - Generated
      * * `delivered` - Delivered
@@ -42178,6 +42235,23 @@ export namespace Schemas {
          * @nullable
          */
       expected_draft_updated_at?: string | null;
+    }
+
+    /**
+     * Variable value overrides, merged with the workflow's own variable defaults for this run only.
+     */
+    export type HogFlowRunRequestVariables = {[key: string]: unknown};
+
+    export interface HogFlowRunRequest {
+      /** Variable value overrides, merged with the workflow's own variable defaults for this run only. */
+      variables?: HogFlowRunRequestVariables;
+    }
+
+    export interface HogFlowRunResponse {
+      /** 'queued' once the invocation has been queued for execution. */
+      status: string;
+      /** ID of the queued hog flow invocation. */
+      invocation_id: string;
     }
 
     /**
@@ -66890,7 +66964,7 @@ export namespace Schemas {
        *             Supported entry types and the exact shape each accepts:
        *
        *             # Person property — match (or exclude) by a person property
-       *             {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+       *             {"key": "email", "type": "person", "value": "@example.com", "operator": "ends_with"}
        *
        *             # Event property — match by an event property
        *             {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
@@ -66902,8 +66976,9 @@ export namespace Schemas {
        *             # property-filter schema.
        *             {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
        *
-       *             Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
-       *             "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
+       *             Common operators: "exact", "is_not", "icontains", "not_icontains", "starts_with",
+       *             "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex", "gt", "lt",
+       *             "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
@@ -73743,6 +73818,8 @@ export namespace Schemas {
       success_rate_series: PassRateBucket[];
       /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
+      /** Where a change's wall-clock time goes on the way to production, over PRs merged in the window with bots and drafts excluded. */
+      delivery_pipeline: DeliveryPipeline;
       /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
       ready_to_merge_series: ReadyToMergeBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
@@ -84715,7 +84792,7 @@ export namespace Schemas {
        *             Supported entry types and the exact shape each accepts:
        *
        *             # Person property — match (or exclude) by a person property
-       *             {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+       *             {"key": "email", "type": "person", "value": "@example.com", "operator": "ends_with"}
        *
        *             # Event property — match by an event property
        *             {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
@@ -84727,8 +84804,9 @@ export namespace Schemas {
        *             # property-filter schema.
        *             {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
        *
-       *             Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
-       *             "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
+       *             Common operators: "exact", "is_not", "icontains", "not_icontains", "starts_with",
+       *             "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex", "gt", "lt",
+       *             "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
@@ -97474,6 +97552,27 @@ export namespace Schemas {
     tags?: string;
     };
 
+    export type SignalsScoutConfigSyncParams = {
+    /**
+     * Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.
+     *
+     * * `roster` - roster
+     * * `desktop` - desktop
+     * * `wizard` - wizard
+     * @minLength 1
+     */
+    surface?: SignalsScoutConfigSyncSurface;
+    };
+
+    export type SignalsScoutConfigSyncSurface = typeof SignalsScoutConfigSyncSurface[keyof typeof SignalsScoutConfigSyncSurface];
+
+
+    export const SignalsScoutConfigSyncSurface = {
+      Roster: 'roster',
+      Desktop: 'desktop',
+      Wizard: 'wizard',
+    } as const;
+
     export type SignalsScoutMembersListParams = {
     /**
      * Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member.
@@ -98138,6 +98237,10 @@ export namespace Schemas {
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
+    /**
+     * Filter tasks to the runs spawned by this workflow's 'Create AI task' action.
+     */
+    hog_flow_id?: string;
     /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *

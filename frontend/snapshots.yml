@@ -7025,9 +7025,9 @@ snapshots:
     scenes-app-inbox-scene--self-driving-onboarding--light:
         hash: v1.k794b7964.5268ad52b39cdc5bb1d699e6a1a839a552ce397134d6773714e1f5a2d95994b6.hgkYOJDE9ZNZ0mMtcj9cpcDCtmas-opelntO_tyQ9Ig
     scenes-app-inbox-scene--self-driving-paused--dark:
-        hash: v1.k794b7964.1b72584882245d09b8622723dfc012a7d854b1419ee4d845829e6dfccda6603f.ox548Px_t_Hecz8z9AlksbbedukN5wWQUoxfrfzlTHM
+        hash: v1.k794b7964.7ff34e488265ae8c882ea751c7c1131d6be923113809af0bb5c73073a08e4052.v_4oh-JC3KwUHpq-frRrju4-HbqxSoEhRcEsfpclMyw
     scenes-app-inbox-scene--self-driving-paused--light:
-        hash: v1.k794b7964.90aa6c5f7f56f04eaf4458d064731878707f550379c5906ab670e9fd8384e7c6.oyRmXsS9axV-BigXbChZl9ELgOzT9_Rbb7f2lpGykTU
+        hash: v1.k794b7964.17392068d051031cca6ae99a174c7336b8d6bae0061671780305281186e8524c.mgSpDwEw5VUYOqrCHB5j5ZojsMODYJyk270xDqQQz_o
     scenes-app-inbox-scene--self-driving-verdict-pending--dark:
         hash: v1.k794b7964.570e5dddd645996b94ff94b2c563b32ced3793db3ab5ccf360d16126af3b9a0b.WC_VEZ1N_iX-o4r11w15QWfD8Nzo1gFerTznKiaIX84
     scenes-app-inbox-scene--self-driving-verdict-pending--light:
@@ -7165,13 +7165,13 @@ snapshots:
     scenes-app-inbox-tabs--pull-requests-legacy--light:
         hash: v1.k794b7964.2fb1e20ff50d808253cae40e732b64a77eef587baa1841d6588881aa1b14dc12.1MI5WWLUgeiqrwAT4cZW09aAIqNQ9i7X2_ZNyeJC9eQ
     scenes-app-inbox-tabs--reports--dark:
-        hash: v1.k794b7964.b851875203cb1bd0a3400aff48d534a3a8a6b9c0c4de772e14fda3bebc184ee8._fkKYLXBLFwm4XY-JCW-qt_QvMOPxaNJBoTBjV0Xt9o
+        hash: v1.k794b7964.cd360fcaed74c53422991231f6a791a12057405540f0150adb4ecc09b73ac6c5.p_hQlErs-3lrBf7b8DuAhzkk4fbTxQTgylgfkcL1c84
     scenes-app-inbox-tabs--reports--light:
-        hash: v1.k794b7964.f4135be38741ef164e947e253bd15bc7dc3a211871289de4d4b1ae3e7b62bb9d.FJQSWp36U6B8cU3GhqN_tBXvZfQ1vF5rjKQqyj6uIns
+        hash: v1.k794b7964.3d2493fe0ab657fd31abf0f48fa3f9693eceeeccba9ff3ea3e5dea66ffcd5092.GbMr4_h6BGh7w9G77P06CRaWlmWIeXQytdbAtTCb2ds
     scenes-app-inbox-tabs--reports-all-sections-expanded--dark:
-        hash: v1.k794b7964.24802bb819a135b12ca117ad561077e4b6559f3c03f03421a26c7f6cc877a53e.fhsntFF-Rm62PKONeTHL0_1OE3l6r-Ch7duZKk7t558
+        hash: v1.k794b7964.06a0b8c5ca7fb098ac7e5ce44c49135701698e84b3ae3edd72d227a1119a4303.HRyt3vtt4lD0xZx90h4668_W9LqG63GV9hEO8cV-q6Y
     scenes-app-inbox-tabs--reports-all-sections-expanded--light:
-        hash: v1.k794b7964.0f1ae00b821ead313a9fa4bd59bcca6e24cae8db75a5b03a839847fe19c1dad8.vChDCCceuIIo8zVIL_kLJ8DbKjRO40tg9eQDcsmOsdw
+        hash: v1.k794b7964.c2ff7a23464315c7f5e19c17ded8f57caea0cf61c4e50544145f49edb23d793e.7eM7-fdqtg2u4CKHFAxC8h03mQ-tr2THF4Guz6Yb1u8
     scenes-app-inbox-tabs--reports-empty--dark:
         hash: v1.k794b7964.fadcb6a49ae519ed7432563af517599477371bc1e9823b09c7a1cc351925b249.FHSWD8X0Bg6UfdgpmdkK_3y1cIiWzBwfN5WCvTWLV2w
     scenes-app-inbox-tabs--reports-empty--light:
@@ -8233,9 +8233,9 @@ snapshots:
     scenes-app-settings-user--settings-user-danger-zone--light:
         hash: v1.k794b7964.96846d7823357e89a9d91350f6f435373fe287f713250b59ccce2dbd31b6f69c.kl21kygOhH1SlNOJ6VekMMlGUuyNg5Ka7NXFoHcG6M0
     scenes-app-settings-user--settings-user-navigation--dark:
-        hash: v1.k794b7964.2d771e056c3ebc20c676cdfb0f8c36243ea14de2b3b26169a21a6291a8bea68e.gZiwcbMTy2UahK2xIHaX5rfPk7ZkHFFe8bupdJ6Lknk
+        hash: v1.k794b7964.87ca468f0949495f6fb53cc8b07900f724e8cecdcd38c3791d49c6683a83f379.nPpp4yuzr2RtTIvFvDjlxk835WS_N7K8qVWNNxPCxgQ
     scenes-app-settings-user--settings-user-navigation--light:
-        hash: v1.k794b7964.f5976853d33d90afdfc9ac22a09dc24c672a223766a99c22761ab894734794a7.prwUzPsNSfVh_U2_cCZ2N-ZMWg9fkhj0-xKRWx0gVRU
+        hash: v1.k794b7964.90007325cf24bd688266d36edca8206e11eb24d6aa98fc0208533ba74adb668b.Vjg6puokORg18-P-bIOttdR-X6L8hXOxoOklyUTlkiY
     scenes-app-settings-user--settings-user-notifications--dark:
         hash: v1.k794b7964.a09a57f1c0bbcebf82942edebeba7772b2f684ba235bcef3a816aec2beb4cbce.AtQZhdZeeMVvpcmyBhPvprSMZawliTZaIFE5G8M_MVg
     scenes-app-settings-user--settings-user-notifications--light:
