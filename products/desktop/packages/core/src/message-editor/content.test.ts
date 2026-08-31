@@ -3,6 +3,7 @@ import {
   contentToXml,
   type EditorContent,
   extractFilePaths,
+  extractFolderPaths,
   xmlToContent,
   xmlToPlainText,
 } from "./content";
@@ -287,6 +288,17 @@ describe("xmlToContent", () => {
       ],
     };
     expect(extractFilePaths(content)).toEqual(["src/sub", "src/a.ts"]);
+  });
+
+  it("extractFolderPaths returns folder chips only, deduped", () => {
+    const content: EditorContent = {
+      segments: [
+        { type: "chip", chip: { type: "folder", id: "src/sub", label: "sub" } },
+        { type: "chip", chip: { type: "file", id: "src/a.ts", label: "a.ts" } },
+        { type: "chip", chip: { type: "folder", id: "src/sub", label: "sub" } },
+      ],
+    };
+    expect(extractFolderPaths(content)).toEqual(["src/sub"]);
   });
 
   it("xmlToPlainText renders folder mentions as @mentions", () => {

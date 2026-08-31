@@ -6,5 +6,6 @@ export {
   contentToPlainText,
   contentToXml,
   extractFilePaths,
+  extractFolderPaths,
   isContentEmpty,
 } from "@posthog/core/message-editor/content";

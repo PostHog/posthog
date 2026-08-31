@@ -57,6 +57,7 @@ import {
   contentToXml,
   type EditorContent,
   extractFilePaths,
+  extractFolderPaths,
 } from "../../message-editor/content";
 import { useDraftStore } from "../../message-editor/draftStore";
 import { useTaskInputHistoryStore } from "../../message-editor/taskInputHistoryStore";
@@ -288,6 +289,12 @@ export function useTaskCreation({
       const plainPromptText = contentToPlainText(content).trim();
       const serializedContent = contentToXml(content).trim();
       const filePaths = extractFilePaths(content);
+      // A folder chip marks a directory to attach, but its path is inert until
+      // the directory is granted. Merge chip folders with the button's picks so
+      // the agent can read them.
+      const mergedAdditionalDirectories = [
+        ...new Set([...additionalDirectories, ...extractFolderPaths(content)]),
+      ];
 
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
@@ -442,7 +449,7 @@ export function useTaskCreation({
             sandboxEnvironmentId,
             customImageId,
             signalReportId,
-            additionalDirectories,
+            additionalDirectories: mergedAdditionalDirectories,
             channelContext,
             channelContextPath,
             channelName,
