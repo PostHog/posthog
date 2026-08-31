@@ -41,6 +41,17 @@ describe('ViewTraceButton', () => {
         expect(screen.queryByText('View trace')).not.toBeInTheDocument()
     })
 
+    it('renders nothing without tracing access, rather than a disabled button', () => {
+        // Matches how the trace links logs already has behave.
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: { [AccessControlResourceType.Tracing]: AccessControlLevel.None },
+        } as AppContext
+
+        renderButton({ traceId: 'abc123' })
+        expect(screen.queryByText('View trace')).not.toBeInTheDocument()
+    })
+
     it('links to the trace, anchored on the span and hinted with the timestamp', () => {
         renderButton({ traceId: 'abc123', spanId: 'def456', timestamp: '2026-06-11T08:00:00.000Z' })
 

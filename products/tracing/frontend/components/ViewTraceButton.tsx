@@ -29,7 +29,8 @@ export function ViewTraceButton({
     ...buttonProps
 }: ViewTraceButtonProps): JSX.Element | null {
     // Most rows have no trace. Rendering a link to nothing is worse than rendering nothing.
-    if (!traceId) {
+    // Hidden rather than disabled without access, matching the trace links logs already has.
+    if (!traceId || getAccessControlDisabledReason(AccessControlResourceType.Tracing, AccessControlLevel.Viewer)) {
         return null
     }
 
@@ -38,10 +39,6 @@ export function ViewTraceButton({
             icon={<IconGraph />}
             to={traceUrl({ traceId, spanId, ts: timestamp })}
             tooltip={iconOnly ? 'View the trace this came from' : undefined}
-            disabledReason={getAccessControlDisabledReason(
-                AccessControlResourceType.Tracing,
-                AccessControlLevel.Viewer
-            )}
             {...buttonProps}
         >
             {iconOnly ? undefined : 'View trace'}
