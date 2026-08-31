@@ -33,7 +33,7 @@ export const WORKFLOW_TRIGGER_TYPE_OPTIONS: { value: WorkflowTriggerTypeFilter; 
     { value: 'tracking_pixel', label: 'Tracking pixel' },
     { value: 'data-warehouse-table', label: 'Data warehouse table' },
     { value: 'data-warehouse-view', label: 'Data warehouse view' },
-    { value: 'slack-message', label: 'Slack message' },
+    { value: 'internal-event', label: 'Internal event' },
 ]
 
 const WORKFLOW_TRIGGER_TYPE_FILTERS = WORKFLOW_TRIGGER_TYPE_OPTIONS.map((option) => option.value)
