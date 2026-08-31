@@ -13,6 +13,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { CopyLogButton, copyLogRaw } from 'products/logs/frontend/components/LogsViewer/CopyLogButton'
 import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
 import { LogDetailsTabContent } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/Details/LogDetailsTab'
+import { ViewTraceButton } from 'products/tracing/frontend/components/ViewTraceButton'
 
 import { logsViewerLogic } from '../logsViewerLogic'
 import { LogComments } from './LogComments'
@@ -134,15 +135,25 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 </div>
                             </div>
                         </div>
-                        {sessionId && (
-                            <ViewRecordingButton
-                                sessionId={sessionId}
+                        <div className="flex items-center gap-1">
+                            <ViewTraceButton
+                                traceId={selectedLog.trace_id}
+                                spanId={selectedLog.span_id}
                                 timestamp={selectedLog.timestamp}
                                 size="xsmall"
-                                openPlayerIn={RecordingPlayerType.Modal}
-                                checkRecordingExists
+                                type="secondary"
+                                data-attr="logs-viewer-view-trace"
                             />
-                        )}
+                            {sessionId && (
+                                <ViewRecordingButton
+                                    sessionId={sessionId}
+                                    timestamp={selectedLog.timestamp}
+                                    size="xsmall"
+                                    openPlayerIn={RecordingPlayerType.Modal}
+                                    checkRecordingExists
+                                />
+                            )}
+                        </div>
                     </div>
                 </LemonDrawer.Header>
                 <LemonDrawer.Content>
