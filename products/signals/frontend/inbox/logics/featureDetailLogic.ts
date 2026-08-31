@@ -550,7 +550,7 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
             }
         },
         startPlanningSession: async () => {
-            if (values.startingPlanningSession || values.planningSessionActive) {
+            if (values.startingPlanningSession) {
                 return
             }
             actions.setStartingPlanningSession(true)

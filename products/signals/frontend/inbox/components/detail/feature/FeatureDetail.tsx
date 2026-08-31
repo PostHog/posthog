@@ -443,11 +443,12 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
     const planningTaskId = planningTask?.task.id
     const planningRun = planningTask?.task.latest_run
     const planningRunId = planningRun?.id
-    const planningActionLabel = !planningTask
-        ? 'Start planning'
-        : planningRun?.status === TaskRunStatus.FAILED || planningRun?.status === TaskRunStatus.CANCELLED
-          ? 'Restart planning'
-          : 'Start another planning session'
+    const planningActionLabel =
+        planningSessionActive ||
+        planningRun?.status === TaskRunStatus.FAILED ||
+        planningRun?.status === TaskRunStatus.CANCELLED
+            ? 'Restart planning'
+            : 'Start another planning session'
     const planningDescription = isManaged
         ? 'Review an owned feature with an agent. Revisit its intended behavior, current status, measurement, or next increment.'
         : featureStage === 'staged'
@@ -467,7 +468,7 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
                     <p className="m-0 text-sm text-secondary">{planningDescription}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 @2xl:shrink-0">
-                    {planningTask && !planningSessionActive ? (
+                    {planningTask ? (
                         <LemonButton
                             type="secondary"
                             size="small"
