@@ -130,9 +130,11 @@ _DELETE_PREDICATE = """or(
 
 ShardMutations = dict[int, MutationWaiters]
 # Shard numbers are per cluster, so a sweep spanning two of them cannot key its waiters by shard
-# alone. Keyed by cluster name rather than by handle: the handle is recovered with
-# ClickhouseCluster.sibling, which is memoized, and a name survives the op boundary.
-ClusterShardMutations = dict[str, ShardMutations]
+# alone. Keyed by cluster name and the role that owns its shards rather than by handle: the handle
+# is recovered with ClickhouseCluster.sibling, which is memoized, and both survive the op boundary.
+# The role has to travel with the name, or sibling hands back a default-role handle with no shards
+# and the waits find nothing to wait on.
+ClusterShardMutations = dict[tuple[str, NodeRole], ShardMutations]
 
 
 @dataclass
@@ -707,18 +709,19 @@ def delete_events(
         for placement in placements
     ]
 
-    waiters: dict[str, dict[int, list[MutationWaiter]]] = {}
+    waiters: dict[tuple[str, NodeRole], dict[int, list[MutationWaiter]]] = {}
     for placement, delete_mutation_runner in delete_mutation_runners:
         # placement.cluster, not the job's handle: the dictionary the predicate joins was created
         # on every cluster here, but the storage table only exists on this one.
         for host, mutation in placement.cluster.map_one_host_per_shard(delete_mutation_runner).result().items():
             if host.shard_num is not None:
-                by_shard = waiters.setdefault(placement.cluster.data_cluster_name, {})
+                key = (placement.cluster.data_cluster_name, placement.cluster.shard_role)
+                by_shard = waiters.setdefault(key, {})
                 by_shard.setdefault(host.shard_num, []).append(mutation)
 
     cluster_mutations: ClusterShardMutations = {
-        name: {shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()}
-        for name, by_shard in waiters.items()
+        key: {shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()}
+        for key, by_shard in waiters.items()
     }
 
     return (load_and_verify_deletes_dictionary, cluster_mutations)
@@ -805,8 +808,8 @@ def wait_for_delete_mutations_in_shards(
 ) -> PendingDeletesDictionary:
     pending_deletes_dict, cluster_mutations = delete_mutations
 
-    for cluster_name, shard_mutations in cluster_mutations.items():
-        handle = cluster.sibling(cluster_name)
+    for (cluster_name, shard_role), shard_mutations in cluster_mutations.items():
+        handle = cluster.sibling(cluster_name, shard_role)
         handle.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
     return pending_deletes_dict

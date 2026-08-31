@@ -699,6 +699,31 @@ def test_map_hosts_with_combined_roles() -> None:
         assert sorted(executed_hosts) == ["aux-host-1", "data-host-1", "data-host-2"]
 
 
+def test_map_hosts_with_missing_role_defaults_to_noop() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("data-host-1", "9000", "1", "1", "online", "data"),
+        ]
+    )
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+
+    assert cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.INGESTION_SMALL).result() == {}
+
+
+def test_map_hosts_with_required_missing_role_raises() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("data-host-1", "9000", "1", "1", "online", "data"),
+        ]
+    )
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+
+    with pytest.raises(ValueError, match="No hosts found with roles.*INGESTION_SMALL"):
+        cluster.map_hosts_by_roles(lambda _: (), node_roles=[NodeRole.INGESTION_SMALL], require_hosts=True)
+
+
 def test_satellite_dedup_same_physical_host() -> None:
     """In local dev, satellite clusters point to the same ClickHouse node as the main cluster.
     NodeRole.ALL should not execute on the same physical host twice."""
