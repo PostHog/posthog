@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: PostHog AI
 feature: posthog_ai
-url_prefix: /
+url_prefix: /ai
 ui_apps: {}
 tools:
     conversations-append-message-create:
@@ -30,6 +30,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '?chat={id}'
         list: true
         title: List PostHog AI chat threads
         description: >
