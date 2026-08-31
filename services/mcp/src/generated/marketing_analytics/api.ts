@@ -1859,7 +1859,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                                 .optional()
                                                 .describe('Count threshold for performed_event_multiple'),
                                             time_interval: zod
-                                                .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                                 .optional(),
                                             time_value: zod
                                                 .union([zod.number(), zod.null()])
@@ -3715,7 +3715,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                                 .optional()
                                                 .describe('Count threshold for performed_event_multiple'),
                                             time_interval: zod
-                                                .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                                 .optional(),
                                             time_value: zod
                                                 .union([zod.number(), zod.null()])
@@ -5357,7 +5357,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                                 .optional()
                                                 .describe('Count threshold for performed_event_multiple'),
                                             time_interval: zod
-                                                .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                                 .optional(),
                                             time_value: zod
                                                 .union([zod.number(), zod.null()])
@@ -7212,7 +7212,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                                 .optional()
                                                 .describe('Count threshold for performed_event_multiple'),
                                             time_interval: zod
-                                                .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                                 .optional(),
                                             time_value: zod
                                                 .union([zod.number(), zod.null()])
@@ -8856,7 +8856,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                                 .optional()
                                                 .describe('Count threshold for performed_event_multiple'),
                                             time_interval: zod
-                                                .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                                 .optional(),
                                             time_value: zod
                                                 .union([zod.number(), zod.null()])
@@ -10712,7 +10712,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                                 .optional()
                                                 .describe('Count threshold for performed_event_multiple'),
                                             time_interval: zod
-                                                .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                                .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                                 .optional(),
                                             time_value: zod
                                                 .union([zod.number(), zod.null()])
@@ -12577,7 +12577,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .optional()
                                         .describe('Count threshold for performed_event_multiple'),
                                     time_interval: zod
-                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                         .optional(),
                                     time_value: zod
                                         .union([zod.number(), zod.null()])
@@ -14425,7 +14425,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .optional()
                                         .describe('Count threshold for performed_event_multiple'),
                                     time_interval: zod
-                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                         .optional(),
                                     time_value: zod
                                         .union([zod.number(), zod.null()])
@@ -16067,7 +16067,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .optional()
                                         .describe('Count threshold for performed_event_multiple'),
                                     time_interval: zod
-                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                         .optional(),
                                     time_value: zod
                                         .union([zod.number(), zod.null()])
@@ -17911,7 +17911,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .optional()
                                         .describe('Count threshold for performed_event_multiple'),
                                     time_interval: zod
-                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                         .optional(),
                                     time_value: zod
                                         .union([zod.number(), zod.null()])
@@ -19555,7 +19555,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .optional()
                                         .describe('Count threshold for performed_event_multiple'),
                                     time_interval: zod
-                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                         .optional(),
                                     time_value: zod
                                         .union([zod.number(), zod.null()])
@@ -21400,7 +21400,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .optional()
                                         .describe('Count threshold for performed_event_multiple'),
                                     time_interval: zod
-                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .union([zod.enum(['hour', 'day', 'week', 'month', 'year']), zod.null()])
                                         .optional(),
                                     time_value: zod
                                         .union([zod.number(), zod.null()])
