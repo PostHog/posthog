@@ -65,7 +65,6 @@ interface ReportVerdictBannerProps {
   report: SignalReport;
   variant?: ReportVerdictBannerVariant;
   prHotkey?: string;
-  askHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
   /** Called after an action opens the report's conversation dock. */
@@ -83,7 +82,6 @@ export function ReportVerdictBanner({
   report,
   variant = "full",
   prHotkey,
-  askHotkey,
   initialEngagementOnly = false,
   onEngaged,
   surface = "detail_pane",
@@ -230,11 +228,6 @@ export function ReportVerdictBanner({
     void openTask(continuableTask);
   }, [continuableTask, fireAction, onEngaged, openTask, setChatOpen, surface]);
 
-  const handleOpenChat = useCallback(() => {
-    setChatOpen(true);
-    onEngaged?.();
-  }, [onEngaged, setChatOpen]);
-
   const handleAsk = useCallback(() => {
     if (isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading) {
       return;
@@ -282,11 +275,10 @@ export function ReportVerdictBanner({
   // Keyboard actions use the same guards as their buttons so shortcuts cannot
   // bypass loading, disabled, or duplicate-work states.
   useEffect(() => {
-    if (!prHotkey && !askHotkey) return;
+    if (!prHotkey) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const matchesPr = event.key === prHotkey;
-      const matchesAsk = event.key === askHotkey;
-      if (!matchesPr && !matchesAsk) return;
+      if (!matchesPr) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
       if (
@@ -299,17 +291,6 @@ export function ReportVerdictBanner({
       // An open dialog owns the keyboard because its buttons are not typing
       // targets and actions must not open underneath it.
       if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
-        return;
-      }
-      if (matchesAsk) {
-        if (isCreatingPr || isDiscussing) return;
-        if (!triageActions && (awaitingChannel || reportTasksLoading)) return;
-        event.preventDefault();
-        if (triageActions) {
-          handleOpenChat();
-        } else {
-          setAskOpen(true);
-        }
         return;
       }
       if (report.status !== "ready" || isCreatingPr) return;
@@ -325,14 +306,8 @@ export function ReportVerdictBanner({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     prHotkey,
-    askHotkey,
     report.status,
     isCreatingPr,
-    isDiscussing,
-    awaitingChannel,
-    reportTasksLoading,
-    triageActions,
-    handleOpenChat,
     externalPrUrl,
     canCreatePr,
     handleOpenPr,
@@ -451,18 +426,6 @@ export function ReportVerdictBanner({
           </PopoverContent>
         </Popover>
       ) : null}
-      {triageActions && (
-        <Button
-          type="button"
-          variant="outline"
-          disabled={isCreatingPr || isDiscussing}
-          className={buttonClass}
-          onClick={handleOpenChat}
-        >
-          <ChatCircleIcon size={16} />
-          Ask about it
-        </Button>
-      )}
       {!triageActions && (
         <Popover
           open={askOpen}

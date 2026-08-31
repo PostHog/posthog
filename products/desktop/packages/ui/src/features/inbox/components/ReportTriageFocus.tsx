@@ -467,13 +467,13 @@ export function ReportTriageFocus({
                 report={report}
                 variant="triage-actions"
                 prHotkey={dismissOpen || !prShortcut ? undefined : "c"}
-                askHotkey={dismissOpen ? undefined : "q"}
                 surface="triage"
               />
               <div className="ml-auto flex items-center gap-2">
                 <Button
                   type="button"
                   variant="default"
+                  className="h-9 gap-2 px-4 text-[14px]"
                   onClick={handleOpenReport}
                 >
                   Open report
@@ -481,6 +481,7 @@ export function ReportTriageFocus({
                 <Button
                   type="button"
                   variant="default"
+                  className="h-9 gap-2 px-4 text-[14px]"
                   onClick={() => setExpanded((current) => !current)}
                 >
                   {expanded ? "Hide summary" : "Read summary"}
@@ -518,10 +519,6 @@ export function ReportTriageFocus({
                 {prShortcut === "open" ? "open PR" : "create PR"}
               </span>
             )}
-            <span className="flex items-center gap-1">
-              <KeyHint>Q</KeyHint>
-              ask
-            </span>
             <span className="flex items-center gap-1">
               <KeyHint>A</KeyHint>
               archive

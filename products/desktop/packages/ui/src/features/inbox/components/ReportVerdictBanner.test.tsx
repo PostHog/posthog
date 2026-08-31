@@ -159,18 +159,12 @@ describe("ReportVerdictBanner", () => {
 
   it("starts a discussion with optional direction and hides the actions after creation", async () => {
     const user = userEvent.setup();
-    render(
-      <ReportVerdictBanner
-        report={report}
-        initialEngagementOnly
-        askHotkey="a"
-      />,
-    );
+    render(<ReportVerdictBanner report={report} initialEngagementOnly />);
 
     const askButton = screen.getByText("Ask about it");
     expect(askButton.closest(".select-none")).not.toBeNull();
 
-    await user.keyboard("a");
+    await user.click(askButton);
     await user.type(
       screen.getByLabelText("Optional question for the agent"),
       "Focus on whether this affects new projects",
@@ -258,12 +252,11 @@ describe("ReportVerdictBanner", () => {
         report={{ ...report, actionability: "immediately_actionable" }}
         variant="triage-actions"
         prHotkey="c"
-        askHotkey="q"
         surface="triage"
       />,
     );
 
-    expect(screen.getByText("Ask about it")).toBeInTheDocument();
+    expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
 
     await user.keyboard("c");
 
@@ -277,22 +270,5 @@ describe("ReportVerdictBanner", () => {
     expect(createPrReport).toHaveBeenCalledWith(
       "Start with the smallest safe change",
     );
-  });
-
-  it("opens report chat from the triage ask shortcut", async () => {
-    const user = userEvent.setup();
-    render(
-      <ReportVerdictBanner
-        report={report}
-        variant="triage-actions"
-        askHotkey="q"
-        surface="triage"
-      />,
-    );
-
-    await user.keyboard("q");
-
-    expect(useReportChatPanelStore.getState().open).toBe(true);
-    expect(discussReport).not.toHaveBeenCalled();
   });
 });

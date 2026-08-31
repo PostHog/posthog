@@ -277,8 +277,8 @@ export function ReportsInboxView() {
                 }
               />
               <TooltipContent side="bottom">
-                Step through reports that need a decision, one at a time. Fix,
-                ask about, or archive each from the keyboard.
+                Step through reports that need a decision, one at a time. Open,
+                create a PR, or archive each from the keyboard.
               </TooltipContent>
             </Tooltip>
           )}
