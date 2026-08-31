@@ -1,4 +1,5 @@
 import uuid
+from functools import cached_property
 from typing import Any, NoReturn, cast, get_args
 from urllib.parse import urlparse
 
@@ -675,7 +676,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "session_recording", required_level="viewer"
         ):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
-        if self._serves_new_systems():
+        if self._serves_new_systems:
             # One gate for every shim-served action: scouts canonicalize to the parent team, so a
             # key scoped only to a child environment must not reach them through this surface.
             self._require_canonical_team_access()
@@ -722,6 +723,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not permission.has_permission(self.request, self):
             raise PermissionDenied(permission.message)
 
+    @cached_property
     def _serves_new_systems(self) -> bool:
         # One switch for the whole surface, shared with the UI: while the org is flagged onto the
         # new alerts product, the legacy contract is served from the new systems.
@@ -738,7 +740,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not self._serves_new_systems():
+        if not self._serves_new_systems:
             return super().list(request, *args, **kwargs)
         scanner_ids = self._accessible_scanner_ids()
         requested = request.query_params.get("scanner")
@@ -753,7 +755,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"count": len(actions), "next": None, "previous": None, "results": actions})
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not self._serves_new_systems():
+        if not self._serves_new_systems:
             return super().retrieve(request, *args, **kwargs)
         entries = self._shim_entities()
         return Response(
@@ -761,7 +763,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not self._serves_new_systems():
+        if not self._serves_new_systems:
             return super().create(request, *args, **kwargs)
         validated = self._validated_legacy_payload(request, partial=False)
         # Same object-level check `perform_create` makes, against the scanner the payload names and
@@ -770,7 +772,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(vision_actions_shim.create_action(self.team, cast(User, request.user), validated), status=201)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not self._serves_new_systems():
+        if not self._serves_new_systems:
             return super().partial_update(request, *args, **kwargs)
         entries = self._shim_entities()
         validated = self._validated_legacy_payload(request, partial=True)
@@ -779,13 +781,13 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(vision_actions_shim.update_action(self.team, entries, validated, cast(User, request.user)))
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not self._serves_new_systems():
+        if not self._serves_new_systems:
             return super().destroy(request, *args, **kwargs)
         vision_actions_shim.destroy_action(self.team, self._shim_entities())
         return Response(status=204)
 
     def safely_get_object(self, queryset: QuerySet[VisionAction]) -> Any:
-        if self._serves_new_systems():
+        if self._serves_new_systems:
             entries = vision_actions_shim.resolve_entities(self.team, str(self.kwargs["pk"]))
             if not entries:
                 raise NotFound()

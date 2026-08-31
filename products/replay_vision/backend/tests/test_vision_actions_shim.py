@@ -525,6 +525,14 @@ class TestVisionActionsShim(APIBaseTest):
         assert listed.status_code == 403, listed.status_code
         assert created.status_code == 403, created.status_code
 
+    def test_rollout_decision_is_evaluated_once_per_request(self) -> None:
+        # A flip between the gate in initial() and the handler would serve scouts with the
+        # canonical-team gate skipped, so the decision must be made once.
+        with patch("posthog.ph_client.feature_enabled_or_false", return_value=True) as flag:
+            response = self.client.get(f"{self.base_url}?scanner={self.scanner.id}")
+        assert response.status_code == 200, response.json()
+        assert flag.call_count == 1
+
     def test_unflagged_requests_keep_legacy_behavior(self) -> None:
         self._flag.stop()
         with patch("posthog.ph_client.feature_enabled_or_false", return_value=False):
