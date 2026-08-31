@@ -332,6 +332,14 @@ export function scannerTypeOutputHint(scannerType: ScannerType): string {
     return SCANNER_TYPE_OUTPUT_HINT[scannerType]
 }
 
+/** Section label for a succeeded observation's primary output, shared by the detail page and the dock card. */
+export const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
+    classifier: 'Categories',
+    summarizer: 'Summary',
+    monitor: 'Verdict',
+    scorer: 'Score',
+}
+
 export function createdByLabel(user: ScannerCreatedBy | null): string {
     if (!user) {
         return ''

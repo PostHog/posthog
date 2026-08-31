@@ -16,6 +16,7 @@ from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
+from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.billing import (
@@ -56,6 +57,12 @@ from products.tasks.backend.facade import api as tasks_facade
 logger = structlog.get_logger(__name__)
 
 _M = TypeVar("_M", bound=BaseModel)
+
+# The posture minted for an autostarted implementation run. Named once because two things depend
+# on it: the token the sandbox holds, and the memory protocol rendered into the task description.
+# A person-started run on the same report goes through the tasks API and gets `full`, which has no
+# scratchpad write scope, so it reads the fleet's memory and does not add to it.
+IMPLEMENTATION_MCP_SCOPES: McpScopePreset = "signals_implementation"
 
 
 class ReviewerContent(TypedDict):
@@ -345,6 +352,7 @@ def _capture_steering_attached(*, team: Team, report_id: str, task_id: str, stee
                 "task_id": task_id,
                 "notes_attached": steering.notes_attached,
                 "scratchpad_available": steering.scratchpad_available,
+                "memory_protocol": steering.memory_protocol,
             },
             groups=groups(team.organization, team),
         )
@@ -416,7 +424,7 @@ def _create_implementation_task_if_absent(
             # `full` scopes so the implementation agent can log its work on the report (notes,
             # code references) via the task:write artefact tools, plus the scratchpad so what it
             # learned about the codebase outlives the run.
-            posthog_mcp_scopes="signals_implementation",
+            posthog_mcp_scopes=IMPLEMENTATION_MCP_SCOPES,
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
             ai_stage=AI_STAGE_IMPLEMENTATION,
             # The pre-generated branch the description instructs the agent to push to; stamped
@@ -738,7 +746,9 @@ async def maybe_autostart_implementation_task(
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id
     )
-    steering = await database_sync_to_async(load_report_steering, thread_sensitive=False)(team_id, report_id)
+    steering = await database_sync_to_async(load_report_steering, thread_sensitive=False)(
+        team_id, report_id, memory_writable=grants_scratchpad_write(IMPLEMENTATION_MCP_SCOPES)
+    )
 
     created = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
         team_id=team_id,

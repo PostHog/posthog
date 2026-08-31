@@ -12,6 +12,8 @@ import {
     IntegrationsLinearTeamsRetrieveParams,
     IntegrationsListQueryParams,
     IntegrationsRetrieveParams,
+    IntegrationsUsersRetrieveParams,
+    IntegrationsUsersRetrieveQueryParams,
     PosthogConnectionsForwardCreateBody,
     PosthogConnectionsForwardCreateParams,
 } from '@/generated/integrations/api'
@@ -171,6 +173,30 @@ const integrationsList = (): ToolBase<
     },
 })
 
+const IntegrationsUsersRetrieveSchema = IntegrationsUsersRetrieveParams.omit({ project_id: true }).extend(
+    IntegrationsUsersRetrieveQueryParams.shape
+)
+
+const integrationsUsersRetrieve = (): ToolBase<typeof IntegrationsUsersRetrieveSchema, Schemas.SlackUsersResponse> => ({
+    name: 'integrations-users-retrieve',
+    schema: IntegrationsUsersRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof IntegrationsUsersRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SlackUsersResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/users/`,
+            query: {
+                force_refresh: params.force_refresh,
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+                user_id: params.user_id,
+            },
+        })
+        return result
+    },
+})
+
 const PosthogConnectionForwardSchema = PosthogConnectionsForwardCreateParams.omit({ project_id: true }).extend(
     PosthogConnectionsForwardCreateBody.shape
 )
@@ -213,5 +239,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,
     'integrations-list': integrationsList,
+    'integrations-users-retrieve': integrationsUsersRetrieve,
     'posthog-connection-forward': posthogConnectionForward,
 }

@@ -41,11 +41,18 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
+    _compute_row_hash,
+    discover_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
-from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
+from products.signals.backend.scout_harness.serializers import (
+    SignalScoutConfigUpdateSerializer,
+    SignalScoutSlackDestinationSerializer,
+)
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
@@ -1344,16 +1351,24 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScratchpad.objects.filter(team=self.team).exists()
 
-    def test_remember_rejects_expires_at_in_the_past(self) -> None:
-        # A memory that's already lapsed on write is invisible the moment it lands, so it's a
-        # mistake worth a 400 rather than a silently useless row.
+    @parameterized.expand(
+        [
+            ("past", "2020-01-01T00:00:00Z"),
+            ("malformed", "in thirty days"),
+        ]
+    )
+    def test_remember_drops_invalid_expires_at_without_losing_the_write(self, _name: str, expires_at: str) -> None:
+        # The agent computes `expires_at` itself and a share of writes carry a past or unparseable
+        # value. The content is the memory worth keeping, so an invalid expiry is dropped (the entry
+        # lands durable) rather than rejecting the whole write. Wiring guard for the best-effort field.
         response = self.client.post(
             self._list_url(),
-            data={"key": "k1", "content": "v", "expires_at": "2020-01-01T00:00:00Z"},
+            data={"key": "k1", "content": "v", "expires_at": expires_at},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+        assert response.status_code == status.HTTP_200_OK
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert row.expires_at is None
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -2277,7 +2292,27 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # A partial update skips the `thread_reports` default, so the flag reaches the reader
         # through the response only and the stored destination keeps the shape it was sent in.
         assert response.json()["output_destinations"] == {
-            "slack": {**destination["slack"], "thread_reports": False},
+            "slack": {**destination["slack"], "users": None, "thread_reports": False},
+            "webhook": None,
+        }
+        config.refresh_from_db()
+        assert config.output_destinations == destination
+
+    def test_partial_update_slack_dm_destination_round_trips(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        destination = {"slack": {"integration_id": integration.id, "users": ["U0123ABC456|@andy"]}}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": destination},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Reads render both target keys, null when unset; the stored JSON keeps only what was sent.
+        assert response.json()["output_destinations"] == {
+            "slack": {**destination["slack"], "channel": None, "thread_reports": False},
             "webhook": None,
         }
         config.refresh_from_db()
@@ -2683,6 +2718,36 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert "signals-scout-error-tracking" not in {c["skill_name"] for c in response.json()}
         # Storage is untouched — the row is hidden from the response, not deleted.
         assert SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-error-tracking").exists()
+
+    def test_sync_tombstones_a_retired_canonical_scout(self) -> None:
+        # A scout removed from `products/signals/skills/` leaves a live row on every team the
+        # harness seeded it into, and the roster keeps listing a scout that can never run again.
+        # The sync reaps it, on the same terms as the coordinator tick.
+        retired = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-retired",
+            description="retired scout",
+            body="# retired scout",
+            metadata={"seeded_by": HARNESS_SEEDED_BY, "source": "products/signals/skills"},
+            category="scout",
+            version=1,
+            is_latest=True,
+        )
+        retired.metadata["canonical_hash"] = _compute_row_hash(retired, [])
+        retired.save(update_fields=["metadata"])
+        hand_authored = self._make_skill("signals-scout-mine")
+
+        response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        retired.refresh_from_db()
+        assert retired.deleted is True
+        assert retired.is_latest is False
+        assert "signals-scout-retired" not in {c["skill_name"] for c in response.json()}
+        # A team's own scout carrying the same prefix is never the harness's to reap.
+        hand_authored.refresh_from_db()
+        assert hand_authored.deleted is False
+        assert "signals-scout-mine" in {c["skill_name"] for c in response.json()}
 
     def test_sync_rejects_read_only_scope(self) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
@@ -3348,3 +3413,25 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
         metadata = response.json()["metadata"]
         assert metadata["model"] == "some-model"
         assert metadata[DERIVED_METADATA_KEY]["has_emit_report"] is False
+
+
+class TestSignalScoutSlackDestinationSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("both_channel_and_users", {"integration_id": 1, "channel": "C1|#alerts", "users": ["U0123ABC|@a"]}),
+            ("not_a_member_id", {"integration_id": 1, "users": ["andy"]}),
+            ("channel_id_in_users", {"integration_id": 1, "users": ["C0123ABC456|#alerts"]}),
+            ("lowercase_member_id", {"integration_id": 1, "users": ["u0123abc456|@a"]}),
+            ("too_many_users", {"integration_id": 1, "users": [f"U0{index}ABCDE|@u{index}" for index in range(6)]}),
+        ]
+    )
+    def test_rejects_invalid_dm_destinations(self, _name: str, data: dict) -> None:
+        serializer = SignalScoutSlackDestinationSerializer(data=data)
+        assert not serializer.is_valid()
+
+    def test_dedupes_users_by_member_id(self) -> None:
+        serializer = SignalScoutSlackDestinationSerializer(
+            data={"integration_id": 1, "users": ["U0123ABC|@a", "U0123ABC", "W0456DEF|@b"]}
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["users"] == ["U0123ABC|@a", "W0456DEF|@b"]

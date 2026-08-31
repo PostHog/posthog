@@ -383,7 +383,7 @@ export interface LlmSkillCreatedBy {
   last_name?: string | null;
 }
 
-export interface LlmSkillFileManifest {
+interface LlmSkillFileManifest {
   path: string;
   content_type: string;
 }
@@ -646,7 +646,7 @@ export interface IntegrationAccount {
   secondary_text: string | null;
 }
 
-export interface SourceFieldSelectConfigOption {
+interface SourceFieldSelectConfigOption {
   label: string;
   value: string;
   fields?: SourceFieldConfig[];
@@ -862,7 +862,7 @@ export interface TaskArtifactUploadRequest {
   metadata?: TaskRunArtifactMetadata;
 }
 
-export interface DirectUploadPresignedPost {
+interface DirectUploadPresignedPost {
   url: string;
   fields: Record<string, string>;
 }
@@ -2205,6 +2205,19 @@ export class PostHogAPIClient {
     const data = await this.scoutGet<
       { results: ScoutConfig[] } | ScoutConfig[]
     >(projectId, "configs/");
+    return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  /**
+   * Materialize the project's scout fleet and return it: the backend seeds the
+   * canonical `signals-scout-*` skills, registers a config for every scout
+   * missing one, and retires the ones no longer shipped. Idempotent, and the
+   * only way a project the Temporal coordinator never reached gets any scouts.
+   */
+  async syncScoutConfigs(projectId: number): Promise<ScoutConfig[]> {
+    const data = await this.scoutPost<
+      { results: ScoutConfig[] } | ScoutConfig[]
+    >(projectId, "configs/sync/", {});
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
@@ -4807,6 +4820,9 @@ export class PostHogAPIClient {
     }
     if (params?.priority) {
       url.searchParams.set("priority", params.priority);
+    }
+    if (params?.count_only != null) {
+      url.searchParams.set("count_only", String(params.count_only));
     }
     if (params?.has_implementation_pr != null) {
       url.searchParams.set(
