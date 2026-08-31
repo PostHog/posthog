@@ -744,8 +744,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             sceneKey,
                             unmount: builtLogic.mount(),
                         }
-                }
-            } catch (error) {
+                    }
+                } catch (error) {
                     posthog.captureException(error, { extra: { sceneId, sceneKey } })
                     newLogicErrored = true
                 }
