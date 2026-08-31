@@ -71,8 +71,8 @@ A change that adds metrics lists their names.
 | 12 | 3 per-key order | Cleanup | Delete the old scheduler |
 | 13 | 4 single-owner batcher | Structure | Collapse the batcher into one event loop |
 | 14 | 4 single-owner batcher | Cleanup | Remove the stream fences |
-| 15 | 5 decoupled commits | Switchover | Complete polls in any order |
-| 16 | 5 decoupled commits | Cleanup | Delete the ordered completion path |
+| 15 | 5 decoupled commits | Switchover | Switch completion to group granularity |
+| 16 | 5 decoupled commits | Cleanup | Delete the per-poll completion path |
 | 17 | 6 bounded replay | Implement | Add the budget accounting |
 | 18 | 6 bounded replay | Switchover | Enable the budget |
 | 19 | 6 bounded replay | Cleanup | Remove the in-flight admission cap |
@@ -386,33 +386,34 @@ Outcome: commits advance per partition as groups complete. Needs cycles 2 and 3.
 **Verify:** the commit sentinel checks every commit, and `ingestion_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
 Exit criterion at the canary: zero sentinel violations, and a stalled partition no longer moves the commit rate of other partitions.
 
-### 15. Complete polls in any order (switchover)
+### 15. Switch completion to group granularity (switchover)
 
-**Task:** Add a completion mode, `ordered` or `any`. In `any` mode, mark the ledger per group and stop waiting for whole polls.
+**Task:** Add a completion granularity, `poll` or `group`. At `group` granularity, mark the ledger per group and stop waiting for whole polls.
 
 **Goal:** A stalled key stalls only its own partition. Other partitions continue to commit.
 
+- The granularity names the unit that completes. `poll`: a poll completes as a whole, oldest first — today's behavior. `group`: each group completes on its own, in any order.
 - Cycles 2 and 3 are the prerequisites. Commits come from the frontier, and the old flush, whose per-key order depended on oldest-first completion, is gone. Only commits depend on completion order now, and the frontier gates those.
-- In `any` mode, mark each group's offsets in the ledger when its completion event arrives. Do not aggregate per poll before commits.
+- At `group` granularity, mark each group's offsets in the ledger when its completion event arrives. Do not aggregate per poll before commits.
 - The frontier gates each partition's commit.
 - Keep `max_in_flight_batches` as the bound on outstanding work. A poll's slot frees when all its groups are accepted.
 - Behavior change: commit timing decouples across partitions and polls. Replay exposure stays inside the admission cap.
-- Rollback is the mode switch back to `ordered`.
+- Rollback is the switch back to `poll`.
 
 **Interfaces:**
 
-- Modify `Config`: add the completion mode.
-- Modify `IngestionConsumer::process`: in `any` mode, select over `GroupCompletion` events. The ordered path stays for rollback.
+- Modify `Config`: add the completion granularity.
+- Modify `IngestionConsumer::process`: at `group` granularity, select over `GroupCompletion` events. The per-poll path stays for rollback.
 
-### 16. Delete the ordered completion path (cleanup)
+### 16. Delete the per-poll completion path (cleanup)
 
-**Task:** Remove the ordered completion path after `any` holds on all lanes.
+**Task:** Remove the per-poll completion path after `group` granularity holds on all lanes.
 
 **Goal:** Group completions are the only completion signal.
 
 **Interfaces:**
 
-- Remove the ordered `InFlightBatch` queue, the per-poll aggregation from change 8, and the completion mode from `Config`.
+- Remove the ordered `InFlightBatch` queue, the per-poll aggregation from change 8, and the completion granularity from `Config`.
 
 ## Cycle 6: replay exposure is bounded by B
 
