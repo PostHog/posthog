@@ -12,8 +12,6 @@ import structlog
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.ph_client import ph_background_capture
@@ -64,7 +62,6 @@ from products.exports.backend.temporal.subscriptions.types import safe_error_mes
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool_errors import MaxToolRetryableError
 
 logger = structlog.get_logger(__name__)
 
@@ -100,15 +97,6 @@ _FIX_LLM_TIMEOUT_SECONDS = 30.0
 # once so one report delivery can't fan out into dozens of simultaneous scans. Steps beyond the cap
 # queue and run as slots free up — every step still executes.
 _MAX_CONCURRENT_STEPS = 5
-
-# Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
-# failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,
-# since a different SELECT won't fix a ClickHouse outage or a heartbeat timeout.
-_RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
-    MaxToolRetryableError,
-    ExposedHogQLError,
-    InternalHogQLError,
-)
 
 
 def _all_queries_failed_notice(total_steps: int) -> str:
@@ -173,6 +161,7 @@ class StepOutcome:
     rendered: str
     diagnostic: QueryStepDiagnostic
     chart: Optional[ValidatedChart] = None
+    plan_invalidating_failure: bool = False
 
 
 @dataclass(frozen=True)
@@ -181,6 +170,7 @@ class PlanExecution:
     failed_count: int
     diagnostics: list[QueryStepDiagnostic]
     charts: list[ValidatedChart]
+    plan_invalidating_failed_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -308,6 +298,7 @@ async def generate_ai_report(
             spec.plan,
             freshly_planned=freshly_planned,
             failed_count=failed_count,
+            plan_invalidating_failed_count=execution.plan_invalidating_failed_count,
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
             trace_correlation_id=trace_correlation_id,
@@ -344,26 +335,25 @@ def _plan_to_freeze(
     *,
     freshly_planned: bool,
     failed_count: int,
+    plan_invalidating_failed_count: int,
     total_steps: int,
     relevant_events: Sequence[str],
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
-    # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
-    # replay that broken HogQL every run, and a step without any window placeholder would scan unbounded
-    # every run.
+    # Never freeze a plan the next delivery is better off re-planning, or a plan without a window
+    # placeholder because it would scan an unbounded range on every run.
     if not freshly_planned:
         return None
-    # Freeze only when every step succeeded. If any step failed, re-plan next run instead — a frozen plan
-    # replays verbatim until the plan version bumps, so even a single broken step would re-send broken
-    # HogQL every delivery, whereas re-planning gives the planner and fix loop another shot (and lets the
-    # subscription pick up any planner/prompt improvements we've since shipped).
-    if failed_count:
+    # Query-structure failures need a fresh plan because the same SQL cannot succeed on the next run.
+    # Execution failures keep the plan stable because changing the SQL would also change the report metric.
+    if plan_invalidating_failed_count:
         logger.warning(
-            "ai_report.plan_had_failures_not_frozen",
+            "ai_report.plan_had_query_structure_failures_not_frozen",
             trace_correlation_id=trace_correlation_id,
             failed_count=failed_count,
+            plan_invalidating_failed_count=plan_invalidating_failed_count,
             total_steps=total_steps,
         )
         return None
@@ -517,6 +507,7 @@ async def _run_steps(
         # every attempt. The diagnostic records the executed SQL (placeholder resolved) for debugging.
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
+        had_rewriteable_error = False
         # planner output — strip framing markers so it can't break the <query_results> envelope
         safe_description = strip_llm_framing_markers(step.description, max_len=500)
 
@@ -558,8 +549,10 @@ async def _run_steps(
                 )
             except Exception as exc:
                 last_exc = exc
-                if attempt >= _MAX_QUERY_FIX_RETRIES or not isinstance(exc, _RETRYABLE_QUERY_ERRORS):
+                rewrite_error_message = safe_error_message(exc)
+                if attempt >= _MAX_QUERY_FIX_RETRIES or rewrite_error_message is None:
                     break
+                had_rewriteable_error = True
                 logger.info(
                     "ai_report.query_fix_attempt",
                     trace_correlation_id=trace_correlation_id,
@@ -570,9 +563,7 @@ async def _run_steps(
                 )
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # Forward the safe message (exposed/resolution errors describe the field/property the
-                    # planner referenced, which is what the fixer needs); fall back to the type name.
-                    error_message=safe_error_message(exc) or type(exc).__name__,
+                    error_message=rewrite_error_message,
                     step_description=safe_description,
                     # The planner's project schema (event/property names) — a schema-blind fixer just
                     # re-guesses the wrong name, so give it the same grounding the planner had.
@@ -607,6 +598,7 @@ async def _run_steps(
                 error_type=undisclosed_type or type_name,
                 human_readable_error=safe_error_message(last_exc) if last_exc is not None else None,
             ),
+            plan_invalidating_failure=had_rewriteable_error,
         )
 
     async def run_step_bounded(step: QueryPlanStep, step_index: int) -> StepOutcome:
@@ -621,6 +613,7 @@ async def _run_steps(
         failed_count=sum(1 for diag in diagnostics if not diag.ok),
         diagnostics=diagnostics,
         charts=[outcome.chart for outcome in step_results if outcome.chart is not None],
+        plan_invalidating_failed_count=sum(1 for outcome in step_results if outcome.plan_invalidating_failure),
     )
 
 

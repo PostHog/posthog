@@ -72,6 +72,13 @@ _ALL_FAILED_RUN = PlanExecution(
     failed_count=1,
     diagnostics=[QueryStepDiagnostic("s0", "SELECT bad", False, "ExposedHogQLError")],
     charts=[],
+    plan_invalidating_failed_count=1,
+)
+_EXECUTION_FAILED_RUN = PlanExecution(
+    rendered=["### s0\n\n_Query failed to run_"],
+    failed_count=1,
+    diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", False, "MaxToolRetryableError")],
+    charts=[],
 )
 _OK_RUN = PlanExecution(
     rendered=["### s\n\nok"],
@@ -327,7 +334,8 @@ async def test_run_steps_placeholder_omits_wrapped_undisclosed_error_type(
     assert execution.failed_count == 1
     assert execution.rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
     assert execution.diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
-    mock_hogql_fix.assert_awaited_once()
+    assert execution.plan_invalidating_failed_count == 0
+    mock_hogql_fix.assert_not_awaited()
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -337,11 +345,10 @@ async def test_run_steps_forwards_resolution_error_message_to_fix(
 ) -> None:
     # ResolutionError names the field the planner referenced — its message, not just the type name,
     # must reach the fix LLM so it can actually repair the query.
+    error = MaxToolRetryableError("Query validation failed")
+    error.__context__ = ResolutionError("Unable to resolve field 'operaton'")
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
-        side_effect=[
-            ResolutionError("Unable to resolve field 'operaton'"),
-            FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE),
-        ]
+        side_effect=[error, FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE)]
     )
     mock_fix.return_value = "SELECT fixed"
     await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True)
@@ -578,20 +585,17 @@ async def test_unfrozen_run_returns_plan_to_persist(
 
 
 @pytest.mark.parametrize(
-    "total_steps,failed_count,should_freeze",
+    "total_steps,failed_count,plan_invalidating_failed_count,should_freeze",
     [
-        (12, 0, True),  # all succeeded
-        (12, 1, False),  # a single step failed — re-plan rather than replay one broken query every run
-        (12, 6, False),  # half failed
-        (12, 12, False),  # all failed
-        (1, 1, False),  # the single step failed
+        (12, 0, 0, True),
+        (12, 1, 1, False),
+        (12, 1, 0, True),
+        (12, 12, 0, True),
     ],
 )
-def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int, should_freeze: bool) -> None:
-    # A frozen plan replays verbatim until AI_QUERY_PLAN_VERSION bumps, so a plan with ANY failed step must
-    # NOT be frozen — otherwise a subscription whose generation was partly broken keeps re-sending the
-    # broken queries instead of re-planning. Guards against the freeze bar loosening back to allowing
-    # partially-failed plans.
+def test_plan_to_freeze_only_replans_query_structure_failures(
+    total_steps: int, failed_count: int, plan_invalidating_failed_count: int, should_freeze: bool
+) -> None:
     plan = QueryPlan(
         overall_intent="i",
         steps=[
@@ -603,6 +607,7 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
         plan,
         freshly_planned=True,
         failed_count=failed_count,
+        plan_invalidating_failed_count=plan_invalidating_failed_count,
         total_steps=total_steps,
         relevant_events=["export created"],
         trace_correlation_id=None,
@@ -726,25 +731,26 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
 
 
 @pytest.mark.parametrize(
-    "spec,run_result",
+    "spec,run_result,should_freeze",
     [
-        # All steps failed: freezing would replay a broken plan every delivery instead of re-planning.
-        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, id="all_failed"),
+        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, False, id="query_structure_failure"),
+        pytest.param(_spec_with_window_placeholder(), _EXECUTION_FAILED_RUN, True, id="execution_failure"),
         # No window placeholder: freezing would cement an unbounded, window-less scan forever.
-        pytest.param(_spec(steps=1), _OK_RUN, id="missing_window_placeholder"),
+        pytest.param(_spec(steps=1), _OK_RUN, False, id="missing_window_placeholder"),
     ],
 )
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
-async def test_unfreezable_plans_are_not_frozen(
+async def test_plan_freeze_eligibility(
     mock_bep: MagicMock,
     mock_run: AsyncMock,
     mock_chat: MagicMock,
     _mock_capture: MagicMock,
     spec: EnrichedPromptSpec,
-    run_result: tuple,
+    run_result: PlanExecution,
+    should_freeze: bool,
 ) -> None:
     mock_bep.return_value = spec
     mock_run.return_value = run_result
@@ -752,7 +758,7 @@ async def test_unfreezable_plans_are_not_frozen(
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
-    assert result.plan_to_persist is None
+    assert (result.plan_to_persist is not None) is should_freeze
 
 
 @patch(_SLO_CAPTURE)
