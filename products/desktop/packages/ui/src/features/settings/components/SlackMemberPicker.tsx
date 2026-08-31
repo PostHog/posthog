@@ -1,4 +1,5 @@
 import { CaretDownIcon, UserIcon, XIcon } from "@phosphor-icons/react";
+import { ApiRequestError } from "@posthog/api-client/fetcher";
 import {
   buildMemberTargetValue,
   mergeVisibleMembers,
@@ -22,6 +23,19 @@ import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValu
 import { useMemo, useRef, useState } from "react";
 
 const SLACK_MEMBER_SEARCH_DEBOUNCE_MS = 300;
+
+/**
+ * A failed member fetch must not read as an empty workspace. Surface the
+ * server's own message — for an inactive or under-scoped Slack install the
+ * backend returns reconnect guidance — so the picker names the real cause.
+ */
+export function slackMemberErrorMessage(error: unknown): string {
+  if (error instanceof ApiRequestError) {
+    const detail = (error.body as { detail?: unknown } | null)?.detail;
+    if (typeof detail === "string" && detail) return detail;
+  }
+  return "Couldn't load members. Try again in a moment.";
+}
 
 interface SlackMemberPickerProps {
   /** Workspace whose members we list. Members can't be picked without one. */
@@ -51,7 +65,12 @@ export function SlackMemberPicker({
   const { debounced: debouncedSearch, isPending: searchDebouncing } =
     useDebouncedValue(searchQuery.trim(), SLACK_MEMBER_SEARCH_DEBOUNCE_MS);
 
-  const { data: usersData, isFetching } = useSlackUsers(integrationId, {
+  const {
+    data: usersData,
+    isFetching,
+    isError,
+    error,
+  } = useSlackUsers(integrationId, {
     search: debouncedSearch || undefined,
   });
   const searchPending = open && (isFetching || searchDebouncing);
@@ -108,7 +127,11 @@ export function SlackMemberPicker({
     <>
       <ComboboxInput placeholder="Search members…" showTrigger={false} />
       <ComboboxEmpty>
-        {searchPending ? "Loading members…" : "No members match"}
+        {searchPending
+          ? "Loading members…"
+          : isError
+            ? slackMemberErrorMessage(error)
+            : "No members match"}
       </ComboboxEmpty>
       <ComboboxList className="max-h-[min(18rem,calc(var(--available-height,18rem)-5rem))]">
         {(itemValue: string) => {
