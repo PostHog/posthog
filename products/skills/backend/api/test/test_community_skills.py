@@ -349,7 +349,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         ]
     )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_install_failure_reports_event(self, mock_capture, _mock_flag, reason) -> None:
+    def test_install_failure_reports_event(self, reason, _mock_flag, mock_capture) -> None:
         # Each branch shape (return, raised ValidationError, hand-built 500) must still emit the
         # failure event, so cover one representative path per shape plus the not-found path.
         if reason == "not_found":
