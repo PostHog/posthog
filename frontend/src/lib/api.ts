@@ -5190,6 +5190,8 @@ const api = {
             scout?: string
             /** Scout skill_name prefix — matches every scout in the family. */
             scout_prefix?: string
+            /** true returns only the filtered total: `results` is empty and no rows are serialized. */
+            count_only?: 'true' | 'false'
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
