@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 
 import { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { MCP_AI_PRODUCT_PROPERTIES } from '@/lib/constants'
 import { getPostHogClient } from '@/lib/posthog'
 import { buildMCPAnalyticsGroups, buildMCPContextProperties } from '@/lib/posthog/analytics'
 import type { AnalyticsEvent } from '@/lib/posthog/analytics'
@@ -84,7 +85,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                         event,
                         ...(Object.keys(groups).length > 0 ? { groups } : {}),
                         properties: {
-                            $ai_product: 'mcp',
+                            ...MCP_AI_PRODUCT_PROPERTIES,
                             $mcp_source: 'posthog_cli',
                             $mcp_client_name: 'posthog-cli',
                             $mcp_consumer: 'posthog-cli',

@@ -4,7 +4,7 @@ import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
-import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { MCP_AI_PRODUCT_PROPERTIES, MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
@@ -40,7 +40,7 @@ function buildBaseProperties(
     const clientIdentity = getEffectiveMCPClientIdentity(requestContext, state.sessionContext)
 
     const properties: Record<string, unknown> = {
-        $ai_product: 'mcp',
+        ...MCP_AI_PRODUCT_PROPERTIES,
         // The same property `posthog/event_usage.py` stamps on product events, so an MCP call
         // and the API work it causes land in one breakdown. Distinct from `$mcp_source`, which
         // names the emitting SDK rather than the surface.
@@ -416,7 +416,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
             distinctId: props.userHash,
             event: '$mcp_auth_failed',
             properties: {
-                $ai_product: 'mcp',
+                ...MCP_AI_PRODUCT_PROPERTIES,
                 // Resolved without scopes — the request never authenticated, so nothing can
                 // vouch for a declared consumer and anything unproven lands as `mcp`.
                 source: resolveEventSource({

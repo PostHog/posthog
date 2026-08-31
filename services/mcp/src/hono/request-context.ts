@@ -1,5 +1,5 @@
 import { ApiClient } from '@/api/client'
-import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { MCP_AI_PRODUCT_PROPERTIES, MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
@@ -216,7 +216,7 @@ export class RequestContext {
         sessionContext: MCPSessionContext | null = this.sessionContext
     ): Record<string, unknown> {
         return {
-            $ai_product: 'mcp',
+            ...MCP_AI_PRODUCT_PROPERTIES,
             $mcp_source: MCP_ANALYTICS_SOURCE,
             $mcp_server_name: MCP_SERVER_NAME,
             $mcp_server_version: MCP_SERVER_VERSION,

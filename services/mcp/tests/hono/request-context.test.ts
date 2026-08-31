@@ -224,6 +224,7 @@ describe('RequestContext', () => {
 
             const result = ctx.buildClientProperties()
             expect(result).toMatchObject({
+                ai_product: 'mcp',
                 $ai_product: 'mcp',
                 $mcp_source: 'posthog_mcp_analytics',
                 $mcp_server_name: 'PostHog',
@@ -299,6 +300,7 @@ describe('RequestContext', () => {
 
             const result = ctx.buildClientProperties()
             expect(result).toMatchObject({
+                ai_product: 'mcp',
                 $ai_product: 'mcp',
                 $mcp_source: 'posthog_mcp_analytics',
                 $mcp_server_name: 'PostHog',
