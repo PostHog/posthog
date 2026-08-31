@@ -13,6 +13,7 @@ from posthog.models.user import User
 
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
+    insights_including_soft_deleted_for_team,
     recent_unique_viewer_counts_by_insight,
     record_insight_view,
 )
@@ -106,3 +107,18 @@ class TestRecordInsightView(BaseTest):
         assert len(queries) == 1
         assert 'COUNT(DISTINCT "posthog_insightviewed"."user_id")' in queries[0]["sql"]
         assert counts == {self.insight.pk: 2}
+
+
+class TestInsightReads(BaseTest):
+    def test_including_soft_deleted_insights_stays_scoped_to_the_team(self) -> None:
+        deleted_insight = Insight.objects.create(team=self.team, name="Deleted", deleted=True)
+        live_insight = Insight.objects.create(team=self.team, name="Live")
+        other_team = Team.objects.create(organization=self.organization)
+        other_team_insight = Insight.objects.create(team=other_team, name="Other team")
+
+        insights = insights_including_soft_deleted_for_team(
+            team_id=self.team.pk,
+            insight_ids={deleted_insight.pk, live_insight.pk, other_team_insight.pk},
+        )
+
+        assert {insight.pk for insight in insights} == {deleted_insight.pk, live_insight.pk}

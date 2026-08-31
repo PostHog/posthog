@@ -72,6 +72,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -619,7 +620,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         }
         insights = {
             insight.id: insight
-            for insight in Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids)
+            for insight in insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
         }
         user_access_control = self.context["view"].user_access_control
         validated_contexts: list[dict[str, Insight | Dashboard]] = []

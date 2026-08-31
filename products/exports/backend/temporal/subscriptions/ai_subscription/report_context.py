@@ -23,7 +23,10 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.models.subscription_context import SubscriptionContext
-from products.product_analytics.backend.facade.api import recent_unique_viewer_counts_by_insight
+from products.product_analytics.backend.facade.api import (
+    insights_including_soft_deleted_for_team,
+    recent_unique_viewer_counts_by_insight,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.context import DASHBOARD_CONTEXT_CHAR_BUDGET
@@ -288,7 +291,10 @@ def creator_can_access_report_context(
         Dashboard.objects_including_soft_deleted.filter(id__in=expected_dashboard_ids, team_id=subscription.team_id)
     )
     insights = list(
-        Insight.objects_including_soft_deleted.filter(id__in=expected_insight_ids, team_id=subscription.team_id)
+        insights_including_soft_deleted_for_team(
+            team_id=subscription.team_id,
+            insight_ids=expected_insight_ids,
+        )
     )
     return (
         {dashboard.id for dashboard in dashboards if not dashboard.deleted} == expected_dashboard_ids
@@ -521,10 +527,7 @@ def _load_report_context(
     insights_by_id = (
         {
             insight.id: insight
-            for insight in Insight.objects_including_soft_deleted.filter(
-                id__in=insight_ids,
-                team_id=team_id,
-            )
+            for insight in insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
         }
         if query_access
         else {}
