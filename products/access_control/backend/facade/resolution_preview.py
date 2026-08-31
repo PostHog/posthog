@@ -238,10 +238,6 @@ def _load_objects(
     return result
 
 
-def _relevant_subject_keys(rows: list[AccessControl]) -> set[tuple]:
-    return {_subject_key(row) for row in rows}
-
-
 def build_resolution_preview(team: Team, user_access_control: UserAccessControl) -> list[ResolutionChange]:
     """Every (subject, scope) pair on `team` whose enforced and most-specific resolutions differ."""
     if not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
@@ -296,7 +292,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
         if row.resource_id is None and row.resource not in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             resource_rows.setdefault(row.resource, []).append(row)
     for resource, pool in resource_rows.items():
-        relevant = _relevant_subject_keys(pool)
+        relevant = {_subject_key(row) for row in pool}
         for subject in subjects:
             if subject.ref.type == "default" or (subject.ref.type, subject.ref.id) not in relevant:
                 continue
