@@ -6,13 +6,20 @@ from uuid import UUID
 from posthog.models.user import User
 
 from ..logic import alerts as _alerts
-from ..models import ErrorTrackingAlert as ErrorTrackingAlertModel
+from ..models import (
+    ErrorTrackingAlert as ErrorTrackingAlertModel,
+    ErrorTrackingAlertDestination as ErrorTrackingAlertDestinationModel,
+)
 from . import contracts
 
 AlertValidationError = _alerts.AlertValidationError
 
 NATIVE_ALERTS_FLAG = _alerts.NATIVE_ALERTS_FLAG
 native_alerts_enabled = _alerts.native_alerts_enabled
+
+# Presentation code reads choice values from here so it never imports Django models.
+ALERT_TRIGGERS: tuple[str, ...] = tuple(ErrorTrackingAlertModel.Trigger.values)
+ALERT_CHANNEL_TYPES: tuple[str, ...] = tuple(ErrorTrackingAlertDestinationModel.ChannelType.values)
 
 
 def _to_alert(alert: ErrorTrackingAlertModel) -> contracts.ErrorTrackingAlert:

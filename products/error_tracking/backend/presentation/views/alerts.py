@@ -11,10 +11,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
 from products.error_tracking.backend.facade import alerts as alerts_facade
-from products.error_tracking.backend.facade.contracts import (
-    ERROR_TRACKING_ALERT_CHANNEL_TYPES,
-    ERROR_TRACKING_ALERT_TRIGGERS,
-)
 
 # PostgreSQL integer column bound; larger values would 500 on save.
 MAX_THROTTLE_SECONDS = 2**31 - 1
@@ -60,7 +56,7 @@ class ErrorTrackingAlertDestinationRequestSerializer(serializers.Serializer):
     # Request-side twin of ErrorTrackingAlertDestinationSerializer without the
     # server-generated id, so generated clients don't require one on create.
     channel_type = serializers.ChoiceField(
-        choices=list(ERROR_TRACKING_ALERT_CHANNEL_TYPES),
+        choices=list(alerts_facade.ALERT_CHANNEL_TYPES),
         help_text="Delivery channel for notifications.",
     )
     integration_id = serializers.IntegerField(
@@ -83,7 +79,7 @@ class ErrorTrackingAlertSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Human-readable name of the alert.")
     enabled = serializers.BooleanField(help_text="Whether the alert currently fires notifications.")
     triggers = serializers.ListField(
-        child=serializers.ChoiceField(choices=list(ERROR_TRACKING_ALERT_TRIGGERS)),
+        child=serializers.ChoiceField(choices=list(alerts_facade.ALERT_TRIGGERS)),
         help_text="Issue lifecycle events that open a notification thread for an issue.",
     )
     filters = ErrorTrackingAlertFiltersSerializer(
@@ -103,7 +99,7 @@ class ErrorTrackingAlertSerializer(serializers.Serializer):
 class ErrorTrackingAlertCreateRequestSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=400, help_text="Human-readable name of the alert.")
     triggers = serializers.ListField(
-        child=serializers.ChoiceField(choices=list(ERROR_TRACKING_ALERT_TRIGGERS)),
+        child=serializers.ChoiceField(choices=list(alerts_facade.ALERT_TRIGGERS)),
         allow_empty=False,
         help_text="Issue lifecycle events that open a notification thread for an issue.",
     )
@@ -135,7 +131,7 @@ class ErrorTrackingAlertUpdateRequestSerializer(serializers.Serializer):
         required=False, help_text="Whether the alert fires notifications. Omit to keep the current state."
     )
     triggers = serializers.ListField(
-        child=serializers.ChoiceField(choices=list(ERROR_TRACKING_ALERT_TRIGGERS)),
+        child=serializers.ChoiceField(choices=list(alerts_facade.ALERT_TRIGGERS)),
         required=False,
         allow_empty=False,
         help_text="Issue lifecycle events that open a notification thread. Omit to keep the current triggers.",

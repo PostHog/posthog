@@ -6,19 +6,11 @@ from parameterized import parameterized
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
-from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
 
 # Sentinel swapped for a real integration id inside the test body; parameterized
 # cases are built before setUp so they cannot reference one directly.
 VALID_INTEGRATION = object()
-
-
-def test_alert_contract_choices_match_model_choices():
-    # The contract constants are duplicated from the model choices so presentation
-    # code never imports Django models; this guards against the two drifting.
-    assert set(contracts.ERROR_TRACKING_ALERT_TRIGGERS) == set(ErrorTrackingAlert.Trigger.values)
-    assert set(contracts.ERROR_TRACKING_ALERT_CHANNEL_TYPES) == set(ErrorTrackingAlertDestination.ChannelType.values)
 
 
 class TestErrorTrackingAlerts(APIBaseTest):
