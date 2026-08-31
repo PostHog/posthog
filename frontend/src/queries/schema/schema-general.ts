@@ -212,6 +212,7 @@ export enum NodeKind {
     MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
+    MCPMissingCapabilitiesQuery = 'MCPMissingCapabilitiesQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -298,6 +299,7 @@ export type AnyDataNode =
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
+    | MCPMissingCapabilitiesQuery
 
 /**
  * @discriminator kind
@@ -431,6 +433,7 @@ export type QuerySchema =
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
+    | MCPMissingCapabilitiesQuery
 
     // Property values
     | PropertyValuesQuery
@@ -3032,8 +3035,26 @@ export interface AccountsTableAssignedToFilter {
     userIds: integer[]
 }
 
+export interface AccountsTableAssignedFilter {
+    kind: 'assigned'
+}
+
 export interface AccountsTableUnassignedFilter {
     kind: 'unassigned'
+}
+
+export enum AccountsTableRelationshipOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+}
+
+export interface AccountsTableRelationshipFilter {
+    kind: 'relationship'
+    definitionId: string
+    operator: AccountsTableRelationshipOperator
+    userIds?: integer[]
 }
 
 export interface AccountsTableAccountIdFilter {
@@ -3094,7 +3115,9 @@ export type AccountsTableFilter =
     | AccountsTableSearchFilter
     | AccountsTableTagsFilter
     | AccountsTableAssignedToFilter
+    | AccountsTableAssignedFilter
     | AccountsTableUnassignedFilter
+    | AccountsTableRelationshipFilter
     | AccountsTableAccountIdFilter
     | AccountsTableAccountFieldFilter
     | AccountsTableCustomPropertyFilter
@@ -3704,6 +3727,42 @@ export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryRes
 }
 
 export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
+
+/** One missing-capability report: a capability an agent asked for and could not get. */
+export interface MCPMissingCapabilitiesItem {
+    timestamp: string
+    /** The agent's own words for the capability it wanted, from $mcp_intent. */
+    intent: string
+    /** Resolved client label, the client's own self-reported name when unrecognized, or
+     * "Unidentified client" when the report carried no client identity at all. */
+    harness: string
+    /** Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set. */
+    session_id: string
+    distinct_id: string
+    /** JSON-encoded person email/name for display; "{}" when neither resolved. */
+    person_properties: string
+}
+
+export interface MCPMissingCapabilitiesQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPMissingCapabilitiesItem[]
+    /** Whether more reports exist past this page. */
+    has_next: boolean
+}
+
+/** Chronological feed of capabilities that agents asked for but could not access. */
+export interface MCPMissingCapabilitiesQuery extends DataNode<MCPMissingCapabilitiesQueryResponse> {
+    kind: NodeKind.MCPMissingCapabilitiesQuery
+    dateRange?: DateRange
+    /** Case-insensitive substring match over the report text. */
+    search?: string
+    /** Page size; defaults to 100, capped at 500. */
+    limit?: integer
+    /** Reports to skip before returning results. Combine with limit to page through them;
+     * the response's has_next flag indicates whether more remain. */
+    offset?: integer
+}
+
+export type CachedMCPMissingCapabilitiesQueryResponse = CachedQueryResponse<MCPMissingCapabilitiesQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',

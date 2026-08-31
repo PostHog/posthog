@@ -89,6 +89,13 @@ class AccountsTableCustomPropertyOperator(StrEnum):
     IS_DATE_AFTER = "is_date_after"
 
 
+class AccountsTableRelationshipOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
 class AccountsTableSortDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
@@ -222,6 +229,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     SCATTER_PLOT = "ScatterPlot"
+    BOX_PLOT = "BoxPlot"
 
 
 class Scale(StrEnum):
@@ -3444,6 +3452,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
+    MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -3708,6 +3717,7 @@ class PropertyFilterType(StrEnum):
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
     REVENUE_ANALYTICS = "revenue_analytics"
     ACCOUNT = "account"
+    ACCOUNT_RELATIONSHIP = "account_relationship"
     ACCOUNT_CUSTOM_PROPERTY = "account_custom_property"
     FLAG = "flag"
     LOG = "log"
@@ -4136,6 +4146,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     ACCOUNT_FIELDS = "account_fields"
+    ACCOUNT_RELATIONSHIPS = "account_relationships"
     ACCOUNT_CUSTOM_PROPERTIES = "account_custom_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"

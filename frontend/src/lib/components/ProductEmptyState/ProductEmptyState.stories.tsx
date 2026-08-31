@@ -5,6 +5,7 @@ import type { Mocks } from '~/mocks/utils'
 import { actionsEmptyState } from 'products/actions/frontend/emptyState/actionsEmptyState'
 import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
+import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
@@ -13,10 +14,13 @@ import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyS
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
+import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
+import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
+import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
@@ -178,6 +182,17 @@ export const ActionsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
     mocks: actionsMocks,
 })
 
+// Annotations detection lists annotations on mount - answer "none yet".
+const annotationsMocks = {
+    get: { '/api/projects/:team_id/annotations/': [200, { count: 0, results: [] }] },
+} as const
+
+export const AnnotationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    annotationsEmptyState,
+    'needs-setup',
+    { mocks: annotationsMocks }
+)
+
 // Error tracking detection asks the issues-exists API on mount - answer "none yet".
 const errorTrackingMocks = {
     get: { '/api/projects/:team_id/error_tracking/issues/exists/': [200, { exists: false }] },
@@ -194,3 +209,20 @@ export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyS
     'waiting-for-data',
     { mocks: errorTrackingMocks }
 )
+
+// Logs detection asks the has-logs API on mount - answer "none yet".
+export const LogsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(logsEmptyState, 'needs-setup', {
+    // nosemgrep: no-environments-api-urls-frontend -- api.logs is env-scoped, so the msw mock must match /api/environments to intercept it
+    mocks: { get: { '/api/environments/:team_id/logs/has_logs': [200, { hasLogs: false }] } },
+})
+
+// Tracing detection asks the has-spans API on mount - answer "none yet".
+export const TracingNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(tracingEmptyState, 'needs-setup', {
+    // nosemgrep: no-environments-api-urls-frontend -- api.tracing is env-scoped, so the msw mock must match /api/environments to intercept it
+    mocks: { get: { '/api/environments/:team_id/tracing/spans/has_spans': [200, { hasSpans: false }] } },
+})
+
+// Metrics detection asks the has-metrics API on mount - answer "none yet".
+export const MetricsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(metricsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/metrics/has_metrics/': [200, { hasMetrics: false }] } },
+})
