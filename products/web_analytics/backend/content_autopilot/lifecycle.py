@@ -20,16 +20,34 @@ MAX_PROPOSAL_MARKDOWN_CHARS = 500_000
 ACTIVE_RUN_STATUSES = {ContentAutopilotRun.RunStatus.PENDING, ContentAutopilotRun.RunStatus.GENERATING}
 
 
-def lock_proposal(proposal: ContentAutopilotProposal) -> ContentAutopilotProposal:
-    return (
-        ContentAutopilotProposal.objects.for_team(proposal.team_id, canonical=True)
-        .select_for_update()
-        .get(id=proposal.id)
-    )
+def canonical_team_id(team: Team) -> int:
+    return team.parent_team_id or team.id
+
+
+def lock_run(team: Team, run_id: str) -> ContentAutopilotRun:
+    try:
+        return (
+            ContentAutopilotRun.objects.for_team(canonical_team_id(team), canonical=True)
+            .select_for_update()
+            .get(id=run_id)
+        )
+    except ContentAutopilotRun.DoesNotExist as error:
+        raise ContentAutopilotLifecycleError("That content run could not be found.") from error
+
+
+def lock_proposal(team: Team, proposal_id: str) -> ContentAutopilotProposal:
+    try:
+        return (
+            ContentAutopilotProposal.objects.for_team(canonical_team_id(team), canonical=True)
+            .select_for_update()
+            .get(id=proposal_id)
+        )
+    except ContentAutopilotProposal.DoesNotExist as error:
+        raise ContentAutopilotLifecycleError("That proposal could not be found.") from error
 
 
 def start_run(*, team: Team, profile_id: str, triggered_by_id: int | None) -> ContentAutopilotRun:
-    team_id = team.parent_team_id or team.id
+    team_id = canonical_team_id(team)
     with transaction.atomic():
         try:
             profile = (
@@ -64,11 +82,9 @@ def start_run(*, team: Team, profile_id: str, triggered_by_id: int | None) -> Co
         )
 
 
-def cancel_run(*, run: ContentAutopilotRun) -> ContentAutopilotRun:
+def cancel_run(*, team: Team, run_id: str) -> ContentAutopilotRun:
     with transaction.atomic():
-        locked_run = (
-            ContentAutopilotRun.objects.for_team(run.team_id, canonical=True).select_for_update().get(id=run.id)
-        )
+        locked_run = lock_run(team, run_id)
         if locked_run.run_status not in ACTIVE_RUN_STATUSES:
             raise ContentAutopilotLifecycleError("Only a pending or generating run can be canceled.")
         locked_run.run_status = ContentAutopilotRun.RunStatus.CANCELED
@@ -77,9 +93,9 @@ def cancel_run(*, run: ContentAutopilotRun) -> ContentAutopilotRun:
         return locked_run
 
 
-def reject_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopilotProposal:
+def reject_proposal(*, team: Team, proposal_id: str) -> ContentAutopilotProposal:
     with transaction.atomic():
-        locked_proposal = lock_proposal(proposal)
+        locked_proposal = lock_proposal(team, proposal_id)
         if locked_proposal.lifecycle_status != ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW:
             raise ContentAutopilotLifecycleError("Only a proposal ready for review can be rejected.")
         locked_proposal.lifecycle_status = ContentAutopilotProposal.LifecycleStatus.REJECTED
@@ -93,9 +109,9 @@ def _reset_for_regeneration(proposal: ContentAutopilotProposal) -> list[str]:
     return ["lifecycle_status", "validation_report"]
 
 
-def regenerate_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopilotProposal:
+def regenerate_proposal(*, team: Team, proposal_id: str) -> ContentAutopilotProposal:
     with transaction.atomic():
-        locked_proposal = lock_proposal(proposal)
+        locked_proposal = lock_proposal(team, proposal_id)
         if locked_proposal.lifecycle_status not in {
             ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW,
             ContentAutopilotProposal.LifecycleStatus.FAILED,
@@ -107,7 +123,8 @@ def regenerate_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopil
 
 def edit_proposal(
     *,
-    proposal: ContentAutopilotProposal,
+    team: Team,
+    proposal_id: str,
     proposed_markdown: str,
     content_package: dict[str, object],
 ) -> ContentAutopilotProposal:
@@ -116,7 +133,7 @@ def edit_proposal(
             f"Proposal Markdown must be {MAX_PROPOSAL_MARKDOWN_CHARS:,} characters or fewer."
         )
     with transaction.atomic():
-        locked_proposal = lock_proposal(proposal)
+        locked_proposal = lock_proposal(team, proposal_id)
         if locked_proposal.lifecycle_status != ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW:
             raise ContentAutopilotLifecycleError("Only a proposal ready for review can be edited.")
         locked_proposal.proposed_markdown = proposed_markdown

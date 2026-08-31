@@ -33,7 +33,7 @@ class TestContentAutopilotExport(BaseTest):
             file_path=file_path,
         )
 
-        exported_proposal = export_proposal(proposal=proposal)
+        exported_proposal = export_proposal(team=self.team, proposal_id=str(proposal.id))
 
         self.assertEqual(exported_proposal.filename, expected_filename or f"{proposal.id}.md")
         self.assertEqual(exported_proposal.markdown, proposal.proposed_markdown)
@@ -59,7 +59,7 @@ class TestContentAutopilotExport(BaseTest):
         )
 
         with self.assertRaisesRegex(ContentAutopilotExportError, expected_error):
-            export_proposal(proposal=proposal)
+            export_proposal(team=self.team, proposal_id=str(proposal.id))
 
         proposal.refresh_from_db()
         self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW)

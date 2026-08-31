@@ -3,8 +3,9 @@ from pathlib import PurePosixPath
 from django.db import transaction
 
 from posthog.dataclasses import frozen
+from posthog.models.team import Team
 
-from products.web_analytics.backend.content_autopilot.lifecycle import lock_proposal
+from products.web_analytics.backend.content_autopilot.lifecycle import ContentAutopilotLifecycleError, lock_proposal
 from products.web_analytics.backend.models import ContentAutopilotProposal
 
 
@@ -38,12 +39,12 @@ def _export_filename(*, file_path: object, proposal_id: str) -> str:
     return filename
 
 
-def export_proposal(*, proposal: ContentAutopilotProposal) -> ExportedProposal:
+def export_proposal(*, team: Team, proposal_id: str) -> ExportedProposal:
     with transaction.atomic():
         try:
-            locked_proposal = lock_proposal(proposal)
-        except ContentAutopilotProposal.DoesNotExist as error:
-            raise ContentAutopilotExportError("That proposal could not be found.") from error
+            locked_proposal = lock_proposal(team, proposal_id)
+        except ContentAutopilotLifecycleError as error:
+            raise ContentAutopilotExportError(str(error)) from error
 
         if locked_proposal.lifecycle_status != ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW:
             raise ContentAutopilotExportError("Only a proposal ready for review can be exported.")

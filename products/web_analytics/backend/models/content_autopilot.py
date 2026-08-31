@@ -83,7 +83,14 @@ class ContentAutopilotRun(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "posthog_contentautopilotrun"
-        indexes = [models.Index(fields=["team", "-created_at"], name="content_auto_run_team_created")]
+        indexes = [
+            models.Index(fields=["team", "-created_at"], name="content_auto_run_team_created"),
+            models.Index(
+                fields=["profile"],
+                condition=models.Q(run_status__in=["pending", "generating"]),
+                name="content_auto_run_active",
+            ),
+        ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         parent_team_id = _parent_team_id(self, "profile", kwargs.get("update_fields"))

@@ -50,6 +50,14 @@ class TestContentAutopilotLifecycle(BaseTest):
         with self.assertRaisesRegex(ValueError, "same team as its run"):
             create_content_autopilot_proposal(other_team, run)
 
+        proposal = create_content_autopilot_proposal(self.team, run)
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, "could not be found"):
+            reject_proposal(team=other_team, proposal_id=str(proposal.id))
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, "could not be found"):
+            cancel_run(team=other_team, run_id=str(run.id))
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW)
+
     def test_each_site_has_its_own_active_run_boundary(self) -> None:
         first_profile = create_content_autopilot_profile(self.team, search_console_enabled=True)
         second_profile = create_content_autopilot_profile(self.team, domain="https://docs.example.com")
@@ -71,23 +79,24 @@ class TestContentAutopilotLifecycle(BaseTest):
         run = create_content_autopilot_run(self.team, profile)
         proposal = create_content_autopilot_proposal(self.team, run)
 
-        canceled = cancel_run(run=run)
-        rejected = reject_proposal(proposal=proposal)
+        canceled = cancel_run(team=self.team, run_id=str(run.id))
+        rejected = reject_proposal(team=self.team, proposal_id=str(proposal.id))
 
         self.assertEqual(canceled.run_status, ContentAutopilotRun.RunStatus.CANCELED)
         self.assertIsNotNone(canceled.completed_at)
         self.assertEqual(rejected.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.REJECTED)
         with self.assertRaises(ContentAutopilotLifecycleError):
-            cancel_run(run=canceled)
+            cancel_run(team=self.team, run_id=str(canceled.id))
         with self.assertRaises(ContentAutopilotLifecycleError):
-            reject_proposal(proposal=rejected)
+            reject_proposal(team=self.team, proposal_id=str(rejected.id))
 
     def test_edit_keeps_markdown_single_sourced_and_invalidates_validation(self) -> None:
         profile = create_content_autopilot_profile(self.team)
         proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
 
         edited = edit_proposal(
-            proposal=proposal,
+            team=self.team,
+            proposal_id=str(proposal.id),
             proposed_markdown="# Reviewed draft",
             content_package={**proposal.content_package, "markdown": "# Stale draft"},
         )
@@ -104,7 +113,9 @@ class TestContentAutopilotLifecycle(BaseTest):
         ]
     )
     def test_regeneration_accepts_reviewed_or_failed_drafts(self, _name: str, lifecycle_status: str) -> None:
-        regenerated = regenerate_proposal(proposal=self._proposal_with_status(lifecycle_status))
+        regenerated = regenerate_proposal(
+            team=self.team, proposal_id=str(self._proposal_with_status(lifecycle_status).id)
+        )
 
         self.assertEqual(regenerated.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.GENERATING)
         self.assertEqual(regenerated.validation_report, {"passed": False, "checks": []})
@@ -117,7 +128,7 @@ class TestContentAutopilotLifecycle(BaseTest):
     )
     def test_regeneration_refuses_other_drafts(self, _name: str, lifecycle_status: str) -> None:
         with self.assertRaises(ContentAutopilotLifecycleError):
-            regenerate_proposal(proposal=self._proposal_with_status(lifecycle_status))
+            regenerate_proposal(team=self.team, proposal_id=str(self._proposal_with_status(lifecycle_status).id))
 
     def _proposal_with_status(self, lifecycle_status: str) -> ContentAutopilotProposal:
         profile = create_content_autopilot_profile(self.team)
