@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -110,6 +111,58 @@ def test_bot_sender_is_nullable_so_filters_can_use_is_set(produce, integration, 
         emit_github_event("issues", {**ISSUE_EVENT, "sender": sender}, "delivery-1")
 
     assert produce.call_args.args[1].properties["bot_sender"] == expected
+
+
+@pytest.mark.parametrize(
+    "app_slug,sender,expected",
+    [
+        # A workflow's own comment must be recognized, or it retriggers itself forever.
+        ("posthog-bot", {"login": "posthog-bot[bot]", "type": "Bot"}, True),
+        ("posthog-bot", {"login": "dependabot[bot]", "type": "Bot"}, False),
+        ("posthog-bot", {"login": "posthog-bot", "type": "User"}, False),
+        # No configured app slug must not crash, and must not treat every bot as "us".
+        ("", {"login": "posthog-bot[bot]", "type": "Bot"}, False),
+    ],
+)
+def test_own_app_is_precomputed_from_the_app_slug(produce, integration, app_slug, sender, expected) -> None:
+    with (
+        patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True),
+        override_instance_config("GITHUB_APP_SLUG", app_slug),
+    ):
+        emit_github_event("issues", {**ISSUE_EVENT, "sender": sender}, "delivery-1")
+
+    assert produce.call_args.args[1].properties["own_app"] == expected
+
+
+def test_pull_request_review_reads_the_review_not_the_pull_request(produce, integration) -> None:
+    payload = {
+        **ISSUE_EVENT,
+        "action": "submitted",
+        "review": {
+            "body": "Please add a test",
+            "state": "changes_requested",
+            "html_url": "https://github.com/PostHog/posthog/pull/9#pullrequestreview-1",
+            "author_association": "COLLABORATOR",
+        },
+        "pull_request": {"number": 9, "title": "Add feature", "author_association": "NONE"},
+    }
+
+    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_github_event("pull_request_review", payload, "delivery-1")
+
+    properties = produce.call_args.args[1].properties
+    # The review's own association decides trust, not the PR author's - a review is a distinct
+    # actor from whoever opened the PR.
+    assert properties["author_association"] == "COLLABORATOR"
+    assert properties["body"] == "Please add a test"
+    assert properties["review_state"] == "changes_requested"
+
+
+def test_review_state_is_only_set_for_pull_request_reviews(produce, integration) -> None:
+    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+
+    assert produce.call_args.args[1].properties["review_state"] is None
 
 
 def test_properties_carry_what_a_filter_needs(produce, integration) -> None:

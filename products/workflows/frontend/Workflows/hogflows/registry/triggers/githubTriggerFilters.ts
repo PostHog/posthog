@@ -30,6 +30,7 @@ export const GITHUB_EVENT_TYPE_OPTIONS: { value: string; label: string }[] = [
     { value: 'issues', label: 'Issue opened, closed or edited' },
     { value: 'issue_comment', label: 'Comment on an issue or pull request' },
     { value: 'pull_request', label: 'Pull request opened, closed or updated' },
+    { value: 'pull_request_review', label: 'Pull request reviewed' },
     { value: 'push', label: 'Commits pushed' },
 ]
 

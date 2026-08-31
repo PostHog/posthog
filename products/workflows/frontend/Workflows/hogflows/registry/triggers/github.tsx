@@ -47,6 +47,8 @@ const ADVANCED_PROPERTIES: { key: string; type: PropertyType }[] = [
     { key: 'branch', type: PropertyType.String },
     { key: 'author_association', type: PropertyType.String },
     { key: 'repository_private', type: PropertyType.Boolean },
+    // Only carried by a pull request review: approved, changes_requested or commented.
+    { key: 'review_state', type: PropertyType.String },
 ]
 
 const ADVANCED_PROPERTY_DEFINITIONS: PropertyDefinition[] = ADVANCED_PROPERTIES.map(({ key, type }) => ({

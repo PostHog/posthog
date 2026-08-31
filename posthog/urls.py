@@ -198,6 +198,7 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     ],
     "pull_request_review": [
         ("tasks_pr_review", _dispatch_pull_request_review_event),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "installation": [
         ("installation_lifecycle", _dispatch_installation_event),
