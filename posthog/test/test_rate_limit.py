@@ -974,3 +974,20 @@ class TestProjectSecretApiKeyTeamRateThrottle(APIBaseTest):
 
     def test_cache_key_is_keyed_per_team(self):
         self.assertIn("psak-team:7", _PSAKTeamThrottleForTest().get_cache_key(self._psak_request(team_id=7), Mock()))
+
+
+class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    def test_exhausted_poll_bucket_does_not_block_write(self) -> None:
+        request = Mock(headers={"X-Conversations-Token": "widget-token"})
+        view = Mock()
+        with patch.object(rate_limit.WidgetTeamPollThrottle, "rate", "1/minute"):
+            poll = rate_limit.WidgetTeamPollThrottle()
+            self.assertTrue(poll.allow_request(request, view))
+            self.assertFalse(poll.allow_request(request, view))
+        self.assertTrue(rate_limit.WidgetTeamWriteThrottle().allow_request(request, view))

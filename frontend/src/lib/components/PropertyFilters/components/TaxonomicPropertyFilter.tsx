@@ -12,7 +12,6 @@ import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/type
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     isGroupPropertyFilter,
-    isPropertyFilterWithOperator,
     propertyFilterTypeToTaxonomicFilterType,
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
@@ -203,7 +202,7 @@ export function TaxonomicPropertyFilter({
             editable={editable}
             type={filter?.type}
             propertyKey={filter?.key}
-            operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
+            operator={filter && 'operator' in filter ? filter.operator : null}
             value={filter?.value}
             placeholder="Enter value..."
             endpoint={
