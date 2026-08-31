@@ -2105,6 +2105,46 @@ describe('dashboardLogic', () => {
                 }
             })
 
+            it('keeps the error code when a refresh degrades in place, so the tile shows the real reason', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+
+                // A failing insight degrades in place: the backend returns a 200 whose query_status carries
+                // the reason and a real error_code, with a null result. This shares the rejection-stub shape,
+                // so the classifier must run before the stub guard or the code is lost.
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => ({
+                        ...insight,
+                        result: null,
+                        query_status: {
+                            id: 'degraded-query',
+                            team_id: 2,
+                            query_async: true,
+                            complete: true,
+                            error: true,
+                            error_code: 'hogql_syntax_error',
+                            error_message: 'Syntax error at line 1',
+                        },
+                    }))
+
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    for (const shortId of [insight1.short_id, insight2.short_id]) {
+                        const refreshError = logic.values.refreshStatus[shortId]?.error
+                        expect(refreshError).toBeInstanceOf(ApiError)
+                        expect((refreshError as ApiError).status).toBe(400)
+                        expect((refreshError as ApiError).code).toBe('hogql_syntax_error')
+                    }
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
             it('pins the "X out of Y" denominator when a tile aborts mid-cycle and keeps siblings tracked', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!

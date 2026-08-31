@@ -3945,14 +3945,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     true
                 )
 
-                if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
-                    const queryError = getInsightQueryError(refreshedInsight)
-                    if (queryError) {
-                        actions.setRefreshError(insight.short_id, queryError)
-                    } else {
-                        dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                        actions.setRefreshStatus(insight.short_id)
-                    }
+                // A degraded insight arrives with an errored query_status and a null result, the same shape
+                // as a refresh rejection stub. Classify the error before the stub guard, so its code reaches
+                // the tile instead of being dropped into a bare error state.
+                const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
+                if (queryError) {
+                    actions.setRefreshError(insight.short_id, queryError)
+                } else if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
+                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                    actions.setRefreshStatus(insight.short_id)
                 } else {
                     actions.setRefreshError(insight.short_id)
                 }
@@ -4045,27 +4046,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tile.filters_overrides
                         )
 
-                        if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
-                            const queryError = getInsightQueryError(refreshedInsight)
-                            if (queryError) {
-                                actions.setRefreshError(insight.short_id, queryError)
-                                tilesErroredCount++
-                            } else {
-                                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                                actions.setRefreshStatus(insight.short_id)
-                                tilesRefreshedCount++
-                                if (refreshedInsight.is_cached) {
-                                    tilesRefreshedCachedCount++
-                                }
-                                eventUsageLogic.actions.reportDashboardTileRefreshed(
-                                    dashboardId,
-                                    tile,
-                                    urlFilters,
-                                    urlVariables,
-                                    Math.floor(performance.now() - insightRefreshStartTime),
-                                    false
-                                )
+                        // A degraded insight arrives with an errored query_status and a null result, the same
+                        // shape as a refresh rejection stub. Classify the error before the stub guard, so its
+                        // code reaches the tile instead of being dropped into a bare error state.
+                        const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
+                        if (queryError) {
+                            actions.setRefreshError(insight.short_id, queryError)
+                            tilesErroredCount++
+                        } else if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
+                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                            actions.setRefreshStatus(insight.short_id)
+                            tilesRefreshedCount++
+                            if (refreshedInsight.is_cached) {
+                                tilesRefreshedCachedCount++
                             }
+                            eventUsageLogic.actions.reportDashboardTileRefreshed(
+                                dashboardId,
+                                tile,
+                                urlFilters,
+                                urlVariables,
+                                Math.floor(performance.now() - insightRefreshStartTime),
+                                false
+                            )
                         } else {
                             actions.setRefreshError(insight.short_id)
                             tilesErroredCount++
