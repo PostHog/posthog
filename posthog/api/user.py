@@ -1276,7 +1276,7 @@ class UserViewSet(
         if code and not token:
             if not user:
                 raise serializers.ValidationError(
-                    {"code": ["This verification code is invalid or has expired."]},
+                    {"code": ["This code is invalid or has expired."]},
                     code="invalid_code",
                 )
             attempts = email_verification_code_verifier.reserve_attempt(user)
@@ -1289,7 +1289,7 @@ class UserViewSet(
                 )
             if not email_verification_code_verifier.check_code(user, code):
                 raise serializers.ValidationError(
-                    {"code": ["This verification code is invalid or has expired."]},
+                    {"code": ["This code is invalid or has expired."]},
                     code="invalid_code",
                 )
             email_verification_code_verifier.invalidate(user)

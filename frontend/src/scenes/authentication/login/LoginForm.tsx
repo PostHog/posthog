@@ -182,7 +182,17 @@ export function LoginForm(): JSX.Element {
                         noValidate
                         className="flex flex-col gap-4"
                     >
-                        <LemonField name="code" label="Verification code" labelClassName="sr-only">
+                        <LemonField
+                            name="code"
+                            label="Verification code"
+                            labelClassName="sr-only"
+                            // Plain centered text without an icon, like the signup verify screen's error
+                            renderError={(error) => (
+                                <p className="m-0 text-sm text-danger text-center" role="alert">
+                                    {error}
+                                </p>
+                            )}
+                        >
                             <VerificationCodeInput
                                 data-attr="code-verification"
                                 disabled={isCodeVerificationSubmitting}
