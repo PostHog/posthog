@@ -1,1 +1,1 @@
-0002_alter_batchimport_secrets_nullable
+0001_squash_2026_08_21_initial

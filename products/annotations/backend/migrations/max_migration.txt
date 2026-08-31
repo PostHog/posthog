@@ -1,1 +1,1 @@
-0003_annotation_hidden_in_user_interface
+0001_squash_2026_08_21_initial

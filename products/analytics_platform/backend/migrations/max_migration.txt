@@ -1,1 +1,1 @@
-0004_unique_pending_job_index
+0003_squash_2026_08_21_schema_addons

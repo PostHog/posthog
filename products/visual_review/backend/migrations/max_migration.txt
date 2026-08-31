@@ -1,1 +1,1 @@
-0014_run_search_trgm
+0001_squash_2026_08_21_initial

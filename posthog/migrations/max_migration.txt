@@ -1,1 +1,1 @@
-1329_drop_cimd_metadata_url
+0003_squash_2026_08_21_schema_addons
