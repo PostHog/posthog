@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
 
-import * as trafficPolicePng from '@posthog/brand/hoggies/png/traffic-police'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconCheckCircle } from '@posthog/icons'
 
 import { getCookie } from 'lib/api'
@@ -34,7 +34,7 @@ import { SessionRiskBanner } from './SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
-const HedgehogTrafficPolice = pngHoggie(trafficPolicePng)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 // Bare text nodes below are wrapped in <span>s: in-page translation replaces text nodes with
 // <font> elements, which crashes React's sibling insert/remove operations (removeChild /
@@ -94,11 +94,11 @@ export function LoginForm(): JSX.Element {
         <AuthScene notes={['// welcome back', '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <AuthSceneCard footer={footer}>
-                {isCodeSent && <HedgehogTrafficPolice className="block w-auto mx-auto mb-3 h-28" />}
+                {isCodeSent && <HedgehogMagnifyingGlass className="block w-auto mx-auto mb-3 h-28" />}
                 <AuthCardTitle
                     title={
                         isCodeSent ? (
-                            'Enter your login code'
+                            'Check your inbox'
                         ) : (
                             <>
                                 {/* This whole fragment is deleted when the title flips to the code-sent
@@ -115,8 +115,6 @@ export function LoginForm(): JSX.Element {
                             <>
                                 For your security, we've emailed a 6-digit verification code to{' '}
                                 <strong>{codeVerificationEmail}</strong>.
-                                <br />
-                                Enter it below to finish logging in.
                             </>
                         ) : (
                             "Welcome back. Let's go ship something."
