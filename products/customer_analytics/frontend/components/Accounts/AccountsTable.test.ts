@@ -1,6 +1,11 @@
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { buildHistoryDisplay, getCanonicalPropertyTab, isCustomPropertyEditable } from './AccountsTable'
+import {
+    buildHistoryDisplay,
+    getCanonicalPropertyTab,
+    isCustomPropertyEditable,
+    isCustomPropertyValueValid,
+} from './AccountsTable'
 
 const DAY = 24 * 60 * 60
 const NOW_MS = 1_800_000_000_000
@@ -62,6 +67,20 @@ describe('isCustomPropertyEditable', () => {
         ],
     ])('marks %s definitions editable only when users can safely set their value', (_, value, expected) => {
         expect(isCustomPropertyEditable(value)).toBe(expected)
+    })
+})
+
+describe('isCustomPropertyValueValid', () => {
+    const definition = (displayType: CustomPropertyDefinitionApi['display_type']): CustomPropertyDefinitionApi =>
+        ({ display_type: displayType }) as CustomPropertyDefinitionApi
+
+    it.each([
+        ['accepts HTTP URLs', 'http://example.com', true],
+        ['accepts HTTPS URLs', 'https://example.com', true],
+        ['rejects a URL without a scheme', 'example.com', false],
+        ['rejects unsupported URL schemes', 'ftp://example.com', false],
+    ])('%s', (_, value, expected) => {
+        expect(isCustomPropertyValueValid(value, definition('link'))).toBe(expected)
     })
 })
 

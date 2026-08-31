@@ -14,13 +14,13 @@ import {
 } from '@posthog/lemon-ui'
 
 import type { DataColorToken } from 'lib/colors'
-import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
@@ -388,7 +388,19 @@ function customPropertyValueToSave(
     return draft
 }
 
-function canSaveCustomPropertyValue(draft: CustomPropertyDraft, definition: CustomPropertyDefinitionApi): boolean {
+function isHttpUrl(value: string): boolean {
+    try {
+        const url = new URL(value)
+        return url.protocol === 'http:' || url.protocol === 'https:'
+    } catch {
+        return false
+    }
+}
+
+export function isCustomPropertyValueValid(
+    draft: CustomPropertyDraft,
+    definition: CustomPropertyDefinitionApi
+): boolean {
     if (definition.display_type === 'boolean') {
         return true
     }
@@ -398,6 +410,9 @@ function canSaveCustomPropertyValue(draft: CustomPropertyDraft, definition: Cust
         definition.display_type === 'percent'
     ) {
         return draft !== '' && Number.isFinite(Number(draft))
+    }
+    if (definition.display_type === 'link') {
+        return typeof draft === 'string' && isHttpUrl(draft)
     }
     return definition.display_type !== 'date' && definition.display_type !== 'datetime' ? true : draft !== ''
 }
@@ -477,7 +492,7 @@ function renderCustomPropertyEditor(
     }
     if (definition.display_type === 'date' || definition.display_type === 'datetime') {
         return (
-            <DatePicker
+            <LemonCalendarSelectInput
                 value={typeof draft === 'string' && draft ? dayjs(draft) : null}
                 onChange={(value) =>
                     setDraft(
@@ -490,8 +505,12 @@ function renderCustomPropertyEditor(
                 }
                 granularity={definition.display_type === 'datetime' ? 'minute' : 'day'}
                 format={definition.display_type === 'datetime' ? 'MMM D, YYYY HH:mm' : 'MMM D, YYYY'}
-                size="small"
-                data-attr="accounts-custom-property-value-input"
+                use24HourFormat
+                buttonProps={{
+                    size: 'small',
+                    className: 'w-40',
+                    'data-attr': 'accounts-custom-property-value-input',
+                }}
             />
         )
     }
@@ -521,6 +540,12 @@ function renderCustomPropertyEditor(
             onChange={setDraft}
             onPressEnter={saveValue}
             size="small"
+            status={
+                definition.display_type === 'link' && typeof draft === 'string' && draft && !isHttpUrl(draft)
+                    ? 'danger'
+                    : 'default'
+            }
+            className="w-40"
             data-attr="accounts-custom-property-value-input"
         />
     )
@@ -558,7 +583,7 @@ function CustomPropertyCell({
         setIsEditing(true)
     }
     const saveValue = (): void => {
-        if (!accountId || !canSaveCustomPropertyValue(draft, definition)) {
+        if (!accountId || !isCustomPropertyValueValid(draft, definition)) {
             return
         }
         updateAccountCustomProperty(accountId, definition, customPropertyValueToSave(draft, definition))
@@ -567,8 +592,8 @@ function CustomPropertyCell({
 
     if (isEditing && accountId) {
         return (
-            <div className="flex min-w-52 items-center gap-1">
-                <div className="min-w-0 flex-1">
+            <div className="inline-flex w-fit items-center gap-1">
+                <div className={definition.display_type === 'boolean' ? undefined : 'w-40'}>
                     {renderCustomPropertyEditor(draft, definition, setDraft, saveValue)}
                 </div>
                 <LemonButton
@@ -577,7 +602,13 @@ function CustomPropertyCell({
                     icon={<IconCheck />}
                     tooltip="Save"
                     onClick={saveValue}
-                    disabledReason={canSaveCustomPropertyValue(draft, definition) ? undefined : 'Enter a value'}
+                    disabledReason={
+                        isCustomPropertyValueValid(draft, definition)
+                            ? undefined
+                            : definition.display_type === 'link'
+                              ? 'Enter a valid HTTP or HTTPS URL'
+                              : 'Enter a value'
+                    }
                     data-attr="accounts-custom-property-value-save"
                 />
                 <LemonButton
