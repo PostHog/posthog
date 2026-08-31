@@ -16,6 +16,7 @@ import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } f
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { ApplyUrlStatePayload } from '../aiObservabilitySharedLogic'
+import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { ClusterScatterSeries } from './clusterScatter'
 import {
@@ -65,6 +66,7 @@ export type ClustersLogicProps = Record<string, never>
 export interface clustersLogicValues {
     propertyFilters: AnyPropertyFilter[] // aiObservabilitySharedLogic
     shouldFilterTestAccounts: boolean // aiObservabilitySharedLogic
+    detectorEvaluationIds: string[] // llmEvaluationsLogic
     anyFiltersActive: boolean
     availableEvaluatorNames: {
         count: number
@@ -275,7 +277,12 @@ export const clustersLogic = kea<clustersLogicType>([
     props({} as ClustersLogicProps),
 
     connect(() => ({
-        values: [aiObservabilitySharedLogic, ['propertyFilters', 'shouldFilterTestAccounts']],
+        values: [
+            aiObservabilitySharedLogic,
+            ['propertyFilters', 'shouldFilterTestAccounts'],
+            llmEvaluationsLogic,
+            ['detectorEvaluationIds'],
+        ],
         actions: [aiObservabilitySharedLogic, ['setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState']],
     })),
 
@@ -913,7 +920,12 @@ export const clustersLogic = kea<clustersLogicType>([
                 return
             }
             try {
-                const attrs = await loadEvaluationItemAttributes(allItemIds, run.windowStart, run.windowEnd)
+                const attrs = await loadEvaluationItemAttributes(
+                    allItemIds,
+                    run.windowStart,
+                    run.windowEnd,
+                    values.detectorEvaluationIds
+                )
                 // Guard against a slow response for a prior run overwriting attributes
                 // after the user has switched to a different run. If currentRun has
                 // advanced past the one we were loading for, drop the response on the
@@ -942,7 +954,8 @@ export const clustersLogic = kea<clustersLogicType>([
                     values.traceSummaries,
                     run.windowStart,
                     run.windowEnd,
-                    values.clusteringLevel
+                    values.clusteringLevel,
+                    values.detectorEvaluationIds
                 )
                 actions.setTraceSummaries(summaries)
             } catch (error) {
@@ -972,7 +985,8 @@ export const clustersLogic = kea<clustersLogicType>([
                             values.traceSummaries,
                             run.windowStart,
                             run.windowEnd,
-                            values.clusteringLevel
+                            values.clusteringLevel,
+                            values.detectorEvaluationIds
                         )
                         actions.setTraceSummaries(summaries)
                     } catch (error) {
