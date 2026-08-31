@@ -110,6 +110,7 @@ import {
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
+import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
 import {
   OverflowTickerText,
   useOverflowTickerReveal,
@@ -436,12 +437,13 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   spaceId: string;
   asOption: boolean;
 }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isActive = useRouterState({
+    select: (s) => s.location.pathname.endsWith(`/tasks/${item.id}`),
+  });
   const openTask = useOpenSpaceTask();
   // No PR lookup here: that is a host round trip per row, and the tree can show
   // a dozen spaces' worth of rows at once.
   const status = useChannelTaskStatus(item, { withPrStatus: false });
-  const isActive = pathname.endsWith(`/tasks/${item.id}`);
   const actions = useSpaceTaskActionsContext();
   // A boolean rather than the value itself, so a keypress re-renders only the
   // two rows whose answer changed.
@@ -450,6 +452,8 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   );
 
   const [handoffOpen, setHandoffOpen] = useState(false);
+
+  const handoffMounted = useMountedOnceOpened(handoffOpen);
   // Only the owner may hand a task off; the API 404s it for anyone else.
   const currentUser = useCurrentUser();
   const canHandoff =
@@ -529,7 +533,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
         >
           {row}
         </ChannelItemHoverCard>
-        {canHandoff && item.task ? (
+        {canHandoff && item.task && handoffMounted ? (
           <HandoffTaskDialog
             task={item.task}
             open={handoffOpen}
@@ -711,7 +715,9 @@ function useChannelActions(channel: Channel): {
   // the action is destructive and irreversible.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const insideChannel = useRouterState({
+    select: (s) => s.location.pathname.startsWith(`/spaces/${channel.id}`),
+  });
   const { deleteChannel, isDeleting } = useChannelMutations();
   const { isStarred, toggleStar } = useChannelStarToggle(channel);
 
@@ -751,7 +757,7 @@ function useChannelActions(channel: Channel): {
         success: true,
       });
       // If we're inside the channel being deleted, fall back to the index.
-      if (pathname.startsWith(`/spaces/${channel.id}`)) {
+      if (insideChannel) {
         void navigate({ to: "/spaces" });
       }
       return true;
@@ -948,11 +954,14 @@ const ChannelSection = memo(
   }) {
     const spacesLayout = useChannelsLayout();
     const noun = spacesLayout ? "space" : "channel";
-    const pathname = useRouterState({ select: (s) => s.location.pathname });
-    const openChannel = useOpenChannel();
     const base = `/spaces/${channel.id}`;
     // Highlight the row whenever any of the channel's routes is open.
-    const isActive = pathname === base || pathname.startsWith(`${base}/`);
+    const isActive = useRouterState({
+      select: (s) =>
+        s.location.pathname === base ||
+        s.location.pathname.startsWith(`${base}/`),
+    });
+    const openChannel = useOpenChannel();
     // Lifted so the hover button group stays visible while the menu is open.
     const [menuOpen, setMenuOpen] = useState(false);
     const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
@@ -973,6 +982,7 @@ const ChannelSection = memo(
       confirmDelete,
       isDeleting,
     } = useChannelActions(channel);
+    const renameMounted = useMountedOnceOpened(renameOpen);
 
     const newTask = () => {
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -1174,11 +1184,13 @@ const ChannelSection = memo(
             </ButtonGroup>
           </div>
           {/* One modal for both the dropdown and context-menu "Rename" actions. */}
-          <RenameChannelModal
-            channel={channel}
-            open={renameOpen}
-            onOpenChange={setRenameOpen}
-          />
+          {renameMounted && (
+            <RenameChannelModal
+              channel={channel}
+              open={renameOpen}
+              onOpenChange={setRenameOpen}
+            />
+          )}
           {/* Destructive confirm for "Delete channel" — spells out what's removed. */}
           <ConfirmDialog
             open={confirmDeleteOpen}
@@ -1349,7 +1361,6 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   onToggleExpanded?: (spaceId: string) => void;
 }) {
   const spacesLayout = useChannelsLayout();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { channels } = useChannels();
   const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
 
@@ -1358,10 +1369,12 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const isUnread = useIsChannelUnread()(meChannel?.id);
   const unreadSessions = useUnreadSessionCount()(meChannel?.id);
   const blockedSessions = useBlockedSessionCount()(meChannel?.id);
-  const isActive =
-    !!meChannel &&
-    (pathname === `/spaces/${meChannel.id}` ||
-      pathname.startsWith(`/spaces/${meChannel.id}/`));
+  const isActive = useRouterState({
+    select: (s) =>
+      !!meChannel &&
+      (s.location.pathname === `/spaces/${meChannel.id}` ||
+        s.location.pathname.startsWith(`/spaces/${meChannel.id}/`)),
+  });
 
   const newTask = () => {
     const channelId = ensureChannelId();

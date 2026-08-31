@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconTrash, IconX } from '@posthog/icons'
+import { IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonModal,
@@ -88,12 +88,15 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
                     <div className="flex justify-end gap-1">
                         {!relationship.ended_at && (
                             <LemonButton
+                                type="secondary"
                                 size="xsmall"
-                                icon={<IconX />}
                                 tooltip={`End this ${relationship.definition.name} assignment`}
                                 disabledReason={relationshipSaving ? 'Saving…' : undefined}
+                                data-attr="account-relationships-unassign-button"
                                 onClick={() => endRelationship(relationship)}
-                            />
+                            >
+                                Unassign
+                            </LemonButton>
                         )}
                         {canDeleteRelationships && (
                             <LemonButton

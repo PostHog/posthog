@@ -81,8 +81,8 @@ graph LR
 ```
 
 - Job-level CI: per-job duration, queue time, runner tier, and dollar cost ride `workflow_jobs` (webhook stream plus bounded backfill).
-- One write surface: test quarantine. The UI files a tracking issue plus a PR against the repo's checked-in `.test_quarantine.json` through the team's GitHub App. Everything else is read-only.
-- The test-health view is an active work queue, not a failure-rate leaderboard: the main pytest and Jest suites emit failures and same-job re-run recovery evidence. Jest writes a small marker beside JUnit when quarantine tolerates a failure, so masking it does not erase the signal. Evidence is counted per CI run, a test is called flaky only where one commit was seen both failing and passing it, and every other failure ranks as an honest suspected regression by blast radius. Callers can filter by `runner` before ranking and limiting when they need a runner-specific queue. The weekly Slack report requests each runner separately and shows up to 10 pytest tests followed by up to 10 Jest tests. Logs-based rescue counts and links remain pytest-only.
+- One write surface: test quarantine. The `quarantine/request` endpoint files a tracking issue plus a PR against the repo's checked-in `.test_quarantine.json` through the team's GitHub App; it is reachable via the API and MCP only, with no in-app UI. Everything else is read-only.
+- The test-health view is the Trunk quarantine debt scoreboard: every test Trunk currently quarantines, attributed to its owning team from the span-stamped ownership, aged against a TTL, and rolled up per team. A quarantine masks a failure without fixing it, so the board is the standing work queue of masked tests. The flaky-test queue itself (failures plus same-commit recovery evidence from the pytest and Jest suites, counted per CI run, ranked by blast radius) remains an endpoint and MCP tool; the weekly Slack report requests each runner separately and shows up to 10 pytest tests followed by up to 10 Jest tests; it is informational, so suppressed tests stay listed with their quarantine state. Logs-based rescue counts and links remain pytest-only.
 - Access control: per-user warehouse RBAC at the source resolver, `engineering_analytics:read` scopes on tools, feature-flag gated.
 
 ## The goal: CI Signals for PostHog Desktop
@@ -93,16 +93,18 @@ Shortening ready-for-review-to-merge is the headline metric this serves.
 
 ## The data boundary
 
-| Question                                                                     | Substrate                                                            |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                            |
-| Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                          |
-| Ready to merge time (`ready_to_merge_seconds`), draft/ready transitions      | Warehouse `github_issue_events` (bounded window, grows forward)      |
-| Time-in-review, approvals                                                    | PR lifecycle events (webhooks to events, PR as group type): deferred |
-| Deploys and DORA                                                             | Deploy data: deferred                                                |
+| Question                                                                     | Substrate                                                                         |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                                         |
+| Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                                       |
+| Ready to merge time (`ready_to_merge_seconds`), draft/ready transitions      | Warehouse `github_issue_events` (bounded window, grows forward)                   |
+| Approvals, review submissions                                                | Warehouse `github_reviews` (synced; reads deferred until a wedge tool needs them) |
+| Deploys and DORA                                                             | Warehouse `github_deployments` + `github_deployment_statuses`                     |
 
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
 Immutable lifecycle events are the only thing the deferred events destination is for.
+Deploys left that deferral: unlike the snapshots, `github_deployment_statuses` is an append-oriented, webhook-fed status history (one row per transition), so DORA reads don't need the events destination.
+Change failure rate and time-to-restore still lack an incident link, so they ship as honest deploy-status proxies — the caveat rides in the field docs (`failed_deployment_share`, `median_failed_deploy_to_next_success_seconds`), the aggregate-endpoint pattern; a typed `metric_quality` field is reserved for deep tools like `pr_lifecycle`.
 
 ## Locked decisions
 
@@ -112,7 +114,7 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 - Unit of value = the open PR. Phase model: draft (low rigor) vs ready-for-review (high stakes).
 - North star: actionable CI Signals for PostHog Desktop. Ready-for-review-to-merge time is the headline metric, not the end in itself.
 - Two first-class surfaces, one endpoint set: the in-app UI and MCP tools. Named typed endpoints run the curated read layer privately (no global HogQL views, core imports only the viewset); keep `mcp/tools.yaml` current whenever endpoints change.
-- One sanctioned write: the test-health sidecar (quarantine, as an issue plus PR through the team's GitHub App), carved out because this UI is the fastest surface to iterate on it. No saved views or stateful filters; persisted surfaces are a separate decision.
+- One sanctioned write: the test-health sidecar (quarantine, as an issue plus PR through the team's GitHub App). The write now lives behind the API and MCP tool only; the test-health UI became the Trunk quarantine debt scoreboard because Trunk's auto-quarantine outran the file-based flow as the thing teams need to see. No saved views or stateful filters; persisted surfaces are a separate decision.
 - Data path: HogQL over the warehouse, plus reads from Logs and Traces. PR lifecycle event ingestion deferred. Product Postgres DB stays empty.
 - No author leaderboards or per-developer performance rankings, ever. The author page (own PRs plus own CI cost, reached only from PR-row author links) is allowed; ranking people against each other is not.
 - Bots and drafts excluded by default in throughput / cycle-time reads; bot detection = `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.

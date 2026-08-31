@@ -113,6 +113,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     auto_enable_new_schemas,
+    latest_completed_job_prefetch,
     sync_old_schemas_with_new_schemas,
     update_sync_type_config_keys,
 )
@@ -2143,13 +2144,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # list load (up to one query, and a get_or_create write, per source).
             .select_related("created_by", "revenue_analytics_config")
             .prefetch_related(
-                Prefetch(
-                    "jobs",
-                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
-                        "-created_at"
-                    )[:1],
-                    to_attr="ordered_jobs",
-                ),
+                latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"),
                 # The one place schemas are read during serialization. `active_schemas` used to be a
                 # second prefetch over the same rows — it's now derived in Python from this one (see
                 # `_active_schemas`), so the schema table is scanned once.
