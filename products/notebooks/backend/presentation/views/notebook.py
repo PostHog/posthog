@@ -954,38 +954,35 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 runtime.status = status
                 runtime.save(update_fields=["status"])
 
-        return Response(
-            {
-                "backend": backend,
-                "status": status,
-                "last_used_at": runtime.last_used_at.isoformat() if runtime else None,
-                "last_error": runtime.last_error if runtime else None,
-                "runtime_id": str(runtime.id) if runtime else None,
-                "kernel_id": runtime.kernel_id if runtime else None,
-                "kernel_pid": runtime.kernel_pid if runtime else None,
-                "sandbox_id": runtime.sandbox_id if runtime else None,
-                # Journey 7: what a SQL node can currently SELECT from. Gated twice. On the
-                # live-checked status, not runtime.status — the row above is the latest by
-                # last_used_at regardless of state, and a dead kernel's frames are not
-                # SELECT-able. And on query access, because these are column names and types
-                # derived from the user's data: notebook access alone gates liveness (which is
-                # all this endpoint used to return), but not schema. The rest of SQLV2 draws
-                # that line already; this keeps the endpoint's existing surface ungated.
-                "frames": (
-                    (runtime.frames or [])
-                    if runtime and status == KernelRuntime.Status.RUNNING and self._has_query_access()
-                    else []
-                ),
-                "cpu_cores": cpu_cores,
-                "memory_gb": sandbox_config.memory_gb,
-                "disk_size_gb": sandbox_config.disk_size_gb,
-                "idle_timeout_seconds": sandbox_config.ttl_seconds,
-                "hourly_price": get_compute_rates().hourly_price(
-                    cpu_cores=cpu_cores, memory_gb=sandbox_config.memory_gb
-                ),
-                "preset_key": self._preset_key_for(cpu_cores, sandbox_config.memory_gb),
-            }
-        )
+        payload = {
+            "backend": backend,
+            "status": status,
+            "last_used_at": runtime.last_used_at.isoformat() if runtime else None,
+            "last_error": runtime.last_error if runtime else None,
+            "runtime_id": str(runtime.id) if runtime else None,
+            "kernel_id": runtime.kernel_id if runtime else None,
+            "kernel_pid": runtime.kernel_pid if runtime else None,
+            "sandbox_id": runtime.sandbox_id if runtime else None,
+            # Journey 7: what a SQL node can currently SELECT from. Gated twice. On the
+            # live-checked status, not runtime.status — the row above is the latest by
+            # last_used_at regardless of state, and a dead kernel's frames are not
+            # SELECT-able. And on query access, because these are column names and types
+            # derived from the user's data: notebook access alone gates liveness (which is
+            # all this endpoint used to return), but not schema. The rest of SQLV2 draws
+            # that line already; this keeps the endpoint's existing surface ungated.
+            "frames": (
+                (runtime.frames or [])
+                if runtime and status == KernelRuntime.Status.RUNNING and self._has_query_access()
+                else []
+            ),
+            "cpu_cores": cpu_cores,
+            "memory_gb": sandbox_config.memory_gb,
+            "disk_size_gb": sandbox_config.disk_size_gb,
+            "idle_timeout_seconds": sandbox_config.ttl_seconds,
+            "hourly_price": get_compute_rates().hourly_price(cpu_cores=cpu_cores, memory_gb=sandbox_config.memory_gb),
+            "preset_key": self._preset_key_for(cpu_cores, sandbox_config.memory_gb),
+        }
+        return Response(NotebookKernelStatusResponseSerializer(payload).data)
 
     @extend_schema(
         request=NotebookKernelConfigSerializer,
@@ -1018,22 +1015,21 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Price the shape the next sandbox will actually get, so a notebook that leaves one knob
         # unset is still quoted against the default that fills it in.
         configured = build_notebook_sandbox_config(notebook)
-        return Response(
-            {
-                "cpu_cores": notebook.kernel_cpu_cores,
-                "memory_gb": notebook.kernel_memory_gb,
-                "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
-                "restart_required": KernelRuntime.objects.filter(
-                    team_id=self.team_id,
-                    notebook_short_id=notebook.short_id,
-                    status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
-                ).exists(),
-                "hourly_price": get_compute_rates().hourly_price(
-                    cpu_cores=configured.cpu_cores, memory_gb=configured.memory_gb
-                ),
-                "preset_key": self._preset_key_for(configured.cpu_cores, configured.memory_gb),
-            }
-        )
+        config_payload = {
+            "cpu_cores": notebook.kernel_cpu_cores,
+            "memory_gb": notebook.kernel_memory_gb,
+            "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
+            "restart_required": KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+            ).exists(),
+            "hourly_price": get_compute_rates().hourly_price(
+                cpu_cores=configured.cpu_cores, memory_gb=configured.memory_gb
+            ),
+            "preset_key": self._preset_key_for(configured.cpu_cores, configured.memory_gb),
+        }
+        return Response(NotebookKernelConfigResponseSerializer(config_payload).data)
 
     @staticmethod
     def _preset_key_for(cpu_cores: float | None, memory_gb: float | None) -> str | None:
@@ -1050,28 +1046,27 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     @action(methods=["GET"], url_path="kernel/compute_options", detail=False, required_scopes=["notebook:read"])
     def kernel_compute_options(self, request: Request, **kwargs) -> Response:
         rates = get_compute_rates()
-        return Response(
-            {
-                "currency": "USD",
-                "cpu_rate_per_core_hour": rates.cpu_per_core_hour,
-                "memory_rate_per_gb_hour": rates.memory_per_gb_hour,
-                "default_preset_key": DEFAULT_COMPUTE_PRESET_KEY,
-                "presets": [
-                    {
-                        "key": preset.key,
-                        "name": preset.name,
-                        "description": preset.description,
-                        "cpu_cores": preset.cpu_cores,
-                        "memory_gb": preset.memory_gb,
-                        "hourly_price": rates.hourly_price(cpu_cores=preset.cpu_cores, memory_gb=preset.memory_gb),
-                    }
-                    for preset in COMPUTE_PRESETS
-                ],
-                "allowed_cpu_cores": ALLOWED_KERNEL_CPU_CORES,
-                "allowed_memory_gb": ALLOWED_KERNEL_MEMORY_GB,
-                "allowed_idle_timeout_seconds": ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS,
-            }
-        )
+        options_payload = {
+            "currency": "USD",
+            "cpu_rate_per_core_hour": rates.cpu_per_core_hour,
+            "memory_rate_per_gb_hour": rates.memory_per_gb_hour,
+            "default_preset_key": DEFAULT_COMPUTE_PRESET_KEY,
+            "presets": [
+                {
+                    "key": preset.key,
+                    "name": preset.name,
+                    "description": preset.description,
+                    "cpu_cores": preset.cpu_cores,
+                    "memory_gb": preset.memory_gb,
+                    "hourly_price": rates.hourly_price(cpu_cores=preset.cpu_cores, memory_gb=preset.memory_gb),
+                }
+                for preset in COMPUTE_PRESETS
+            ],
+            "allowed_cpu_cores": ALLOWED_KERNEL_CPU_CORES,
+            "allowed_memory_gb": ALLOWED_KERNEL_MEMORY_GB,
+            "allowed_idle_timeout_seconds": ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS,
+        }
+        return Response(NotebookComputeOptionsResponseSerializer(options_payload).data)
 
     @action(methods=["POST"], url_path="kernel/execute", detail=True)
     def kernel_execute(self, request: Request, **kwargs):
