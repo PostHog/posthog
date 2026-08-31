@@ -273,6 +273,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Interface out: dispatches. One dispatch is one run of one key on one worker.
 - The first implementation preserves today's semantics: pins, the stash, deferral on drain, and the flush pacing. This is code motion from `assign`, `flush_deferred`, and `on_sub_batch_resolved`.
 - The plumbing (tasks, channels, the mutex) stays as it is. Only the decisions move.
+- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches). This shape is what later makes change 13 mechanical: the seam's handlers become the loop's select arms.
 - The seam makes today's implicit ordering rules explicit and reviewable in one place.
 
 **Interfaces:**
