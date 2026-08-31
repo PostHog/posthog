@@ -59,17 +59,13 @@ def capture_missing_capability_event(team: Team, distinct_id: str, submission: c
     properties: dict[str, object] = {
         "submission_id": str(submission.id),
         "kind": submission.kind,
-        "attempted_tool": submission.attempted_tool,
-        "mcp_client_name": submission.mcp_client_name,
+        "attempted_tool_present": bool(submission.attempted_tool),
+        "mcp_client_name_present": bool(submission.mcp_client_name),
         "mcp_session_id_present": bool(submission.mcp_session_id),
         "mcp_trace_id_present": bool(submission.mcp_trace_id),
         "$mcp_source": "posthog_mcp_analytics",
-        "$mcp_intent": submission.summary,
-        "$mcp_intent_source": "context_parameter",
         "$mcp_tool_name": "mcp-missing-capability-report",
-        "missing_capability_goal": submission.goal,
         "missing_capability_blocked": submission.blocked,
-        "missing_capability_attempted_tool": submission.attempted_tool,
     }
     if submission.mcp_session_id:
         properties["$mcp_session_id"] = submission.mcp_session_id
