@@ -70,6 +70,16 @@ class DiffCheck:
     workspace_scoped: bool = False
     matched: list[str] = field(default_factory=list)
 
+    @property
+    def measures(self) -> bool:
+        """Whether this check runs something, or only advises.
+
+        A check that runs nothing has found nothing, so it must not be reported
+        as a finding whatever shape it takes: a nudge (``advice``) and a
+        guidance-only check (``verify is None``) are both unmeasured.
+        """
+        return self.advice is None and self.verify is not None
+
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
 # broken lockfile blocking all CI, OpenAPI drift, formatting/lint/type checking,
@@ -148,6 +158,26 @@ DIFF_CHECKS: list[DiffCheck] = [
         advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
     ),
     DiffCheck(
+        key="django-template-format",
+        label="Django template formatting (djlint)",
+        # `*` spans `/`, so these cover the nested template directories too.
+        triggers=["posthog/templates/*.html", "products/*/backend/templates/*.html"],
+        # Mirrors lint-staged's `format:html`, which agents bypass via --no-verify.
+        verify=["hogli", "format:html:check"],
+        fix=["hogli", "format:html"],
+        takes_files=True,
+    ),
+    DiffCheck(
+        key="django-template-lint",
+        label="Django template lint (djlint)",
+        # Only the email templates are clean against the rule set, so only they are linted.
+        # lint-staged formats templates but does not lint them: a second glob over the same
+        # files would let it run the linter against a file the formatter is still rewriting.
+        triggers=["posthog/templates/email/*.html"],
+        verify=["hogli", "lint:html"],
+        takes_files=True,
+    ),
+    DiffCheck(
         key="markdown-format",
         label="markdown formatting (oxfmt)",
         triggers=["*.md", "*.mdx"],
@@ -185,10 +215,14 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="openapi",
-        label="OpenAPI types out of date (frontend/MCP drift)",
+        # Measuring real drift means regenerating and diffing, which needs the dev stack.
+        # This check only knows that the diff touches files the generated types are built
+        # from, so the label names that trigger instead of asserting the types are stale.
+        # A branch keeps those source edits in its diff after a regen, so a label that
+        # claims staleness can never be cleared by running the fix.
+        label="OpenAPI sources changed (generated types may need a regen)",
         # From build.py so preflight and build:openapi can't drift on which diffs need a regen.
         triggers=list(BUILD_TRIGGERS["build:openapi"]),
-        # Drift detection regenerates then diffs — needs the DB. Guidance-only here.
         verify=None,
         fix=["hogli", "build:openapi"],
         requires=("stack",),
@@ -341,7 +375,10 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
         # Guidance-only (no runnable local check, or its fix needs an absent capability):
         # advise regardless, so the hint still shows on a bare checkout — even with --fix.
         # Ownership framing lives once in the advisory footer, not per check.
-        return "advisory", f"run `{' '.join(chk.fix or [])}` and commit before pushing"
+        # Phrased as a condition the reader can check, because nothing here measured
+        # whether the fix is needed: an unconditional "run this and commit" reads as a
+        # finding, and sends anyone who already ran it looking for a diff that isn't there.
+        return "advisory", f"if you have not run `{' '.join(chk.fix or [])}` since changing them, run it and commit"
     elif unmet:
         return "skipped", f"needs {', '.join(unmet)}"
     else:
@@ -647,7 +684,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         failures += status == "fail"
         # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
         # the footer on every matching push and cost the detected advisories their weight.
-        advisories += status == "advisory" and chk.advice is None
+        advisories += status == "advisory" and chk.measures
         results.append({"check": chk.key, "status": status, "files": len(chk.matched), "detail": detail})
         if not as_json:
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])

@@ -1340,20 +1340,35 @@ class WidgetUserBurstThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class WidgetTeamThrottle(SimpleRateThrottle):
-    """Rate limit per team token."""
-
-    scope = "widget_team"
+class _WidgetTeamTokenThrottle(SimpleRateThrottle):
     rate = "3600/hour"
 
-    def get_cache_key(self, request, view):
-        # Throttle by team token if available, otherwise by IP
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        if not self.scope:
+            raise NotImplementedError("Set scope on WidgetTeamPollThrottle or WidgetTeamWriteThrottle")
         token = request.headers.get("X-Conversations-Token", "")
         if token:
             ident = hashlib.sha256(token.encode()).hexdigest()
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class WidgetTeamPollThrottle(_WidgetTeamTokenThrottle):
+    """Do not assign this to POST views. A shared bucket lets background list
+    polling 429 ticket creates."""
+
+    scope = "widget_team_poll"
+
+
+class WidgetTeamWriteThrottle(_WidgetTeamTokenThrottle):
+    """Keep this off GET poll views so list and message polling cannot exhaust it."""
+
+    scope = "widget_team_write"
+
+
+WIDGET_POLL_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamPollThrottle)
+WIDGET_WRITE_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamWriteThrottle)
 
 
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):

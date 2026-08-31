@@ -595,7 +595,7 @@ def send_email_verification(
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="verification email sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
+        groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
     )
 
 
@@ -629,7 +629,7 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
         capture(
             distinct_id=str(user.distinct_id),
             event="verification code sent",
-            groups={"organization": str(user.current_organization.id)},  # type: ignore
+            groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
         )
 
 
@@ -656,7 +656,7 @@ def send_code_based_verification(user_id: int, code: str) -> None:
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
+        groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
     )
 
 

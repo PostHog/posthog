@@ -19,6 +19,9 @@ config:
         # regenerating a stub entry on every hogli run.
         - phrocs
         - start-local-ngrok
+        # Helper behind format:html / lint:html, called as `bash ./bin/djlint.sh` rather
+        # than run directly, so it is not a command of its own.
+        - djlint.sh
     env:
         files:
             - .env.development
@@ -569,7 +572,9 @@ build:
             - build:openapi-cli-agent-scopes
             - build:openapi-scene-tool-context
             - build:openapi-exec-docs
-        description: Generate OpenAPI schema and TypeScript types from the backend
+        description: 'Generate OpenAPI schema and TypeScript types from the backend.
+            Needs the dev stack running (Postgres and ClickHouse): Django starts
+            before the schema is generated. Start it with hogli up -d'
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (C++)
@@ -837,6 +842,15 @@ quality:
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
+    format:html:
+        cmd: bash ./bin/djlint.sh --reformat "$@"
+        description: Format Django templates
+    format:html:check:
+        cmd: bash ./bin/djlint.sh --check "$@"
+        description: Check Django template formatting without writing
+    lint:html:
+        cmd: bash ./bin/djlint.sh --lint "$@"
+        description: Lint Django templates
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
