@@ -133,8 +133,7 @@ const commitsAt = (ageMins) => [
     },
 ]
 
-// Stand-in for the diagnosis webhook endpoint. `statuses` is consumed one per attempt, so a test
-// can make the first call fail and the retry succeed.
+// Stand-in for the diagnosis webhook endpoint, one status per attempt.
 function makeWebhook(statuses = [200]) {
     let call = 0
     return recordingFn(() => {
@@ -219,9 +218,6 @@ describe('ci-alerts-devex', () => {
         })
     }
 
-    // The diagnosis agent is started by this script rather than by a workflow trigger on the anchor
-    // message, so the cases that matter are "started once, with the thread it must answer in" and
-    // "a start that did not happen turns this run red".
     describe('diagnosis agent start', () => {
         const webhookEnv = { DIAGNOSIS_WEBHOOK_URL: 'https://webhooks.test/start', DIAGNOSIS_WEBHOOK_TOKEN: 'Bearer t' }
         const fiveFailures = () =>

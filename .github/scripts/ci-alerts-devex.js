@@ -62,9 +62,8 @@ const SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES = 360
 const SCHEDULED_LANE_LABEL = '(scheduled)'
 const STALE_PAGE_RETRIES = 2
 const STALE_PAGE_RETRY_DELAY_MS = 15000
-// The diagnosis agent is started by POSTing this event to a workflow's incoming-webhook trigger.
-// The alerter sends the incident, not a Slack message: the workflow maps `properties.channel` and
-// `properties.ts` onto the agent's Slack context so the answer still lands under the anchor.
+// The workflow behind the webhook reads `properties.channel` and `properties.ts` to reply in the
+// alert thread, so dropping either from the payload leaves the agent's answer with nowhere to land.
 const INCIDENT_OPENED_EVENT = 'master_ci_incident_opened'
 const WEBHOOK_ATTEMPTS = 3
 const WEBHOOK_RETRY_DELAY_MS = 2000
@@ -344,14 +343,7 @@ function defaultSlackClient(token, fetchImpl) {
     }
 }
 
-// Ask the diagnosis workflow to start, and fail the run if it can't be reached.
-//
-// A direct call, rather than a workflow triggering on the anchor message: the Slack-message trigger
-// crosses regions and drops events with no error on either side, so an agent that never starts
-// leaves no trace anywhere. Here a lost start reddens this run.
-//
-// Retried because not losing the start is the whole point, and bounded because the alert itself has
-// already posted and no later tick tries again (an incident is created once).
+// Only an incident's first tick calls this, so a start lost here is never retried by a later tick.
 async function startDiagnosisAgent({ url, token, fetchImpl, sleep, core }, payload) {
     if (!url) {return false}
     const doFetch = fetchImpl || fetch
