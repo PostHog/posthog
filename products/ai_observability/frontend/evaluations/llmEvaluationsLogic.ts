@@ -81,6 +81,7 @@ export interface llmEvaluationsLogicValues {
     evaluationsFilter: string
     evaluationsLoadFailed: boolean
     evaluationsLoading: boolean
+    evaluationsSettled: boolean
     filteredEvaluations: EvaluationConfig[]
     movingEvaluationId: string | null
     selectedDirectory: EvaluationDirectoryApi | null
@@ -342,6 +343,15 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 loadEvaluations: () => true,
                 loadEvaluationsFailure: () => false,
                 loadEvaluationsSuccess: () => false,
+            },
+        ],
+        // Distinguishes "settled" from "never started" — evaluationsLoading is false in both,
+        // so a caller gating on that alone can't tell whether afterMount has fired yet.
+        evaluationsSettled: [
+            false,
+            {
+                loadEvaluationsSuccess: () => true,
+                loadEvaluationsFailure: () => true,
             },
         ],
         evaluationsLoadFailed: [
@@ -722,24 +732,24 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
 
 /**
  * Resolves once this logic's evaluations have settled — loaded or failed — never while the
- * fetch is still in flight. Callers that derive detector polarity (`detectorEvaluationIds`)
- * from `evaluations` must await this before reading it: `evaluations` starts as `[]`, so a
- * read before the fetch settles silently treats every evaluation, detectors included, as
- * non-detector. Resolves immediately when already settled, so the common (already-loaded)
- * path adds no latency. `evaluationsLoading` goes false on both `loadEvaluationsSuccess` and
- * `loadEvaluationsFailure`, so a failed fetch still unblocks callers — with
- * detectorEvaluationIds staying [], i.e. today's non-detector-aware verdicts — rather than
- * waiting forever on a request that will never resolve. Requires `llmEvaluationsLogic` to
- * already be mounted (e.g. via the caller's own `connect()`), which also guarantees
- * `loadEvaluations` has already been dispatched by the time this runs.
+ * fetch is still in flight and never for a fetch that was never started. Callers that derive
+ * detector polarity (`detectorEvaluationIds`) from `evaluations` must await this before reading
+ * it: `evaluations` starts as `[]`, so a read before the fetch settles silently treats every
+ * evaluation, detectors included, as non-detector. Resolves immediately when already settled,
+ * so the common (already-loaded) path adds no latency. `evaluationsSettled` goes true on both
+ * `loadEvaluationsSuccess` and `loadEvaluationsFailure`, so a failed fetch still unblocks
+ * callers — with detectorEvaluationIds staying [], i.e. today's non-detector-aware verdicts —
+ * rather than waiting forever on a request that will never resolve. Requires
+ * `llmEvaluationsLogic` to already be mounted (e.g. via the caller's own `connect()`), which
+ * also guarantees `loadEvaluations` has already been dispatched by the time this runs.
  */
 export async function waitForEvaluationsSettled(): Promise<void> {
-    if (!llmEvaluationsLogic.values.evaluationsLoading) {
+    if (llmEvaluationsLogic.values.evaluationsSettled) {
         return
     }
     await new Promise<void>((resolve) => {
         const unsubscribe = getContext().store.subscribe(() => {
-            if (!llmEvaluationsLogic.values.evaluationsLoading) {
+            if (llmEvaluationsLogic.values.evaluationsSettled) {
                 unsubscribe()
                 resolve()
             }

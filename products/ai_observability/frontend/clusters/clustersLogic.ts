@@ -924,6 +924,8 @@ export const clustersLogic = kea<clustersLogicType>([
                 // settles. Wait for it here so a clustering response that resolves first
                 // can't bake a wrong (non-detector) verdict into a cached summary that never
                 // gets refetched — loadTraceSummaries only fetches ids missing from the cache.
+                // No separate level check needed here, unlike the other call sites below: the
+                // early return above already confines this listener to evaluation-level runs.
                 await waitForEvaluationsSettled()
                 const attrs = await loadEvaluationItemAttributes(
                     allItemIds,

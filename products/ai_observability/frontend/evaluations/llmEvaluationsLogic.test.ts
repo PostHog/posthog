@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { llmEvaluationsLogic, waitForEvaluationsSettled } from './llmEvaluationsLogic'
 import {
     EvaluationConfig,
     EvaluationOutputConfig,
@@ -396,6 +396,61 @@ describe('llmEvaluationsLogic', () => {
             }).toDispatchActions(['loadEvaluations', 'loadEvaluationsFailure'])
 
             expect(logic.values.evaluationsLoading).toBe(false)
+        })
+    })
+
+    describe('evaluationsSettled', () => {
+        it('is false while never-started and loading look identical on evaluationsLoading, then flips true on success', async () => {
+            // beforeEach's mount() has already dispatched loadEvaluations synchronously, so the
+            // fetch is in flight here: evaluationsLoading is true, but settling hasn't happened.
+            expect(logic.values.evaluationsSettled).toBe(false)
+
+            await expectLogic(logic).toDispatchActions(['loadEvaluationsSuccess'])
+
+            expect(logic.values.evaluationsSettled).toBe(true)
+        })
+
+        it('flips true on failure too, unlike evaluationsLoading which reads the same as never-started', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluations()
+            }).toDispatchActions(['loadEvaluationsFailure'])
+
+            expect(logic.values.evaluationsLoading).toBe(false)
+            expect(logic.values.evaluationsSettled).toBe(true)
+        })
+    })
+
+    describe('waitForEvaluationsSettled', () => {
+        it('waits for a pending fetch instead of resolving against an empty evaluations list', async () => {
+            let resolveRequest: (value: { results: EvaluationConfig[] }) => void = () => {}
+            useMocks({
+                get: {
+                    '/api/projects/:teamId/evaluations/': () => new Promise((resolve) => (resolveRequest = resolve)),
+                },
+            })
+            logic.unmount()
+            logic = llmEvaluationsLogic()
+            logic.mount()
+
+            let resolved = false
+            const waiting = waitForEvaluationsSettled().then(() => {
+                resolved = true
+            })
+
+            await Promise.resolve()
+            expect(resolved).toBe(false)
+
+            resolveRequest({ results: [] })
+            await waiting
+            expect(resolved).toBe(true)
+        })
+
+        it('resolves immediately once evaluations have already settled', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationsSuccess'])
+
+            await expect(waitForEvaluationsSettled()).resolves.toBeUndefined()
         })
     })
 })
