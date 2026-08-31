@@ -20,7 +20,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
@@ -52,6 +52,22 @@ class QueryNotFoundError(NotFound):
 
 class QueryRetrievalError(Exception):
     pass
+
+
+def _query_status_error_code(err: Exception) -> Optional[str]:
+    error_category = classify_query_error(err)
+    if error_category is QueryErrorCategory.RATE_LIMITED:
+        return error_category.value
+    api_error_code: Optional[str] = None
+    if isinstance(err, APIException):
+        codes = err.get_codes()
+        if isinstance(codes, str):
+            api_error_code = codes
+            if codes != "error":
+                return codes
+    if error_category is not QueryErrorCategory.ERROR:
+        return error_category.value
+    return api_error_code
 
 
 class QueryStatusManager:
@@ -305,12 +321,10 @@ def execute_process_query(
         if is_user_safe_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
-            if isinstance(err, APIException):
-                # get_codes() returns a list/dict for compound validation errors; only scalar codes
-                # are meaningful to the frontend, which matches on specific code strings.
-                codes = err.get_codes()
-                if isinstance(codes, str):
-                    query_status.error_code = codes
+        # Preserve the semantic category across the async status boundary. Rate-limited takes
+        # precedence over an inherited API code (cluster and per-query memory share one), while a
+        # specific non-transient frontend code remains intact.
+        query_status.error_code = _query_status_error_code(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
             # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,

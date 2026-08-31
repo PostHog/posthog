@@ -9,9 +9,12 @@ from enum import StrEnum
 from typing import Any, Optional, Union
 
 import structlog
+from rest_framework.exceptions import APIException
 
 from posthog.schema import AssistantHogQLQuery
 
+from posthog.errors import InternalCHQueryError, QueryErrorCategory, classify_query_error
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.ph_client import ph_background_capture
@@ -62,6 +65,7 @@ from products.exports.backend.temporal.subscriptions.types import safe_error_mes
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.tool_errors import MaxToolRetryableError
 
 logger = structlog.get_logger(__name__)
 
@@ -105,6 +109,55 @@ def _all_queries_failed_notice(total_steps: int) -> str:
         f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
         "Use the Manage subscription link to review the generated queries and the errors they hit.\n\n"
     )
+
+
+_CLICKHOUSE_QUERY_REPAIR_HINT = "ClickHouse rejected the query. Rewrite it using valid HogQL syntax and functions."
+_ASYNC_USER_QUERY_REPAIR_HINT = "The query was rejected because its structure is invalid. Rewrite it using valid HogQL."
+_GENERIC_QUERY_REPAIR_HINT = "The query failed with an adjusted-input error. Rewrite it using valid HogQL."
+
+
+def _query_error_disposition(exc: BaseException) -> tuple[Optional[str], bool]:
+    """Return safe fixer guidance and whether this failure makes the plan unsafe to freeze."""
+    safe_message = safe_error_message(exc)
+    categories: set[QueryErrorCategory] = set()
+    api_error_codes: set[str] = set()
+    has_clickhouse_user_error = False
+    has_retryable_error = False
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, MaxToolRetryableError):
+            has_retryable_error = True
+        if isinstance(current, APIException):
+            codes = current.get_codes()
+            if isinstance(codes, str):
+                api_error_codes.add(codes)
+        if isinstance(current, Exception):
+            category = classify_query_error(current)
+            if category is not QueryErrorCategory.ERROR:
+                categories.add(category)
+            if isinstance(current, InternalCHQueryError) and category is QueryErrorCategory.USER_ERROR:
+                has_clickhouse_user_error = True
+        seen.add(id(current))
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+
+    # Capacity pressure is temporary and does not make the query itself invalid. Check it before
+    # the generic retryable wrapper, which otherwise describes every adjusted-input failure alike.
+    if QueryErrorCategory.RATE_LIMITED in categories or QueryErrorCategory.RATE_LIMITED.value in api_error_codes:
+        return None, False
+    if (
+        QueryErrorCategory.QUERY_PERFORMANCE_ERROR in categories
+        or QueryErrorCategory.QUERY_PERFORMANCE_ERROR.value in api_error_codes
+        or ClickHouseQueryMemoryLimitExceeded.default_code in api_error_codes
+    ):
+        return None, True
+    if safe_message is not None:
+        return safe_message, True
+    if QueryErrorCategory.USER_ERROR in categories or QueryErrorCategory.USER_ERROR.value in api_error_codes:
+        return (_CLICKHOUSE_QUERY_REPAIR_HINT if has_clickhouse_user_error else _ASYNC_USER_QUERY_REPAIR_HINT), True
+    if has_retryable_error:
+        return _GENERIC_QUERY_REPAIR_HINT, True
+    return None, False
 
 
 def _validate_step_chart(
@@ -346,14 +399,24 @@ def _plan_to_freeze(
     # placeholder because it would scan an unbounded range on every run.
     if not freshly_planned:
         return None
-    # Query-structure failures need a fresh plan because the same SQL cannot succeed on the next run.
-    # Execution failures keep the plan stable because changing the SQL would also change the report metric.
+    # Structural and per-query performance failures need a fresh plan because the same SQL is not safe
+    # to reuse. Transient execution/capacity failures keep the plan stable so the metric does not drift.
     if plan_invalidating_failed_count:
         logger.warning(
             "ai_report.plan_had_query_structure_failures_not_frozen",
             trace_correlation_id=trace_correlation_id,
             failed_count=failed_count,
             plan_invalidating_failed_count=plan_invalidating_failed_count,
+            total_steps=total_steps,
+        )
+        return None
+    # If every query failed, no metric was delivered to preserve. Re-plan next time instead of pinning
+    # a query that may keep exceeding its budget against an ever-growing scheduled-report window.
+    if total_steps and failed_count >= total_steps:
+        logger.warning(
+            "ai_report.plan_all_queries_failed_not_frozen",
+            trace_correlation_id=trace_correlation_id,
+            failed_count=failed_count,
             total_steps=total_steps,
         )
         return None
@@ -507,7 +570,7 @@ async def _run_steps(
         # every attempt. The diagnostic records the executed SQL (placeholder resolved) for debugging.
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
-        had_rewriteable_error = False
+        had_plan_invalidating_failure = False
         # planner output — strip framing markers so it can't break the <query_results> envelope
         safe_description = strip_llm_framing_markers(step.description, max_len=500)
 
@@ -549,10 +612,10 @@ async def _run_steps(
                 )
             except Exception as exc:
                 last_exc = exc
-                rewrite_error_message = safe_error_message(exc)
+                rewrite_error_message, plan_invalidating_failure = _query_error_disposition(exc)
+                had_plan_invalidating_failure = had_plan_invalidating_failure or plan_invalidating_failure
                 if attempt >= _MAX_QUERY_FIX_RETRIES or rewrite_error_message is None:
                     break
-                had_rewriteable_error = True
                 logger.info(
                     "ai_report.query_fix_attempt",
                     trace_correlation_id=trace_correlation_id,
@@ -598,7 +661,7 @@ async def _run_steps(
                 error_type=undisclosed_type or type_name,
                 human_readable_error=safe_error_message(last_exc) if last_exc is not None else None,
             ),
-            plan_invalidating_failure=had_rewriteable_error,
+            plan_invalidating_failure=had_plan_invalidating_failure,
         )
 
     async def run_step_bounded(step: QueryPlanStep, step_index: int) -> StepOutcome:

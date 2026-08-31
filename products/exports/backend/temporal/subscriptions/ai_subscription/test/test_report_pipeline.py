@@ -6,10 +6,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from rest_framework.exceptions import APIException
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.errors import CHQueryErrorUnknownFunction, CHQueryErrorUnknownIdentifier, QueryErrorCategory
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     ChartFailureReason,
@@ -334,7 +336,7 @@ async def test_run_steps_placeholder_omits_wrapped_undisclosed_error_type(
     assert execution.failed_count == 1
     assert execution.rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
     assert execution.diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
-    assert execution.plan_invalidating_failed_count == 0
+    assert execution.plan_invalidating_failed_count == 1
     mock_hogql_fix.assert_not_awaited()
 
 
@@ -354,6 +356,88 @@ async def test_run_steps_forwards_resolution_error_message_to_fix(
     await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True)
     assert mock_fix.await_args is not None
     assert mock_fix.await_args.kwargs["error_message"] == "Unable to resolve field 'operaton'"
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_repairs_wrapped_clickhouse_user_error(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock
+) -> None:
+    error = MaxToolRetryableError("Query validation failed")
+    error.__context__ = CHQueryErrorUnknownFunction(
+        "DB::Exception: Unknown function made_up", code=46, code_name="unknown_function"
+    )
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert mock_fix.await_args is not None
+    repair_message = mock_fix.await_args.kwargs["error_message"]
+    assert repair_message == "ClickHouse rejected the query. Rewrite it using valid HogQL syntax and functions."
+    assert "made_up" not in repair_message
+    assert execution.plan_invalidating_failed_count == 1
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_repairs_internal_clickhouse_user_error_without_forwarding_raw_text(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock
+) -> None:
+    error = MaxToolRetryableError("Query validation failed")
+    error.__context__ = CHQueryErrorUnknownIdentifier(
+        "DB::Exception: Unknown identifier attacker_controlled_value", code=47, code_name="unknown_identifier"
+    )
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert mock_fix.await_args is not None
+    repair_message = mock_fix.await_args.kwargs["error_message"]
+    assert repair_message == "ClickHouse rejected the query. Rewrite it using valid HogQL syntax and functions."
+    assert "attacker_controlled_value" not in repair_message
+    assert execution.plan_invalidating_failed_count == 1
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_preserves_plan_for_transient_capacity_error(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock
+) -> None:
+    error = MaxToolRetryableError("Query temporarily unavailable")
+    error.__context__ = ClickHouseAtCapacity()
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.plan_invalidating_failed_count == 0
+    mock_fix.assert_not_awaited()
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_classifies_async_user_error_code_as_plan_invalidating(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock
+) -> None:
+    status_error = APIException("Query failed", code=QueryErrorCategory.USER_ERROR.value)
+    error = MaxToolRetryableError("Query failed")
+    error.__context__ = status_error
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert mock_fix.await_args is not None
+    assert mock_fix.await_args.kwargs["error_message"] == (
+        "The query was rejected because its structure is invalid. Rewrite it using valid HogQL."
+    )
+    assert execution.plan_invalidating_failed_count == 1
 
 
 @patch(_SLO_CAPTURE)
@@ -590,10 +674,10 @@ async def test_unfrozen_run_returns_plan_to_persist(
         (12, 0, 0, True),
         (12, 1, 1, False),
         (12, 1, 0, True),
-        (12, 12, 0, True),
+        (12, 12, 0, False),
     ],
 )
-def test_plan_to_freeze_only_replans_query_structure_failures(
+def test_plan_to_freeze_rejects_invalid_or_all_failed_plans(
     total_steps: int, failed_count: int, plan_invalidating_failed_count: int, should_freeze: bool
 ) -> None:
     plan = QueryPlan(
@@ -734,7 +818,7 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
     "spec,run_result,should_freeze",
     [
         pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, False, id="query_structure_failure"),
-        pytest.param(_spec_with_window_placeholder(), _EXECUTION_FAILED_RUN, True, id="execution_failure"),
+        pytest.param(_spec_with_window_placeholder(), _EXECUTION_FAILED_RUN, False, id="all_queries_failed"),
         # No window placeholder: freezing would cement an unbounded, window-less scan forever.
         pytest.param(_spec(steps=1), _OK_RUN, False, id="missing_window_placeholder"),
     ],

@@ -3,7 +3,7 @@ import time
 import asyncio
 from dataclasses import field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -124,6 +124,14 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         | HogQLQuery
         | DataVisualizationNode,
     )
+
+
+def _query_status_error(query_status: dict[str, Any]) -> Exception:
+    error_message = query_status.get("error_message")
+    error_code = query_status.get("error_code")
+    if error_message or error_code:
+        return APIException(error_message or "Query failed", code=error_code or "error")
+    return Exception("Query failed")
 
 
 class AssistantQueryExecutor:
@@ -440,9 +448,7 @@ class AssistantQueryExecutor:
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
-                    if error_message := query_status.get("error_message"):
-                        raise APIException(error_message)
-                    raise Exception("Query failed")
+                    raise _query_status_error(query_status)
 
                 # Use the completed query results
                 response_dict = query_status["results"]

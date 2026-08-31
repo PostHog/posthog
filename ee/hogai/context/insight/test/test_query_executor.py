@@ -43,12 +43,20 @@ from posthog.errors import ExposedCHQueryError
 
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
+    _query_status_error,
     execute_and_format_query,
     get_example_prompt,
     is_supported_query,
 )
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
+
+
+def test_query_status_error_preserves_category_code() -> None:
+    error = _query_status_error({"error": True, "error_message": "Query failed with error", "error_code": "user_error"})
+
+    assert isinstance(error, APIException)
+    assert error.get_codes() == "user_error"
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
@@ -385,6 +393,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "complete": True,
                 "error": True,
                 "error_message": "Query failed with error",
+                "error_code": "user_error",
             }
         )
 
@@ -395,6 +404,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("Query failed with error", str(context.exception))
+        self.assertIsInstance(context.exception, MaxToolRetryableError)
+        self.assertIsInstance(context.exception.__context__, APIException)
+        assert isinstance(context.exception.__context__, APIException)
+        self.assertEqual(context.exception.__context__.get_codes(), "user_error")
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

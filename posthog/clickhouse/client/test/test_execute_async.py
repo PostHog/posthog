@@ -10,6 +10,7 @@ from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
+from rest_framework.exceptions import APIException
 
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
@@ -21,15 +22,24 @@ from posthog.clickhouse.client import (
     sync_execute,
 )
 from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.execute_async import (
+    QueryNotFoundError,
+    QueryStatusManager,
+    _query_status_error_code,
+    execute_process_query,
+)
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
     is_direct_query_cancellation_requested,
 )
-from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
+from posthog.errors import CHQueryErrorUnknownIdentifier, ExposedCHQueryError, QueryErrorCategory
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+)
 from posthog.models import Organization, Team
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -89,6 +99,22 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertTrue(result.error)
         self.assertEqual(result.error_message, ClickHouseAtCapacity.default_detail)
         self.assertIsNotNone(result.end_time)
+
+    def test_internal_user_error_carries_category_code(self):
+        error = CHQueryErrorUnknownIdentifier(
+            "DB::Exception: Unknown identifier attacker_controlled_value", code=47, code_name="unknown_identifier"
+        )
+
+        self.assertEqual(_query_status_error_code(error), QueryErrorCategory.USER_ERROR.value)
+
+    def test_transient_cluster_memory_error_carries_rate_limited_category(self):
+        self.assertEqual(
+            _query_status_error_code(ClickHouseClusterMemoryLimitExceeded()),
+            QueryErrorCategory.RATE_LIMITED.value,
+        )
+
+    def test_generic_api_error_preserves_default_code(self):
+        self.assertEqual(_query_status_error_code(APIException("Query failed")), "error")
 
     def test_store_clickhouse_query_progress(self):
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": 1234}}
