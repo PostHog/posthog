@@ -198,7 +198,7 @@ registerTriggerType({
     description: 'Trigger when something happens on a GitHub repository',
     group: 'GitHub',
     featureFlag: 'github-workflow-triggers',
-    matchConfig: (config) => isInternalEventGithubTriggerConfig(config),
+    matchConfig: (config) => isGithubEventTriggerConfig(config),
     buildConfig: () => ({
         type: 'internal-event',
         filters: {
