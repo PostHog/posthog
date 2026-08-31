@@ -17,6 +17,11 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     Status = ExternalDataJobStatus
     PipelineVersion = ExternalDataJobPipelineVersion
 
+    # Overridden from CreatedMetaFields to drop the implicit foreign-key index. Import
+    # workflows create every job row, so the column is always NULL, and the index only cost
+    # an index write on each insert.
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pipeline = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
     schema = models.ForeignKey("warehouse_sources.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True)
@@ -36,7 +41,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     schema_snapshot = models.JSONField(
         null=True,
         blank=True,
-        help_text="Snapshot of the ExternalDataSchema at the time this job was created.",
+        help_text="The schema state this job needs later: `last_synced_at` when the job was created, plus `cdc_write_mode` on CDC runs.",
     )
 
     __repr__ = sane_repr("id")

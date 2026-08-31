@@ -2290,69 +2290,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
-    def test_external_data_rows_synced_free_period_response(
-        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
-    ) -> None:
-        with freeze_time("2025-11-01T00:00:00Z"):
-            self._setup_teams()
-
-            source = ExternalDataSource.objects.create(
-                team_id=3,
-                source_id="source_id",
-                connection_id="connection_id",
-                status=ExternalDataSource.Status.COMPLETED,
-                source_type=ExternalDataSourceType.STRIPE,
-            )
-
-            for _ in range(5):
-                ExternalDataJob.objects.create(
-                    team_id=3,
-                    finished_at=now(),
-                    rows_synced=10,
-                    status=ExternalDataJob.Status.COMPLETED,
-                    pipeline=source,
-                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
-                )
-
-            for _ in range(5):
-                ExternalDataJob.objects.create(
-                    team_id=4,
-                    finished_at=now(),
-                    rows_synced=10,
-                    status=ExternalDataJob.Status.COMPLETED,
-                    pipeline=source,
-                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
-                )
-
-            period = get_previous_day(at=now() + relativedelta(days=1))
-            all_reports = _get_all_org_reports(period=period)
-
-            assert len(all_reports) == 3
-
-            org_1_report = _get_full_org_usage_report_as_dict(
-                _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
-            )
-
-            org_2_report = _get_full_org_usage_report_as_dict(
-                _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
-            )
-
-            assert org_1_report["organization_name"] == "Org 1"
-            assert org_1_report["rows_synced_in_period"] == 0
-            assert org_1_report["free_historical_rows_synced_in_period"] == 100
-
-            assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 0
-            assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
-            assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 0
-            assert org_1_report["teams"]["4"]["free_historical_rows_synced_in_period"] == 50
-
-            assert org_2_report["organization_name"] == "Org 2"
-            assert org_2_report["rows_synced_in_period"] == 0
-            assert org_2_report["free_historical_rows_synced_in_period"] == 0
-
-    @patch("posthog.tasks.usage_report.get_ph_client")
-    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
-    def test_external_data_rows_synced_after_free_period_response(
+    def test_external_data_rows_synced_excludes_sources_in_their_first_week(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
         self._setup_teams()
@@ -2426,12 +2364,12 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
-    def test_external_data_rows_synced_before_free_period_response(
+    def test_external_data_rows_synced_response(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
-        with freeze_time("2025-10-28T23:59:00Z"):
-            self._setup_teams()
+        self._setup_teams()
 
+        with freeze_time("2022-01-01T00:00:00Z"):
             source = ExternalDataSource.objects.create(
                 team_id=3,
                 source_id="source_id",
@@ -2439,67 +2377,6 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 status=ExternalDataSource.Status.COMPLETED,
                 source_type=ExternalDataSourceType.STRIPE,
             )
-
-            for _ in range(5):
-                ExternalDataJob.objects.create(
-                    team_id=3,
-                    finished_at=now(),
-                    rows_synced=10,
-                    status=ExternalDataJob.Status.COMPLETED,
-                    pipeline=source,
-                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
-                )
-
-            for _ in range(5):
-                ExternalDataJob.objects.create(
-                    team_id=4,
-                    finished_at=now(),
-                    rows_synced=10,
-                    status=ExternalDataJob.Status.COMPLETED,
-                    pipeline=source,
-                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
-                )
-
-            period = get_previous_day(at=now() + relativedelta(days=1))
-            all_reports = _get_all_org_reports(period=period)
-
-            assert len(all_reports) == 3
-
-            org_1_report = _get_full_org_usage_report_as_dict(
-                _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
-            )
-
-            org_2_report = _get_full_org_usage_report_as_dict(
-                _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
-            )
-
-            assert org_1_report["organization_name"] == "Org 1"
-            assert org_1_report["rows_synced_in_period"] == 100
-            assert org_1_report["free_historical_rows_synced_in_period"] == 100
-
-            assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 50
-            assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
-            assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 50
-            assert org_1_report["teams"]["4"]["free_historical_rows_synced_in_period"] == 50
-
-            assert org_2_report["organization_name"] == "Org 2"
-            assert org_2_report["rows_synced_in_period"] == 0
-            assert org_2_report["free_historical_rows_synced_in_period"] == 0
-
-    @patch("posthog.tasks.usage_report.get_ph_client")
-    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
-    def test_external_data_rows_synced_response(
-        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
-    ) -> None:
-        self._setup_teams()
-
-        source = ExternalDataSource.objects.create(
-            team_id=3,
-            source_id="source_id",
-            connection_id="connection_id",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
-        )
 
         for _ in range(5):
             ExternalDataJob.objects.create(
@@ -2604,9 +2481,9 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         )
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["rows_synced_in_period"] == 100
+        assert org_1_report["rows_synced_in_period"] == 50
 
-        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 100
+        assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 50
         assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
 
         assert org_2_report["organization_name"] == "Org 2"
@@ -2828,13 +2705,14 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     ) -> None:
         self._setup_teams()
 
-        source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
-            source_id="source_id",
-            connection_id="connection_id",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
-        )
+        with freeze_time("2022-01-01T00:00:00Z"):
+            source = ExternalDataSource.objects.create(
+                team=self.analytics_team,
+                source_id="source_id",
+                connection_id="connection_id",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
 
         for _ in range(5):
             ExternalDataJob.objects.create(
@@ -2885,13 +2763,14 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     ) -> None:
         self._setup_teams()
 
-        source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
-            source_id="source_id",
-            connection_id="connection_id",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
-        )
+        with freeze_time("2022-01-01T00:00:00Z"):
+            source = ExternalDataSource.objects.create(
+                team=self.analytics_team,
+                source_id="source_id",
+                connection_id="connection_id",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
 
         for _ in range(5):
             ExternalDataJob.objects.create(
