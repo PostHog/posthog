@@ -284,7 +284,6 @@ services:
             # request 500s with ECONNREFUSED ("We're unable to play this recording").
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
-            SESSION_RECORDING_V2_S3_TIMEOUT_MS: 120000
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             # Must resolve to the same value as the web and worker services, which send it as
