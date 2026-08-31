@@ -18,6 +18,12 @@ class WizardWorkerResourceUsage:
 
 
 @frozen
+class WizardWorkerProvisioning:
+    sandbox_id: str
+    resource_usage: WizardWorkerResourceUsage
+
+
+@frozen
 class WizardWorkerUsageMeasurement:
     cpu_usage_usec: int | None
     billed_cpu_usage_usec: int | None

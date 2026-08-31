@@ -22,14 +22,14 @@ def worker_resource_usage_to_record(resource_usage: WizardWorkerResourceUsage) -
 
 
 def worker_resource_usage_from_record(value: object) -> WizardWorkerResourceUsage:
-    if not isinstance(value, dict) or value.get("version") != 1:
+    if not isinstance(value, dict) or value["version"] != 1:
         raise ValueError("Invalid Wizard Worker resource usage")
 
-    cpu_cores = _positive_number(value.get("cpu_cores"))
-    memory_gb = _positive_number(value.get("memory_gb"))
-    disk_size_gb = _positive_number(value.get("disk_size_gb"))
-    ttl_seconds = _positive_integer(value.get("ttl_seconds"))
-    ttl_expires_at = _datetime(value.get("ttl_expires_at"))
+    cpu_cores = _positive_number(value["cpu_cores"])
+    memory_gb = _positive_number(value["memory_gb"])
+    disk_size_gb = _positive_number(value["disk_size_gb"])
+    ttl_seconds = _positive_integer(value["ttl_seconds"])
+    ttl_expires_at = _datetime(value["ttl_expires_at"])
 
     provider_cpu_usage_usec = _optional_nonnegative_integer(value.get("provider_cpu_usage_usec"))
     provider_billed_cpu_usage_usec = _optional_nonnegative_integer(value.get("provider_billed_cpu_usage_usec"))

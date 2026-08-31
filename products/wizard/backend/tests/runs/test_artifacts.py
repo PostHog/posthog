@@ -8,27 +8,27 @@ from posthog.models import Team
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
     CreatePullRequestArtifactInput,
-    CreateWizardRunInput,
     LocalFolderWorkspace,
     WizardRunDTO,
     WizardRunGitDiffArtifactDTO,
     WizardRunPullRequestArtifactDTO,
 )
-from products.wizard.backend.facade.enums import WizardRunArtifactType, WizardRunEnvironment
+from products.wizard.backend.facade.enums import WizardRunArtifactType, WizardRunEnvironment, WizardRunStatus
 from products.wizard.backend.facade.errors import WizardRunArtifactTooLargeError, WizardRunNotFoundError
+from products.wizard.backend.logic.registry.config import FALLBACK_REGISTRY
+from products.wizard.backend.logic.runs import store as run_store
 from products.wizard.backend.models import WizardRunArtifact
 
 
 def _create_run(team_id: int, user_id: int) -> WizardRunDTO:
-    return wizard_facade.create_run(
-        CreateWizardRunInput(
-            team_id=team_id,
-            created_by_id=user_id,
-            program_id="posthog-integration",
-            environment=WizardRunEnvironment.LOCAL,
-            workspace=LocalFolderWorkspace(project_name="example-project"),
-        )
-    )
+    return run_store.create_run(
+        team_id=team_id,
+        created_by_id=user_id,
+        environment=WizardRunEnvironment.LOCAL,
+        workspace=LocalFolderWorkspace(project_name="example-project"),
+        program=FALLBACK_REGISTRY.programs[0],
+        status=WizardRunStatus.RUNNING,
+    ).run
 
 
 @pytest.mark.django_db

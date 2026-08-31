@@ -11,14 +11,24 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+from uuid import UUID
 
 from products.wizard.backend import metrics
-from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardProgram, WizardSessionDTO
+from products.wizard.backend.facade.contracts import (
+    CreatePullRequestArtifactInput,
+    UpsertWizardSessionInput,
+    WizardProgram,
+    WizardRunArtifactDTO,
+    WizardRunGitDiffArtifactDTO,
+    WizardRunPullRequestArtifactDTO,
+    WizardSessionDTO,
+)
 from products.wizard.backend.logic import (
     pubsub,
     registry as registry_service,
     sessions,
 )
+from products.wizard.backend.logic.artifacts import service as artifacts
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
@@ -73,3 +83,19 @@ def record_latest_session_poll(raw_source: str | None, result: str) -> None:
 
 def get_registry(*, distinct_id: str, organization_id: str) -> tuple[WizardProgram, ...]:
     return registry_service.get_registry(distinct_id=distinct_id, organization_id=organization_id)
+
+
+def create_git_diff_artifact(team_id: int, run_id: UUID, content: bytes) -> WizardRunGitDiffArtifactDTO | None:
+    return artifacts.create_git_diff_artifact(team_id, run_id, content)
+
+
+def create_pull_request_artifact(params: CreatePullRequestArtifactInput) -> WizardRunPullRequestArtifactDTO:
+    return artifacts.create_pull_request_artifact(params)
+
+
+def list_run_artifacts(team_id: int, run_id: UUID) -> list[WizardRunArtifactDTO]:
+    return artifacts.list_run_artifacts(team_id, run_id)
+
+
+def get_git_diff_artifact_content(team_id: int, run_id: UUID, artifact_id: UUID) -> bytes:
+    return artifacts.get_git_diff_artifact_content(team_id, run_id, artifact_id)

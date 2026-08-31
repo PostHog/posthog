@@ -28,7 +28,6 @@ def test_worker_resource_usage_round_trip() -> None:
     "record",
     (
         None,
-        {},
         {"version": 2},
         {
             "version": 1,
@@ -43,3 +42,8 @@ def test_worker_resource_usage_round_trip() -> None:
 def test_worker_resource_usage_rejects_invalid_records(record: object) -> None:
     with pytest.raises(ValueError, match="Invalid Wizard Worker resource usage"):
         worker_resource_usage_from_record(record)
+
+
+def test_worker_resource_usage_requires_persisted_fields() -> None:
+    with pytest.raises(KeyError, match="version"):
+        worker_resource_usage_from_record({})
