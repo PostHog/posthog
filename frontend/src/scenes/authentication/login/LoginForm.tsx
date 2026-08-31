@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
@@ -208,6 +209,25 @@ export function LoginForm(): JSX.Element {
                         {preflight?.cloud && (
                             <>
                                 {' '}
+                                {generalError.code === 'invalid_credentials' && (
+                                    <>
+                                        {/* A wrong password is the most common cause of this error.
+                                            Lead with a reset, then offer support. */}
+                                        <Link
+                                            to={[urls.passwordReset(), { email: login.email }]}
+                                            data-attr="login-error-reset-password"
+                                            onClick={() =>
+                                                posthog.capture('login recovery reset link clicked', {
+                                                    source: 'invalid_credentials_banner',
+                                                })
+                                            }
+                                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                                        >
+                                            Reset your password
+                                        </Link>
+                                        <span>{' or '}</span>
+                                    </>
+                                )}
                                 <Link
                                     data-attr="login-error-contact-support"
                                     onClick={(e) => {
@@ -239,7 +259,7 @@ export function LoginForm(): JSX.Element {
                                     }}
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                                 >
-                                    Need help?
+                                    {generalError.code === 'invalid_credentials' ? 'get help' : 'Need help?'}
                                 </Link>
                             </>
                         )}
