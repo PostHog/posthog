@@ -105,6 +105,8 @@ function mockReportRows(): void {
 describe('ReportsTab', () => {
     beforeEach(() => {
         ;(posthog.capture as jest.Mock).mockClear()
+        // The filters persist to localStorage, so one test's toggles must not leak into the next.
+        localStorage.clear()
         mockReportCounts(COUNT_BY_FILTER)
         initKeaTests()
     })
@@ -199,16 +201,13 @@ describe('ReportsTab', () => {
         })
     })
 
-    // A shared link can carry `state=not-actionable`, a staff-only state. A non-staff user must not
-    // land on an empty, uncleanable list: the hidden state has no checkbox to clear, so it collapses
-    // to "all visible states" and the full list still renders.
+    // A shared link or persisted storage can carry `state=not-actionable`, a staff-only state the
+    // filter control offers no checkbox for. If it narrowed the list for a non-staff user, they
+    // would be stuck on an empty view with no way to clear it.
     it('does not trap a non-staff user on a staff-only state filter', async () => {
         mockReportRows()
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: false })
         inboxFiltersLogic.mount()
-        // `stateFilter` persists, so clear any leaked selection first: this case needs the staff-only
-        // state to be the *only* one selected, standing in for a `state=not-actionable` shared link.
-        inboxFiltersLogic.actions.clearFilters()
         inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
         inboxFiltersLogic.actions.toggleState('not-actionable')
 

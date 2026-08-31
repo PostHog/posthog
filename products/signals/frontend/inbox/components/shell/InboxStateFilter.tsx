@@ -20,23 +20,22 @@ import {
  */
 export function InboxStateFilter(): JSX.Element {
     const { isStaff } = useValues(inboxSceneLogic)
-    const { stateFilter } = useValues(inboxFiltersLogic)
+    const { stateFilter, visibleStateFilter } = useValues(inboxFiltersLogic)
     const { toggleState } = useActions(inboxFiltersLogic)
     const [visible, setVisible] = useState(false)
 
     const options = INBOX_REPORT_SECTION_KEYS.filter(
         (key) => isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)
     )
-    // Count only states this user can see. A shared link can carry the staff-only state, and the
+    // Label from the visible selection: a shared link can carry the staff-only state, and the
     // trigger must not read "Not actionable" (or an inflated count) for a state whose checkbox the
-    // dropdown hides.
-    const shownStates = stateFilter.filter((key) => options.includes(key))
+    // dropdown hides and that does not narrow the list.
     const label =
-        shownStates.length === 0
+        visibleStateFilter.length === 0
             ? 'All statuses'
-            : shownStates.length === 1
-              ? INBOX_REPORT_SECTION_LABEL[shownStates[0]]
-              : `${shownStates.length} statuses`
+            : visibleStateFilter.length === 1
+              ? INBOX_REPORT_SECTION_LABEL[visibleStateFilter[0]]
+              : `${visibleStateFilter.length} statuses`
 
     return (
         <LemonDropdown

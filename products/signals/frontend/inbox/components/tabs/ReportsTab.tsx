@@ -85,7 +85,8 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
  * One event per visit; it carries the whole loaded list rather than one view's slice.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
-    const { hasActiveFilters, sourceProductFilter, priorityFilter, stateFilter, scope } = useValues(inboxFiltersLogic)
+    const { hasActiveFilters, sourceProductFilter, priorityFilter, visibleStateFilter, scope } =
+        useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
@@ -121,10 +122,19 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             hasActiveFilters,
             sourceProductFilter,
             priorityFilter,
-            stateFilter,
+            stateFilter: visibleStateFilter,
             scope,
         })
-    }, [listVisible, settled, sections, hasActiveFilters, sourceProductFilter, priorityFilter, stateFilter, scope])
+    }, [
+        listVisible,
+        settled,
+        sections,
+        hasActiveFilters,
+        sourceProductFilter,
+        priorityFilter,
+        visibleStateFilter,
+        scope,
+    ])
 }
 
 /** Nothing has reached the inbox yet — the whole list is empty, not just one state. */
@@ -219,27 +229,30 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  */
 export function ReportsTab(): JSX.Element {
     const { isStaff } = useValues(inboxSceneLogic)
-    const { hasActiveFilters, stateFilter, scope, sortField, sortDirection } = useValues(inboxFiltersLogic)
+    const { hasActiveFilters, visibleStateFilter, scope, sortField, sortDirection } = useValues(inboxFiltersLogic)
     const sections = useSectionStates()
     useInboxViewedEvent(sections)
 
     const visibleSections: InboxReportSectionKey[] = INBOX_REPORT_SECTION_KEYS.filter(
         (key) => isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)
     )
-    // The state filter narrows which states' rows the list shows, but only over states this user can
-    // see: a shared link can carry the staff-only state, so intersect it with the staff gate first.
-    // An empty effective selection — no filter, or a filter naming only states the user can't see —
-    // means all visible states, so a non-staff user who opens a `state=not-actionable` link still
-    // sees the full list rather than an empty one with no checkbox left to clear it.
-    const effectiveStateFilter = visibleSections.filter((key) => stateFilter.includes(key))
-    const selectedSections = effectiveStateFilter.length > 0 ? effectiveStateFilter : visibleSections
+    // The state filter narrows which states' rows the list shows; an empty selection means all of
+    // them. `visibleStateFilter` already drops states the user cannot see (a staff-only state from
+    // a shared link or persisted storage), so a hidden state can never leave this empty and a
+    // non-staff user who opens a `state=not-actionable` link still sees the full list. The
+    // intersection keeps the canonical section order, which decides which state claims a report
+    // matching two of them.
+    const selectedSections =
+        visibleStateFilter.length > 0
+            ? visibleSections.filter((key) => visibleStateFilter.includes(key))
+            : visibleSections
 
     // "Nothing yet" is a claim about the whole project, so it only holds with no filters and the
     // project-wide scope; a narrowed view that matches nothing gets the filter-aware copy instead.
     // The verdict is over the states this user can see, so staff still reach Not actionable when it
     // is the only state with reports. Hold the list until every count has answered, so a slow first
     // load never flashes the "nothing yet" screen at a full inbox.
-    const narrowed = hasActiveFilters || effectiveStateFilter.length > 0
+    const narrowed = hasActiveFilters || visibleStateFilter.length > 0
     const unfilteredView = !narrowed && scope === INBOX_SCOPE_ENTIRE_PROJECT
     const countsSettled = visibleSections.every((key) => sections[key].count !== null)
     const inboxIsEmpty = unfilteredView && countsSettled && visibleSections.every((key) => sections[key].count === 0)
@@ -324,10 +337,13 @@ export function ReportsTab(): JSX.Element {
 
             {inboxIsEmpty ? (
                 <ReportsEmptyState />
+            ) : firstLoadPending ? (
+                // Hold the rows until every selected state's first page has settled: the states
+                // load in parallel, and painting the fastest one first would let the slower ones
+                // insert rows among cards already on screen.
+                <CardSkeleton count={4} variant="cards" dashed />
             ) : rows.length === 0 ? (
-                firstLoadPending ? (
-                    <CardSkeleton count={4} variant="cards" dashed />
-                ) : anyLoadFailed ? (
+                anyLoadFailed ? (
                     <div className="flex flex-col items-start gap-2 px-1 py-2">
                         <p className="m-0 text-sm text-tertiary">Couldn't load these reports.</p>
                         <LemonButton
@@ -354,8 +370,8 @@ export function ReportsTab(): JSX.Element {
                             }
                         />
                     ))}
-                    {/* Skeleton cards continue the list while more rows load – sleeker than a spinner. */}
-                    {(firstLoadPending || pageLoading) && <CardSkeleton count={2} variant="cards" dashed />}
+                    {/* Skeleton cards continue the list while the next pages load – sleeker than a spinner. */}
+                    {pageLoading && <CardSkeleton count={2} variant="cards" dashed />}
                     {anyLoadFailed && (
                         <div className="flex items-center gap-2 px-1 py-2">
                             <p className="m-0 text-sm text-tertiary">Couldn't load some of the reports.</p>
