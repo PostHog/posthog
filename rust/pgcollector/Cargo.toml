@@ -1,0 +1,41 @@
+[package]
+name = "pgcollector"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Postgres telemetry collector for RDS/Aurora, writing to a stats Postgres"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+aws-config = { workspace = true }
+# Pinned: 1.140+ requires rustc 1.94.1; the workspace image is rust:1.91.
+aws-sdk-cloudwatchlogs = "=1.139.0"
+axum = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, features = ["env"] }
+deadpool-postgres = "0.14"
+futures = { workspace = true }
+glob = "0.3"
+humantime-serde = "1"
+include_dir = "0.7"
+once_cell = { workspace = true }
+prometheus = "0.13"
+regex = { workspace = true }
+rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
+rustls = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+shellexpand = "3"
+tokio = { workspace = true }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
+tokio-postgres-rustls = "0.13"
+toml = "0.8"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+webpki-roots = "1"
+
+[lints]
+workspace = true

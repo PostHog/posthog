@@ -5,12 +5,12 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export interface LockInfo {
+interface LockInfo {
   path: string;
   ageMs: number;
 }
 
-export async function getIndexLockPath(repoPath: string): Promise<string> {
+async function getIndexLockPath(repoPath: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync(
       "git",
@@ -23,7 +23,7 @@ export async function getIndexLockPath(repoPath: string): Promise<string> {
   }
 }
 
-export async function getLockInfo(repoPath: string): Promise<LockInfo | null> {
+async function getLockInfo(repoPath: string): Promise<LockInfo | null> {
   const lockPath = await getIndexLockPath(repoPath);
   try {
     const stat = await fs.stat(lockPath);
@@ -41,7 +41,7 @@ export async function removeLock(repoPath: string): Promise<void> {
   await fs.rm(lockPath, { force: true });
 }
 
-export async function isLocked(repoPath: string): Promise<boolean> {
+async function isLocked(repoPath: string): Promise<boolean> {
   return (await getLockInfo(repoPath)) !== null;
 }
 
