@@ -973,6 +973,8 @@ CREATE TABLE posthog.logs32 (
   _bytes_uncompressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _bytes_compressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _record_count UInt64 CODEC(DoubleDelta, ZSTD(1)),
+  pattern String,
+  pattern_version UInt8,
   INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -1895,7 +1897,7 @@ CREATE TABLE posthog.sharded_events_recent (
   _timestamp DateTime,
   _offset UInt64,
   inserted_at DateTime64(6, 'UTC') DEFAULT now64()
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDateTime(inserted_at) + toIntervalDay(7) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_events_recent', '{replica}', _timestamp) ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toStartOfDay(inserted_at) TTL toDate(inserted_at) + toIntervalDay(9) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -6145,7 +6147,9 @@ CREATE TABLE posthog.logs (
   _offset UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _bytes_uncompressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
   _bytes_compressed UInt64 CODEC(DoubleDelta, ZSTD(1)),
-  _record_count UInt64 CODEC(DoubleDelta, ZSTD(1))
+  _record_count UInt64 CODEC(DoubleDelta, ZSTD(1)),
+  pattern String,
+  pattern_version UInt8
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs32');
 CREATE TABLE posthog.marketing_conversions_preaggregated (
   team_id Int64,
