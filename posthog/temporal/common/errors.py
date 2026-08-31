@@ -1,6 +1,10 @@
 import traceback
 
-from temporalio.exceptions import ApplicationError, FailureError
+from temporalio.exceptions import (
+    ApplicationError,
+    FailureError,
+    TimeoutError as TemporalTimeoutError,
+)
 
 
 class NonReportableError(Exception):
@@ -31,6 +35,15 @@ def unwrap_temporal_cause(exc: BaseException) -> ApplicationError | None:
     while isinstance(current, FailureError) and not isinstance(current, ApplicationError):
         current = current.cause
     return current if isinstance(current, ApplicationError) else None
+
+
+def find_temporal_timeout_error(exc: BaseException) -> TemporalTimeoutError | None:
+    current: BaseException | None = exc
+    while isinstance(current, FailureError):
+        if isinstance(current, TemporalTimeoutError):
+            return current
+        current = current.cause
+    return None
 
 
 def resolve_failure_type(exc: BaseException) -> str:
