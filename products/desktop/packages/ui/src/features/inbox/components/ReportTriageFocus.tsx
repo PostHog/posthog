@@ -5,6 +5,7 @@ import {
   FileTextIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
 import {
   type InboxScope,
@@ -15,6 +16,7 @@ import {
   deriveHeadline,
   displayConventionalCommitTitle,
   parseConventionalCommitTitle,
+  parsePrUrl,
   splitReportSummary,
 } from "@posthog/core/inbox/reportPresentation";
 import { Button } from "@posthog/quill";
@@ -36,6 +38,11 @@ import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/componen
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
+import {
+  findContinuableImplementationTask,
+  getTaskPrUrl,
+  useReportTasks,
+} from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { KeyHint } from "@posthog/ui/primitives/KeyHint";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
@@ -145,6 +152,27 @@ export function ReportTriageFocus({
   const clamped = Math.min(index, Math.max(0, reports.length - 1));
   const report = reports[clamped];
   const reportId = report?.id;
+  const { data: reportTasks, isLoading: reportTasksLoading } = useReportTasks(
+    reportId ?? "",
+    report?.status ?? "candidate",
+  );
+  const continuableTask = findContinuableImplementationTask(reportTasks);
+  const canCreatePr =
+    report?.status === "ready" &&
+    canCreateImplementationPr(report, {
+      hasLiveImplementationTask: continuableTask !== null,
+      isTaskLookupPending: reportTasksLoading,
+    });
+  const livePrUrl = report?.implementation_pr_merged
+    ? null
+    : report?.implementation_pr_url;
+  const existingPrUrl =
+    livePrUrl ?? (continuableTask ? getTaskPrUrl(continuableTask) : null);
+  const canOpenPr =
+    report?.status === "ready" &&
+    !!existingPrUrl &&
+    parsePrUrl(existingPrUrl) !== null;
+  const prShortcut = canOpenPr ? "open" : canCreatePr ? "create" : null;
   const previousReport = clamped > 0 ? reports[clamped - 1] : null;
   const nextReport = clamped < reports.length - 1 ? reports[clamped + 1] : null;
   const conventionalTitle = parseConventionalCommitTitle(report?.title);
@@ -438,7 +466,8 @@ export function ReportTriageFocus({
               <ReportVerdictBanner
                 report={report}
                 variant="triage-actions"
-                actionHotkey={dismissOpen ? undefined : "c"}
+                prHotkey={dismissOpen || !prShortcut ? undefined : "c"}
+                askHotkey={dismissOpen ? undefined : "q"}
                 surface="triage"
               />
               <div className="ml-auto flex items-center gap-2">
@@ -483,9 +512,15 @@ export function ReportTriageFocus({
               <KeyHint>K</KeyHint>
               move
             </span>
+            {prShortcut && (
+              <span className="flex items-center gap-1">
+                <KeyHint>C</KeyHint>
+                {prShortcut === "open" ? "open PR" : "create PR"}
+              </span>
+            )}
             <span className="flex items-center gap-1">
-              <KeyHint>C</KeyHint>
-              create PR
+              <KeyHint>Q</KeyHint>
+              ask
             </span>
             <span className="flex items-center gap-1">
               <KeyHint>A</KeyHint>

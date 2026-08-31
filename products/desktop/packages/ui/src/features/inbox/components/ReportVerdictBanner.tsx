@@ -64,7 +64,7 @@ type ReportVerdictBannerVariant = "full" | "header-actions" | "triage-actions";
 interface ReportVerdictBannerProps {
   report: SignalReport;
   variant?: ReportVerdictBannerVariant;
-  actionHotkey?: string;
+  prHotkey?: string;
   askHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
@@ -82,7 +82,7 @@ interface ReportVerdictBannerProps {
 export function ReportVerdictBanner({
   report,
   variant = "full",
-  actionHotkey,
+  prHotkey,
   askHotkey,
   initialEngagementOnly = false,
   onEngaged,
@@ -91,7 +91,6 @@ export function ReportVerdictBanner({
   const compact = variant === "header-actions";
   const triageActions = variant === "triage-actions";
   const buttonClass = BIG_BUTTON;
-  const canCreatePr = canCreateImplementationPr(report);
   const { data: artefactsResp } = useInboxReportArtefacts(report.id);
   const cloudRepository = extractRepoSelectionRepository(
     artefactsResp?.results,
@@ -107,6 +106,10 @@ export function ReportVerdictBanner({
     report.status,
   );
   const continuableTask = findContinuableImplementationTask(reportTasks);
+  const canCreatePr = canCreateImplementationPr(report, {
+    hasLiveImplementationTask: continuableTask !== null,
+    isTaskLookupPending: reportTasksLoading,
+  });
   // A merged PR is history, not live work: the report only still exists
   // because evidence kept arriving after the fix, so it reads by its own
   // state (usually "needs your decision" again) rather than "review the PR".
@@ -227,6 +230,11 @@ export function ReportVerdictBanner({
     void openTask(continuableTask);
   }, [continuableTask, fireAction, onEngaged, openTask, setChatOpen, surface]);
 
+  const handleOpenChat = useCallback(() => {
+    setChatOpen(true);
+    onEngaged?.();
+  }, [onEngaged, setChatOpen]);
+
   const handleAsk = useCallback(() => {
     if (isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading) {
       return;
@@ -274,11 +282,11 @@ export function ReportVerdictBanner({
   // Keyboard actions use the same guards as their buttons so shortcuts cannot
   // bypass loading, disabled, or duplicate-work states.
   useEffect(() => {
-    if (!actionHotkey && !askHotkey) return;
+    if (!prHotkey && !askHotkey) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const matchesAction = event.key === actionHotkey;
+      const matchesPr = event.key === prHotkey;
       const matchesAsk = event.key === askHotkey;
-      if (!matchesAction && !matchesAsk) return;
+      if (!matchesPr && !matchesAsk) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
       if (
@@ -294,26 +302,21 @@ export function ReportVerdictBanner({
         return;
       }
       if (matchesAsk) {
-        if (
-          isCreatingPr ||
-          isDiscussing ||
-          awaitingChannel ||
-          reportTasksLoading
-        ) {
-          return;
-        }
+        if (isCreatingPr || isDiscussing) return;
+        if (!triageActions && (awaitingChannel || reportTasksLoading)) return;
         event.preventDefault();
-        setAskOpen(true);
+        if (triageActions) {
+          handleOpenChat();
+        } else {
+          setAskOpen(true);
+        }
         return;
       }
       if (report.status !== "ready" || isCreatingPr) return;
       if (externalPrUrl) {
         event.preventDefault();
         handleOpenPr();
-      } else if (continuableTask) {
-        event.preventDefault();
-        handleOpenTask();
-      } else if (!hasExistingPr && canCreatePr) {
+      } else if (canCreatePr) {
         event.preventDefault();
         setPrOpen(true);
       }
@@ -321,19 +324,18 @@ export function ReportVerdictBanner({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
-    actionHotkey,
+    prHotkey,
     askHotkey,
     report.status,
     isCreatingPr,
     isDiscussing,
     awaitingChannel,
     reportTasksLoading,
+    triageActions,
+    handleOpenChat,
     externalPrUrl,
-    continuableTask,
-    hasExistingPr,
     canCreatePr,
     handleOpenPr,
-    handleOpenTask,
   ]);
 
   if (
@@ -449,6 +451,18 @@ export function ReportVerdictBanner({
           </PopoverContent>
         </Popover>
       ) : null}
+      {triageActions && (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={isCreatingPr || isDiscussing}
+          className={buttonClass}
+          onClick={handleOpenChat}
+        >
+          <ChatCircleIcon size={16} />
+          Ask about it
+        </Button>
+      )}
       {!triageActions && (
         <Popover
           open={askOpen}

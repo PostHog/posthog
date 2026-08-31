@@ -9,6 +9,7 @@ const {
   createPrReport,
   discussReport,
   invalidateQueries,
+  openExternalUrl,
   openTask,
   setQueryData,
   useDiscussReport,
@@ -17,6 +18,7 @@ const {
   createPrReport: vi.fn(),
   discussReport: vi.fn(),
   invalidateQueries: vi.fn(),
+  openExternalUrl: vi.fn(),
   openTask: vi.fn(),
   setQueryData: vi.fn(),
   useDiscussReport: vi.fn(),
@@ -74,6 +76,10 @@ vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
 
 vi.mock("@posthog/ui/router/useOpenTask", () => ({
   useOpenTask: () => openTask,
+}));
+
+vi.mock("@posthog/ui/shell/openExternal", () => ({
+  openExternalUrl,
 }));
 
 import { ReportVerdictBanner } from "./ReportVerdictBanner";
@@ -139,6 +145,7 @@ describe("ReportVerdictBanner", () => {
     discussReport.mockReset();
     discussReport.mockResolvedValue(undefined);
     invalidateQueries.mockReset();
+    openExternalUrl.mockReset();
     openTask.mockReset();
     setQueryData.mockReset();
     onDiscussionCreated = undefined;
@@ -195,13 +202,15 @@ describe("ReportVerdictBanner", () => {
     expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
   });
 
-  it("offers review and discussion for an existing fix without a continue action", () => {
+  it("uses the PR shortcut to open an existing PR", async () => {
+    const user = userEvent.setup();
     render(
       <ReportVerdictBanner
         report={{
           ...report,
           implementation_pr_url: "https://github.com/PostHog/posthog/pull/1",
         }}
+        prHotkey="c"
       />,
     );
 
@@ -210,9 +219,15 @@ describe("ReportVerdictBanner", () => {
     expect(screen.queryByText("Continue the task")).not.toBeInTheDocument();
     expect(screen.queryByText("Create PR")).not.toBeInTheDocument();
     expect(screen.queryByText("Defer")).not.toBeInTheDocument();
+
+    await user.keyboard("c");
+
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      "https://github.com/PostHog/posthog/pull/1",
+    );
   });
 
-  it("opens running implementation work without starting a duplicate", async () => {
+  it("does not use the PR shortcut for running work without a PR", async () => {
     const user = userEvent.setup();
     useReportTasks.mockReturnValue({
       data: [runningImplementationTask],
@@ -222,7 +237,7 @@ describe("ReportVerdictBanner", () => {
     render(
       <ReportVerdictBanner
         report={{ ...report, actionability: "immediately_actionable" }}
-        actionHotkey="c"
+        prHotkey="c"
       />,
     );
 
@@ -232,7 +247,7 @@ describe("ReportVerdictBanner", () => {
 
     await user.keyboard("c");
 
-    expect(openTask).toHaveBeenCalledWith(runningImplementationTask.task);
+    expect(openTask).not.toHaveBeenCalled();
     expect(createPrReport).not.toHaveBeenCalled();
   });
 
@@ -242,12 +257,13 @@ describe("ReportVerdictBanner", () => {
       <ReportVerdictBanner
         report={{ ...report, actionability: "immediately_actionable" }}
         variant="triage-actions"
-        actionHotkey="c"
+        prHotkey="c"
+        askHotkey="q"
         surface="triage"
       />,
     );
 
-    expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
+    expect(screen.getByText("Ask about it")).toBeInTheDocument();
 
     await user.keyboard("c");
 
@@ -261,5 +277,22 @@ describe("ReportVerdictBanner", () => {
     expect(createPrReport).toHaveBeenCalledWith(
       "Start with the smallest safe change",
     );
+  });
+
+  it("opens report chat from the triage ask shortcut", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReportVerdictBanner
+        report={report}
+        variant="triage-actions"
+        askHotkey="q"
+        surface="triage"
+      />,
+    );
+
+    await user.keyboard("q");
+
+    expect(useReportChatPanelStore.getState().open).toBe(true);
+    expect(discussReport).not.toHaveBeenCalled();
   });
 });
