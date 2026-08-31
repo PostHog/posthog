@@ -12,11 +12,6 @@
             They will be retried automatically on their next scheduled run, but the data in these tables may be out of
             date until a sync succeeds.
         {% endif %}
-        {% if has_billing_limited %}
-            Syncs marked <strong>billing limit reached</strong> are stopped because this project is over its rows
-            synced limit. The error shown is from the last sync that reached the source. Raise the limit in your
-            billing settings to start syncing again.
-        {% endif %}
     </p>
     {% regroup schemas by source_id as source_groups %}
     {% for group in source_groups %}
@@ -92,13 +87,6 @@
                                              padding: 2px 10px;
                                              font-size: 0.75em;
                                              font-weight: 600">Paused &mdash; action required</span>
-                            {% elif schema.billing_limited %}
-                                <span style="background-color: #fef3c7;
-                                             color: #b45309;
-                                             border-radius: 9999px;
-                                             padding: 2px 10px;
-                                             font-size: 0.75em;
-                                             font-weight: 600">Billing limit reached</span>
                             {% else %}
                                 <span style="background-color: #f3f4f6;
                                              color: #6b7280;

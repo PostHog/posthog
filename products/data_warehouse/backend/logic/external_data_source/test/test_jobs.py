@@ -377,8 +377,7 @@ class TestUpdateExternalJobStatus:
     )
     def test_billing_limit_moves_the_status_but_keeps_the_error(self, starting_status, starting_error):
         # The billing gate returns before extraction, so a billing-limited run must not erase the
-        # connection error a real failure left behind. That error is what the digest, the schema
-        # tooltip, and the pipeline status panel read while the limit holds.
+        # connection error a real failure left behind.
         team, _source, schema, job = _create_org_team_source_schema_job()
         schema.status = starting_status
         schema.latest_error = starting_error

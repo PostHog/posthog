@@ -975,7 +975,6 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
         return False
 
     paused_count = sum(1 for schema in schemas if schema["paused"])
-    billing_limited_count = sum(1 for schema in schemas if schema.get("billing_limited"))
     subject = (
         f"[Alert] Data warehouse syncs paused in project '{team.name}'"
         if paused_count == len(schemas) and omitted_count == 0
@@ -990,7 +989,6 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
             "team": team,
             "schemas": schemas,
             "has_paused": paused_count > 0,
-            "has_billing_limited": billing_limited_count > 0,
             "omitted_count": omitted_count,
             "sources_url": f"{settings.SITE_URL}/project/{team.id}/data-management/sources",
         },
