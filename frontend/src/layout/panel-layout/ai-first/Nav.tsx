@@ -70,7 +70,7 @@ export function SectionTrigger({
     return (
         <Collapsible.Trigger
             className={cn(
-                'flex items-center py-1 cursor-pointer group pl-2 sticky top-0 bg-surface-tertiary z-4 -mx-1 px-2 w-[calc(100%+(var(--spacing)*2))] -outline-offset-2',
+                'flex items-center py-[var(--nav-section-trigger-padding-y,0.25rem)] cursor-pointer group pl-2 sticky top-0 bg-surface-tertiary z-4 -mx-1 px-2 w-[calc(100%+(var(--spacing)*2))] -outline-offset-2',
                 isCollapsed && 'mx-0 w-full px-px'
             )}
         >

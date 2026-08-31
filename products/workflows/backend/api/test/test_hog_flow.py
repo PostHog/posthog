@@ -239,6 +239,40 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
 
+    @parameterized.expand(
+        [
+            ("messaging", "messaging", {"Email drip", "Push blast"}),
+            ("automation", "automation", {"Webhook sync"}),
+        ]
+    )
+    def test_list_filter_by_workflow_type(self, _name, workflow_type, expected_names):
+        HogFlow.objects.create(
+            team=self.team,
+            name="Email drip",
+            created_by=self.user,
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Push blast",
+            created_by=self.user,
+            actions=[{"id": "a", "type": "function_push", "config": {}}],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Webhook sync",
+            created_by=self.user,
+            actions=[{"id": "a", "type": "function", "config": {}}],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type={workflow_type}")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    def test_list_filter_by_workflow_type_rejects_unknown_value(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
+        assert response.status_code == 400
+
     def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
         # A webhook action whose headers carry a bearer token — the kind of credential-like value
         # that must not leak from a workflow *listing*.
@@ -2462,6 +2496,128 @@ class TestHogFlowAPI(APIBaseTest):
             "name": "Test Slack Flow",
             "status": "draft",
             "actions": [self._slack_trigger_action([])],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+    @staticmethod
+    def _github_trigger_action(properties: list[dict]) -> dict:
+        return {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "github-event", "filters": {"properties": properties}},
+        }
+
+    def test_hog_flow_github_trigger_saves_and_compiles_filters(self):
+        # Before this branch existed, github-event fell through to "Invalid trigger type" on every
+        # non-draft save, so the trigger this registers in the frontend could never activate.
+        properties = [
+            {"key": "repository", "value": ["PostHog/posthog"], "operator": "exact", "type": "event"},
+            {"key": "event_type", "value": ["issues"], "operator": "exact", "type": "event"},
+        ]
+        hog_flow = {
+            "name": "Test GitHub Flow",
+            "status": "active",
+            "actions": [self._github_trigger_action(properties)],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        stored = response.json()["trigger"]["filters"]["properties"]
+        assert {p["key"] for p in stored} == {"repository", "event_type"}
+
+    @parameterized.expand(
+        [
+            ("no_properties", []),
+            (
+                "no_repository_entry",
+                [{"key": "event_type", "value": ["issues"], "operator": "exact", "type": "event"}],
+            ),
+            (
+                "blank_repository_value",
+                [
+                    {"key": "repository", "value": [""], "operator": "exact", "type": "event"},
+                    {"key": "event_type", "value": ["issues"], "operator": "exact", "type": "event"},
+                ],
+            ),
+            # Presence operators store the operator string as the value, so the value looks
+            # non-empty while the compiled filter matches every repository.
+            (
+                "is_set_repository",
+                [
+                    {"key": "repository", "value": "is_set", "operator": "is_set", "type": "event"},
+                    {"key": "event_type", "value": ["issues"], "operator": "exact", "type": "event"},
+                ],
+            ),
+            (
+                "negated_repository",
+                [
+                    {"key": "repository", "value": ["PostHog/posthog"], "operator": "is_not", "type": "event"},
+                    {"key": "event_type", "value": ["issues"], "operator": "exact", "type": "event"},
+                ],
+            ),
+            (
+                "regex_repository",
+                [
+                    {"key": "repository", "value": [".*"], "operator": "regex", "type": "event"},
+                    {"key": "event_type", "value": ["issues"], "operator": "exact", "type": "event"},
+                ],
+            ),
+        ]
+    )
+    def test_hog_flow_github_trigger_requires_a_repository_filter_to_activate(self, _name, properties):
+        # Only the builder UI asks for a repository; without this server-side check, a flow
+        # activated via the raw API or MCP fires on every delivery from every repository the
+        # GitHub app is installed on.
+        hog_flow = {
+            "name": "Test GitHub Flow",
+            "status": "active",
+            "actions": [self._github_trigger_action(properties)],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "repository" in response.json()["detail"].lower()
+
+    def test_hog_flow_github_trigger_requires_an_event_type_filter_to_activate(self):
+        # Same requirement, the sibling key: a repository alone still fires on every event type
+        # the workflows handler is registered for.
+        properties = [{"key": "repository", "value": ["PostHog/posthog"], "operator": "exact", "type": "event"}]
+        hog_flow = {
+            "name": "Test GitHub Flow",
+            "status": "active",
+            "actions": [self._github_trigger_action(properties)],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "event" in response.json()["detail"].lower()
+
+    def test_hog_flow_github_trigger_gap_is_caught_at_enable(self):
+        # The workflows table's Enable button patches status alone, skipping the builder's
+        # repository validation, so activation-time re-validation is what has to catch it.
+        draft = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test GitHub Flow", "status": "draft", "actions": [self._github_trigger_action([])]},
+        )
+        assert draft.status_code == 201, draft.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "repository" in response.json()["detail"].lower()
+
+    def test_hog_flow_github_trigger_draft_saves_without_a_repository(self):
+        # The builder saves mid-edit drafts before a repository is picked; only activation
+        # fails closed.
+        hog_flow = {
+            "name": "Test GitHub Flow",
+            "status": "draft",
+            "actions": [self._github_trigger_action([])],
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
