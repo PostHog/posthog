@@ -598,14 +598,15 @@
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>JSONCleanPostHogEventProperties</name>
         <return_type>String</return_type>
         <argument>
             <type>String</type>
         </argument>
         <format>Raw</format>
-        <command>json_clean_posthog_event_properties_udf</command>
+        <command>json_clean_posthog_event_properties_udf --chunked</command>
+        <send_chunk_header>true</send_chunk_header>
     </function>
 
     <function>

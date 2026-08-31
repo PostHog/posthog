@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -180,6 +181,19 @@ func TestProcessLineErrorsOnMalformedJSON(t *testing.T) {
 	var got bytes.Buffer
 	if err := processLine([]byte(`{"broken"`), &got); err == nil {
 		t.Fatal("expected error for malformed JSON, got nil")
+	}
+}
+
+func TestRunChunked(t *testing.T) {
+	input := "2\n{\"drop\":null,\"keep\":1}\n{\"$feature/enabled\":true}\n1\n{\"drop\":null}\n"
+	want := "{\"keep\":1}\n{\"$feature_flags\":{\"enabled\":true}}\n{}\n"
+	var output bytes.Buffer
+
+	if err := runChunked(strings.NewReader(input), &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != want {
+		t.Fatalf("runChunked() = %q, want %q", output.String(), want)
 	}
 }
 

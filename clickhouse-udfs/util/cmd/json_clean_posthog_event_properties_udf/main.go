@@ -1132,8 +1132,77 @@ func borrowedBytes(s string) []byte {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
+func run(input io.Reader, output io.Writer) error {
+	reader := bufio.NewReaderSize(input, 4*1024*1024)
+	writer := bufio.NewWriterSize(output, 4*1024*1024)
+	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
+	proc := processor{}
+
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("stdin read error: %w", err)
+		}
+		if len(line) == 0 && err == io.EOF {
+			return writer.Flush()
+		}
+
+		hadNewline := len(line) > 0 && line[len(line)-1] == '\n'
+		line = bytes.TrimSuffix(line, []byte{'\n'})
+		line = bytes.TrimSuffix(line, []byte{'\r'})
+		if processErr := proc.processLine(line, buf); processErr != nil {
+			return fmt.Errorf("line processing error: %w", processErr)
+		}
+		if _, writeErr := writer.Write(buf.Bytes()); writeErr != nil {
+			return fmt.Errorf("stdout write error: %w", writeErr)
+		}
+		if hadNewline {
+			if writeErr := writer.WriteByte('\n'); writeErr != nil {
+				return fmt.Errorf("stdout write error: %w", writeErr)
+			}
+		}
+		if err == io.EOF {
+			return writer.Flush()
+		}
+	}
+}
+
+func runChunked(input io.Reader, output io.Writer) error {
+	reader := bufio.NewReaderSize(input, 4*1024*1024)
+	writer := bufio.NewWriterSize(output, 4*1024*1024)
+	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
+	proc := processor{}
+
+	for {
+		var rows int
+		if _, err := fmt.Fscanln(reader, &rows); err == io.EOF {
+			return writer.Flush()
+		} else if err != nil {
+			return fmt.Errorf("chunk header read error: %w", err)
+		}
+		for range rows {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return fmt.Errorf("stdin read error: %w", err)
+			}
+			line = bytes.TrimSuffix(line, []byte{'\n'})
+			line = bytes.TrimSuffix(line, []byte{'\r'})
+			if processErr := proc.processLine(line, buf); processErr != nil {
+				return fmt.Errorf("line processing error: %w", processErr)
+			}
+			if _, writeErr := writer.Write(append(buf.Bytes(), '\n')); writeErr != nil {
+				return fmt.Errorf("stdout write error: %w", writeErr)
+			}
+		}
+		if err := writer.Flush(); err != nil {
+			return fmt.Errorf("stdout flush error: %w", err)
+		}
+	}
+}
+
 func main() {
 	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
+	chunked := flag.Bool("chunked", false, "read a row-count header before each input chunk")
 	flag.Parse()
 
 	if *cpuProfile != "" {
@@ -1153,43 +1222,12 @@ func main() {
 		}()
 	}
 
-	reader := bufio.NewReaderSize(os.Stdin, 4*1024*1024)
-	writer := bufio.NewWriterSize(os.Stdout, 4*1024*1024)
-	defer writer.Flush()
-
-	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
-	proc := processor{}
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil && err != io.EOF {
-			fmt.Fprintf(os.Stderr, "stdin read error: %v\n", err)
-			os.Exit(1)
-		}
-		if len(line) == 0 && err == io.EOF {
-			return
-		}
-
-		hadNewline := false
-		n := len(line)
-		if n > 0 && line[n-1] == '\n' {
-			hadNewline = true
-			n--
-		}
-		if n > 0 && line[n-1] == '\r' {
-			n--
-		}
-
-		if procErr := proc.processLine(line[:n], buf); procErr != nil {
-			fmt.Fprintf(os.Stderr, "line processing error: %v\n", procErr)
-			os.Exit(1)
-		}
-
-		_, _ = writer.Write(buf.Bytes())
-		if hadNewline {
-			_, _ = writer.WriteString("\n")
-		}
-		if err == io.EOF {
-			return
-		}
+	runner := run
+	if *chunked {
+		runner = runChunked
+	}
+	if err := runner(os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
