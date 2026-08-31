@@ -68,6 +68,12 @@ export type NotebookKernelInfoLogicProps = {
      * render one, so polling them costs a 404 every 10 seconds for as long as the page is open.
      */
     mode?: NotebookLogicMode
+    /**
+     * True on a shared or exported view, which renders from `cachedNotebook` precisely so it
+     * issues no team-scoped requests. Both kernel endpoints are team-scoped, so a logged-out
+     * viewer would get a 401 from each. Nobody can start a kernel from such a view anyway.
+     */
+    isShared?: boolean
 }
 
 /**
@@ -678,7 +684,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         },
     })),
     afterMount(({ actions, cache, props, values }) => {
-        if (props.mode && props.mode !== 'notebook') {
+        if ((props.mode && props.mode !== 'notebook') || props.isShared) {
             return
         }
         // Replacing the kea context drops this logic's path from the store without unmounting it,
