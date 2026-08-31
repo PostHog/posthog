@@ -140,14 +140,13 @@ class ErrorTrackingWeeklyDigestPageWorkflow(PostHogWorkflow):
 
 @workflow.defn(name=WORKFLOW_NAME)
 class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
-    """Discovers orgs once, stores the list in object storage, and fans the pages out as
-    child workflows, ``max_concurrent_pages`` at a time.
+    """Discovers orgs once, stores the list in object storage, and fans every page out as
+    a child workflow immediately.
 
     Only a storage key and a count ride through workflow history, so history and payload
-    sizes stay flat regardless of org count. The page cap is what holds the run's peak
-    ClickHouse load flat too: the offline cluster has a global concurrent-query limit that
-    this run shares with every other product, and an uncapped fan-out raises the digest's
-    demand for it every time the org count grows.
+    sizes stay flat regardless of org count. All children start at once, so the run's peak
+    ClickHouse demand is ``max_concurrent`` per page times the page count, and it grows with
+    the org count. The worker fleet's activity-slot capacity is the outer bound.
     """
 
     inputs_cls = WeeklyDigestInputs
@@ -164,15 +163,6 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
         # range and reports a successful run that sent nothing.
         if inputs.page_size < 1:
             raise ApplicationError(f"page_size must be at least 1, got {inputs.page_size}", non_retryable=True)
-
-        # Same reasoning, for the value the page semaphore is built from. Zero makes every page
-        # wait on a permit that never arrives, so the run hangs until the workflow timeout instead
-        # of failing; a negative value raises ValueError inside the workflow, which Temporal retries
-        # as a workflow task forever.
-        if inputs.max_concurrent_pages < 1:
-            raise ApplicationError(
-                f"max_concurrent_pages must be at least 1, got {inputs.max_concurrent_pages}", non_retryable=True
-            )
 
         info = workflow.info()
         # run_id-scoped so a re-run of the same workflow id can never read a stale list.
@@ -191,28 +181,23 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
             for page_number in range(1, page_count + 1)
         ]
 
-        # Releases as soon as a page finishes, so the next page starts immediately instead of
-        # waiting for a whole wave of pages to drain.
-        page_semaphore = asyncio.Semaphore(inputs.max_concurrent_pages)
-
         async def run_page(page_number: int) -> WeeklyDigestResult:
-            async with page_semaphore:
-                return await workflow.execute_child_workflow(
-                    ErrorTrackingWeeklyDigestPageWorkflow.run,
-                    WeeklyDigestPageInputs(
-                        storage_key=storage_key,
-                        page_number=page_number,
-                        page_size=inputs.page_size,
-                        dry_run=inputs.dry_run,
-                        max_concurrent=inputs.max_concurrent,
-                        max_attempts=inputs.max_attempts,
-                    ),
-                    id=f"{info.workflow_id}-page-{page_number}",
-                    # Explicitly the default: terminating the parent must stop all page
-                    # children too, so killing the parent is a reliable stop-everything
-                    # switch and no abandoned child keeps sending digests.
-                    parent_close_policy=workflow.ParentClosePolicy.TERMINATE,
-                )
+            return await workflow.execute_child_workflow(
+                ErrorTrackingWeeklyDigestPageWorkflow.run,
+                WeeklyDigestPageInputs(
+                    storage_key=storage_key,
+                    page_number=page_number,
+                    page_size=inputs.page_size,
+                    dry_run=inputs.dry_run,
+                    max_concurrent=inputs.max_concurrent,
+                    max_attempts=inputs.max_attempts,
+                ),
+                id=f"{info.workflow_id}-page-{page_number}",
+                # Explicitly the default: terminating the parent must stop all page
+                # children too, so killing the parent is a reliable stop-everything
+                # switch and no abandoned child keeps sending digests.
+                parent_close_policy=workflow.ParentClosePolicy.TERMINATE,
+            )
 
         results = await asyncio.gather(
             *(run_page(page_number) for page_number in range(1, page_count + 1)), return_exceptions=True
