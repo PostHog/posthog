@@ -38,13 +38,20 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
     const { setStateFilter, setCiStatusFilter, setSearch, resetFilters, applyCardFilter, refresh } =
         useActions(engineeringAnalyticsLogic)
     const { timing, timingLoading } = useValues(timeToProductionLogic)
-    const { dora, doraLoading } = useValues(doraLogic)
+    const { dora, doraLoading, environmentScopeLabel, githubTeam } = useValues(doraLogic)
 
     const pipeline = timing?.delivery_pipeline
     const deploysSynced = !!dora?.deploy_data_available
+    // The deploy figures follow the Health tab's environment and team scope, so name that scope
+    // next to them instead of letting a narrowed number sit beside the repo-wide legs unlabeled.
+    const deployScopeLabel = githubTeam ? `${environmentScopeLabel}, ${githubTeam}` : environmentScopeLabel
     const mergeToDeploy =
         deploysSynced && dora
-            ? { medianSeconds: dora.median_merge_to_deploy_seconds ?? null, prCount: dora.deployed_pr_count }
+            ? {
+                  medianSeconds: dora.median_merge_to_deploy_seconds ?? null,
+                  prCount: dora.deployed_pr_count,
+                  scopeLabel: deployScopeLabel,
+              }
             : null
     // timingLoading with nothing on screen is the first fetch; the cards show a skeleton rather than
     // an empty state, which would read as "nothing merged".
@@ -96,13 +103,13 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                             emptyText="No PRs merged in the window yet."
                         />
                         <WindowComparisonCard
-                            title="Median time from merge to production"
+                            title={`Median time from merge to production (${deployScopeLabel})`}
                             value={dora?.median_merge_to_deploy_seconds}
                             previousValue={dora?.median_merge_to_deploy_seconds_prev}
                             formatValue={compactAgeLabel}
                             goodWhenDown
                             loading={doraLoading && !dora}
-                            tooltip="Median wait from a PR's merge to the first successful production deploy containing it, resolved through the deploy head commit. The same measure as the Health tab."
+                            tooltip="Median wait from a PR's merge to the first successful deploy containing it, resolved through the deploy head commit. The same measure as the Health tab, in the environment and team scope selected there."
                             emptyText={
                                 dora && !dora.deploy_data_available
                                     ? 'Production timing appears once the deployments source is synced.'

@@ -354,7 +354,7 @@ def _gate_runs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     {
                         "id": 9_900_000_000 + index * 100 + attempt * 10 + wf_index,
                         "name": workflow,
-                        "head_sha": f"9a7e{index:05d}{attempt}{wf_index}" + "d" * 26,
+                        "head_sha": f"9a7e{index:05d}{attempt}{wf_index}" + "d" * 29,
                         "head_branch": f"trunk-merge/pr-{pr['number']}/{index:08d}-{attempt}",
                         "status": "completed",
                         "conclusion": "failure" if failed and wf_index == 0 else "success",

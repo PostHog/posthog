@@ -37,6 +37,8 @@ const MERGE_TO_DEPLOY_COPY: LegCopy = {
 export interface MergeToDeployLeg {
     medianSeconds: number | null
     prCount: number
+    /** The Health tab's environment and team scope, shown beside the count because the legs above are repo-wide. */
+    scopeLabel: string
 }
 
 interface RenderedLeg {
@@ -45,6 +47,7 @@ interface RenderedLeg {
     medianSeconds: number
     p90Seconds: number | null
     prCount: number
+    countSuffix?: string
 }
 
 export function DeliveryPipeline({
@@ -82,6 +85,7 @@ export function DeliveryPipeline({
             medianSeconds: mergeToDeploy.medianSeconds,
             p90Seconds: null,
             prCount: mergeToDeploy.prCount,
+            countSuffix: mergeToDeploy.scopeLabel,
         })
     }
     if (legs.length === 0) {
@@ -106,11 +110,13 @@ export function DeliveryPipeline({
                     share={slowest > 0 ? leg.medianSeconds / slowest : 0}
                     color={leg.medianSeconds === slowest ? 'var(--data-color-1)' : 'var(--muted)'}
                     value={compactAgeLabel(leg.medianSeconds)}
-                    valueSub={
-                        leg.p90Seconds != null
-                            ? `p90 ${compactAgeLabel(leg.p90Seconds)} · ${compactCount(leg.prCount)} PRs`
-                            : `${compactCount(leg.prCount)} PRs`
-                    }
+                    valueSub={[
+                        leg.p90Seconds != null ? `p90 ${compactAgeLabel(leg.p90Seconds)}` : null,
+                        `${compactCount(leg.prCount)} PRs`,
+                        leg.countSuffix ?? null,
+                    ]
+                        .filter(Boolean)
+                        .join(' · ')}
                 />
             ))}
         </LemonCard>

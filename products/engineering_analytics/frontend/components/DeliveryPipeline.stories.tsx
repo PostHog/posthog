@@ -31,7 +31,7 @@ export default meta
 type Story = StoryObj<typeof DeliveryPipeline>
 
 export const AllStages: Story = {
-    args: { pipeline: FULL, mergeToDeploy: { medianSeconds: 29 * 60 + 42, prCount: 48 } },
+    args: { pipeline: FULL, mergeToDeploy: { medianSeconds: 29 * 60 + 42, prCount: 48, scopeLabel: 'production' } },
 }
 
 // Without the deployments source the deploy leg is absent, not zero.
