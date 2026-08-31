@@ -2906,8 +2906,15 @@ dependencies = [
 name = "common-kafka-consumer"
 version = "0.1.0"
 dependencies = [
+ "futures",
+ "metrics",
  "proptest",
  "rdkafka",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

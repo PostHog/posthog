@@ -8,7 +8,14 @@ publish = false
 workspace = true
 
 [dependencies]
+futures = { workspace = true }
+metrics = { workspace = true }
 rdkafka = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 proptest = "1"
+tracing-subscriber = { workspace = true }
