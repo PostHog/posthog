@@ -113,4 +113,29 @@ describe('NotebookMermaidBlock', () => {
         expect(updater(node)).toEqual({ ...node, text: 'flowchart LR; A-->C' })
         await waitFor(() => expect(screen.queryByLabelText('Mermaid definition')).not.toBeInTheDocument())
     })
+
+    it('debounces the live preview so rapid edits do not each start a render', async () => {
+        renderMock.mockResolvedValue({ svg: '<svg data-testid="rendered"><g/></svg>' })
+
+        render(
+            <NotebookMermaidBlock
+                node={codeNode('flowchart LR; A-->B', 'mermaid')}
+                mode="edit"
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+            />
+        )
+
+        fireEvent.click(screen.getByLabelText('Edit diagram'))
+        const definition = screen.getByLabelText('Mermaid definition')
+
+        // Three keystrokes inside one debounce window collapse to a single preview render of the last value.
+        fireEvent.change(definition, { target: { value: 'flowchart LR; A-->C' } })
+        fireEvent.change(definition, { target: { value: 'flowchart LR; A-->CD' } })
+        fireEvent.change(definition, { target: { value: 'flowchart LR; A-->CDE' } })
+
+        await waitFor(() => expect(renderMock).toHaveBeenCalledWith(expect.any(String), 'flowchart LR; A-->CDE'))
+        expect(renderMock).not.toHaveBeenCalledWith(expect.any(String), 'flowchart LR; A-->C')
+        expect(renderMock).not.toHaveBeenCalledWith(expect.any(String), 'flowchart LR; A-->CD')
+    })
 })

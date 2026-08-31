@@ -5,6 +5,7 @@ import { LemonButton, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lem
 import { PostHogErrorBoundary } from '@posthog/react'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { updateNotebookCodeBlockText } from './documentModel'
@@ -12,6 +13,10 @@ import { NotebookBlockNode, NotebookCodeBlockNode, NotebookMode } from './types'
 
 // Loaded on demand so the mermaid library ships in its own chunk rather than the notebook bundle.
 const LazyMermaidDiagram = lazy(() => import('lib/lemon-ui/LemonMarkdown/MermaidDiagram'))
+
+// Wait for a pause in typing before re-rendering the preview, so a burst of keystrokes runs one
+// Mermaid render instead of one parse and layout per character.
+const MERMAID_PREVIEW_DEBOUNCE_MS = 250
 
 export function isMermaidCodeBlock(node: NotebookCodeBlockNode): boolean {
     return node.language?.toLowerCase() === 'mermaid'
@@ -30,7 +35,8 @@ export function NotebookMermaidBlock({
 }): JSX.Element {
     const [isEditorOpen, setIsEditorOpen] = useState(false)
     const [draft, setDraft] = useState(node.text)
-    const previewCode = isEditorOpen ? draft : node.text
+    const debouncedDraft = useDebouncedValue(draft, MERMAID_PREVIEW_DEBOUNCE_MS)
+    const previewCode = isEditorOpen ? debouncedDraft : node.text
 
     const openEditor = (): void => {
         setDraft(node.text)
