@@ -3,11 +3,13 @@ from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models.signals import post_delete, post_save
 
 import structlog
 
+from posthog.models.organization import Organization, OrganizationMembership
+
 if TYPE_CHECKING:
-    from posthog.models.organization import Organization, OrganizationMembership
     from posthog.models.user import User
 
 
@@ -55,9 +57,7 @@ def _cache_organization(organization: "Organization") -> None:
     _set_access_cache_value(_organization_cache_key(organization.id), organization)
 
 
-def get_cached_organization(organization_id: str | UUID) -> "Organization | None":
-    from posthog.models.organization import Organization  # noqa: PLC0415 -- avoids a model import cycle
-
+def get_cached_organization(organization_id: str | UUID) -> Organization | None:
     key = _organization_cache_key(organization_id)
     cached = _get_access_cache_value(key)
     if cached == _ORGANIZATION_ACCESS_CACHE_MISS:
@@ -95,9 +95,7 @@ def _cache_membership(membership: "OrganizationMembership") -> None:
         membership._state.fields_cache["user"] = user
 
 
-def get_cached_organization_membership(organization_id: str | UUID, user: "User") -> "OrganizationMembership | None":
-    from posthog.models.organization import OrganizationMembership  # noqa: PLC0415 -- avoids a model import cycle
-
+def get_cached_organization_membership(organization_id: str | UUID, user: "User") -> OrganizationMembership | None:
     key = _organization_membership_cache_key(organization_id, user.id)
     cached = _get_access_cache_value(key)
     if cached == _ORGANIZATION_ACCESS_CACHE_MISS:
@@ -118,9 +116,7 @@ def get_cached_organization_membership(organization_id: str | UUID, user: "User"
     return _prepare_cached_membership(membership, user)
 
 
-def get_cached_organization_memberships(user: "User") -> list["OrganizationMembership"]:
-    from posthog.models.organization import OrganizationMembership  # noqa: PLC0415 -- avoids a model import cycle
-
+def get_cached_organization_memberships(user: "User") -> list[OrganizationMembership]:
     key = _user_organization_memberships_cache_key(user.id)
     cached = _get_access_cache_value(key)
     if isinstance(cached, list):
@@ -153,3 +149,19 @@ def invalidate_organization_membership_access_cache(organization_id: str | UUID,
             _delete_access_cache_value(key)
 
     transaction.on_commit(invalidate_after_commit)
+
+
+def clear_organization_access_cache(sender: Any, instance: "Organization", **kwargs: Any) -> None:
+    invalidate_organization_access_cache(instance.id)
+    transaction.on_commit(lambda: invalidate_organization_access_cache(instance.id))
+
+
+def clear_organization_membership_access_cache(sender: Any, instance: "OrganizationMembership", **kwargs: Any) -> None:
+    invalidate_organization_membership_access_cache(instance.organization_id, instance.user_id)
+
+
+def connect_signal_handlers() -> None:
+    post_save.connect(clear_organization_access_cache, sender=Organization)
+    post_delete.connect(clear_organization_access_cache, sender=Organization)
+    post_save.connect(clear_organization_membership_access_cache, sender=OrganizationMembership)
+    post_delete.connect(clear_organization_membership_access_cache, sender=OrganizationMembership)
