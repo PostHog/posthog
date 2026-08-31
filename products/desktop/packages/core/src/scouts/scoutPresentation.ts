@@ -29,7 +29,7 @@ export function getScoutOrigin(
  * says nothing at all about a scout that is still running but already flagged
  * for auto-pause.
  */
-export type ScoutLifecycle =
+type ScoutLifecycle =
   | "active"
   /** Still running, but the system has flagged it. See `willPause`. */
   | "warned"
@@ -559,7 +559,7 @@ export function computeFleetSummary(
   };
 }
 
-export interface RunIntervalOption {
+interface RunIntervalOption {
   minutes: number;
   label: string;
 }

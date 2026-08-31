@@ -12,6 +12,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.utils.html import escape
 
 import pydantic
 import requests as http_requests
@@ -45,6 +46,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
+from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
 from posthog.permissions import (
     APIScopePermission,
@@ -52,7 +54,7 @@ from posthog.permissions import (
     get_authenticator_scopes,
     is_mcp_built_in_agent_oauth_request,
 )
-from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
+from posthog.rate_limit import TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
@@ -97,7 +99,6 @@ from products.tasks.backend.facade.streams import (
     run_uses_dedicated_stream,
 )
 from products.tasks.backend.presentation.serializers import (
-    CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
     LegacyDesktopAccessResponseSerializer,
     ModelCatalogueResponseSerializer,
@@ -1762,7 +1763,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Clear conversation history",
         description=(
             "Record a `/clear` boundary in a finished run's log so the next run in the chain "
-            "starts with an empty conversation. Its checkpoints, artifacts, and visible history "
+            "starts with an empty conversation. Its artifacts and visible history "
             "are unaffected. Only for a finished run: an active one has an agent that owns the "
             "clear, so send `/clear` to it as an ordinary message instead."
         ),
@@ -2182,8 +2183,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._ensure_task_accessible()
         storage_path = request.validated_data["storage_path"]
 
-        # Walk the resume chain so cloud→cloud resume runs can fetch the git checkpoint
-        # pack/index that lives on the prior run they were forked from.
+        # Walk the resume chain because a resumed run can reference artifacts from an ancestor.
         content, artifact, error = tasks_facade.read_task_run_artifact(
             pk, task_id, self.team_id, storage_path=storage_path
         )
@@ -2256,6 +2256,64 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if url is None:
             raise NotFound()
         return HttpResponseRedirect(url)
+
+    def _preview_unavailable_page(self, outcome: str, task_id: str) -> HttpResponse:
+        if outcome == "ended":
+            heading = "This preview has ended"
+            body = "Rerun the task to start a new one."
+        elif outcome == "unavailable":
+            heading = "This preview isn't reachable right now"
+            body = "Try again in a moment."
+        else:
+            heading = "This preview isn't ready yet"
+            body = "PostHog is still starting in the sandbox. Refresh this page in a moment."
+        task_url = escape(absolute_uri(f"/project/{self.team_id}/tasks/{task_id}"))
+        html = (
+            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f"<title>{escape(heading)}</title></head>"
+            '<body style="font-family: system-ui, sans-serif; margin: 3rem auto; max-width: 32rem; padding: 0 1rem;">'
+            f'<h1 style="font-size: 1.25rem;">{escape(heading)}</h1>'
+            f"<p>{escape(body)}</p>"
+            f'<p><a href="{task_url}">Back to the task</a></p>'
+            "</body></html>"
+        )
+        response = HttpResponse(html, content_type="text/html; charset=utf-8")
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description="HTML page explaining that the preview is not ready yet or has ended"),
+            302: OpenApiResponse(description="Redirect to the sandbox preview with a freshly minted access token"),
+            403: OpenApiResponse(description="Refused during read-only impersonation"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Open the dev stack preview for a task run",
+        description=(
+            "Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox "
+            "access token is minted on every request and carried only in the redirect target, so it "
+            "is never persisted or returned in a response body. When the run has no preview, or its "
+            "sandbox has stopped, this renders a short HTML page instead."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="preview", required_scopes=["task:write"])
+    def preview(self, request, pk=None, **kwargs):
+        if is_read_only_impersonation(request):
+            raise PermissionDenied(
+                "This action is not allowed during read-only user impersonation.", code="impersonation_read_only"
+            )
+        task_id = self._ensure_task_accessible()
+        redirect = tasks_facade.resolve_task_run_preview_redirect(
+            pk, task_id, self.team_id, user_id=cast(User, request.user).id
+        )
+        if redirect is None:
+            raise NotFound()
+        if redirect.outcome == "ready" and redirect.redirect_url:
+            response = HttpResponseRedirect(redirect.redirect_url)
+            response["Cache-Control"] = "no-store"
+            return response
+        return self._preview_unavailable_page(redirect.outcome, task_id)
 
     def _peer_messaging_gate(self, task_id: str) -> Response | None:
         """Server-side authorization for the peers endpoints. Tool gating in the
@@ -2485,8 +2543,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Fetch the logs for a task run as JSONL. If the run resumes from "
             "another (state.resume_from_run_id), each ancestor's log is "
             "concatenated first (oldest ancestor → ... → this run) so resume "
-            "consumers see a single continuous history and can find the most "
-            "recent git_checkpoint event regardless of which run emitted it."
+            "consumers see a single continuous history."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
@@ -3058,7 +3115,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
             return _pi_cloud_runtime_disabled_response()
 
-        # Resume also runs in cloud: gate before handoff.
+        # A resumed run also consumes cloud capacity, so apply the cloud access gates.
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
             access_response := code_access_required_response(request, self.organization, task_id=task_id)
         ):
@@ -3074,6 +3131,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if outcome == "already_active":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "not_cloud":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Only cloud runs can be resumed in cloud"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if outcome == "ownership_changed":
@@ -3645,69 +3707,62 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         return Response(serializer.data)
 
 
-@extend_schema(tags=["code-invites"])
-class CodeInviteViewSet(viewsets.ViewSet):
-    """API for redeeming PostHog Desktop invite codes."""
-
+@extend_schema(tags=["tasks"])
+class LegacyDesktopAccessViewSet(viewsets.ViewSet):
     authentication_classes = [
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
     permission_classes = [IsAuthenticated, APIScopePermission]
-
     scope_object = "task"
-
-    http_method_names = ["get", "post", "head", "options"]
-    throttle_classes = [CodeInviteThrottle]
+    http_method_names = ["get", "head", "options"]
 
     def get_permissions(self):
-        # Both endpoints are user-account-level operations (not project data).
-        if self.action in ("check_access", "redeem"):
-            return [IsAuthenticated()]
-        return super().get_permissions()
-
-    @validated_request(
-        request_serializer=CodeInviteRedeemRequestSerializer,
-        responses={
-            200: OpenApiResponse(description="Invite code redeemed successfully"),
-            400: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="Invalid or expired invite code",
-            ),
-        },
-        summary="Redeem invite code",
-        description="Redeem a PostHog Desktop invite code to enable legacy access.",
-    )
-    @action(detail=False, methods=["post"], url_path="redeem")
-    def redeem(self, request, **kwargs):
-        result = tasks_facade.redeem_code_invite(request.validated_data["code"], request.user.id)
-
-        if result.outcome == tasks_facade.CODE_INVITE_INVALID_CODE:
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Invalid invite code"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if result.outcome == tasks_facade.CODE_INVITE_NOT_REDEEMABLE:
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "This invite code is no longer valid"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        return Response({"success": True})
+        return [IsAuthenticated()]
 
     @extend_schema(
-        responses={200: OpenApiResponse(response=LegacyDesktopAccessResponseSerializer)},
-        summary="Check access",
-        description="Check whether the authenticated user has legacy PostHog Desktop access and Loops access.",
+        responses={
+            200: OpenApiResponse(response=LegacyDesktopAccessResponseSerializer),
+            503: OpenApiResponse(response=TaskRunErrorResponseSerializer),
+        },
+        summary="Check PostHog Desktop access",
+        description="Compatibility endpoint for released PostHog Desktop clients.",
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
+        team = getattr(request.user, "team", None)
+        if team is None:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "type": "service_unavailable",
+                        "code": "desktop_access_unavailable",
+                        "error": "We couldn't verify PostHog Desktop access. Try again.",
+                    }
+                ).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            decision = tasks_access.get_desktop_access_decision(request.user, team.organization)
+        except tasks_access.DesktopAccessResolutionError:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "type": "service_unavailable",
+                        "code": "desktop_access_unavailable",
+                        "error": "We couldn't verify PostHog Desktop access. Try again.",
+                    }
+                ).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         return Response(
             LegacyDesktopAccessResponseSerializer(
                 {
-                    "has_access": tasks_access.has_tasks_access(request.user),
-                    "has_loops_access": tasks_access.has_loops_access(request.user),
+                    "has_access": decision.allowed,
+                    "has_loops_access": tasks_access.has_loops_access(request.user, team),
                 }
             ).data
         )

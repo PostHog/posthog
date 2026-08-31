@@ -860,9 +860,10 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         [
             ("internal", {"internal": True}),
             ("archived", {"archived": True}),
+            ("scout", {"origin_product": Task.OriginProduct.SIGNALS_SCOUT}),
         ]
     )
-    def test_hidden_tasks_are_excluded_from_activity(self, _name, task_updates):
+    def test_tasks_outside_the_feed_are_excluded_from_activity(self, _name, task_updates):
         Task.objects.filter(id=self.task.id).update(**task_updates)
         self._awaiting_input()
 

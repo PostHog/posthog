@@ -16,6 +16,7 @@ import {
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -85,6 +86,10 @@ export function LLMSkillScene(): JSX.Element {
         downloadingZip,
         isSkillFormDirty,
         nextVersion,
+        skillName,
+        selectedVersion,
+        isSkillAccessDenied,
+        hasSkillLoadError,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
     // Reuse the list scene's publish flow: its action, per-skill in-flight guard, and resolved
@@ -103,11 +108,8 @@ export function LLMSkillScene(): JSX.Element {
         loadMoreVersions,
         downloadSkill,
         cancelEditing,
+        loadSkill,
     } = useActions(llmSkillLogic)
-
-    if (isSkillMissing) {
-        return <NotFound object="skill" />
-    }
 
     if (shouldDisplaySkeleton) {
         return (
@@ -116,6 +118,41 @@ export function LLMSkillScene(): JSX.Element {
                 <LemonSkeleton active className="h-4 w-full" />
                 <LemonSkeleton active className="h-4 w-3/5" />
             </div>
+        )
+    }
+
+    if (isSkillAccessDenied) {
+        return <AccessDenied object="skill" />
+    }
+
+    if (hasSkillLoadError) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSkill }}>
+                Couldn't load this skill. Try again, and if it keeps happening contact support.
+            </LemonBanner>
+        )
+    }
+
+    if (isSkillMissing) {
+        return (
+            <NotFound
+                object="skill"
+                caption={
+                    // The resolve endpoint returns the same 404 for a missing skill and a missing
+                    // version, so the caption can only name what the URL asks for.
+                    selectedVersion !== null ? (
+                        <>
+                            This link points to version {selectedVersion}.{' '}
+                            <Link to={urls.skill(skillName)}>Try the latest version</Link>, or{' '}
+                            <Link to={urls.skills()}>browse all skills</Link>.
+                        </>
+                    ) : (
+                        <>
+                            Check the skill name in the URL, or <Link to={urls.skills()}>browse all skills</Link>.
+                        </>
+                    )
+                }
+            />
         )
     }
 

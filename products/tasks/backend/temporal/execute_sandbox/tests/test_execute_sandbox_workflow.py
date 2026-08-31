@@ -127,7 +127,7 @@ class TestShouldForwardPendingUserMessage:
             # Resume runs already replay the original prompt — forwarding would
             # double up. Both resume markers must short-circuit.
             ({"mode": "background", "resume_from_run_id": "prev"}, False),
-            ({"mode": "background", "handoff_resumed": True}, False),
+            ({"mode": "background", "same_run_resume": True}, False),
         ],
     )
     def test_forwards_only_in_background_and_not_on_resume(self, state: dict, expected: bool):
