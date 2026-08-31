@@ -1,14 +1,13 @@
 //! The merge lane: MergePersons calls against random pairs of live
 //! persons while the blast writers and probers keep writing to both.
 //!
-//! Every pair is two distinct live persons, so every call that settles as
-//! `merged` ran the durable saga end to end — fence, seal, fold, flip,
-//! release — under concurrent writes to the source (racing the fence) and
-//! the target (racing the fold). A source distinct id is reserved for one
-//! in-flight call at a time and never reused once merged, which is what
-//! keeps the journal's view of *which* person died unambiguous; targets
-//! are shared, so two calls can contend for one person and exercise the
-//! saga's conflict settlements.
+//! Every pair is two distinct live persons. Thus every call that settles
+//! as `merged` ran the durable saga end to end (fence, seal, fold, flip,
+//! release) with writes racing the source's fence and the target's fold.
+//! A source distinct id is reserved for one in-flight call and is never
+//! reused after a merge, so the journal always knows which person died.
+//! Targets are shared, so two calls can contend for one person and
+//! exercise the saga's conflict settlements.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,23 +30,22 @@ use crate::scenarios::blast::{is_not_found, per_worker_tick};
 use crate::state::PersonState;
 use crate::stats::StatsCollector;
 
-/// Attempts per merge call under one op id. The contract makes a retry
-/// return the recorded outcome, so a call whose response was lost (a
-/// timeout, a router blip) is re-asked rather than guessed at.
+/// Attempts per merge call under one op id. A retry under the same op id
+/// returns the recorded outcome, so a lost response is asked again, not
+/// guessed at.
 const MERGE_ATTEMPTS: u32 = 3;
 const MERGE_RETRY_BACKOFF: Duration = Duration::from_millis(500);
 
 pub struct MergeLane {
     pub team_id: i64,
     pub concurrency: usize,
-    /// Combined target rate across the workers; unset runs flat out.
+    /// Combined target rate across the workers. Unset runs flat out.
     pub rate_per_sec: Option<f64>,
     pub allow_identified_sources: bool,
     pub move_limit: i64,
-    /// Persons created with many distinct ids, and the side they take.
-    /// Workers prefer a wide pair while one is available, so the
-    /// pathological merges happen early instead of after the pool has
-    /// thinned; their latency is recorded apart.
+    /// Persons created with many distinct ids. Workers prefer a wide
+    /// pair while one is available, so the expensive merges happen
+    /// before the pool thins. Their latency is recorded apart.
     pub wide_persons: Vec<i64>,
     pub wide_role: WideRole,
 }
@@ -71,12 +69,12 @@ impl WideRole {
 }
 
 /// A merge call whose every attempt lost its response. The saga may have
-/// run anyway — the op record decides, see [`settle_unresolved`].
+/// run anyway. The op record decides, see [`settle_unresolved`].
 pub struct UnresolvedMerge {
     pub op_id: uuid::Uuid,
     pub source: i64,
-    /// The merge event's `$set` key and value, journaled on the survivor
-    /// if the op turns out to have merged.
+    /// The merge event's `$set` key and value. Journaled on the survivor
+    /// if the op record says the merge ran.
     pub key: String,
     pub value: serde_json::Value,
 }
@@ -86,10 +84,10 @@ pub struct MergeLaneResult {
     pub unresolved: Vec<UnresolvedMerge>,
 }
 
-/// Drive merges until the deadline, journaling every `merged` ack into
-/// `state` and retiring the destroyed source from `pool`. Returns the
-/// violations observed live: a survivor missing the merge's own write, a
-/// merged source that still reads as alive, or an ack with no survivor.
+/// Drive merges until the deadline. Every `merged` ack is journaled into
+/// `state` and the destroyed source leaves `pool`. Returns the violations
+/// observed live: a survivor without the merge's own write, a merged
+/// source that still reads as alive, or an ack with no survivor.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_merges(
     identity: &IdentityClient,
@@ -108,9 +106,8 @@ pub async fn run_merges(
         .map(|rate| per_worker_tick(rate, lane.concurrency));
     let wide: Arc<std::collections::HashSet<i64>> =
         Arc::new(lane.wide_persons.iter().copied().collect());
-    // Wide sources are reserved like any other source; wide targets are
-    // shared like any other target. The normal eligible set excludes the
-    // wide persons so a wide source is never spent on an ordinary pair.
+    // The eligible set excludes the wide persons so an ordinary pair
+    // cannot spend a wide source.
     let eligible = Arc::new(Mutex::new(
         pool.snapshot()
             .into_iter()
@@ -163,8 +160,8 @@ pub async fn run_merges(
                     pick_wide_pair(&wide_sources, &wide_targets, &eligible, &pool, &mut rng)
                         .or_else(|| pick_pair(&eligible, &pool, &mut rng));
                 let Some((source, target)) = picked else {
-                    // The pool has shrunk to one live person (or every
-                    // source is reserved): nothing left to merge.
+                    // Fewer than two live persons remain, or every
+                    // source is reserved.
                     if pool.len() < 2 {
                         note_dry(&dry_at, started.elapsed());
                     }
@@ -228,11 +225,11 @@ pub async fn run_merges(
                 };
                 let Some(response) = response else {
                     recorder.record_failure();
-                    // The saga is durable: a call whose every response was
-                    // lost may still have destroyed the source, or may
-                    // yet (the sweeper re-drives abandoned ops). The op
-                    // record settles it after traffic; until then the
-                    // source is reserved and takes no more traffic.
+                    // The saga is durable, and the sweeper re-drives
+                    // abandoned ops. The call can still destroy the
+                    // source after this failure. The op record settles
+                    // it after traffic. Until then the source stays
+                    // reserved and takes no more traffic.
                     state.record_merge_uncertain(source).await;
                     pool.remove(source);
                     unresolved.push(UnresolvedMerge {
@@ -254,8 +251,7 @@ pub async fn run_merges(
                 collector.record_merge_outcome(outcome_name(source_outcome));
 
                 if source_outcome != MergeSourceOutcome::Merged {
-                    // Settled without destroying the source: it is live
-                    // and eligible again.
+                    // Every outcome except merged leaves the source alive.
                     state.clear_merge_pending(source).await;
                     if wide.contains(&source) {
                         wide_sources.lock().unwrap().push(source);
@@ -272,9 +268,9 @@ pub async fn run_merges(
                         expected: json!("a merged ack carries the survivor document"),
                         actual: serde_json::Value::Null,
                     });
-                    // Destroyed, but into whom is unknown: keep the
-                    // reservation so reads tolerate its absence, and stop
-                    // asserting on it.
+                    // The source is destroyed but the survivor is
+                    // unknown. Keep the reservation so reads tolerate
+                    // its absence, and stop asserting on it.
                     state.record_merge_uncertain(source).await;
                     pool.remove(source);
                     continue;
@@ -282,7 +278,7 @@ pub async fn run_merges(
                 let survivor_props: serde_json::Value =
                     serde_json::from_slice(&survivor.properties).unwrap_or_else(|_| json!({}));
                 if survivor_props.get(&key) != Some(&value) {
-                    // The fold applies the merge event's $set last, so the
+                    // The fold applies the merge event's $set last. The
                     // folded document in the ack must already carry it.
                     violations.push(ConsistencyViolation {
                         person_id: survivor.id,
@@ -304,9 +300,9 @@ pub async fn run_merges(
                     .await;
                 pool.remove(source);
 
-                // Read-your-merge: the release produced the source's
-                // death document before the saga completed, so a strong
-                // read served now must not find a living person.
+                // Read-your-merge check. The release produced the
+                // source's death document before the saga completed. A
+                // strong read served now must not find a living person.
                 let read_start = Instant::now();
                 match router
                     .get_person(team_id, source, ConsistencyLevel::Strong)
@@ -357,15 +353,15 @@ pub async fn run_merges(
     })
 }
 
-/// Settle every unresolved merge from the saga's own record. An op row
-/// that reaches `completed` with the source `merged` is journaled as the
-/// merge it was — the fold is ordered by the survivor version it
-/// records, so landing it after later merges' acks is safe. An aborted
-/// op, or no op row at all (the call failed before the saga froze its
-/// request), means the source lived on. An op still in flight is polled
-/// until `deadline` elapses — the sweeper re-drives abandoned ops — and
-/// one that never settles is a violation: a person no lifecycle op can
-/// ever touch again.
+/// Settle every unresolved merge from the saga's own record. A
+/// `completed` op with the source `merged` is journaled as the merge it
+/// was. That is safe after later merges' acks, because the journal
+/// orders folds by the recorded survivor version. An aborted op means
+/// the source lived on. So does a missing op row, because the call
+/// failed before the saga froze its request. An op still in flight is
+/// polled until `deadline` elapses, which gives the sweeper time to
+/// re-drive it. An op that never settles is a violation: no lifecycle
+/// op can ever touch that person again.
 pub async fn settle_unresolved(
     pool: &PgPool,
     state: &PersonState,
@@ -391,7 +387,8 @@ pub async fn settle_unresolved(
                 .await
                 .context("reading an unresolved merge op")?;
             let Some(row) = row else {
-                // No frozen request: nothing destructive ever started.
+                // No op row means the saga never froze the request, so
+                // nothing destructive started.
                 state.clear_merge_pending(merge.source).await;
                 continue;
             };
@@ -451,9 +448,9 @@ pub async fn settle_unresolved(
     }
 }
 
-/// A pair with a wide person on the configured side, or None when no wide
-/// source is left to reserve and no wide target is live. With wide targets
-/// only, the source comes from the ordinary eligible set.
+/// A pair with a wide person on the configured side. None when no wide
+/// source is left to reserve and no wide target is live. With wide
+/// targets only, the source comes from the ordinary eligible set.
 fn pick_wide_pair(
     wide_sources: &Mutex<Vec<i64>>,
     wide_targets: &[i64],
@@ -513,7 +510,7 @@ fn pick_wide_pair(
     }
 }
 
-/// Reserve a random eligible source and pick a distinct live target.
+/// Reserve a random eligible source and pick a different live target.
 /// None when fewer than two live persons remain or every source is
 /// reserved.
 fn pick_pair(
@@ -527,9 +524,9 @@ fn pick_pair(
     }
     let index = rng.gen_range(0..eligible.len());
     let source = eligible.swap_remove(index);
-    // The pool holds at least two persons, so a distinct target exists;
-    // a handful of draws finds one with overwhelming probability, and a
-    // miss just returns the source.
+    // The pool holds at least two persons, so a different target exists
+    // and a few random draws almost always find one. A miss only puts
+    // the source back.
     for _ in 0..16 {
         match pool.pick_random(rng) {
             Some(target) if target != source => return Some((source, target)),
@@ -540,7 +537,6 @@ fn pick_pair(
     None
 }
 
-/// Record the first moment the lane found nothing left to merge.
 fn note_dry(dry_at: &Mutex<Option<Duration>>, at: Duration) {
     let mut dry = dry_at.lock().unwrap();
     if dry.is_none() {

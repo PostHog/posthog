@@ -2,14 +2,13 @@ use std::sync::RwLock;
 
 use rand::Rng;
 
-/// The live traffic targets. Every lane picks from it, and the merge lane
-/// removes a person once the saga destroyed it — a dead person answers
-/// not-found to every write, so leaving it in the pool would only turn
-/// the remaining run into expected failures.
+/// The live traffic targets. Every lane picks from it. The merge lane
+/// removes a person once the saga destroyed it, because a dead person
+/// refuses every write and would only add expected failures.
 ///
-/// Removal is deliberately late: a source keeps taking traffic until the
+/// Removal is deliberately late. A source keeps taking traffic until the
 /// merge acks, so writes race the fence, the fold, and the flip. That
-/// race is the whole point of merging under load.
+/// race is the point of merging under load.
 pub struct TargetPool {
     ids: RwLock<Vec<i64>>,
 }
@@ -29,7 +28,6 @@ impl TargetPool {
         self.len() == 0
     }
 
-    /// A uniformly random live person, or None once the pool is empty.
     pub fn pick_random(&self, rng: &mut impl Rng) -> Option<i64> {
         let ids = self.ids.read().unwrap();
         if ids.is_empty() {
@@ -38,8 +36,8 @@ impl TargetPool {
         Some(ids[rng.gen_range(0..ids.len())])
     }
 
-    /// The person at `n` modulo the live count — the probers' round-robin
-    /// walk. None once the pool is empty.
+    /// The person at `n` modulo the live count, for the probers'
+    /// round-robin walk. None once the pool is empty.
     pub fn pick_nth(&self, n: usize) -> Option<i64> {
         let ids = self.ids.read().unwrap();
         if ids.is_empty() {
@@ -48,7 +46,6 @@ impl TargetPool {
         Some(ids[n % ids.len()])
     }
 
-    /// Retire a person. Returns false if it was already gone.
     pub fn remove(&self, person_id: i64) -> bool {
         let mut ids = self.ids.write().unwrap();
         match ids.iter().position(|&id| id == person_id) {

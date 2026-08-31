@@ -263,8 +263,8 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             let collector = Arc::new(StatsCollector::new());
             let state = PersonState::new();
 
-            // The lanes share one live pool; nothing retires persons here
-            // (no merge lane in traffic mode), so it is the seeded set.
+            // Traffic mode has no merge lane, so nothing retires
+            // persons and the pool stays the seeded set.
             let pool = Arc::new(TargetPool::new(person_ids.as_ref().clone()));
             let traffic = {
                 let client = client.clone();

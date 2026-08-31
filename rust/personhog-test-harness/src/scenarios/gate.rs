@@ -257,7 +257,6 @@ pub async fn run(args: GateArgs) -> Result<()> {
         (Some(url), None) => Some(url.clone()),
         (None, None) => unreachable!("validated above"),
     };
-    // Each created person's distinct id, for the merge lane's requests.
     let mut distinct_ids: HashMap<i64, String> = HashMap::new();
     let person_ids = match &identity_url {
         Some(url) => {
@@ -300,8 +299,6 @@ pub async fn run(args: GateArgs) -> Result<()> {
         distinct_ids.extend(created);
     }
     let created_count = person_ids.len();
-    // The live pool: every lane picks from it, and the merge lane retires
-    // the persons it destroys.
     let person_ids = Arc::new(TargetPool::new(person_ids));
     let distinct_ids = Arc::new(distinct_ids);
 
@@ -361,8 +358,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
         })
     };
 
-    // The merge lane runs the durable saga against pairs of live persons
-    // for the same window, under the blast and prober writes above.
+    // The merge lane shares the traffic window, so the saga runs under
+    // the blast and prober writes above.
     let merges = identity_url
         .as_ref()
         .filter(|_| args.merge_concurrency > 0)
@@ -379,8 +376,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 rate_per_sec: args.merge_rate,
                 allow_identified_sources: args.merge_identified_sources,
                 // A survivor collects every distinct id of every merged
-                // source; the pool bounds that, so no source ever trips
-                // the move guard.
+                // source. The pool bounds that total, so no source ever
+                // trips the move guard.
                 move_limit: i64::from(args.persons)
                     + i64::from(args.merge_wide_persons)
                         * (i64::from(args.merge_wide_distinct_ids) + 1)
@@ -608,7 +605,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
 
     // Merges that lost every response settle from their op records
-    // before anything is asserted: the sweeper claims an abandoned op
+    // before anything is asserted. The sweeper claims an abandoned op
     // once its lease (15s) lapses, then re-drives it on the converged
     // stack.
     let mut violations = prober_violations;
@@ -636,8 +633,6 @@ pub async fn run(args: GateArgs) -> Result<()> {
     );
 
     print_report("gate", &collector, args.team_id, created_count, &violations);
-    // Where the journal's expectations came from, for every violated
-    // person: which acks and which folds set the disputed keys.
     let mut disputed: HashMap<i64, Vec<String>> = HashMap::new();
     for violation in &violations {
         let keys = disputed.entry(violation.person_id).or_default();
@@ -663,7 +658,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
     // outcomes and the saga's idempotence are gate assertions — every
     // created person deletes exactly once, and a second attempt under a
     // fresh op id answers not_found for all of them. Persons a merge
-    // destroyed are tombstones already, so they answer not_found from
+    // destroyed are tombstones already, so they answer not_found on
     // the first attempt.
     if let Some(url) = &identity_url {
         if !args.keep_data {
@@ -715,16 +710,16 @@ pub async fn run(args: GateArgs) -> Result<()> {
 /// to the gate's standard: every id deleted on the first attempt, every
 /// id not_found on a second attempt under a fresh op id (deleting a
 /// tombstone is a no-op, never an error, never a false success).
-/// `merged_ids` were destroyed by the merge saga and must answer
-/// not_found on the first attempt already — a "deleted" there means the
-/// merge left a living row behind. `uncertain_ids` had a merge call that
-/// never answered, so either outcome is accepted for them.
+/// The merge saga destroyed `merged_ids`, so they must answer not_found
+/// on the first attempt. A "deleted" there means the merge left a
+/// living row behind. `uncertain_ids` had a merge call that never
+/// answered, so either outcome is accepted for them.
 ///
 /// A `skipped_conflict` means another lifecycle op still holds the
-/// person — a merge that chaos interrupted mid-saga, which the sweeper
-/// must re-drive to completion. Those are retried under fresh op ids
-/// until the op settles; one that never does fails the gate, because an
-/// op abandoned forever is a person nobody can ever merge or delete.
+/// person, usually a merge that chaos interrupted mid-saga. The sweeper
+/// must re-drive that op, so conflicts are retried under fresh op ids
+/// until the op settles. One that never settles fails the gate, because
+/// nobody can ever merge or delete that person again.
 async fn verify_lifecycle_delete(
     lifecycle: &crate::client::LifecycleClient,
     team_id: i64,
@@ -734,13 +729,13 @@ async fn verify_lifecycle_delete(
 ) -> Result<()> {
     use personhog_proto::personhog::lifecycle::v1::DeletePersonOutcome;
 
-    /// The sweeper claims abandoned ops once their lease lapses (15s)
-    /// on its own cadence, and a re-driven merge then needs its leader
+    /// The sweeper claims an abandoned op once its lease (15s) lapses,
+    /// on its own cadence. A re-driven merge then needs its leader
     /// calls to succeed on a converged stack.
     const SETTLE_DEADLINE: Duration = Duration::from_secs(90);
 
-    // Everything answers on the first attempt except conflicts, which
-    // are re-asked until the holding op settles.
+    // Everything answers on the first attempt. Conflicts are asked
+    // again until the holding op settles.
     let mut expected: HashMap<i64, Vec<DeletePersonOutcome>> = HashMap::new();
     for &id in person_ids {
         expected.insert(id, vec![DeletePersonOutcome::Deleted]);
@@ -797,8 +792,8 @@ async fn verify_lifecycle_delete(
     }
 
     // Idempotence: a second attempt under a fresh op id answers
-    // not_found for everything (deleting a tombstone is a no-op, never an
-    // error, never a false success).
+    // not_found for everything. Deleting a tombstone is a no-op, never
+    // an error, and never a false success.
     let mut all: Vec<i64> = expected.keys().copied().collect();
     all.sort_unstable();
     for chunk in all.chunks(200) {
@@ -821,7 +816,7 @@ async fn verify_lifecycle_delete(
 /// get-or-create, with one seed property per person, returning each
 /// person's id with its distinct id. The create ack covers both planes
 /// (stub committed in Postgres, initial properties durable in the
-/// changelog), so each ack is journaled like any other write — the
+/// changelog), so each ack is journaled like any other write. The
 /// end-of-run strong reads and the Postgres check then hold create
 /// visibility to the same invariant as update visibility.
 async fn create_persons_via_identity(
@@ -869,7 +864,7 @@ async fn create_persons_via_identity(
                 .with_context(|| format!("no person for distinct id {}", result.distinct_id))?;
             if !result.created {
                 bail!(
-                    "distinct id {} already existed — the harness team must start clean",
+                    "distinct id {} already existed; the harness team must start clean",
                     result.distinct_id
                 );
             }
@@ -887,9 +882,9 @@ async fn create_persons_via_identity(
     Ok(person_ids)
 }
 
-/// Create persons that carry `extra_distinct_ids` extra mappings each —
-/// the shape whose merge the flip must repoint mapping by mapping. Same
-/// journaling as the ordinary create path.
+/// Create persons that carry `extra_distinct_ids` extra mappings each.
+/// A merge of this shape makes the flip repoint every mapping. The
+/// journaling is the same as on the ordinary create path.
 async fn create_wide_persons_via_identity(
     identity_url: &str,
     team_id: i64,
@@ -925,7 +920,7 @@ async fn create_wide_persons_via_identity(
             .person
             .with_context(|| format!("no person for wide distinct id {distinct_id}"))?;
         if !result.created {
-            bail!("distinct id {distinct_id} already existed — the harness team must start clean");
+            bail!("distinct id {distinct_id} already existed; the harness team must start clean");
         }
         state
             .record_write(

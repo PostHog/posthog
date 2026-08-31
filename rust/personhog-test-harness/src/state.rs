@@ -36,11 +36,10 @@ struct Journal {
     /// in whatever order the responses land, so a lower version arriving
     /// after a higher one is normal.
     anomalies: Vec<ConsistencyViolation>,
-    /// Persons the merge saga destroyed, keyed by the dead source. Acks
-    /// that arrive for a dead source after its merge was journaled (a
-    /// pre-fence write whose response landed late) are folded into the
-    /// survivor through this map, and its high-water mark is what the
-    /// Postgres tombstone's death version must sit above.
+    /// Persons the merge saga destroyed, keyed by the dead source. A
+    /// pre-fence write can ack after the merge was journaled. This map
+    /// routes such acks to the survivor, and its high-water mark is
+    /// what the Postgres tombstone's death version must sit above.
     merged: HashMap<i64, MergedSource>,
     /// Sources with a merge call in flight. A read that cannot find one
     /// of these is the saga at work, not lost data.
@@ -50,16 +49,16 @@ struct Journal {
 /// What the journal keeps about a person after a merge destroyed it.
 pub struct MergedSource {
     /// The person the source folded into, as answered by the merge ack.
-    /// May itself have been merged since; [`Journal::resolve`] follows
+    /// A later merge can destroy it too. [`Journal::resolve`] follows
     /// the chain.
     pub survivor: i64,
     /// Highest version the leader acked for the source, before or after
-    /// the merge was journaled. Every ack must sit at or below the
-    /// sealed version the saga recorded (and so below the death
-    /// version): the fence seals the source at its current version, so
-    /// a later ack means the fence failed open.
+    /// the merge was journaled. The fence seals the source at its
+    /// current version, so every ack must sit at or below the sealed
+    /// version the saga recorded. An ack above the seal means the fence
+    /// failed open.
     pub max_acked_version: i64,
-    /// The survivor version the fold produced: the point in the
+    /// The survivor version the fold produced. This is the point in the
     /// survivor's history at which the source's keys entered it.
     fold_version: i64,
 }
@@ -85,22 +84,21 @@ pub struct ExpectedPerson {
     /// Every version the leader acked for this person, for duplicate
     /// detection.
     acked_versions: HashSet<i64>,
-    /// Keys whose last write errored: the write may still have applied,
-    /// so the person may hold a value the journal does not know. A
-    /// merge fold must not assert a source's value for such a key — the
-    /// target wins every key it actually has, known to the journal or
-    /// not. Cleared by the next ack for the key.
+    /// Keys whose last write errored. Such a write can still apply, so
+    /// the person can hold a value the journal does not know. A merge
+    /// fold must not assert a source's value for such a key, because
+    /// the target wins every key it actually has, known to the journal
+    /// or not. The next ack for the key clears it.
     uncertain_keys: HashSet<String>,
     /// The ack version that last set each key the person's own writes
-    /// hold — diagnostics for a violation, so the report can say how the
+    /// hold. Diagnostics only: the report uses it to say how the
     /// journal came by its expectation.
     own_origins: HashMap<String, i64>,
     /// Keys a fold filled, mapped to the survivor version of that fold.
-    /// Merge acks land in whatever order the responses arrive, not the
-    /// order the folds applied, so two merges into one survivor must be
-    /// ordered by version: the earlier fold filled the key and every
-    /// later fold found it present. Absent for keys the person's own
-    /// writes set, which win over any fold.
+    /// Merge acks land in response order, not fold order, so the journal
+    /// orders folds into one survivor by version: the earlier fold
+    /// filled the key and every later fold found it present. Absent for
+    /// keys the person's own writes set, which win over any fold.
     fold_origins: HashMap<String, i64>,
 }
 
@@ -152,10 +150,10 @@ impl ExpectedPerson {
     }
 
     /// The leader's fold rule: the survivor wins every key it has, and
-    /// the source fills the rest. A key the survivor may hold from an
-    /// uncertain write is neither asserted nor filled, and a key an
-    /// earlier fold filled stays: among folds, the lowest survivor
-    /// version wins, whatever order their acks arrived in.
+    /// the source fills the rest. A key the survivor can hold from an
+    /// uncertain write is neither asserted nor filled. A key an earlier
+    /// fold filled stays: among folds, the lowest survivor version
+    /// wins, in whatever order their acks arrived.
     fn fold_from_source(
         &mut self,
         properties: HashMap<String, serde_json::Value>,
@@ -169,10 +167,10 @@ impl ExpectedPerson {
                 // The person's own write set it: the survivor wins.
                 None if self.written_properties.contains_key(&k) => continue,
                 // An earlier fold filled it first. Equal versions meet
-                // only through a chain (a late fold into a survivor that
-                // was merged on since enters the final survivor at the
-                // same hop as everything that survivor carried), and
-                // there the survivor's own document won.
+                // only through a chain: a late fold into an
+                // already-merged survivor enters the final survivor at
+                // the same hop as that survivor's own document, and the
+                // leader let that document win.
                 Some(&origin) if origin <= fold_version => continue,
                 _ => {}
             }
@@ -199,9 +197,9 @@ impl Journal {
     }
 
     /// Where a document named by a merge ack lives now, and the version
-    /// at which it entered there: the named survivor itself when it is
-    /// still live, else the final survivor and the fold version of the
-    /// chain's last hop.
+    /// at which it entered there. For a live named survivor this is the
+    /// survivor itself. For a dead one it is the final survivor and the
+    /// fold version of the chain's last hop.
     fn entry_point(&self, named: i64) -> (i64, Option<i64>) {
         let mut person_id = named;
         let mut hop = None;
@@ -239,9 +237,9 @@ impl PersonState {
     ) {
         let mut journal = self.inner.write().await;
         if let Some(merged) = journal.merged.get_mut(&person_id) {
-            // A dead source's ack: the write landed before the seal (or
-            // the fence failed open — Postgres decides, via the sealed
-            // version), so it is part of what folded into the survivor.
+            // A dead source's ack. The write landed before the seal and
+            // folded into the survivor, unless the fence failed open,
+            // which the seal check on the op record catches.
             merged.max_acked_version = merged.max_acked_version.max(version);
             let fold_version = merged.fold_version;
             let survivor = journal.resolve(person_id);
@@ -320,11 +318,11 @@ impl PersonState {
         journal.live_entry(person_id).insert_acked(properties);
     }
 
-    /// Drop a key whose write errored: it may still have applied, so the
-    /// journalled value could be superseded and asserting it would fail a
-    /// correct stack. The next ack for the key restores coverage. A dead
-    /// source's uncertain key taints the survivor instead: the write may
-    /// have landed before the seal and folded.
+    /// Drop a key whose write errored: the write can still apply, so the
+    /// journalled value could be superseded and asserting it would fail
+    /// a correct stack. The next ack for the key restores coverage. For
+    /// a dead source the taint goes to the survivor instead, because
+    /// the write can have landed before the seal and folded.
     pub async fn record_write_uncertain(&self, person_id: i64, key: &str) {
         let mut journal = self.inner.write().await;
         let holder = journal.resolve(person_id);
@@ -383,11 +381,11 @@ impl PersonState {
 
     /// Journal a merge ack that destroyed `source_id` into `survivor_id`.
     /// The source's acked keys fold into the survivor under the leader's
-    /// rule (the survivor wins every key it has), `merge_properties` — the
-    /// merge event's own `$set` — override on the survivor, and the
-    /// folded document's version is claimed like any other ack. From here
-    /// the source is expected gone: strong reads must not find it, and
-    /// its Postgres row must be a tombstone above every acked version.
+    /// rule: the survivor wins every key it has. `merge_properties`, the
+    /// merge event's own `$set`, override on the survivor. The folded
+    /// version is claimed like any other ack. From here the source must
+    /// be gone: strong reads must not find it, and its Postgres row
+    /// must be a tombstone above every acked version.
     pub async fn record_merge(
         &self,
         source_id: i64,
@@ -397,11 +395,11 @@ impl PersonState {
     ) {
         let mut journal = self.inner.write().await;
         journal.merge_pending.remove(&source_id);
-        // The ack names the person the fold landed on; a merge journaled
-        // since may have moved that document on again, in which case the
-        // source's keys entered the final survivor with it, at that
-        // hop's version — and the folded version belongs to a dead
-        // person, so nothing claims it.
+        // The ack names the person the fold landed on. A merge
+        // journaled since can have moved that document on again. The
+        // source's keys then entered the final survivor with it, at
+        // that hop's version. The folded version belongs to a dead
+        // person in that case, so nothing claims it.
         let (survivor, hop) = journal.entry_point(survivor_id);
         let fold_version = hop.unwrap_or(survivor_version);
         if journal.merged.contains_key(&source_id) || survivor == source_id {
@@ -434,8 +432,8 @@ impl PersonState {
         }
         if hop.is_some() {
             // The merge event's $set landed on the dead named survivor
-            // and travelled on with its document: a fold-origin key
-            // like the rest.
+            // and travelled on with its document, so it is a
+            // fold-origin key like the rest.
             entry.fold_from_source(merge_properties, fold_version);
             return;
         }
@@ -452,18 +450,17 @@ impl PersonState {
         }
     }
 
-    /// A merge call for `source_id` lost every response: the saga may
-    /// have destroyed it, now or later. The person stays reserved, so a
-    /// read that cannot find it is tolerated, and keeps its journal: the
-    /// saga's own op record settles it later — into a `record_merge`
-    /// (the fold is ordered by version, so applying it late is safe) or
-    /// back to an ordinary live person via `clear_merge_pending`.
+    /// A merge call for `source_id` lost every response. The saga can
+    /// destroy the person, now or later. The person stays reserved, so
+    /// a read that cannot find it is tolerated, and keeps its journal.
+    /// The saga's op record settles it later: `record_merge` when the
+    /// merge ran, `clear_merge_pending` when the person lived on.
     pub async fn record_merge_uncertain(&self, source_id: i64) {
         self.inner.write().await.merge_pending.insert(source_id);
     }
 
-    /// Persons whose merge call never answered: destroyed or not, the
-    /// harness cannot know.
+    /// Persons whose merge call never answered. The harness cannot know
+    /// whether they are destroyed.
     pub async fn merge_uncertain_ids(&self) -> Vec<i64> {
         self.inner
             .read()
@@ -530,8 +527,8 @@ impl PersonState {
         violations
     }
 
-    /// A diagnostic account of a person's journal: its versions, which
-    /// merges fed it, and where each of `keys` came from.
+    /// A diagnostic account of a person's journal: its versions, the
+    /// merges that fed it, and where each of `keys` came from.
     pub async fn describe(&self, person_id: i64, keys: &[String]) -> String {
         let journal = self.inner.read().await;
         let mut lines = Vec::new();
@@ -827,7 +824,7 @@ mod tests {
     /// keeps every key it has, the source fills the rest, the merge
     /// event's own $set overrides, and the folded version is claimed. A
     /// journal that let the source overwrite the survivor's keys would
-    /// flag a correct stack; one that dropped the source's keys would
+    /// flag a correct stack. One that dropped the source's keys would
     /// pass a fold that lost them.
     #[tokio::test]
     async fn a_merge_folds_the_source_into_the_survivor_target_wins() {
@@ -847,7 +844,7 @@ mod tests {
         assert!(state.take_anomalies().await.is_empty());
         assert!(state.is_merge_pending_or_merged(2).await);
 
-        // The source no longer verifies as a live person; the survivor
+        // The source no longer verifies as a live person. The survivor
         // holds the folded document.
         assert_eq!(state.person_ids().await, vec![1]);
         assert_eq!(state.merged_source_ids().await, vec![2]);
@@ -878,9 +875,9 @@ mod tests {
         assert_eq!(merged[&2].max_acked_version, 7);
     }
 
-    /// A source ack whose response lands after the merge was journaled
-    /// (a pre-seal write) folds into the survivor under the same rule
-    /// and raises the source's high-water mark, which the Postgres
+    /// A pre-seal source write can ack after the merge was journaled.
+    /// Such an ack folds into the survivor under the same rule and
+    /// raises the source's high-water mark, which the Postgres
     /// tombstone check holds the death version above. A source write
     /// that errored taints the survivor's key instead of asserting it.
     #[tokio::test]
@@ -914,9 +911,9 @@ mod tests {
         assert_eq!(merged[&2].max_acked_version, 6);
     }
 
-    /// A key the survivor may hold from an uncertain write is never
-    /// filled from the source: the survivor wins every key it actually
-    /// has, known to the journal or not.
+    /// A key the survivor can hold from an uncertain write is never
+    /// filled from the source, because the survivor wins every key it
+    /// actually has, known to the journal or not.
     #[tokio::test]
     async fn an_uncertain_survivor_key_is_not_filled_from_the_source() {
         let state = PersonState::new();
@@ -942,9 +939,9 @@ mod tests {
         );
     }
 
-    /// Survivors merge on: the chain resolves through every hop, so a
-    /// merge ack naming an already-merged survivor and a late ack for
-    /// the first source both land on the final person.
+    /// Survivors merge on. The chain resolves through every hop, so a
+    /// merge ack that names an already-merged survivor and a late ack
+    /// for the first source both land on the final person.
     #[tokio::test]
     async fn merge_chains_resolve_to_the_final_survivor() {
         let state = PersonState::new();
@@ -953,10 +950,10 @@ mod tests {
         state.record_write(3, 1, props(&[("c", "3")])).await;
         state.record_merge(1, 2, 2, HashMap::new()).await;
         state.record_merge(2, 3, 2, HashMap::new()).await;
-        // Acks naming the dead intermediate survivor resolve onward. The
-        // folded version 3 is person 2's, not person 3's: it is not
-        // claimed on 3, and 4's keys enter 3 at the hop 2 took (v2),
-        // where 2's own document wins ties.
+        // Acks that name the dead intermediate survivor resolve onward.
+        // The folded version 3 belongs to person 2, not person 3, so it
+        // is not claimed on 3. Person 4's keys enter 3 at the hop 2
+        // took (v2), where 2's own document wins ties.
         state
             .record_merge(4, 2, 3, props(&[("d", "4"), ("b", "late-4")]))
             .await;
@@ -990,18 +987,18 @@ mod tests {
         );
     }
 
-    /// Two merges into one survivor whose acks arrive in the opposite
-    /// order to their folds: the earlier fold (lower survivor version)
-    /// filled the key, and the later fold found it present. Journaling
-    /// in ack order would expect the later source's value and flag a
-    /// correct stack.
+    /// Two merges into one survivor can ack in the opposite order to
+    /// their folds. The earlier fold (lower survivor version) filled
+    /// the key, and the later fold found it present. A journal that
+    /// applied folds in ack order would expect the later source's value
+    /// and flag a correct stack.
     #[tokio::test]
     async fn folds_into_one_survivor_are_ordered_by_version_not_ack_arrival() {
         let state = PersonState::new();
         state.record_write(1, 1, props(&[("k", "first")])).await;
         state.record_write(2, 1, props(&[("k", "second")])).await;
-        // Person 2's merge folded at survivor version 21; person 1's at
-        // 18, but its ack lands second.
+        // Person 2's merge folded at survivor version 21. Person 1's
+        // folded at 18, but its ack lands second.
         state.record_merge(2, 3, 21, HashMap::new()).await;
         state.record_merge(1, 3, 18, HashMap::new()).await;
         assert!(state.verify(3, &json!({"k": "first"}), 21).await.is_empty());
@@ -1017,8 +1014,8 @@ mod tests {
             .verify(3, &json!({"k": "first", "k2": "first"}), 21)
             .await
             .is_empty());
-        // The survivor's own write wins over every fold, whenever it
-        // arrives.
+        // The survivor's own write wins over every fold, in any arrival
+        // order.
         state.record_write(3, 22, props(&[("k", "own")])).await;
         state.record_write(4, 1, props(&[("k", "late")])).await;
         state.record_merge(4, 3, 17, HashMap::new()).await;
@@ -1029,7 +1026,7 @@ mod tests {
         assert!(state.take_anomalies().await.is_empty());
     }
 
-    /// A merge whose every response was lost keeps its journal and stays
+    /// A merge that lost every response keeps its journal and stays
     /// tolerated as absent until the op record settles it either way.
     #[tokio::test]
     async fn an_uncertain_merge_keeps_the_source_pending_until_settled() {
@@ -1044,7 +1041,7 @@ mod tests {
         state.record_merge(1, 5, 3, HashMap::new()).await;
         assert!(state.merge_uncertain_ids().await.is_empty());
         assert!(state.verify(5, &json!({"a": "1"}), 3).await.is_empty());
-        // A settled-without-merge call releases the reservation.
+        // A call that settled without a merge releases the reservation.
         state.mark_merge_pending(2).await;
         state.clear_merge_pending(2).await;
         assert!(!state.is_merge_pending_or_merged(2).await);

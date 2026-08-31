@@ -259,11 +259,11 @@ impl Stack {
                     ("PERSON_TABLE", config.pg_target_table.clone()),
                     ("PERSON_DISTINCT_ID_TABLE", pdi_table.to_string()),
                     ("FF_HASH_KEY_OVERRIDE_TABLE", ffhko_table.to_string()),
-                    // A merge whose leader calls die with a killed leader
-                    // is abandoned mid-saga; only the sweeper re-drives
-                    // it, and the gate's delete leg waits for exactly
-                    // that. Off by default in the service, so on here,
-                    // on a cadence that fits a short run.
+                    // A merge whose leader calls die with a killed
+                    // leader is abandoned mid-saga. Only the sweeper
+                    // re-drives it, and the gate's delete leg waits for
+                    // that. The service default is off, so turn it on
+                    // here, on a cadence that fits a short run.
                     ("LIFECYCLE_SWEEPER_ENABLED", "true".to_string()),
                     ("LIFECYCLE_SWEEP_INTERVAL_SECS", "3".to_string()),
                 ],

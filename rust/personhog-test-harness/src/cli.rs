@@ -334,47 +334,49 @@ pub struct GateArgs {
     pub external_identity_url: Option<String>,
 
     /// Concurrent merge workers running alongside the blast traffic and
-    /// probers: each repeatedly picks two live persons and merges one
-    /// into the other through MergePersons on the identity service, so
-    /// every merged pair runs the durable saga under concurrent writes
-    /// to both. Merged sources are retired from the traffic pool; their
+    /// probers. Each worker repeatedly picks two live persons and merges
+    /// one into the other through MergePersons on the identity service,
+    /// so every merged pair runs the durable saga under concurrent
+    /// writes to both. Merged sources leave the traffic pool. Their
     /// acked writes are asserted on the survivor, and their rows must
     /// end as tombstones above every acked version. Implies
-    /// --create-via-identity (persons need distinct ids). 0 disables.
+    /// --create-via-identity, because persons need distinct ids. 0
+    /// disables.
     #[arg(long, default_value_t = 0)]
     pub merge_concurrency: usize,
 
     /// Combined merge rate across the merge workers (merges/second).
-    /// Unset runs them flat out — the throughput ceiling — at the cost of
-    /// draining the pool fast: every merge retires one person, so size
-    /// --persons for rate × duration.
+    /// Unset runs them flat out, which measures the throughput ceiling
+    /// but drains the pool fast. Every merge retires one person, so
+    /// size --persons for rate x duration.
     #[arg(long)]
     pub merge_rate: Option<f64>,
 
     /// Persons created with --merge-wide-distinct-ids extra distinct ids
     /// each, on top of --persons. The merge lane pairs them per
-    /// --merge-wide-role, so the pathological merges — a source whose
-    /// every mapping the flip must repoint — get their own latency row
-    /// (`merges_wide`). Requires --merge-concurrency.
+    /// --merge-wide-role. The expensive merges, where the flip must
+    /// repoint a source's every mapping, then report on their own
+    /// `merges_wide` latency row. Requires --merge-concurrency.
     #[arg(long, default_value_t = 0)]
     pub merge_wide_persons: u32,
 
-    /// Extra distinct ids per wide person (the identity service caps a
-    /// create entry at 5000).
+    /// Extra distinct ids per wide person. The identity service caps a
+    /// create entry at 5000.
     #[arg(long, default_value_t = 1000)]
     pub merge_wide_distinct_ids: u32,
 
-    /// Which side of a merge the wide persons take: `source` (every
-    /// mapping repoints — the expensive flip), `target` (the survivor
-    /// is wide; the flip is cheap but the survivor keeps growing), or
-    /// `both` (wide into wide).
+    /// Which side of a merge the wide persons take. With `source`, the
+    /// flip repoints every mapping, which is the expensive case. With
+    /// `target`, the flip is cheap but the survivor keeps growing.
+    /// `both` merges wide into wide.
     #[arg(long, default_value = "source", value_parser = ["source", "target", "both"])]
     pub merge_wide_role: String,
 
     /// Merge identified sources ($merge_dangerously semantics). A
-    /// survivor becomes identified, so with this off it can never be a
-    /// source again and the lane degrades to skipped_already_identified
-    /// once every live person has survived a merge.
+    /// survivor becomes identified. With this off it can never be a
+    /// source again, and the lane degrades to
+    /// skipped_already_identified once every live person has survived a
+    /// merge.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub merge_identified_sources: bool,
 
