@@ -481,9 +481,8 @@ describe('useTaxonomicFilter', () => {
         expect(input.enableKeywordShortcuts).toBe(true)
     })
 
-    // Only the headless primitives read this override, and none of them renders in production
-    // today, so this changes nothing a person sees. It keeps the hook in step with the rule the
-    // menu applies to the rows it does render.
+    // Pins are stored globally, so this override can carry items from groups the picker does not
+    // offer. Anything that reads it needs a list the picker can represent.
     it('filters the Pinned override to groups this picker offers', () => {
         const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
         pinnedLogic.mount()
