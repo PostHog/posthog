@@ -422,14 +422,11 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// overflow routing.
     ///
     /// Prep lives in this file rather than the outputs layer because it
-    /// reads state the sink still owns (the topic registry, the replay
-    /// envelope setting) and produces a Kafka-shaped `ProduceRecord` with a
-    /// concrete topic and partition key. Keeping it off the `Sink` trait is
-    /// what matters for the layering: callers above can prep and publish as
-    /// separate phases. The prep hoist (step 12 of
-    /// `rust/capture/OUTPUTS_REFACTOR_PLAN.md`) moves the assembly and that
-    /// state up once payloads carry backend-agnostic addresses; drop this
-    /// note when it lands.
+    /// reads state the sink owns (the topic registry, the replay envelope
+    /// setting) and produces a Kafka-shaped `ProduceRecord` with a concrete
+    /// topic and partition key. Keeping it off the `Sink` trait is what
+    /// matters for the layering: callers above can prep and publish as
+    /// separate phases.
     ///
     /// Not `async`: there are no await points, and keeping it
     /// synchronous lets `prepare_batch`'s serial fast path call it inline
@@ -735,10 +732,9 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
     }
 }
 
-/// The prep → publish → fold dance for the outputs layer. No
-/// `capture_event_batch_size` here: the outputs facade records it for
-/// every backend uniformly, where the retiring `Event` impl below records
-/// it itself.
+/// The prep → publish → fold dance for the outputs layer. The batch-size
+/// histogram is recorded by the outputs facade, uniformly for every
+/// backend, not here.
 #[async_trait]
 impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {

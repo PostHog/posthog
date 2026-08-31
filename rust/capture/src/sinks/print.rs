@@ -9,8 +9,6 @@ use crate::v0_request::ProcessedEvent;
 
 pub struct PrintSink {}
 
-/// No `capture_event_batch_size` here: the outputs facade records it for
-/// every backend uniformly.
 #[async_trait]
 impl PublishEvents for PrintSink {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {

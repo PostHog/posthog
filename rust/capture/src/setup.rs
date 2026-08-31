@@ -575,9 +575,7 @@ async fn create_sink(
     Ok(Box::new(OutputTable::new(output)))
 }
 
-/// Build the deployment's output policy tree from config: print/noop and
-/// plain Kafka are single-backend outputs; S3 fallback composes a failover
-/// pair gated by the Kafka advisory handle.
+/// Build the deployment's output policy tree from config.
 async fn create_output(
     config: &Config,
     sink_handle: Option<lifecycle::Handle>,

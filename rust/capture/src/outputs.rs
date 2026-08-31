@@ -4,20 +4,12 @@
 //! leaf, or a policy composing two child outputs. Today the one policy is
 //! failover (health-gated Kafka primary with an S3 secondary). Policies
 //! operate on *events*, before any payload prep, so each target resolves
-//! topics and serializes for itself, exactly like the per-sink `send_batch`
-//! paths the old composites delegated to.
+//! topics and serializes for itself.
 //!
-//! Leaves run the prep → publish → fold dance internally via the
-//! [`PublishEvents`] trait, so no caller ever sees a two-phase protocol. The prep
-//! hoist (see the plan doc) later moves payload assembly into this layer
-//! and retires the trait.
-//!
-//! [`OutputTable`] is the address table the deployment state holds. It is
-//! degenerate today: one deployment-wide output serves every (pipeline,
-//! lane) address, and per-lane topics still resolve during prep via the
-//! `OutputRegistry`. Call sites keep publishing through the v0 `Event`
-//! trait, served by the transitional facade implemented on the table; the
-//! call-site migration retires that facade together with the trait.
+//! [`OutputTable`] is the (pipeline, lane) → output table the deployment
+//! state holds. It is degenerate today: one deployment-wide output serves
+//! every address, and per-lane topics resolve during prep via the
+//! `OutputRegistry`.
 
 use async_trait::async_trait;
 use metrics::{counter, gauge, histogram};
@@ -29,25 +21,23 @@ use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 
 /// The leaf produce contract: run prep, publish, and fold internally and
-/// report the v0 whole-request result. Payload assembly stays inside the
-/// backend until the prep hoist moves it into this layer, which is also
-/// when this trait is deleted.
+/// report the v0 whole-request result, so no caller sees a two-phase
+/// protocol.
 #[async_trait]
 pub(crate) trait PublishEvents: Send + Sync {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError>;
 
     async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
 
-    /// Flush any buffered/pending data before shutdown. Default is no-op.
+    /// Flush any buffered/pending data before shutdown.
     fn flush(&self) -> Result<(), anyhow::Error> {
         Ok(())
     }
 }
 
 /// A destination events are published to: a single backend, or a policy
-/// over two child outputs. Targets are outputs themselves, so a future
-/// policy (a split for the next cluster migration) composes over pairs the
-/// way the old sink composites did.
+/// over two child outputs. Targets are outputs themselves, so policies
+/// nest.
 pub struct Output {
     inner: Inner,
 }
@@ -58,7 +48,6 @@ enum Inner {
 }
 
 impl Output {
-    /// A single-backend output.
     pub(crate) fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
         Self {
             inner: Inner::Single(Box::new(leaf)),
@@ -116,9 +105,7 @@ impl PublishEvents for Output {
     }
 }
 
-/// The failover policy node. Skips the primary while the advisory handle
-/// reports unhealthy, re-publishes on the fallback after a retriable
-/// primary failure, and never fails over a fatal error.
+/// The failover policy node; [`Output::failover`] documents the semantics.
 struct Failover {
     primary: Box<Output>,
     fallback: Box<Output>,
@@ -193,13 +180,9 @@ impl OutputTable {
     }
 }
 
-/// Transitional facade serving the existing `Event` call sites from the
-/// table until they migrate to publishing through it directly. Records
-/// `capture_event_batch_size` because the sink impls that used to record
-/// it no longer sit on this path. Two deliberate recording deltas against
-/// the old composites: the histogram now records when a batch goes to the
-/// S3 fallback (it silently didn't), and print/noop single sends record it
-/// (they didn't).
+/// Transitional facade serving the `Event` call sites from the table.
+/// Records `capture_event_batch_size` because the sink impls that used to
+/// record it no longer sit on this path.
 #[async_trait]
 impl Event for OutputTable {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
@@ -370,7 +353,6 @@ mod tests {
             Some(kafka_handle.clone()),
         );
 
-        // Advisory handle starts healthy
         kafka_handle.report_healthy();
         tokio::time::sleep(Duration::from_millis(100)).await;
         output.publish_one(test_event()).await.unwrap();
@@ -389,7 +371,6 @@ mod tests {
             "fallback should serve when the kafka advisory deadline expires"
         );
 
-        // Recovery: report healthy again
         kafka_handle.report_healthy();
         tokio::time::sleep(Duration::from_millis(100)).await;
         output.publish_one(test_event()).await.unwrap();

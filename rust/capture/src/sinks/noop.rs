@@ -14,8 +14,6 @@ impl NoOpSink {
     }
 }
 
-/// No `capture_event_batch_size` here: the outputs facade records it for
-/// every backend uniformly.
 #[async_trait]
 impl PublishEvents for NoOpSink {
     async fn publish_one(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {

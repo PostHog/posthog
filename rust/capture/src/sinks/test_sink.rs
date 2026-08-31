@@ -44,7 +44,6 @@ impl Event for MockSink {
     }
 }
 
-/// Lets outputs-layer tests use the same capturing mock as a policy leaf.
 #[async_trait]
 impl PublishEvents for MockSink {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
