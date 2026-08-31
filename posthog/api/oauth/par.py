@@ -57,9 +57,10 @@ PAR_REQUEST_URI_LIFETIME_SECONDS = 60 * 5
 PAR_EXCLUDED_PARAMS = frozenset({"client_secret", "request_uri"})
 
 # Upper bound on the stored (urlencoded) parameter set. Comfortably fits the full
-# advertised scope list plus the other parameters, while bounding how much a
-# public client can write into the shared cache per pushed request.
-PAR_MAX_STORED_BYTES = 32 * 1024
+# advertised scope list plus the other parameters (a few KB), while bounding both
+# how much a public client can write into the shared cache and the length of the
+# expanded /oauth/authorize/ URL the authorization endpoint redirects to.
+PAR_MAX_STORED_BYTES = 12 * 1024
 
 
 def _cache_key(reference: str) -> str:
@@ -159,6 +160,7 @@ class OAuthPushedAuthorizationRequestView(APIView):
     def post(self, request: Request) -> Response:
         serializer = PushedAuthorizationRequestSerializer(data=request.data)
         if not serializer.is_valid():
+            logger.warning("oauth_par_validation_error", errors=serializer.errors)
             return Response(
                 {"error": "invalid_request", "error_description": str(serializer.errors)},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -168,6 +170,7 @@ class OAuthPushedAuthorizationRequestView(APIView):
 
         # RFC 9126 §2.1: a pushed request must not carry a request_uri itself.
         if data.get("request_uri"):
+            logger.warning("oauth_par_rejected_nested_request_uri", client_id=data.get("client_id"))
             return Response(
                 {"error": "invalid_request", "error_description": "request_uri is not allowed in a pushed request."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -177,6 +180,7 @@ class OAuthPushedAuthorizationRequestView(APIView):
         try:
             application = get_application_by_client_id(client_id)
         except OAuthApplication.DoesNotExist:
+            logger.warning("oauth_par_invalid_client", client_id=client_id)
             return Response(
                 {"error": "invalid_client", "error_description": "Invalid client_id."},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -186,6 +190,7 @@ class OAuthPushedAuthorizationRequestView(APIView):
         # valid secret; public clients (PKCE) authenticate with client_id alone.
         if application.client_type == AbstractApplication.CLIENT_CONFIDENTIAL:
             if not _client_secret_valid(application, data.get("client_secret")):
+                logger.warning("oauth_par_invalid_client_secret", client_id=client_id)
                 return Response(
                     {"error": "invalid_client", "error_description": "Invalid client credentials."},
                     status=status.HTTP_401_UNAUTHORIZED,
@@ -199,6 +204,7 @@ class OAuthPushedAuthorizationRequestView(APIView):
         stored["client_id"] = client_id
 
         if len(urlencode(stored)) > PAR_MAX_STORED_BYTES:
+            logger.warning("oauth_par_request_too_large", client_id=client_id)
             return Response(
                 {"error": "invalid_request", "error_description": "The authorization request is too large."},
                 status=status.HTTP_400_BAD_REQUEST,
