@@ -12,17 +12,21 @@ State handling is inherited unchanged.
 from django.db import migrations
 
 
-def _existing_constraint_names(schema_editor, table: str) -> set[str]:
+def _table_constraints(schema_editor, table: str) -> dict:
     with schema_editor.connection.cursor() as cursor:
-        return set(schema_editor.connection.introspection.get_constraints(cursor, table))
+        return schema_editor.connection.introspection.get_constraints(cursor, table)
+
+
+def _existing_constraint_names(schema_editor, table: str) -> set[str]:
+    return set(_table_constraints(schema_editor, table))
 
 
 class AddFieldIfMissing(migrations.AddField):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.model_name)
-        if not model._meta.managed:
-            # Django's own operation no-ops for unmanaged models; probing their
-            # (absent) tables would crash first.
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            # Django's own operation would no-op (unmanaged, swapped, or
+            # router-excluded model); probing its absent table would crash first.
             return
         field = model._meta.get_field(self.name)
         conn = schema_editor.connection
@@ -41,9 +45,7 @@ class AddFieldIfMissing(migrations.AddField):
 class AddIndexIfMissing(migrations.AddIndex):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.model_name)
-        if not model._meta.managed:
-            # Django's own operation no-ops for unmanaged models; probing their
-            # (absent) tables would crash first.
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         if self.index.name in _existing_constraint_names(schema_editor, model._meta.db_table):
             return
@@ -53,9 +55,7 @@ class AddIndexIfMissing(migrations.AddIndex):
 class AddConstraintIfMissing(migrations.AddConstraint):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.model_name)
-        if not model._meta.managed:
-            # Django's own operation no-ops for unmanaged models; probing their
-            # (absent) tables would crash first.
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         if self.constraint.name in _existing_constraint_names(schema_editor, model._meta.db_table):
             return
@@ -65,14 +65,12 @@ class AddConstraintIfMissing(migrations.AddConstraint):
 class AlterUniqueTogetherIfMissing(migrations.AlterUniqueTogether):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.name)
-        if not model._meta.managed:
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         wanted: set[frozenset[str]] = set()
         for tup in self.option_value or ():
             wanted.add(frozenset(model._meta.get_field(f).column for f in tup))
-        conn = schema_editor.connection
-        with conn.cursor() as cursor:
-            constraints = conn.introspection.get_constraints(cursor, model._meta.db_table)
+        constraints = _table_constraints(schema_editor, model._meta.db_table)
         existing = {frozenset(c["columns"]) for c in constraints.values() if c.get("unique")}
         if wanted <= existing:
             return

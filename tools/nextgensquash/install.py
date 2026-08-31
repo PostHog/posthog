@@ -12,9 +12,9 @@ from . import loading, retire
 
 
 def _run_install(args: argparse.Namespace) -> None:
-    """Copy emitted squash files into real migration dirs, strip retired squashes'
-    `replaces` (Django-canonical retirement), and delete the specific files that
-    create the multi-app dep cycle (per CYCLE_DELETIONS.txt from emit).
+    """Copy emitted squash files into real migration dirs, strip claimed
+    squashes' `replaces`, and rewrite the dependencies= entries that create the
+    multi-app dep cycle (per CYCLE_EDGE_REMOVALS.txt from emit).
     """
     output_dir = args.input_dir
     installed_log = output_dir / "INSTALLED.txt"
@@ -87,53 +87,7 @@ def _run_install(args: argparse.Namespace) -> None:
 
 
 def _remove_dep_entry(path: Path, dep: tuple[str, str]) -> bool:
-    """AST-based removal of one `(app, name)` tuple from `Migration.dependencies`.
-    Handles single-line and multi-line list formatting; a regex line match
-    missed inline lists like `dependencies = [(...), (...)]`.
-    """
-    import ast
-
-    src = path.read_text()
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
-        return False
-    deps_assign = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == "Migration":
-            for stmt in node.body:
-                if isinstance(stmt, ast.Assign) and any(
-                    isinstance(t, ast.Name) and t.id == "dependencies" for t in stmt.targets
-                ):
-                    deps_assign = stmt
-                    break
-    if deps_assign is None or not isinstance(deps_assign.value, ast.List):
-        return False
-    kept: list[str] = []
-    removed = False
-    for elt in deps_assign.value.elts:
-        if (
-            isinstance(elt, ast.Tuple)
-            and len(elt.elts) == 2
-            and all(isinstance(c, ast.Constant) and isinstance(c.value, str) for c in elt.elts)
-            and (elt.elts[0].value, elt.elts[1].value) == dep
-        ):
-            removed = True
-            continue
-        seg = ast.get_source_segment(src, elt)
-        if seg:
-            kept.append(seg)
-    if not removed:
-        return False
-    indent = " " * 8
-    lines = ["    dependencies = ["] + [f"{indent}{k}," for k in kept] + ["    ]"]
-    src_lines = src.splitlines()
-    start, end = deps_assign.lineno - 1, deps_assign.end_lineno - 1
-    new_src = "\n".join(src_lines[:start] + lines + src_lines[end + 1 :])
-    if not new_src.endswith("\n"):
-        new_src += "\n"
-    path.write_text(new_src)
-    return True
+    return retire.transform_dependencies(path, lambda d: None if d == dep else d)
 
 
 def _strip_cycle_edges_from_migrations(edges: list[tuple[str, str, str, str]], target_dir: Path) -> list[Path]:

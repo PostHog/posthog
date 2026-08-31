@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
@@ -42,10 +43,19 @@ class Squasher:
         self.SQUASH_NAME = f"0001_squash_{cutoff.isoformat().replace('-', '_')}_initial"
         self.include_prior_squashes = include_prior_squashes
         self.old, self.young = tree.partition(cutoff, include_prior_squashes=include_prior_squashes)
-        self.old_keys = set(self.old.keys())
         self.migration_graph = self._build_migration_graph()
         self.app_graph = self._build_app_graph()
         self.squashes = self._plan_squashes()
+
+    @functools.cached_property
+    def latest_old_per_app(self) -> dict[str, str]:
+        """For each app with old migrations, the alphabetically-last (= numerically last) name."""
+        out: dict[str, str] = {}
+        for m in self.old.values():
+            cur = out.get(m.ref.app)
+            if cur is None or m.ref.name > cur:
+                out[m.ref.app] = m.ref.name
+        return out
 
     def _build_migration_graph(self) -> nx.DiGraph:
         """Migration-level DAG over the old set. Edges point from dependent to dependency."""
@@ -53,7 +63,7 @@ class Squasher:
         for m in self.old.values():
             g.add_node(m.ref.key, app=m.ref.app)
             for dep in m.dependencies:
-                if dep.key in self.old_keys:
+                if dep.key in self.old:
                     g.add_edge(m.ref.key, dep.key)
         return g
 
@@ -63,7 +73,7 @@ class Squasher:
         for m in self.old.values():
             g.add_node(m.ref.app)
             for dep in m.dependencies:
-                if dep.app != m.ref.app and dep.key in self.old_keys:
+                if dep.app != m.ref.app and dep.key in self.old:
                     g.add_edge(m.ref.app, dep.app)
         return g
 
@@ -79,7 +89,7 @@ class Squasher:
             # new squash represents the full historical name set.
             replaces.extend(m.replaces)
             for dep in m.dependencies:
-                if dep.app != app and dep.key in self.old_keys:
+                if dep.app != app and dep.key in self.old:
                     deps_apps.add(dep.app)
             for op in m.operations:
                 op_counts[op.kind] += 1
@@ -259,19 +269,10 @@ class Snapshotter:
     def __init__(self, squasher: Squasher):
         self.squasher = squasher
 
-    def latest_old_per_app(self) -> dict[str, str]:
-        """For each app with old migrations, the alphabetically-last (= numerically last) name."""
-        out: dict[str, str] = {}
-        for m in self.squasher.old.values():
-            cur = out.get(m.ref.app)
-            if cur is None or m.ref.name > cur:
-                out[m.ref.app] = m.ref.name
-        return out
-
     def final_state(self) -> ProjectState:
         """ProjectState after applying all old migrations from all apps."""
         loader = MigrationLoader(connection=None, ignore_no_migrations=True)
-        targets = list(self.latest_old_per_app().items())
+        targets = list(self.squasher.latest_old_per_app.items())
         state = loader.project_state(targets, at_end=True)
         # `loader.project_state` produces ModelStates whose `options` may lack the
         # 'indexes'/'constraints' keys that downstream Django code expects.

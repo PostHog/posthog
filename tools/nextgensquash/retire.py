@@ -10,22 +10,14 @@ from pathlib import Path
 from . import loading
 
 
-def _rewrite_deps_in_file(
-    path: Path,
-    owning_app: str,
-    replaced_to_app: dict[str, str],
-    initials: dict[str, str],
-    leaves: dict[str, str],
-) -> bool:
-    """Walk `path`'s `Migration.dependencies = [...]` literal and rewrite any
-    tuple `(dep_app, dep_name)` whose `dep_app/dep_name` is in `replaced_to_app`.
+def transform_dependencies(path: Path, transform) -> bool:
+    """Rewrite `Migration.dependencies = [...]` in `path` through `transform`.
 
-    Same-app references → `(dep_app, leaves[dep_app])` (post-finalize leaf, so
-    young migrations layer above finalize_fks). Cross-app references →
-    `(dep_app, initials[dep_app])` (pre-finalize, avoids re-creating the cycle
-    that finalize_fks itself depends on). Duplicates collapsed.
-
-    Returns True if the file was modified.
+    `transform` maps each `(app, name)` tuple to a replacement tuple, or None
+    to drop the entry. AST-based, so single-line and multi-line list styles
+    both work. Untouched entries keep their original source text (sentinel
+    strings and unusual expressions included); duplicate results collapse.
+    Returns True when the file changed.
     """
     import ast
 
@@ -47,8 +39,8 @@ def _rewrite_deps_in_file(
     if deps_assign is None or not isinstance(deps_assign.value, ast.List):
         return False
 
-    new_tuples: list[tuple[str, str] | str] = []
-    seen: set[tuple[str, str]] = set()
+    entries: list[str] = []
+    seen: set[str] = set()
     changed = False
     for elt in deps_assign.value.elts:
         if (
@@ -56,45 +48,61 @@ def _rewrite_deps_in_file(
             and len(elt.elts) == 2
             and all(isinstance(c, ast.Constant) and isinstance(c.value, str) for c in elt.elts)
         ):
-            dep_app, dep_name = elt.elts[0].value, elt.elts[1].value
-            key = f"{dep_app}/{dep_name}"
-            if key in replaced_to_app:
-                target_app = replaced_to_app[key]
-                new_name = leaves[target_app] if target_app == owning_app else initials[target_app]
-                new_pair = (target_app, new_name)
-                if new_pair != (dep_app, dep_name):
-                    changed = True
-                pair = new_pair
+            dep = (elt.elts[0].value, elt.elts[1].value)
+            result = transform(dep)
+            if result is None:
+                changed = True
+                continue
+            if result != dep:
+                changed = True
+                text = f'("{result[0]}", "{result[1]}")'
             else:
-                pair = (dep_app, dep_name)
-            if pair not in seen:
-                seen.add(pair)
-                new_tuples.append(pair)
+                text = ast.get_source_segment(src, elt) or f'("{dep[0]}", "{dep[1]}")'
+            key = f"{result[0]}/{result[1]}"
         else:
-            # Preserve unusual entries (sentinel strings, fn calls, etc.) verbatim
-            new_tuples.append(ast.get_source_segment(src, elt) or "")
+            text = ast.get_source_segment(src, elt) or ""
+            key = text
+        if text and key not in seen:
+            seen.add(key)
+            entries.append(text)
 
     if not changed:
         return False
 
     indent = " " * 8
-    lines = ["    dependencies = ["]
-    for t in new_tuples:
-        if isinstance(t, tuple):
-            lines.append(f'{indent}("{t[0]}", "{t[1]}"),')
-        elif t:
-            lines.append(f"{indent}{t},")
-    lines.append("    ]")
-    new_block = "\n".join(lines)
-
+    lines = ["    dependencies = ["] + [f"{indent}{e}," for e in entries] + ["    ]"]
     src_lines = src.splitlines()
-    start = deps_assign.lineno - 1
-    end = deps_assign.end_lineno - 1
-    new_src = "\n".join(src_lines[:start] + new_block.splitlines() + src_lines[end + 1 :])
+    start, end = deps_assign.lineno - 1, deps_assign.end_lineno - 1
+    new_src = "\n".join(src_lines[:start] + lines + src_lines[end + 1 :])
     if not new_src.endswith("\n"):
         new_src += "\n"
     path.write_text(new_src)
     return True
+
+
+def _rewrite_deps_in_file(
+    path: Path,
+    owning_app: str,
+    replaced_to_app: dict[str, str],
+    initials: dict[str, str],
+    leaves: dict[str, str],
+) -> bool:
+    """Rewrite every dep on a now-folded migration to the right squash file.
+
+    Same-app references → the post-finalize leaf, so young migrations layer
+    above finalize_fks. Cross-app references → the pre-finalize initial,
+    avoiding the cycle finalize_fks itself depends on.
+    """
+
+    def transform(dep: tuple[str, str]) -> tuple[str, str]:
+        key = f"{dep[0]}/{dep[1]}"
+        if key not in replaced_to_app:
+            return dep
+        target_app = replaced_to_app[key]
+        new_name = leaves[target_app] if target_app == owning_app else initials[target_app]
+        return (target_app, new_name)
+
+    return transform_dependencies(path, transform)
 
 
 def _empty_replaces_in_squash(path: Path) -> bool:

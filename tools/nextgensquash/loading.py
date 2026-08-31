@@ -10,16 +10,14 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from django.conf import settings  # noqa: E402
 from django.db.migrations.loader import MigrationLoader  # noqa: E402
 
-from common.migration_utils import get_managed_app_names  # noqa: E402
+from common.migration_utils import get_managed_app_names, get_managed_app_paths  # noqa: E402
 
-
-def _find_repo_root() -> Path:
-    return next(p for p in Path(__file__).resolve().parents if (p / "manage.py").exists())
-
-
-REPO_ROOT = _find_repo_root()
+# The package __init__ ran django.setup() before this module loads, so
+# BASE_DIR is the canonical repo root — no second filesystem walk.
+REPO_ROOT = Path(settings.BASE_DIR)
 
 DEFAULT_CUTOFF = date(2026, 3, 1)
 
@@ -140,19 +138,8 @@ class MigrationTree:
 
     @staticmethod
     def _discover_files(repo_root: Path) -> list[Path]:
-        roots = [
-            repo_root / "posthog" / "migrations",
-            repo_root / "posthog" / "rbac" / "migrations",
-            repo_root / "ee" / "migrations",
-        ]
-        products = repo_root / "products"
-        if products.is_dir():
-            for p in products.iterdir():
-                d = p / "backend" / "migrations"
-                if d.is_dir():
-                    roots.append(d)
         files: list[Path] = []
-        for root in roots:
+        for root in get_managed_app_paths(repo_root).values():
             if not root.is_dir():
                 continue
             files.extend(f for f in root.glob("*.py") if f.name != "__init__.py")

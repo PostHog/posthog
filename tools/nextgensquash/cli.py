@@ -8,6 +8,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from django.db.migrations.loader import MigrationLoader
+
 import yaml
 
 from . import cyclebreak, emit, install, loading, planning, retire
@@ -30,7 +32,10 @@ def _run_emit(args: argparse.Namespace) -> None:
     squasher = planning.Squasher(tree, args.cutoff, include_prior_squashes=args.include_prior_squashes)
     state = planning.Snapshotter(squasher).final_state()
     cycle_breaker = cyclebreak.CycleBreaker(state)
-    emit.Emitter.check_young_against_deferred(squasher, cycle_breaker)
+    # One graph load shared by the young-safety check and every per-app
+    # Emitter; rebuilding it per collector per app cost tens of seconds.
+    loader = MigrationLoader(connection=None, ignore_no_migrations=True)
+    emit.Emitter.check_young_against_deferred(squasher, cycle_breaker, loader)
 
     sys.stderr.write(
         f"cycle apps: {sorted(cycle_breaker.cycle_apps) or '(none)'}\n"
@@ -69,7 +74,7 @@ def _run_emit(args: argparse.Namespace) -> None:
         "replaced": {},  # "app/name" -> app  (every name claimed by a squash)
     }
     for app in apps:
-        emitter = emit.Emitter(state, squasher, app, cycle_breaker)
+        emitter = emit.Emitter(state, squasher, app, cycle_breaker, loader)
         squashes = emitter.build()
         dropped_runsql.extend(emitter.dropped_runsql)
         initial = next((sq for sq in squashes if sq.name == emitter.INITIAL_NAME), None)
@@ -164,8 +169,7 @@ def main() -> None:
     parser_retire.add_argument("--input-dir", type=Path, required=True)
 
     # Backward-compat: bare invocation defaults to `plan`.
-    parser.add_argument("--cutoff", type=date.fromisoformat, default=loading.DEFAULT_CUTOFF)
-    parser.add_argument("--include-prior-squashes", action=argparse.BooleanOptionalAction, default=True)
+    _add_phase_args(parser)
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 

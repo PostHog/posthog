@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Iterator
 from dataclasses import (
     dataclass,
     field as dc_field,
 )
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -34,13 +36,27 @@ class SquashFile:
     run_before: list[tuple[str, str]] = dc_field(default_factory=list)
 
 
-class Emitter:
-    """Produces SquashFile(s) for a single app from the final state.
+@lru_cache(maxsize=1)
+def _managed_table_names() -> frozenset[str]:
+    """DB table names for every model in INSTALLED_APPS that Django manages.
+    Tables for `managed=False` models (posthog_person, posthog_group, etc.
+    owned by personhog) are excluded — CREATE INDEX ops targeting them must
+    be dropped from the squash output. Constant for the life of a run.
+    """
+    from django.apps import apps as dj_apps
 
-    Returns either:
-      - one SquashFile (0001_squashed_initial) for apps with no deferred FKs, or
-      - two SquashFiles (0001_squashed_initial + 0002_finalize_fks) for apps
-        that need to defer outgoing FKs to break a cross-app cycle.
+    return frozenset(m._meta.db_table.lower() for m in dj_apps.get_models() if m._meta.managed)
+
+
+class Emitter:
+    """Produces the SquashFile set for a single app from the final state.
+
+    Always emits 0000_squash_stub (extensions, early models, the __first__
+    anchor) and 0001_squash_<cutoff>_initial (CreateModel per model, full
+    replaces=). Adds 0002_squash_<cutoff>_finalize_fks when FK fields, indexes,
+    constraints, or unique_together tuples were deferred to break cycles, and
+    0003_squash_<cutoff>_schema_addons when claimed migrations carry RunSQL
+    index or constraint DDL the CreateModel walk cannot reproduce.
     """
 
     # Stable across phases — content is just extensions + standalone early
@@ -117,11 +133,15 @@ class Emitter:
         squasher: planning.Squasher,
         app: str,
         cycle_breaker: cyclebreak.CycleBreaker,
+        loader: MigrationLoader | None = None,
     ):
         self.state = state
         self.squasher = squasher
         self.app = app
         self.cycle_breaker = cycle_breaker
+        # One loader serves every collector; rebuilding the full graph per
+        # method per app cost tens of seconds across a whole emit run.
+        self.loader = loader if loader is not None else MigrationLoader(connection=None, ignore_no_migrations=True)
         # RunSQL ops from claimed migrations that the squash neither reproduces
         # via CreateModel nor forwards to schema_addons. Populated by
         # _collect_index_runsql_ops; emit writes them to DROPPED_RUNSQL.txt so
@@ -286,7 +306,7 @@ class Emitter:
           declared explicitly rather than inherited via the replaces= ghost chain.
           This makes canonical retirement (empty replaces=[]) actually work.
         """
-        latest_old = planning.Snapshotter(self.squasher).latest_old_per_app()
+        latest_old = self.squasher.latest_old_per_app
         deps: set[tuple[str, str]] = set()
         for ms in self._models_in_app():
             mname = ms.name.lower()
@@ -327,7 +347,7 @@ class Emitter:
             if m.ref.app != self.app:
                 continue
             for rb in m.run_before:
-                if rb.key not in self.squasher.old_keys:
+                if rb.key not in self.squasher.old:
                     out.add(rb.key)
         return sorted(out)
 
@@ -388,6 +408,22 @@ class Emitter:
         }
     )
 
+    def _claimed_ops(self) -> Iterator[tuple[str, Any]]:
+        """Yield (migration_name, op) for this app's claimed migrations in name
+        order, flattening SeparateDatabaseAndState into its database ops."""
+
+        def flatten(name: str, ops: list[Any]) -> Iterator[tuple[str, Any]]:
+            for op in ops:
+                if isinstance(op, dj_migrations.SeparateDatabaseAndState):
+                    yield from flatten(name, list(op.database_operations))
+                else:
+                    yield name, op
+
+        for (app, name), m in sorted(self.loader.graph.nodes.items()):
+            if app != self.app or (app, name) not in self.squasher.old:
+                continue
+            yield from flatten(name, list(m.operations))
+
     def _extension_preamble_ops(self) -> list[Any]:
         """Collect extension-creation operations from claimed migrations.
 
@@ -396,31 +432,23 @@ class Emitter:
         uses them. They live in old migrations our squash claims, but our
         CreateModel emission doesn't carry them over.
         """
-        loader = MigrationLoader(connection=None, ignore_no_migrations=True)
         out: list[Any] = []
         seen: set[str] = set()
-        for (app, name), m in sorted(loader.graph.nodes.items()):
-            if app != self.app:
-                continue
-            if (app, name) not in {
-                r.key for r in [migr.ref for migr in self.squasher.old.values() if migr.ref.app == self.app]
-            }:
-                continue
-            for op in m.operations:
-                kind = op.__class__.__name__
-                if kind in self.EXTENSION_OP_NAMES:
-                    sig = f"{kind}:{getattr(op, 'name', '')}"
-                    if sig not in seen:
-                        seen.add(sig)
+        for _name, op in self._claimed_ops():
+            kind = op.__class__.__name__
+            if kind in self.EXTENSION_OP_NAMES:
+                sig = f"{kind}:{getattr(op, 'name', '')}"
+                if sig not in seen:
+                    seen.add(sig)
+                    out.append(op)
+            # isinstance, not class-name match: CreateIndexConcurrently and
+            # friends subclass RunSQL and must not slip past.
+            elif isinstance(op, dj_migrations.RunSQL):
+                sql = op.sql if isinstance(op.sql, str) else str(op.sql)
+                if "CREATE EXTENSION" in sql.upper():
+                    if sql not in seen:
+                        seen.add(sql)
                         out.append(op)
-                # isinstance, not class-name match: CreateIndexConcurrently and
-                # friends subclass RunSQL and must not slip past.
-                elif isinstance(op, dj_migrations.RunSQL):
-                    sql = op.sql if isinstance(op.sql, str) else str(op.sql)
-                    if "CREATE EXTENSION" in sql.upper():
-                        if sql not in seen:
-                            seen.add(sql)
-                            out.append(op)
         return out
 
     # Stateless constraint ops from posthog.migration_helpers: their DDL exists
@@ -432,32 +460,21 @@ class Emitter:
     )
 
     def _stateless_constraint_ops(self) -> list[Any]:
-        loader = MigrationLoader(connection=None, ignore_no_migrations=True)
-        claimed_keys = {migr.ref.key for migr in self.squasher.old.values() if migr.ref.app == self.app}
         out: list[Any] = []
         # Validate ops only make sense for constraints the squash actually
         # produces: a forwarded AddForeignKeyNotValid, a forwarded raw FK-add
         # RunSQL (run before this collector), or a final-state Meta constraint.
         available = set(self._forwarded_fk_constraint_names) | self._final_state_index_names()
-
-        def walk(mig_name: str, ops: list[Any]) -> None:
-            for op in ops:
-                kind = op.__class__.__name__
-                if kind == "AddForeignKeyNotValid":
-                    available.add(op.name)
+        for mig_name, op in self._claimed_ops():
+            kind = op.__class__.__name__
+            if kind == "AddForeignKeyNotValid":
+                available.add(op.name)
+                out.append(op)
+            elif kind in self.STATELESS_CONSTRAINT_OP_NAMES:
+                if op.name in available:
                     out.append(op)
-                elif kind in self.STATELESS_CONSTRAINT_OP_NAMES:
-                    if op.name in available:
-                        out.append(op)
-                    else:
-                        self.dropped_runsql.append(f"{self.app}.{mig_name} [unpaired-validate]: {op.name}")
-                elif isinstance(op, dj_migrations.SeparateDatabaseAndState):
-                    walk(mig_name, list(op.database_operations))
-
-        for (app, name), m in sorted(loader.graph.nodes.items()):
-            if app != self.app or (app, name) not in claimed_keys:
-                continue
-            walk(name, list(m.operations))
+                else:
+                    self.dropped_runsql.append(f"{self.app}.{mig_name} [unpaired-validate]: {op.name}")
         return out
 
     @staticmethod
@@ -492,22 +509,6 @@ class Emitter:
         return out
 
     @staticmethod
-    def _managed_table_names() -> set[str]:
-        """DB table names for every model in INSTALLED_APPS that Django manages.
-        Tables for `managed=False` models (posthog_person, posthog_group, etc.
-        owned by personhog) are excluded — CREATE INDEX ops targeting them must
-        be dropped from the squash output.
-        """
-        from django.apps import apps as dj_apps
-
-        names: set[str] = set()
-        for model in dj_apps.get_models():
-            if not model._meta.managed:
-                continue
-            names.add(model._meta.db_table.lower())
-        return names
-
-    @staticmethod
     def _ensure_idempotent_create_index(sql: str) -> str:
         """Rewrite `CREATE INDEX ... ` to `CREATE INDEX IF NOT EXISTS ...` so
         forwarded RunSQL is safe when Django's own CreateModel already produced
@@ -535,106 +536,97 @@ class Emitter:
         co-exists with Django's automatic FK indexes.
         """
         meta_index_names = self._final_state_index_names()
-        managed_tables = self._managed_table_names()
-        loader = MigrationLoader(connection=None, ignore_no_migrations=True)
-        claimed_keys = {r.key for r in [migr.ref for migr in self.squasher.old.values() if migr.ref.app == self.app]}
+        managed_tables = _managed_table_names()
 
         kept: list[Any | None] = []
         create_position: dict[str, int] = {}
 
-        def walk(mig_name: str, ops: list[Any]) -> None:
-            for op in ops:
-                # isinstance, not class-name match: CreateIndexConcurrently /
-                # DropIndexConcurrently subclass RunSQL, and a name match let
-                # their index SQL vanish without a trace (lost partial index on
-                # posthog_dashboardtile in the Aug 2026 tree).
-                if isinstance(op, dj_migrations.RunSQL):
-                    sql_text = self._runsql_text(op)
-                    if "CREATE EXTENSION" in sql_text.upper():
-                        continue  # handled by stub
-                    sql_upper = sql_text.upper()
-                    # FK constraints added via raw SQL (composite keys, or
-                    # NOT VALID adds beside a state-only AddField) must be
-                    # forwarded — paired ValidateForeignKey ops and the final
-                    # schema rely on them. Forward per STATEMENT: the same
-                    # RunSQL often also carries an ADD COLUMN the squash's
-                    # CreateModel already bakes in. Each forwarded add is
-                    # wrapped in a pg_constraint existence guard so the
-                    # non-atomic addons file survives partial re-runs.
-                    if (
-                        "ADD CONSTRAINT" in sql_upper
-                        and "FOREIGN KEY" in sql_upper
-                        and "CREATE TABLE" not in sql_upper
-                        and "DROP TABLE" not in sql_upper
-                    ):
-                        forwarded_stmts: list[str] = []
-                        for stmt in sql_text.split(";"):
-                            s = stmt.strip()
-                            if not s:
-                                continue
-                            s_upper = s.upper()
-                            cmatch = re.search(r"ADD\s+CONSTRAINT\s+\"?([a-zA-Z0-9_]+)\"?", s, re.IGNORECASE)
-                            tmatch = re.search(r"ALTER\s+TABLE\s+(?:ONLY\s+)?\"?([a-zA-Z0-9_]+)\"?", s, re.IGNORECASE)
-                            # Same rule as index forwarding: skip targets the
-                            # squash doesn't create (managed=False personhog
-                            # tables).
-                            if tmatch and tmatch.group(1).lower() not in managed_tables:
-                                self.dropped_runsql.append(f"{self.app}.{mig_name} [unmanaged-table]: {s[:160]}")
-                                continue
-                            if cmatch and "FOREIGN KEY" in s_upper and "ADD COLUMN" not in s_upper:
-                                cname = cmatch.group(1)
-                                self._forwarded_fk_constraint_names.add(cname)
-                                forwarded_stmts.append(
-                                    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
-                                    f"WHERE conname = '{cname}') THEN\n{s};\nEND IF; END $$"
-                                )
-                            else:
-                                self.dropped_runsql.append(f"{self.app}.{mig_name} [table-ddl]: {s[:160]}")
-                        if forwarded_stmts:
-                            kept.append(dj_migrations.RunSQL(sql=";\n".join(forwarded_stmts) + ";"))
-                        continue
-                    # Skip any RunSQL that mixes table/column DDL with index
-                    # creation. Our squash's CreateModel + finalize_fks already
-                    # produce those tables and columns from final-state walk;
-                    # forwarding a CREATE TABLE / ALTER TABLE here would
-                    # collide. We only forward *pure* index work.
-                    if any(kw in sql_upper for kw in ("CREATE TABLE", "ALTER TABLE", "DROP TABLE")):
-                        self.dropped_runsql.append(f"{self.app}.{mig_name} [table-ddl]: {sql_text[:160]}")
-                        continue
-                    drop_match = self._DROP_INDEX_RE.search(sql_text)
-                    if drop_match:
-                        idx_name = drop_match.group(1)
-                        prior = create_position.pop(idx_name, None)
-                        if prior is not None:
-                            kept[prior] = None  # cancel the earlier add
-                        continue
-                    create_match = self._CREATE_INDEX_RE.search(sql_text)
-                    if not create_match:
-                        self.dropped_runsql.append(f"{self.app}.{mig_name} [unrecognized]: {sql_text[:160]}")
-                        continue
-                    idx_name, table_name = create_match.group(1), create_match.group(2).lower()
-                    if idx_name in meta_index_names:
-                        continue  # CreateModel(options=...) already covers it
-                    if table_name not in managed_tables:
-                        continue  # target table isn't created by our squash (managed=False)
-                    # Wrap CREATE INDEX with IF NOT EXISTS so it's safe to run
-                    # after a CreateModel that may have auto-created an FK index
-                    # with the same name.
-                    sql_safe = self._ensure_idempotent_create_index(sql_text)
-                    safe_op = dj_migrations.RunSQL(
-                        sql=sql_safe,
-                        reverse_sql=op.reverse_sql,
-                        hints=op.hints,
-                    )
-                    kept.append(safe_op)
-                    create_position[idx_name] = len(kept) - 1
-                elif isinstance(op, dj_migrations.SeparateDatabaseAndState):
-                    walk(mig_name, list(op.database_operations))
-
-        for (app, name), m in sorted(loader.graph.nodes.items()):
-            if app != self.app or (app, name) not in claimed_keys:
+        for mig_name, op in self._claimed_ops():
+            # isinstance, not class-name match: CreateIndexConcurrently /
+            # DropIndexConcurrently subclass RunSQL, and a name match let
+            # their index SQL vanish without a trace (lost partial index on
+            # posthog_dashboardtile in the Aug 2026 tree).
+            if not isinstance(op, dj_migrations.RunSQL):
                 continue
-            walk(name, list(m.operations))
+            sql_text = self._runsql_text(op)
+            if "CREATE EXTENSION" in sql_text.upper():
+                continue  # handled by stub
+            sql_upper = sql_text.upper()
+            # FK constraints added via raw SQL (composite keys, or
+            # NOT VALID adds beside a state-only AddField) must be
+            # forwarded — paired ValidateForeignKey ops and the final
+            # schema rely on them. Forward per STATEMENT: the same
+            # RunSQL often also carries an ADD COLUMN the squash's
+            # CreateModel already bakes in. Each forwarded add is
+            # wrapped in a pg_constraint existence guard so the
+            # non-atomic addons file survives partial re-runs.
+            if (
+                "ADD CONSTRAINT" in sql_upper
+                and "FOREIGN KEY" in sql_upper
+                and "CREATE TABLE" not in sql_upper
+                and "DROP TABLE" not in sql_upper
+            ):
+                forwarded_stmts: list[str] = []
+                for stmt in sql_text.split(";"):
+                    stmt = stmt.strip()
+                    if not stmt:
+                        continue
+                    stmt_upper = stmt.upper()
+                    cmatch = re.search(r"ADD\s+CONSTRAINT\s+\"?([a-zA-Z0-9_]+)\"?", stmt, re.IGNORECASE)
+                    tmatch = re.search(r"ALTER\s+TABLE\s+(?:ONLY\s+)?\"?([a-zA-Z0-9_]+)\"?", stmt, re.IGNORECASE)
+                    # Same rule as index forwarding: skip targets the
+                    # squash doesn't create (managed=False personhog
+                    # tables).
+                    if tmatch and tmatch.group(1).lower() not in managed_tables:
+                        self.dropped_runsql.append(f"{self.app}.{mig_name} [unmanaged-table]: {stmt[:160]}")
+                        continue
+                    if cmatch and "FOREIGN KEY" in stmt_upper and "ADD COLUMN" not in stmt_upper:
+                        cname = cmatch.group(1)
+                        self._forwarded_fk_constraint_names.add(cname)
+                        forwarded_stmts.append(
+                            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+                            f"WHERE conname = '{cname}') THEN\n{stmt};\nEND IF; END $$"
+                        )
+                    else:
+                        self.dropped_runsql.append(f"{self.app}.{mig_name} [table-ddl]: {stmt[:160]}")
+                if forwarded_stmts:
+                    kept.append(dj_migrations.RunSQL(sql=";\n".join(forwarded_stmts) + ";"))
+                continue
+            # Skip any RunSQL that mixes table/column DDL with index
+            # creation. Our squash's CreateModel + finalize_fks already
+            # produce those tables and columns from final-state walk;
+            # forwarding a CREATE TABLE / ALTER TABLE here would
+            # collide. We only forward *pure* index work.
+            if any(kw in sql_upper for kw in ("CREATE TABLE", "ALTER TABLE", "DROP TABLE")):
+                self.dropped_runsql.append(f"{self.app}.{mig_name} [table-ddl]: {sql_text[:160]}")
+                continue
+            drop_match = self._DROP_INDEX_RE.search(sql_text)
+            if drop_match:
+                idx_name = drop_match.group(1)
+                prior = create_position.pop(idx_name, None)
+                if prior is not None:
+                    kept[prior] = None  # cancel the earlier add
+                continue
+            create_match = self._CREATE_INDEX_RE.search(sql_text)
+            if not create_match:
+                self.dropped_runsql.append(f"{self.app}.{mig_name} [unrecognized]: {sql_text[:160]}")
+                continue
+            idx_name, table_name = create_match.group(1), create_match.group(2).lower()
+            if idx_name in meta_index_names:
+                continue  # CreateModel(options=...) already covers it
+            if table_name not in managed_tables:
+                continue  # target table isn't created by our squash (managed=False)
+            # Wrap CREATE INDEX with IF NOT EXISTS so it's safe to run
+            # after a CreateModel that may have auto-created an FK index
+            # with the same name.
+            sql_safe = self._ensure_idempotent_create_index(sql_text)
+            safe_op = dj_migrations.RunSQL(
+                sql=sql_safe,
+                reverse_sql=op.reverse_sql,
+                hints=op.hints,
+            )
+            kept.append(safe_op)
+            create_position[idx_name] = len(kept) - 1
 
         return [op for op in kept if op is not None]
 
@@ -664,7 +656,9 @@ class Emitter:
         return sorted(deps)
 
     @staticmethod
-    def check_young_against_deferred(squasher: planning.Squasher, cycle_breaker: cyclebreak.CycleBreaker) -> None:
+    def check_young_against_deferred(
+        squasher: planning.Squasher, cycle_breaker: cyclebreak.CycleBreaker, loader: MigrationLoader
+    ) -> None:
         """Refuse to emit when a young migration touches a deferred FK field.
 
         Young migrations get no dependency edge onto finalize_fks or
@@ -674,7 +668,6 @@ class Emitter:
         columns. The fix for a violation is bumping the cutoff past the
         offending migration.
         """
-        loader = MigrationLoader(connection=None, ignore_no_migrations=True)
         violations: list[str] = []
         for m in squasher.young.values():
             deferred = cycle_breaker.deferred_field_keys_for_app(m.ref.app)
@@ -739,7 +732,7 @@ class Emitter:
             create, _, _, _ = self._create_model_op(ms, set())
             stub_ops.append(create)
         configured_claims = self.STUB_CLAIMS_BY_APP.get(self.app, ())
-        stub_claims = [key for key in configured_claims if key in self.squasher.old_keys]
+        stub_claims = [key for key in configured_claims if key in self.squasher.old]
         if len(stub_claims) != len(configured_claims):
             # An empty-replaces stub fails check_consistent_history on every
             # live DB; that must never happen silently.
@@ -788,20 +781,30 @@ class Emitter:
         # 0002_finalize_fks.
         addon_ops = self._collect_index_runsql_ops() + self._stateless_constraint_ops()
 
+        files: list[SquashFile] = [stub, initial]
         deferred_fks = self.cycle_breaker.deferred_for_app(self.app)
-        if not deferred_fks and not deferred_indexes and not deferred_constraints and not deferred_togethers:
-            if not addon_ops:
-                return [stub, initial]
-            addons = SquashFile(
-                app=self.app,
-                name=self.SCHEMA_ADDONS_NAME,
-                operations=addon_ops,
-                dependencies=self._schema_addons_deps(prior_squash=self.INITIAL_NAME),
-                replaces=[],
-                atomic=False,  # CREATE INDEX CONCURRENTLY can't run inside a transaction
+        if deferred_fks or deferred_indexes or deferred_constraints or deferred_togethers:
+            files.append(self._build_finalize(deferred_fks, deferred_indexes, deferred_constraints, deferred_togethers))
+        if addon_ops:
+            files.append(
+                SquashFile(
+                    app=self.app,
+                    name=self.SCHEMA_ADDONS_NAME,
+                    operations=addon_ops,
+                    dependencies=self._schema_addons_deps(prior_squash=files[-1].name),
+                    replaces=[],
+                    atomic=False,  # CREATE INDEX CONCURRENTLY can't run inside a transaction
+                )
             )
-            return self._single_leaf([stub, initial, addons])
+        return self._single_leaf(files)
 
+    def _build_finalize(
+        self,
+        deferred_fks: list[cyclebreak.FKField],
+        deferred_indexes: list[tuple[str, Any]],
+        deferred_constraints: list[tuple[str, Any]],
+        deferred_togethers: list[tuple[str, str, Any]],
+    ) -> SquashFile:
         # Build a model_name -> ModelState map to look up each field's Field instance.
         models_by_name = {ms.name.lower(): ms for ms in self._models_in_app()}
         addfield_ops: list[Any] = []
@@ -837,43 +840,35 @@ class Emitter:
                 raise RuntimeError(f"index_together deferral for {model_name} has no idempotent emitter")
 
         # finalize_fks depends on this app's initial + every foreign app's
-        # initial, so its target tables exist. We deliberately do NOT depend on
-        # any young migration: deferred fields are used by young migrations, so
-        # finalize_fks must run *before* them. The first-young's deps file gets
-        # edited at install time to depend back on finalize_fks (and that gives
-        # the chain a single leaf).
+        # initial, so its target tables exist.
         finalize_deps: list[tuple[str, str]] = [(self.app, self.INITIAL_NAME)]
         finalize_deps.extend((a, self.INITIAL_NAME) for a in sorted(finalize_dep_apps))
-        finalize = SquashFile(
+        return SquashFile(
             app=self.app,
             name=self.FINALIZE_NAME,
             operations=addfield_ops,
             dependencies=finalize_deps,
             replaces=[],
         )
-        if not addon_ops:
-            return self._single_leaf([stub, initial, finalize])
-        addons = SquashFile(
-            app=self.app,
-            name=self.SCHEMA_ADDONS_NAME,
-            operations=addon_ops,
-            dependencies=self._schema_addons_deps(prior_squash=self.FINALIZE_NAME),
-            replaces=[],
-            atomic=False,
-        )
-        return self._single_leaf([stub, initial, finalize, addons])
 
     def _single_leaf(self, files: list[SquashFile]) -> list[SquashFile]:
         """Make the last squash file depend on the app's last young migration.
 
-        Without this edge the app has two leaves (young chain + squash tail)
-        and Django refuses to migrate. The edge points squash -> young, never
-        young -> squash: on an existing DB the young migration is applied
-        while finalize/addons are not, and an applied migration with an
-        unapplied empty-replaces parent fails check_consistent_history. The
-        reversed edge is safe because every finalize/addons op is idempotent —
-        on existing DBs they run once as fast no-ops and get recorded.
+        Without this edge an app with finalize/addons has two leaves (young
+        chain + squash tail) and Django refuses to migrate. The edge points
+        squash -> young, never young -> squash: on an existing DB the young
+        migration is applied while finalize/addons are not, and an applied
+        migration with an unapplied empty-replaces parent fails
+        check_consistent_history. The reversed edge is safe because every
+        finalize/addons op is idempotent — on existing DBs they run once as
+        fast no-ops and get recorded.
+
+        Never applied to a bare stub+initial pair: the initial is a replacement
+        node, young dependencies remap onto it, and an initial -> young edge
+        would invert into a cycle.
         """
+        if len(files) < 3:
+            return files
         young_names = [m.ref.name for m in self.squasher.young.values() if m.ref.app == self.app]
         if young_names:
             leaf = files[-1]
