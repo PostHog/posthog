@@ -150,16 +150,18 @@ def update_issue(
                 detail=Detail(name=issue.name, changes=changes),
             )
 
+        if status_updated and status_after in STATUS_CHANGE_EVENTS:
+            # Register inside the transaction: a ClickHouse sync failure after commit
+            # must not drop the event, since a retry sees no transition and emits nothing.
+            produce_issue_lifecycle_event_on_commit(
+                event=STATUS_CHANGE_EVENTS[status_after],
+                issue=issue,
+                user=user,
+                extra_properties={"previous_status": status_label(status_before)},
+            )
+
     if state_updated:
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
-
-    if status_updated and status_after in STATUS_CHANGE_EVENTS:
-        produce_issue_lifecycle_event_on_commit(
-            event=STATUS_CHANGE_EVENTS[status_after],
-            issue=issue,
-            user=user,
-            extra_properties={"previous_status": status_label(status_before)},
-        )
 
     return issue
 

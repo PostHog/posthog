@@ -538,6 +538,30 @@ class TestErrorTracking(APIBaseTest):
         # The person block reaches customer webhooks verbatim: minimal actor only.
         assert set(person.properties.keys()) == {"id", "distinct_id", "email", "first_name"}
 
+    def test_issue_status_lifecycle_event_survives_clickhouse_sync_failure(self):
+        issue = self.create_issue(fingerprints=["lifecycle_fingerprint"])
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            patch(
+                "products.error_tracking.backend.logic.issue_mutations.sync_issues_to_clickhouse",
+                side_effect=Exception("clickhouse down"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved"},
+            )
+
+        assert response.status_code == 500
+        # The status committed, so a retry sees no transition: the event must
+        # already have been registered when the sync failed.
+        mock_produce.assert_called_once()
+        assert mock_produce.call_args.kwargs["event"].event == "$error_tracking_issue_resolved"
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.RESOLVED
+
     def test_issue_update_without_status_transition_produces_no_lifecycle_event(self):
         issue = self.create_issue()
 
