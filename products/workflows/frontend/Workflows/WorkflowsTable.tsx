@@ -228,6 +228,9 @@ export function WorkflowsTable(): JSX.Element {
                     <Link to={urls.workflow(id, 'metrics')}>
                         <AppMetricsSparkline
                             logicKey={id}
+                            // Lines, not stacked bars: Started counts a run that also lands in
+                            // Completed or Failed the same day, so a stacked total would double-count.
+                            type="line"
                             metricLabels={{ triggered: 'Started', succeeded: 'Completed', failed: 'Failed' }}
                             // Same colors as the workflow metrics tab: triggered is blue there too.
                             metricColors={{ triggered: 'blue', succeeded: 'success', failed: 'danger' }}

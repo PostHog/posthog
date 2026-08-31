@@ -16,6 +16,8 @@ export interface AppMetricsSparklineProps extends AppMetricsLogicProps {
     metricLabels?: Record<string, string>
     /** Optional vars.scss color names keyed by series name; takes precedence over `successMetricNames`. */
     metricColors?: Record<string, string>
+    /** Bars stack their series. Pass `'line'` when series overlap and a summed height would mislead. @default 'bar' */
+    type?: 'bar' | 'line'
 }
 
 const DEFAULT_SUCCESS_METRIC_NAMES = ['success']
@@ -24,6 +26,7 @@ export function AppMetricsSparkline({
     successMetricNames,
     metricLabels,
     metricColors,
+    type,
     ...props
 }: AppMetricsSparklineProps): JSX.Element {
     const logic = appMetricsLogic(props)
@@ -71,7 +74,7 @@ export function AppMetricsSparkline({
             ) : !appMetricsTrends || appMetricsTrendsLoading ? (
                 <LemonSkeleton className="h-8 max-w-24" />
             ) : (
-                <Sparkline labels={labels} data={displayData} className="h-8 max-w-24" />
+                <Sparkline labels={labels} data={displayData} type={type} className="h-8 max-w-24" />
             )}
         </div>
     )
