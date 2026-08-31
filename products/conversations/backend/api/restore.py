@@ -25,7 +25,7 @@ from posthog.models import Team
 from posthog.rate_limit import (
     RestoreRedeemThrottle,
     RestoreRequestThrottle,
-    WidgetTeamThrottle,
+    WidgetTeamWriteThrottle,
     WidgetUserBurstThrottle,
 )
 from posthog.tasks.email import send_conversation_restore_email
@@ -77,7 +77,7 @@ class WidgetRestoreRequestView(APIView):
 
     authentication_classes = [WidgetAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [RestoreRequestThrottle, WidgetUserBurstThrottle, WidgetTeamThrottle]
+    throttle_classes = [RestoreRequestThrottle, WidgetUserBurstThrottle, WidgetTeamWriteThrottle]
 
     def post(self, request: Request) -> Response:
         team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
@@ -143,7 +143,7 @@ class WidgetRestoreRedeemView(APIView):
 
     authentication_classes = [WidgetAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [RestoreRedeemThrottle, WidgetUserBurstThrottle, WidgetTeamThrottle]
+    throttle_classes = [RestoreRedeemThrottle, WidgetUserBurstThrottle, WidgetTeamWriteThrottle]
 
     def post(self, request: Request) -> Response:
         team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]

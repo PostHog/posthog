@@ -1340,20 +1340,29 @@ class WidgetUserBurstThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class WidgetTeamThrottle(SimpleRateThrottle):
-    """Rate limit per team token."""
+class _WidgetTeamTokenThrottle(SimpleRateThrottle):
+    """Team-token keying for widget throttles. Poll and write subclasses use distinct
+    scopes so idle GET polling cannot exhaust the POST send budget."""
 
-    scope = "widget_team"
     rate = "3600/hour"
 
-    def get_cache_key(self, request, view):
-        # Throttle by team token if available, otherwise by IP
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        if not self.scope:
+            raise NotImplementedError("Set scope on WidgetTeamPollThrottle or WidgetTeamWriteThrottle")
         token = request.headers.get("X-Conversations-Token", "")
         if token:
             ident = hashlib.sha256(token.encode()).hexdigest()
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class WidgetTeamPollThrottle(_WidgetTeamTokenThrottle):
+    scope = "widget_team_poll"
+
+
+class WidgetTeamWriteThrottle(_WidgetTeamTokenThrottle):
+    scope = "widget_team_write"
 
 
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
