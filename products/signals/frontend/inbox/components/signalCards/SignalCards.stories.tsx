@@ -156,7 +156,7 @@ const genericWithoutLink = makeSignal({
 
 const scoutFinding = makeSignal({
     source_product: 'signals_scout',
-    source_type: 'finding',
+    source_type: 'cross_source_issue',
     source_id: 'finding-1',
     content: 'Upload failures rose after the 2.4.0 release.',
     extra: {
@@ -188,7 +188,7 @@ const errorTrackingIssue = makeSignal({
 
 const healthCheck = makeSignal({
     source_product: 'health_checks',
-    source_type: 'sdk_outdated',
+    source_type: 'health_issue',
     source_id: 'hc-1',
     content: 'The web SDK is three minor versions behind.',
     extra: {
@@ -271,9 +271,10 @@ const pgAnalyzeIssue = makeSignal({
 
 const logsAlert = makeSignal({
     source_product: 'logs',
-    source_type: 'alert_firing',
+    source_type: 'alert_state_change',
     source_id: 'alert-1',
-    content: null,
+    content:
+        'Logs alert "Upload 413s" is firing: log count went above the threshold of 50 over a 15m window (observed 312). Services: upload-api. Severities: error.',
     extra: {
         alert_id: 'alert-1',
         alert_name: 'Upload 413s',
@@ -290,7 +291,7 @@ const logsAlert = makeSignal({
 
 const endpointFailure = makeSignal({
     source_product: 'endpoints',
-    source_type: 'execution_failed',
+    source_type: 'endpoint_execution_failed',
     source_id: 'ep-1',
     content: 'The folder listing endpoint timed out.',
     extra: {
@@ -324,7 +325,7 @@ const ciFlakyCheck = makeSignal({
 
 const anomalyInvestigation = makeSignal({
     source_product: 'analytics',
-    source_type: 'anomaly',
+    source_type: 'anomaly_investigation',
     source_id: 'anomaly-1',
     content: 'Upload completions dropped 40% day over day.',
     extra: {
