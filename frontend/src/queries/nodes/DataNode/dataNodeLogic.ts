@@ -23,6 +23,7 @@ import api, { ApiMethodOptions } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
@@ -2088,6 +2089,20 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         filteredCountQuery: () => {
             if (values.shouldCalculateCount) {
                 actions.loadFilteredCount()
+            }
+        },
+        totalCountQuery: (totalCountQuery, oldTotalCountQuery) => {
+            // A group tab switch keeps the same logic instance but changes group_type_index, so the
+            // unfiltered total differs per tab while the rows reload. Re-run it when the normalized
+            // count query changes. A sort, search, or filter rebuilds props.query but leaves this
+            // query deep-equal (those fields are stripped for the total), so the deep compare keeps
+            // them off the full-table count.
+            if (
+                values.shouldCalculateCount &&
+                oldTotalCountQuery &&
+                !objectsEqual(totalCountQuery, oldTotalCountQuery)
+            ) {
+                actions.loadTotalCount()
             }
         },
     })),

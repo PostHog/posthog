@@ -815,4 +815,51 @@ describe('dataNodeLogic', () => {
         logic.actions.loadTotalCount()
         await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess']).toMatchValues({ totalCount: 42 })
     })
+
+    it('re-runs the total count on a group tab switch but not on a deep-equal rebuild', async () => {
+        // Group tabs share one logic instance (constant uniqueKey) while group_type_index changes, so
+        // the unfiltered total differs per tab and must refresh. A search, sort, or filter rebuilds
+        // props.query but leaves the stripped count query deep-equal, so those must not re-run it.
+        mockedQuery.mockResolvedValue({ results: [[42]] })
+        const firstTab = setLatestVersionsOnQuery({
+            kind: NodeKind.GroupsQuery,
+            group_type_index: 0,
+            select: ['group_name'],
+        })
+
+        logic = dataNodeLogic({ key: testUniqueKey, query: firstTab })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+
+        // The count's lazy loader arms shouldCalculateCount, as the header rendering it would.
+        logic.actions.loadTotalCount()
+        await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess'])
+
+        // A search-only change reloads the rows but leaves the stripped count query deep-equal: no re-run.
+        await expectLogic(logic, () => {
+            dataNodeLogic({
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({
+                    kind: NodeKind.GroupsQuery,
+                    group_type_index: 0,
+                    select: ['group_name'],
+                    search: 'acme',
+                }),
+            })
+        })
+            .toDispatchActions(['loadDataSuccess'])
+            .toNotHaveDispatchedActions(['loadTotalCount'])
+
+        // Switching to another group type must re-run the total so the header matches the new rows.
+        await expectLogic(logic, () => {
+            dataNodeLogic({
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({
+                    kind: NodeKind.GroupsQuery,
+                    group_type_index: 1,
+                    select: ['group_name'],
+                }),
+            })
+        }).toDispatchActions(['loadTotalCount', 'loadTotalCountSuccess'])
+    })
 })
