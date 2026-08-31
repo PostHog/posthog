@@ -600,8 +600,7 @@ async fn process_replay_events_inner(
         historical_migration: context.historical_migration,
     };
 
-    // One `$snapshot_items` event per call, so this records a single-event
-    // batch — the same distribution the sink recorded before the migration.
+    // One `$snapshot_items` event per call.
     histogram!("capture_event_batch_size").record(1.0);
     outputs
         .publish(vec![ProcessedEvent { metadata, event }])

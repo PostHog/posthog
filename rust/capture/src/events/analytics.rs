@@ -631,9 +631,6 @@ async fn process_events_inner(
         return Ok(());
     }
 
-    // `capture_event_batch_size` is recorded here rather than inside the
-    // outputs layer so it stays a view of batches as this call site submits
-    // them, uniform across every backend the table resolves to.
     histogram!("capture_event_batch_size").record(events.len() as f64);
     outputs.publish(events).await?;
 

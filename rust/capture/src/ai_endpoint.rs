@@ -396,8 +396,7 @@ async fn ai_handler_inner(
         state.ai_events_overflow_limiter.as_ref(),
     );
 
-    // Step 9: Publish the event. One event per request on this endpoint, so
-    // the batch-size histogram records a single-event batch.
+    // Step 9: Publish the event. One event per request on this endpoint.
     histogram!("capture_event_batch_size").record(1.0);
     state
         .outputs

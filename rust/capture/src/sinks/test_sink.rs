@@ -2,13 +2,6 @@
 //! crate. Captures every `ProcessedEvent` published through it
 //! in an `Arc<Mutex<Vec<_>>>` so tests can assert on the exact stamped
 //! metadata the pipeline produced.
-//!
-//! Supports both construction patterns used across existing tests:
-//! - `MockSink::new()` + `sink.table()` into the pipeline + `sink.get_events()`
-//!   (analytics tests)
-//! - `OutputRegistry::single(MockSink { events: events_captured.clone() })` +
-//!   manual `events_captured.lock()` (recordings tests that keep the capture
-//!   handle rather than the mock)
 
 use crate::api::CaptureError;
 use crate::outputs::{OutputRegistry, PublishEvents};
@@ -32,7 +25,7 @@ impl MockSink {
 
     /// The degenerate output table over this mock. The clone shares the
     /// capture buffer, so the caller keeps reading events back off the
-    /// handle it already holds after publishing through the table.
+    /// handle it already holds.
     pub fn table(&self) -> Arc<OutputRegistry> {
         Arc::new(OutputRegistry::single(self.clone()))
     }

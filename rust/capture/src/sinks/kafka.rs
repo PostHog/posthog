@@ -549,10 +549,8 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         })
     }
 
-    /// Prep + enqueue for the one-event fast path in `publish`. It returns
-    /// the raw ack future so a single send awaits it inline, where the
-    /// batch path runs the same pieces through `prepare_batch` and
-    /// `Sink::publish` and drains acks concurrently.
+    /// Prep + enqueue for the one-event fast path, returning the raw ack
+    /// future so a single send can await it inline.
     fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
         let payload = self.prepare_record(event)?;
         self.enqueue_record(payload)
@@ -728,11 +726,8 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
 #[async_trait]
 impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        // A one-event batch enqueues and awaits its ack inline. The batch
-        // path would reach the same broker through `prepare_batch`, a
-        // `JoinSet` of one, and a fold over one result; skipping that is
-        // worth a branch on the endpoints that publish a single event per
-        // request.
+        // Skip `prepare_batch`, a `JoinSet` of one, and a fold over one
+        // result on the endpoints that publish a single event per request.
         if events.len() == 1 {
             let event = events.into_iter().next().expect("length checked above");
             return self

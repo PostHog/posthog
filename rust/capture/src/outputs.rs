@@ -23,9 +23,8 @@ use crate::v0_request::ProcessedEvent;
 /// no other reason to implement it outside this crate.
 #[async_trait]
 pub trait PublishEvents: Send + Sync {
-    /// One method for any batch size. A backend that can serve a
-    /// single-event batch more cheaply specializes inside its own impl;
-    /// that is a property of the backend, not of this contract.
+    /// One method for any batch size: a backend that serves a one-event
+    /// batch more cheaply specializes inside its own impl.
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -147,24 +146,19 @@ impl OutputRegistry {
         Self { output }
     }
 
-    /// The degenerate table over one single-backend output: the shape every
-    /// non-failover deployment and every pipeline test uses.
+    /// The degenerate table over one single-backend output.
     pub fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
         Self::new(Output::single(leaf))
     }
 
-    /// Publish a batch of any size. Per-event failures collapse to the
-    /// whole-request `CaptureError` until the response model lands.
+    /// Per-event failures collapse to a whole-request `CaptureError`.
     ///
-    /// Callers record `capture_event_batch_size` themselves: the batch size
-    /// is a property of the request being served, not of the output it
-    /// lands on, and recording it here would hide the difference between a
-    /// call site that batches and one that does not.
+    /// Callers record `capture_event_batch_size` themselves: batch size is a
+    /// property of the request, not of the output it lands on.
     pub async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.output.publish_events(events).await
     }
 
-    /// Flush buffered data before shutdown.
     pub fn flush(&self) -> Result<(), anyhow::Error> {
         self.output.flush()
     }
