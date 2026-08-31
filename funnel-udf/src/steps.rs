@@ -69,21 +69,25 @@ const SIMULTANEITY_WINDOW_SECONDS: f64 = 0.05;
 // Group consecutive events that fall within SIMULTANEITY_WINDOW_SECONDS of the group's
 // first event. Events arrive sorted by timestamp ascending, so each group is bounded to
 // one window and a long run of closely-spaced events cannot collapse into one group.
-fn group_simultaneous<'a>(events: impl Iterator<Item = &'a Event>) -> Vec<Vec<&'a Event>> {
-    let mut groups: Vec<Vec<&Event>> = Vec::new();
-    let mut group_start = 0.0;
-    for event in events {
-        match groups.last_mut() {
-            Some(group) if event.timestamp - group_start <= SIMULTANEITY_WINDOW_SECONDS => {
-                group.push(event);
+// Groups are yielded lazily: a caller that reaches its goal stops pulling, so the rest of
+// the events are never scanned or allocated, and only the current group is held at a time.
+fn group_simultaneous<'a>(
+    events: impl Iterator<Item = &'a Event>,
+) -> impl Iterator<Item = Vec<&'a Event>> {
+    let mut events = events.peekable();
+    std::iter::from_fn(move || {
+        let first = events.next()?;
+        let group_start = first.timestamp;
+        let mut group = vec![first];
+        while let Some(&next) = events.peek() {
+            if next.timestamp - group_start > SIMULTANEITY_WINDOW_SECONDS {
+                break;
             }
-            _ => {
-                group_start = event.timestamp;
-                groups.push(vec![event]);
-            }
+            group.push(next);
+            events.next();
         }
-    }
-    groups
+        Some(group)
+    })
 }
 
 pub const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
@@ -410,7 +414,7 @@ mod tests {
             steps: vec![1],
         };
         let events = vec![e(0.0), e(0.04), e(0.08), e(0.12)];
-        let groups = group_simultaneous(events.iter());
+        let groups: Vec<_> = group_simultaneous(events.iter()).collect();
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].len(), 2); // 0.00 and 0.04
         assert_eq!(groups[1].len(), 2); // 0.08 and 0.12
