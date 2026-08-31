@@ -17,9 +17,11 @@ from temporalio.common import WorkflowIDReusePolicy
 from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
+from posthog.redis import get_client
 
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
 from products.error_tracking.backend.temporal.alerts.delivery import (
+    ALERT_THROTTLE_KEY_PREFIX,
     PENDING_CLAIM_TTL,
     AlertDeliveryError,
     deliver_alert_notifications,
@@ -717,6 +719,22 @@ class TestAlertThrottlingAndOutcomes(AlertTestMixin):
             deliver_alert_notifications(inputs)
         # The failed attempt claimed the window; its own retry must still deliver.
         assert deliver_alert_notifications(inputs) == 1
+
+    def test_unrooted_thread_bypasses_a_window_held_by_another_notification(self):
+        # A failed opener's retry must survive its throttle claim expiring and a
+        # different notification taking the window: the unrooted row keeps it
+        # retryable.
+        self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+        thread = self._thread(alert, rooted=False)
+        get_client().set(f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{self.issue.id}", "someone-else", ex=3600)
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert delivered == 1
+        thread.refresh_from_db()
+        assert thread.external_ref.get("ts") == "111.222"
 
     def test_successful_delivery_records_outcome_and_resets_failures(self):
         self._mock_slack()

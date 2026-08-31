@@ -185,9 +185,13 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
                 # A filtered-out opener leaves no thread behind, so later replies for
                 # this issue stay unclaimed and a matching opener can still root one.
                 continue
-            # The throttle window is claimed only for openers whose filters
-            # matched, and once per alert: every destination of the alert shares
-            # the same claim, and replies are never throttled.
+        if delivery.is_opener and delivery.thread is None:
+            # The throttle window is claimed only for openers that would start a
+            # new conversation, once per alert; every destination of the alert
+            # shares the claim. An existing unrooted row was authorized by an
+            # earlier claim (its root post failed), so rooting it bypasses the
+            # window and stays retryable no matter who holds the key now.
+            # Replies are never throttled.
             if delivery.alert.id not in throttle_allowed:
                 throttle_allowed[delivery.alert.id] = _opener_throttle_allows(delivery.alert, inputs)
             if not throttle_allowed[delivery.alert.id]:
