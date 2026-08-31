@@ -335,18 +335,7 @@ def test_provision_sends_team_id_and_schema_name_to_control_plane(
     assert json_body["schema_name"] == "prod_events"
     assert "default_team_id" not in json_body
 
-    # The provision body cannot carry legacy table names, so the first team's row is
-    # completed with a follow-up org-teams upsert — same fields onboard_team writes.
-    method, org_id, path = mock_request.call_args_list[1].args
-    assert (method, org_id, path) == ("POST", org.id, "/teams")
-    teams_body = mock_request.call_args_list[1].kwargs["json_body"]
-    assert teams_body == {
-        "team_id": team.id,
-        "schema_name": "prod_events",
-        "events_table_name": "events_prod_events",
-        "persons_table_name": "persons_prod_events",
-        "schema_data_imports_name": "posthog_data_imports_prod_events",
-    }
+    assert len(mock_request.call_args_list) == 1
     _onboarding_side_effects.ensure.assert_called_once_with(
         team_id=team.id,
         organization_id=org.id,
@@ -355,25 +344,6 @@ def test_provision_sends_team_id_and_schema_name_to_control_plane(
 
 
 @pytest.mark.django_db
-@patch("products.managed_warehouse.backend.presentation.views._request")
-def test_provision_succeeds_even_when_the_team_row_completion_fails(mock_request: MagicMock) -> None:
-    # The follow-up upsert is best-effort: the warehouse is already provisioned, so a
-    # transient teams-API failure must not fail the provision response.
-    org = Organization.objects.create(name="Org")
-    team = Team.objects.create(organization=org)
-    mock_request.side_effect = [
-        Response(
-            {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
-            status=202,
-        ),
-        Response({"error": "store unavailable"}, status=500),
-    ]
-
-    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events")
-
-    assert resp.status_code == 202
-
-
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.facade.api.schedule_managed_warehouse_direct_source_ensure")
 @patch("products.managed_warehouse.backend.presentation.views._request")
@@ -384,13 +354,10 @@ def test_provision_schedules_generation_fenced_source_recovery_when_inline_ensur
 ) -> None:
     org = Organization.objects.create(name="Org")
     team = Team.objects.create(organization=org)
-    mock_request.side_effect = [
-        Response(
-            {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
-            status=202,
-        ),
-        Response({"team_id": team.id, "schema_name": "events"}, status=200),
-    ]
+    mock_request.return_value = Response(
+        {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
+        status=202,
+    )
     _onboarding_side_effects.ensure.side_effect = RuntimeError("database unavailable")
 
     response = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
@@ -735,7 +702,7 @@ def test_teams_response_attaches_the_org_naming_policy_to_each_row() -> None:
 @pytest.mark.django_db
 @patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
 @patch("products.managed_warehouse.backend.presentation.views._request")
-def test_onboard_team_creates_duckgres_row_with_legacy_names(
+def test_onboard_team_creates_schema_based_duckgres_row(
     mock_request: MagicMock, _mock_enabled: MagicMock, _onboarding_side_effects
 ) -> None:
     org, team, _ = _provisioned_org()
@@ -749,19 +716,12 @@ def test_onboard_team_creates_duckgres_row_with_legacy_names(
     assert resp.status_code == 200
     assert resp.data == {"onboarded": True, "schema_name": "my_events"}
 
-    # duckgres team row created via the org-teams upsert WITH the legacy table names the
-    # duckling DAG actually writes today (posthog.events_<suffix> + posthog_data_imports_<suffix>).
-    # A row without them describes the derived layout no data lands in yet — the EU
-    # placeholder-row bug.
     assert mock_request.call_args_list[0].args == ("GET", org.id, "/teams")
     method, org_id, path = mock_request.call_args_list[1].args
     assert (method, org_id, path) == ("POST", org.id, "/teams")
     assert mock_request.call_args_list[1].kwargs["json_body"] == {
         "team_id": team.id,
         "schema_name": "my_events",
-        "events_table_name": "events_my_events",
-        "persons_table_name": "persons_my_events",
-        "schema_data_imports_name": "posthog_data_imports_my_events",
     }
     # Onboarding's tail: the query connection and the earliest-date sync.
     _onboarding_side_effects.ensure.assert_called_once_with(
@@ -884,7 +844,7 @@ def test_onboard_team_same_name_is_idempotent(
 @patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
 @patch("products.managed_warehouse.backend.presentation.views._request")
 def test_onboard_team_refuses_to_change_an_existing_schema(mock_request: MagicMock, _mock_enabled: MagicMock) -> None:
-    # Changing a set schema would split the team's data across two tables — rejected before
+    # Changing a set schema would split the team's data across two schemas — rejected before
     # the upsert, so the duckgres row keeps its schema.
     org, team, _ = _provisioned_org()
     mock_request.return_value = Response(
@@ -894,7 +854,7 @@ def test_onboard_team_refuses_to_change_an_existing_schema(mock_request: MagicMo
     resp = managed_warehouse.onboard_team(org.id, team.id, "second")
 
     assert resp.status_code == 400
-    assert "events_first" in resp.data["error"]
+    assert "'first' schema" in resp.data["error"]
     assert [c.args[0] for c in mock_request.call_args_list] == ["GET"]
 
 
@@ -912,7 +872,7 @@ def test_onboard_team_refuses_to_rename_a_legacy_shared_team(mock_request: Magic
     resp = managed_warehouse.onboard_team(org.id, team.id, "new_name")
 
     assert resp.status_code == 400
-    assert "shared tables" in resp.data["error"]
+    assert f"'team_{team.id}' schema" in resp.data["error"]
     assert [c.args[0] for c in mock_request.call_args_list] == ["GET"]
 
 
@@ -1081,6 +1041,16 @@ def test_check_schema_name_rejects_invalid_name(mock_list: MagicMock) -> None:
 
     assert resp.status_code == 400
     mock_list.assert_not_called()
+
+
+@patch("products.managed_warehouse.backend.presentation.views.list_teams")
+def test_check_schema_name_is_available_before_the_warehouse_exists(mock_list: MagicMock) -> None:
+    mock_list.return_value = Response({"error": "not found"}, status=404)
+
+    resp = managed_warehouse.check_schema_name(uuid4(), "first_schema")
+
+    assert resp.status_code == 200
+    assert resp.data == {"name": "first_schema", "available": True}
 
 
 @pytest.mark.django_db

@@ -54,7 +54,7 @@ class TestDataImportsSchema:
     def test_resolves_from_cp_row(self) -> None:
         org, team = _team()
         with _patch_org_rows([_cp_row(team, "cp_schema")]):
-            assert team_state.data_imports_schema(team.id) == "posthog_data_imports_cp_schema"
+            assert team_state.data_imports_schema(team.id) == "cp_schema_data_imports"
 
     def test_without_cp_row_falls_back_to_team_id_schema(self) -> None:
         org, team = _team()
@@ -72,7 +72,7 @@ class TestDataImportsSchema:
         with _patch_org_rows([_cp_row(team, "cp_schema")]):
             team_state.data_imports_schema(team.id)
         with _patch_org_rows(None):
-            assert team_state.data_imports_schema(team.id) == "posthog_data_imports_cp_schema"
+            assert team_state.data_imports_schema(team.id) == "cp_schema_data_imports"
 
 
 @pytest.mark.django_db
@@ -96,7 +96,12 @@ class TestEventsPersonsTables:
             (
                 "derived",
                 {},
-                team_state.DucklingTables(events_table="events_cp_schema", persons_table="persons_cp_schema"),
+                team_state.DucklingTables(
+                    events_table="events",
+                    persons_table="persons",
+                    events_schema="cp_schema",
+                    persons_schema="cp_schema",
+                ),
             ),
             (
                 "grandfathered_shared_pins",
@@ -207,9 +212,9 @@ class TestListEnabledBackfillRows:
             enabled=True,
             backfill_enabled=True,
             table_names=ManagedWarehouseTableNames(
-                events_table="events_cp_schema",
-                persons_table="persons_cp_schema",
-                data_imports_schema="posthog_data_imports_cp_schema",
+                events_table="events",
+                persons_table="persons",
+                data_imports_schema="cp_schema_data_imports",
             ),
             earliest_event_date=date(2020, 6, 15),
         )

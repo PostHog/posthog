@@ -227,12 +227,38 @@ export function SettingsTab(): JSX.Element {
                     </div>
                     <div>
                         <LemonLabel>Schema name</LemonLabel>
-                        <LemonInput value={schemaName} onChange={setSchemaName} placeholder="my_project" fullWidth />
-                        {schemaName && !isValidSchemaName ? (
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                value={schemaName}
+                                onChange={setSchemaName}
+                                placeholder="my_project"
+                                fullWidth
+                            />
+                            {schemaName &&
+                                isValidSchemaName &&
+                                (schemaNameChecking ? (
+                                    <Spinner className="text-muted" />
+                                ) : schemaNameAvailable === true ? (
+                                    <IconCheck className="text-success text-xl" />
+                                ) : (
+                                    <IconX className="text-danger text-xl" />
+                                ))}
+                        </div>
+                        {schemaName && !isValidSchemaName && (
                             <p className="text-danger text-xs mt-1">
                                 Use lowercase letters, numbers, and underscores only (max 63 characters).
                             </p>
-                        ) : (
+                        )}
+                        {schemaName && isValidSchemaName && !schemaNameChecking && schemaNameAvailable !== true && (
+                            <p className="text-danger text-xs mt-1">
+                                {isFailed
+                                    ? 'Availability checks are advisory during retry provisioning.'
+                                    : schemaNameAvailable === false
+                                      ? 'This schema name is already used by another project in your organization.'
+                                      : 'Unable to verify schema name availability.'}
+                            </p>
+                        )}
+                        {(!schemaName || schemaNameChecking || schemaNameAvailable === true) && (
                             <p className="text-muted text-xs mt-1">
                                 This project's data lands in its own schema in the warehouse. Other projects pick their
                                 own schema when they join. Unlike the project name, the schema name cannot be changed

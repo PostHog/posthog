@@ -122,6 +122,14 @@ The Data Ops overview reads the latest workflow attempt for each source schema f
 
 Every copy is written to a deterministic schema inside DuckLake. Each workflow namespaces its data under a workflow-specific schema:
 
+### Events and persons
+
+- **Events table**: `<team_schema>.events`
+- **Persons table**: `<team_schema>.persons`
+- **Example**: `ducklake.permapeople.events`
+
+The team schema is chosen in Data Ops and must be unique within the organization's managed warehouse. Grandfathered teams with explicit table-name pins continue to use their existing tables in the `posthog` schema.
+
 ### Data Modeling
 
 - **Schema**: `posthog_data_modeling_team_<team_id>`
@@ -130,9 +138,9 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 
 ### Data Imports and Data Import Registration
 
-- **Schema**: `posthog_data_imports_team_<team_id>`
+- **Schema**: `<team_schema>_data_imports`
 - **Table**: a physical name derived from the organization's naming version
-- **Example**: `ducklake.posthog_data_imports_team_123.stripe_prod_invoices`
+- **Example**: `ducklake.permapeople_data_imports.stripe_prod_invoices`
 - **Registered files**: `s3://<ducklake-bucket>/<ducklake-schema>/<ducklake-table>/_imports/<source-schema-id>/<job-id>/<generation-token>/<prepared-relative-path>`
 
 Duckgres stores a table-naming version on the organization. Organizations that existed when versioning was introduced keep the batch sink's snake-case format, such as `tik_tok_ads_ad_report`. New organizations use the copy workflow format, such as `tiktokads_ad_report`. Copy, registration, the batch sink, and query binding derive the same physical name from that organization-level policy. Do not change the policy after an organization has written data unless the underlying tables are migrated at the same time.
@@ -212,7 +220,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
    Once the import workflow completes it starts both independently gated child workflows. The enabled path appears as either `ducklake-copy.data-imports` or `ducklake-register.data-imports`; the disabled path exits after its gate activity.
 
 5. **Query the new DuckLake table**
-   The copy activity creates a table at `ducklake.posthog_data_imports_team_<team_id>.<source_type>_<prefix>_<table_name>`. From any DuckDB shell you can inspect it:
+   The copy activity creates a table at `ducklake.<team_schema>_data_imports.<source_type>_<prefix>_<table_name>`. From any DuckDB shell you can inspect it:
 
    ```sql
    duckdb -c "
@@ -234,6 +242,6 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
      SELECT table_schema, table_name FROM information_schema.tables WHERE table_catalog = 'ducklake';
 
      -- Query a specific table
-     SELECT * FROM ducklake.posthog_data_imports_team_${TEAM_ID}.${SOURCE_TYPE}_${PREFIX}_${TABLE_NAME} LIMIT 10;
+     SELECT * FROM ducklake.${TEAM_SCHEMA}_data_imports.${SOURCE_TYPE}_${PREFIX}_${TABLE_NAME} LIMIT 10;
    "
    ```

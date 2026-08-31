@@ -20,7 +20,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _resolve_duckling_target,
 )
 
-from products.managed_warehouse.backend.facade.contracts import DuckgresStoredBucketConfig
+from products.managed_warehouse.backend.facade.contracts import DuckgresStoredBucketConfig, DucklingTables
 
 pytestmark = pytest.mark.django_db
 
@@ -50,7 +50,10 @@ class TestResolveDucklingTarget:
                 return_value=cp_bucket,
             ) as mock_cp,
             # The per-environment table-name lookup hits the DB; this suite stays DB-free.
-            patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons")),
+            patch(
+                "posthog.dags.events_backfill_to_duckling._resolve_table_names",
+                return_value=DucklingTables(events_table="events", persons_table="persons"),
+            ),
         ):
             target = _resolve_duckling_target(team_id=123)
         return target, mock_cp

@@ -307,44 +307,12 @@ def provision(
             return resp
         _invalidate_team_state_cache(organization_id)
         _persist_duckgres_server(organization_id, database_name, resp.data)
-        # Complete the row BEFORE registering the team: registration kicks off the
-        # SQL-editor query-source setup and discovery against this row's warehouse.
-        _complete_provisioning_team_row(organization_id, team_id, schema_name, require_enabled=require_enabled)
         _register_provisioning_team(organization_id, team_id, activated_generation)
         # The bucket is internal infra detail, persisted above and consumed by the
         # backfill via cp_bucket_for — not part of the UI-facing ProvisionWarehouseResponse
         # schema. Strip it so the response matches its OpenAPI contract.
         _strip_bucket_fields(resp.data)
     return resp
-
-
-def _complete_provisioning_team_row(
-    organization_id: UUID | str, team_id: int, schema_name: str, *, require_enabled: bool
-) -> None:
-    """Pin the first team's legacy table names onto the row duckgres just created.
-
-    The provision body cannot carry them, so without this step the row describes the derived
-    layout no data lands in yet (see onboard_team). Best-effort:
-    the warehouse is already provisioned, so a transient failure must not fail the provision —
-    re-running onboarding completes the row later.
-    """
-    legacy = _legacy_table_fields(schema_name)
-    resp = create_team(
-        organization_id,
-        team_id,
-        schema_name,
-        events_table_name=legacy["events_table_name"],
-        persons_table_name=legacy["persons_table_name"],
-        schema_data_imports_name=legacy["schema_data_imports_name"],
-        require_enabled=require_enabled,
-    )
-    if not status.is_success(resp.status_code):
-        logger.warning(
-            "Provisioned warehouse team row could not be completed with legacy table names",
-            organization_id=str(organization_id),
-            team_id=team_id,
-            status_code=resp.status_code,
-        )
 
 
 def _strip_bucket_fields(body: dict) -> None:
@@ -373,10 +341,9 @@ def team_backfill_state(team_id: int) -> dict[str, object]:
 def _register_provisioning_team(organization_id: UUID | str, team_id: int, source_generation: int) -> None:
     """Finish the provisioning (calling) team's onboarding after its row exists.
 
-    duckgres creates the provisioning team's row from the provision request itself (and
-    `_complete_provisioning_team_row` pins its legacy table names), so nothing is written
-    here. The team gets its managed SQL-editor source and starts its earliest-event-date
-    sync, matching the tail that `onboard_team` runs later.
+    duckgres creates the provisioning team's row from the provision request itself, so
+    nothing is written here. The team gets its managed SQL-editor source and starts its
+    earliest-event-date sync, matching the tail that `onboard_team` runs later.
 
     Best-effort, mirroring `_persist_duckgres_server`: a failure is logged, not raised, so
     the one-time provision password is never lost to it.
@@ -689,29 +656,19 @@ def onboard_team(
         )
     if existing is not None:
         if existing.get("schema_name") != schema_name:
-            events_table = existing.get("events_table_name") or f"events_{existing.get('schema_name')}"
-            current = "the shared tables" if events_table == "events" else events_table
+            current_schema = existing.get("schema_name")
             return Response(
                 {
-                    "error": f"This project already writes to {current}, and its warehouse table can't be changed — "
-                    "that would split its existing data across two tables."
+                    "error": f"This project already writes to the '{current_schema}' schema, and its warehouse "
+                    "schema can't be changed — that would split its existing data across two schemas."
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
     else:
-        # Pin the legacy table names the duckling DAG writes today (posthog.events_<suffix>,
-        # posthog_data_imports_<suffix>): the suffix for a newly onboarded team IS its schema
-        # name. A row without them describes the derived layout no data lands in yet (the EU
-        # placeholder-row bug). Drop this once the duckling DAG writes the derived
-        # <schema_name>.events layout for real.
-        legacy = _legacy_table_fields(schema_name)
         resp = create_team(
             organization_id,
             team_id,
             schema_name,
-            events_table_name=legacy["events_table_name"],
-            persons_table_name=legacy["persons_table_name"],
-            schema_data_imports_name=legacy["schema_data_imports_name"],
             require_enabled=require_enabled,
         )
         if resp.status_code == status.HTTP_409_CONFLICT:
@@ -732,21 +689,6 @@ def _org_has_warehouse(organization_id: UUID | str) -> bool:
     from products.managed_warehouse.backend.facade.api import has_provisioned_warehouse  # noqa: PLC0415
 
     return has_provisioned_warehouse(organization_id)
-
-
-def _legacy_table_fields(schema_name: str) -> dict:
-    """The legacy suffix-derived table names to pin on a new duckgres team row.
-
-    The duckling DAG and the v3 sink still write the suffix-derived layout
-    (`posthog.events_<schema>`, `posthog_data_imports_<schema>`), so a new row pins those
-    names explicitly instead of leaving duckgres to derive the future
-    `<schema_name>.events` layout no data lands in yet.
-    """
-    return {
-        "events_table_name": f"events_{schema_name}",
-        "persons_table_name": f"persons_{schema_name}",
-        "schema_data_imports_name": f"posthog_data_imports_{schema_name}",
-    }
 
 
 def _teams_from_response(resp: Response) -> list[dict] | None:
@@ -796,6 +738,8 @@ def check_schema_name(organization_id: UUID | str, name: str | None) -> Response
         return Response({"error": schema_error}, status=status.HTTP_400_BAD_REQUEST)
 
     resp = list_teams(organization_id)
+    if resp.status_code == status.HTTP_404_NOT_FOUND:
+        return Response({"name": name, "available": True}, status=status.HTTP_200_OK)
     teams = _teams_from_response(resp)
     if teams is None:
         return resp
