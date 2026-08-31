@@ -48,6 +48,7 @@ type ActiveTab = 'dashboard' | 'journeys' | 'accounts' | 'notes' | 'announcement
 const SCENE_KEY_TO_TAB: Record<string, ActiveTab> = {
     customerAnalyticsJourneys: 'journeys',
     customerAnalyticsAccounts: 'accounts',
+    customerAnalyticsAccount: 'accounts',
     customerAnalyticsNotes: 'notes',
     customerAnalyticsAnnouncements: 'announcements',
     customerAnalyticsFeed: 'feed',

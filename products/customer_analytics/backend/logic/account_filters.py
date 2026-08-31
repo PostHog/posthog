@@ -279,8 +279,24 @@ def apply_account_filters(
         elif isinstance(filter_, contracts.AccountTableAssignedToFilter):
             if filter_.user_ids:
                 queryset = queryset.filter(Exists(active_relationships.filter(user_id__in=filter_.user_ids)))
+        elif isinstance(filter_, contracts.AccountTableAssignedFilter):
+            queryset = queryset.filter(Exists(active_relationships))
         elif isinstance(filter_, contracts.AccountTableUnassignedFilter):
             queryset = queryset.filter(~Exists(active_relationships))
+        elif isinstance(filter_, contracts.AccountTableRelationshipFilter):
+            relationship = active_relationships.filter(definition_id=filter_.definition_id)
+            if filter_.operator == contracts.AccountTableRelationshipOperator.IS_SET:
+                queryset = queryset.filter(Exists(relationship))
+            elif filter_.operator == contracts.AccountTableRelationshipOperator.IS_NOT_SET:
+                queryset = queryset.filter(~Exists(relationship))
+            elif filter_.operator == contracts.AccountTableRelationshipOperator.EXACT:
+                if not filter_.user_ids:
+                    raise InvalidAccountFilter("Relationship filters require at least one user.")
+                queryset = queryset.filter(Exists(relationship.filter(user_id__in=filter_.user_ids)))
+            elif filter_.operator == contracts.AccountTableRelationshipOperator.IS_NOT:
+                if not filter_.user_ids:
+                    raise InvalidAccountFilter("Relationship filters require at least one user.")
+                queryset = queryset.filter(~Exists(relationship.filter(user_id__in=filter_.user_ids)))
         elif isinstance(filter_, contracts.AccountTableAccountIdFilter):
             queryset = queryset.filter(id=filter_.account_id)
         elif isinstance(filter_, contracts.AccountTableFieldFilter):

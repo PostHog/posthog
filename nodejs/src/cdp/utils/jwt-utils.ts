@@ -9,6 +9,8 @@ export enum PosthogJwtAudience {
     TASKS_CREATE = 'posthog:tasks:create',
     // Must match PosthogJwtAudience.CONVERSATIONS_TICKETS in posthog/jwt.py exactly.
     CONVERSATIONS_TICKETS = 'posthog:conversations:tickets',
+    // Must match PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS in posthog/jwt.py exactly.
+    CUSTOMER_ANALYTICS_ACCOUNTS = 'posthog:customer_analytics:accounts',
 }
 
 export class JWT {

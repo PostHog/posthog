@@ -1207,6 +1207,23 @@ export interface HogFlowRevisionRestoreRequestApi {
     expected_draft_updated_at?: string | null
 }
 
+/**
+ * Variable value overrides, merged with the workflow's own variable defaults for this run only.
+ */
+export type HogFlowRunRequestApiVariables = { [key: string]: unknown }
+
+export interface HogFlowRunRequestApi {
+    /** Variable value overrides, merged with the workflow's own variable defaults for this run only. */
+    variables?: HogFlowRunRequestApiVariables
+}
+
+export interface HogFlowRunResponseApi {
+    /** 'queued' once the invocation has been queued for execution. */
+    status: string
+    /** ID of the queued hog flow invocation. */
+    invocation_id: string
+}
+
 export interface PatchedHogFlowScheduleApi {
     readonly id?: string
     /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
