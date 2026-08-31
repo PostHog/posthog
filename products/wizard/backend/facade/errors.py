@@ -1,5 +1,4 @@
-class WizardSessionOwnershipError(Exception):
-    pass
+from products.wizard.backend.facade.contracts import WizardSessionOwnershipError as WizardSessionOwnershipError
 
 
 class MissingGitHubIntegrationError(Exception):

@@ -6,7 +6,7 @@ No Django imports. Used by facade as inputs/outputs.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
@@ -20,6 +20,8 @@ from .enums import (
     WizardSessionRunPhase,
     WizardSessionTaskStatus,
 )
+
+STALE_AFTER = timedelta(minutes=10)
 
 
 @dataclass(frozen=True)
@@ -86,6 +88,10 @@ class UpsertWizardSessionInput:
     handoff_text: str | None = None
     # Set on create only, never overwritten on later pushes for the same run.
     created_by_id: int | None = None
+
+
+class WizardSessionOwnershipError(Exception):
+    pass
 
 
 @frozen
