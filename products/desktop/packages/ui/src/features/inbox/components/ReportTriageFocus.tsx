@@ -119,13 +119,6 @@ export function ReportTriageFocus({
     [bulkActions],
   );
 
-  // Defer = snooze without a dialog: one keystroke, the report re-promotes
-  // itself when enough new evidence lands. Auto-advances like archive.
-  const deferReport = useCallback(async () => {
-    if (bulkActions.snoozeDisabledReason !== null) return;
-    await bulkActions.snoozeSelected();
-  }, [bulkActions]);
-
   const goNext = useCallback(
     () => setIndex((i) => Math.min(i + 1, reports.length - 1)),
     [reports.length],
@@ -154,10 +147,6 @@ export function ReportTriageFocus({
           event.preventDefault();
           if (report) setDismissOpen(true);
           break;
-        case "d":
-          event.preventDefault();
-          if (report && !dismissPending) void deferReport();
-          break;
         case "Enter":
           // A focused control (button, link) owns Enter — let the browser
           // activate it instead of hijacking the key to exit triage.
@@ -176,15 +165,7 @@ export function ReportTriageFocus({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    dismissOpen,
-    report,
-    dismissPending,
-    deferReport,
-    goNext,
-    goPrev,
-    onExit,
-  ]);
+  }, [dismissOpen, report, goNext, goPrev, onExit]);
 
   if (!report) {
     // The queue ran dry mid-session — every decision is made.
@@ -333,9 +314,6 @@ export function ReportTriageFocus({
           </span>
           <span className="flex items-center gap-1">
             <KeyCap>a</KeyCap> ask
-          </span>
-          <span className="flex items-center gap-1">
-            <KeyCap>d</KeyCap> defer
           </span>
           <span className="flex items-center gap-1">
             <KeyCap>e</KeyCap> archive

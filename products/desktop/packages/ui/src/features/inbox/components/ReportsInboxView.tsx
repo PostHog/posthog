@@ -258,7 +258,7 @@ export function ReportsInboxView() {
               />
               <TooltipContent side="bottom">
                 Step through reports that need a decision, one at a time. Fix,
-                defer, or archive each with a single key.
+                ask about, or archive each from the keyboard.
               </TooltipContent>
             </Tooltip>
           )}

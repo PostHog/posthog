@@ -55,14 +55,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
   }),
 }));
 
-vi.mock("@posthog/ui/features/inbox/hooks/useInboxBulkActions", () => ({
-  useInboxBulkActions: () => ({
-    isSnoozing: false,
-    snoozeDisabledReason: null,
-    snoozeSelected: vi.fn(),
-  }),
-}));
-
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportDismissAction", () => ({
   useInboxReportDismissAction: () => ({
     dialog: null,
@@ -210,6 +202,7 @@ describe("ReportVerdictBanner", () => {
     expect(screen.getByText("Ask about it")).toBeInTheDocument();
     expect(screen.queryByText("Continue the task")).not.toBeInTheDocument();
     expect(screen.queryByText("Fix & monitor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Defer")).not.toBeInTheDocument();
   });
 
   it("does not start duplicate work while an implementation is running", async () => {

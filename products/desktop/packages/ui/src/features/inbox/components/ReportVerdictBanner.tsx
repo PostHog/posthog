@@ -2,7 +2,6 @@ import {
   ArchiveIcon,
   ArrowSquareOutIcon,
   ChatCircleIcon,
-  ClockIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
@@ -23,15 +22,11 @@ import {
   PopoverTrigger,
   Spinner,
   Textarea,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@posthog/quill";
 import type { SignalReport, Task } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
-import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
@@ -46,7 +41,7 @@ import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/repor
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
@@ -87,7 +82,7 @@ interface ReportVerdictBannerProps {
 /**
  * The report's decision bar, closing the document: what state the report is
  * in, what it asks of the reader, and every action that answers the ask -
- * start the fix (or continue the one in flight), defer, or archive.
+ * start the fix (or continue the one in flight), discuss, or archive.
  */
 export function ReportVerdictBanner({
   report,
@@ -199,14 +194,6 @@ export function ReportVerdictBanner({
   // Dismiss covers that rare case.
   const { dialog: dismissDialog, openDialog: openDismissDialog } =
     useInboxReportDismissAction(report);
-  // Defer = snooze: the report re-promotes itself when enough new evidence
-  // lands. Same mechanism the triage card's d key uses.
-  const reportsForBulk = useMemo(() => [report], [report]);
-  const bulkActions = useInboxBulkActions(
-    reportsForBulk,
-    report.id,
-    "detail_pane",
-  );
   const canArchiveHere =
     report.status === "ready" ||
     report.status === "failed" ||
@@ -505,31 +492,6 @@ export function ReportVerdictBanner({
           </div>
         </PopoverContent>
       </Popover>
-      {canArchiveHere && !compact && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="outline"
-                disabled={
-                  bulkActions.snoozeDisabledReason !== null ||
-                  bulkActions.isSnoozing
-                }
-                onClick={() => void bulkActions.snoozeSelected()}
-                className={buttonClass}
-              >
-                {bulkActions.isSnoozing ? <Spinner /> : <ClockIcon size={16} />}
-                Defer
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">
-            {bulkActions.snoozeDisabledReason ??
-              "Snooze until enough new evidence arrives"}
-          </TooltipContent>
-        </Tooltip>
-      )}
       {canArchiveHere && !compact && (
         <Button
           type="button"
