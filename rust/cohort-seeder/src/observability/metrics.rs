@@ -15,6 +15,28 @@ pub const RUN_VALIDATION_FAILURES: &str = "seeder_run_validation_failures_total"
 pub const TZ_FALLBACK: &str = "seeder_tz_fallback_total";
 pub const CONDITIONS_DROPPED: &str = "seeder_conditions_dropped_total";
 pub const LOOKBACK_TRUNCATED: &str = "seeder_lookback_truncated_total";
+/// Pinned behavioral conditions by what a static read of their bytecode found, labelled by `class`
+/// and `team_id` (counter). Counted once per run per unique condition hash, per stretch. Dark:
+/// nothing reads the analysis yet, so this reports what real catalogs look like before anything is
+/// built on it.
+///
+/// Read the class ratios, not the absolute totals: a restart re-counts every active run, and every
+/// replica counts every run, because the once-per-run gate is process-local. The paired `info!` line
+/// carries one run's exact numbers.
+///
+/// `team_id` names a team only while `REALTIME_COHORT_TEAM_ALLOWLIST` names few enough of them, and
+/// collapses to `other` otherwise. It is here because the question these counters answer is about
+/// one team's catalog; blended across teams they answer nobody's.
+pub const CONDITIONS_CLASSIFIED: &str = "seeder_conditions_classified_total";
+/// Conditions the static read could not narrow, labelled by a closed `reason`, the `op` that
+/// stopped it (`none` when no opcode did), and `team_id` (counter). Counted on the same
+/// once-per-run-per-stretch gate as [`CONDITIONS_CLASSIFIED`], and `team_id` collapses the same way.
+///
+/// Both label vocabularies are closed and never carry bytecode text: `reason` by construction, `op`
+/// because it is one of `Operation`'s 57 variant names. The opcode is worth a dimension because one
+/// fixable compiler template and a program nothing will ever narrow otherwise land in the same
+/// `unsupported_op` bucket.
+pub const CONDITIONS_UNANALYZABLE: &str = "seeder_conditions_unanalyzable_total";
 pub const CHUNKS_PLANNED: &str = "seeder_chunks_planned_total";
 pub const CHUNKS_CLAIMED: &str = "seeder_chunks_claimed_total";
 pub const CHUNKS_RECLAIMED: &str = "seeder_chunks_reclaimed_total";

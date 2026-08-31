@@ -12,6 +12,7 @@ pub mod backoff;
 pub mod chunk;
 pub mod completion;
 pub mod condition;
+pub mod condition_analysis;
 pub mod ids;
 pub mod ledger;
 pub mod partition;
@@ -42,6 +43,9 @@ pub use completion::{
     SettleProof, UndispatchedReason, WatchPartition, WatchPositions,
 };
 pub use condition::{EventNameSet, Lookback, PinnedCondition};
+pub use condition_analysis::{
+    ConditionAnalyses, ConditionCensus, ConditionClass, MISSING_BYTECODE_REASON,
+};
 pub use ids::{
     Band, ChunkId, ClaimEpoch, ConditionHash, ConditionHashError, DayIdx, RunId, SChunkMs,
     ScannedAtMs, UtcMillis, UtcMsRange, UtcRangeError,

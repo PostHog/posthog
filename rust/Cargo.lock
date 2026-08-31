@@ -2591,6 +2591,7 @@ dependencies = [
  "hogvm",
  "metrics",
  "petgraph 0.8.3",
+ "proptest",
  "serde",
  "serde_json",
  "sha2 0.10.9",

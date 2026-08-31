@@ -502,6 +502,7 @@ fn derive_lookback(
 
 #[cfg(test)]
 mod tests {
+    use super::super::condition_analysis::{ConditionAnalyses, ConditionClass};
     use chrono::NaiveDate;
     use chrono_tz::UTC;
     use cohort_core::day_idx_of_naive_date;
@@ -914,6 +915,84 @@ mod tests {
             run_over(&[]).sole_cohort_id(),
             None,
             "a run with no surviving conditions must name no cohort"
+        );
+    }
+
+    /// A validated run classifies the same way every time it is validated. Determinism is what a
+    /// later projection pass depends on: a chunk retried on another replica re-validates the same
+    /// payload, and two replicas that disagreed about a condition's read set would scan two
+    /// different column sets for the same chunk.
+    #[test]
+    fn a_revalidated_run_classifies_its_conditions_identically() {
+        let event_only = "eventonly0000000";
+        let projectable = "projectable00000";
+        // `properties.plan == 'paid' AND event == 'signup'`, in the compiler's emission order.
+        let property_bytecode = json!([
+            "_H",
+            1,
+            32,
+            "paid",
+            32,
+            "plan",
+            32,
+            "properties",
+            1,
+            2,
+            11,
+            32,
+            "signup",
+            32,
+            "event",
+            1,
+            1,
+            11,
+            3,
+            2
+        ]);
+        let catalog = json!({
+            "properties": { "type": "AND", "values": [
+                { "type": "behavioral", "value": "performed_event", "key": "purchase", "conditionHash": event_only, "time_value": 7, "time_interval": "day", "bytecode": bytecode("purchase") },
+                { "type": "behavioral", "value": "performed_event", "key": "signup", "conditionHash": projectable, "time_value": 7, "time_interval": "day", "bytecode": property_bytecode },
+            ]}
+        });
+        let payload = || {
+            let mut first = condition(1, event_only, "performed_event", Some("purchase"), 7);
+            first["time_value"] = json!(7);
+            first["time_interval"] = json!("day");
+            let mut second = condition(1, projectable, "performed_event", Some("signup"), 7);
+            second["time_value"] = json!(7);
+            second["time_interval"] = json!("day");
+            snapshot(
+                json!({
+                    "schema_version": 1,
+                    "conditions": [first, second],
+                    "event_names": ["purchase", "signup"],
+                }),
+                vec![PinnedParticipation {
+                    cohort_id: CohortId(1),
+                    pinned_filters: catalog.clone(),
+                    state: PinnedParticipationState::Active,
+                }],
+            )
+        };
+
+        let validated = PinnedRun::validate(payload()).unwrap().run;
+        let census = ConditionAnalyses::build(&validated.conditions, &validated.filters)
+            .census(&validated.conditions);
+        assert_eq!(census.count(ConditionClass::EventOnly), 1);
+        assert_eq!(census.count(ConditionClass::Projectable), 1);
+        assert_eq!(census.count(ConditionClass::FullColumns), 0);
+        assert_eq!(census.count(ConditionClass::Unanalyzable), 0);
+        assert_eq!(
+            census.render_reads(),
+            "purchase=[event] signup=[event,properties.plan]"
+        );
+
+        let revalidated = PinnedRun::validate(payload()).unwrap().run;
+        assert_eq!(
+            ConditionAnalyses::build(&revalidated.conditions, &revalidated.filters)
+                .census(&revalidated.conditions),
+            census
         );
     }
 
