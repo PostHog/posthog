@@ -1,7 +1,7 @@
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
 export interface ActivitySummaryInput {
-    lifetimeCalls: number
+    lifetimeCalls: number | null
     totalCalls: number
     distinctClients: number
     errorCalls: number
@@ -17,14 +17,15 @@ export interface ActivitySummaryInput {
  */
 export function buildActivitySummary(input: ActivitySummaryInput): string {
     const { lifetimeCalls, totalCalls, distinctClients, errorCalls, topTool } = input
+    const resolvedLifetimeCalls = lifetimeCalls === null ? null : Math.max(lifetimeCalls, totalCalls)
 
     if (totalCalls === 0) {
-        return lifetimeCalls === 0 ? 'Waiting for your first tool call…' : 'No tool calls in the last 30 days'
+        return resolvedLifetimeCalls === 0 ? 'Waiting for your first tool call…' : 'No tool calls in the last 30 days'
     }
-    if (lifetimeCalls <= 5) {
-        return lifetimeCalls === 1
+    if (resolvedLifetimeCalls !== null && resolvedLifetimeCalls <= 5) {
+        return resolvedLifetimeCalls === 1
             ? "Your first tool call arrived. Here's what the agent tried."
-            : `Your first ${lifetimeCalls} tool calls arrived. Here's what agents tried.`
+            : `Your first ${resolvedLifetimeCalls} tool calls arrived. Here's what agents tried.`
     }
 
     const parts = [`${humanFriendlyLargeNumber(totalCalls)} tool calls in the last 30 days`]

@@ -52,6 +52,18 @@ describe('early data derivations', () => {
             { lifetimeCalls: 25_000_000, totalCalls: 0, distinctClients: 0, errorCalls: 0, topTool: null },
             /^No tool calls in the last 30 days$/,
         ],
+        [
+            { lifetimeCalls: null, totalCalls: 0, distinctClients: 0, errorCalls: 0, topTool: null },
+            /^No tool calls in the last 30 days$/,
+        ],
+        [
+            { lifetimeCalls: null, totalCalls: 4, distinctClients: 1, errorCalls: 0, topTool: null },
+            /^4 tool calls in the last 30 days from 1 client$/,
+        ],
+        [
+            { lifetimeCalls: 3, totalCalls: 4, distinctClients: 1, errorCalls: 0, topTool: null },
+            /^Your first 4 tool calls arrived/,
+        ],
         // The full sentence composes favorite + failures with correct punctuation.
         [
             { lifetimeCalls: 25_000_000, totalCalls: 42, distinctClients: 3, errorCalls: 4, topTool: 'search_docs' },

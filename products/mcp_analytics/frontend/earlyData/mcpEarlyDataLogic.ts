@@ -259,7 +259,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
             (s) => [s.signals, s.stats, s.topTools],
             (signals: MCPOnboardingSignals | null, stats: EarlyStats, topTools: EarlyToolRow[]): string =>
                 buildActivitySummary({
-                    lifetimeCalls: signals?.toolCallsTotal ?? stats.totalCalls,
+                    lifetimeCalls: signals?.toolCallsTotal ?? null,
                     totalCalls: stats.totalCalls,
                     distinctClients: stats.distinctClients,
                     errorCalls: stats.errorCalls,
