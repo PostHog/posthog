@@ -488,8 +488,23 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
+class _MetricFloatField(serializers.FloatField):
+    """A metric value that refuses a JSON boolean.
+
+    DRF's `FloatField` coerces `true`/`false` to 1.0/0.0 through `float(data)`, which would turn a
+    malformed boolean snapshot into a real measurement at the API boundary. A metric value is never
+    a boolean, so reject it before coercion; the schema pipeline still treats this as a plain number
+    because it subclasses `FloatField`.
+    """
+
+    def to_internal_value(self, data: float | int | str) -> float:
+        if isinstance(data, bool):
+            self.fail("invalid")
+        return super().to_internal_value(data)
+
+
 class ReportMetricComparisonSerializer(serializers.Serializer):
-    value = serializers.FloatField(help_text="Baseline or previous value, formatted like the current value.")
+    value = _MetricFloatField(help_text="Baseline or previous value, formatted like the current value.")
     label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
         max_length=MAX_METRIC_UNIT_LENGTH,
         help_text="Short context for the comparison, such as `Previous period`.",
@@ -531,7 +546,7 @@ class ReportMetricSerializer(serializers.Serializer):
         default="supporting",
         help_text="`primary` for the report's key observation, otherwise `supporting`.",
     )
-    value = serializers.FloatField(
+    value = _MetricFloatField(
         allow_null=True,
         required=False,
         default=None,

@@ -11,6 +11,7 @@ from products.signals.backend.report_metrics import (
     ReportMetric,
     metric_batch_error,
 )
+from products.signals.backend.serializers import ReportMetricComparisonSerializer, ReportMetricSerializer
 
 
 def _affected_users_metric(metric_id: str = "affected-users", role: str = "primary") -> ReportMetric:
@@ -324,6 +325,20 @@ class TestReportMetric(SimpleTestCase):
         with self.assertRaisesRegex(ValidationError, "count comparison"):
             ReportMetric.model_validate(content)
 
+    def test_rejects_boolean_snapshot_and_comparison_values(self) -> None:
+        # Pydantic's lax mode coerces a JSON boolean to a float, so without the guard `true`/`false`
+        # would be stored as a 1.0/0.0 measurement. Both value fields must refuse it.
+        for boolean in (True, False):
+            snapshot = _affected_users_metric().model_dump(mode="json")
+            snapshot["value"] = boolean
+            with self.assertRaisesRegex(ValidationError, "not a boolean"):
+                ReportMetric.model_validate(snapshot)
+
+            comparison = _affected_users_metric().model_dump(mode="json")
+            comparison["comparison"] = {"label": "Previous period", "value": boolean}
+            with self.assertRaisesRegex(ValidationError, "not a boolean"):
+                ReportMetric.model_validate(comparison)
+
     def test_scaled_and_point_percentage_rates_have_unambiguous_ranges(self) -> None:
         base = {
             "metric_id": "conversion",
@@ -464,3 +479,25 @@ class TestMetricBatchError(SimpleTestCase):
         ]
 
         assert f"at most {MAX_REPORT_METRICS}" in (metric_batch_error(metrics) or "")
+
+
+class TestReportMetricSerializerRejectsBooleans(SimpleTestCase):
+    def test_boolean_value_is_not_coerced_into_a_measurement(self) -> None:
+        # DRF's FloatField coerces `true`/`false` to 1.0/0.0, so the write path needs its own guard
+        # beyond the pydantic model. Cover both the snapshot value and the comparison value.
+        for boolean in (True, False):
+            comparison = ReportMetricComparisonSerializer(data={"value": boolean, "label": "Previous period"})
+            assert not comparison.is_valid()
+            assert comparison.errors["value"][0].code == "invalid"
+
+            metric = ReportMetricSerializer(
+                data={
+                    "metric_id": "affected-users",
+                    "title": "Affected users",
+                    "kind": "affected_users",
+                    "value": boolean,
+                    "query": _affected_users_metric().query,
+                }
+            )
+            assert not metric.is_valid()
+            assert metric.errors["value"][0].code == "invalid"

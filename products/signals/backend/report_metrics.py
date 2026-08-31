@@ -103,6 +103,16 @@ class ReportMetricComparison(BaseModel):
     value: float = Field(description="Baseline or previous value, formatted like the metric value.")
     label: str = Field(description="Short context for the comparison, such as `Previous period`.")
 
+    @field_validator("value", mode="before")
+    @classmethod
+    def value_must_not_be_a_boolean(cls, value: object) -> object:
+        # Pydantic's lax mode coerces a JSON boolean into a float (`true` becomes 1.0, `false`
+        # becomes 0.0), which would turn a malformed comparison into a real measurement. A report
+        # value is never a boolean, so reject it before that coercion runs.
+        if isinstance(value, bool):
+            raise ValueError("must be a number, not a boolean")
+        return value
+
     @field_validator("value")
     @classmethod
     def value_must_be_finite(cls, value: float) -> float:
@@ -200,6 +210,16 @@ class ReportMetric(BaseModel):
             raise ValueError("must not be empty or whitespace-only")
         if len(value) > MAX_METRIC_TITLE_LENGTH:
             raise ValueError(f"must not exceed {MAX_METRIC_TITLE_LENGTH} characters")
+        return value
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def value_must_not_be_a_boolean(cls, value: object) -> object:
+        # Pydantic's lax mode coerces a JSON boolean into a float (`true` becomes 1.0, `false`
+        # becomes 0.0), which would store a bogus snapshot that clears the finite, count, and rate
+        # guards below. A snapshot value is never a boolean, so reject it before that coercion runs.
+        if isinstance(value, bool):
+            raise ValueError("must be a number, not a boolean")
         return value
 
     @field_validator("value")
