@@ -399,9 +399,16 @@ struct LedgerEntry {
     /// frame may be acked PARTIAL; a partial ack for an unbudgeted frame is a
     /// protocol violation and fences.
     budgeted: bool,
-    /// The worker's accepted count once acked. The entry stays in the ledger
-    /// until every earlier entry is acked too, so a fence still reaches it.
-    acked: Option<u32>,
+    /// The worker's ack once received. The entry stays in the ledger until
+    /// every earlier entry is acked too, so a fence still reaches it.
+    acked: Option<RecordedAck>,
+}
+
+/// A validated ack recorded in the ledger, awaiting prefix resolution.
+struct RecordedAck {
+    accepted: u32,
+    /// Chunk-local indices of timed-out messages; empty on a full ack.
+    timed_out: Vec<u32>,
 }
 
 /// An open stream: the request sender and the worker's ack stream.
@@ -792,22 +799,27 @@ impl WorkerStreamRunner {
             return Err(self.fence(None, ledger, queue, reason));
         }
         if is_partial {
-            // Fence in order as retriable: the whole sub-batch, acked prefix
-            // included, replays through the deferral path, which is ordinary
-            // at-least-once redelivery.
-            warn!(
+            counter!(
+                "ingestion_consumer_partial_acks_total",
+                "worker" => self.worker_url.clone(),
+            )
+            .increment(1);
+            info!(
                 worker = %self.worker_url,
                 seq = response.seq,
+                accepted = response.accepted,
                 timed_out = response.timed_out.len(),
-                "Partial ack — fencing worker stream as retriable"
+                "Partial ack — the budget cut off part of the sub-batch"
             );
-            return Err(self.fence_with(true, None, ledger, queue, "partial ack"));
         }
         let entry = ledger
             .iter_mut()
             .find(|e| e.seq == response.seq && e.acked.is_none())
             .expect("entry found above");
-        entry.acked = Some(response.accepted);
+        entry.acked = Some(RecordedAck {
+            accepted: response.accepted,
+            timed_out: response.timed_out,
+        });
         self.record_send_duration(entry);
         counter!(
             "ingestion_consumer_transport_requests_total",
@@ -820,13 +832,13 @@ impl WorkerStreamRunner {
         // release its keys first.
         while ledger.front().is_some_and(|e| e.acked.is_some()) {
             let entry = ledger.pop_front().expect("front is present");
-            let accepted = entry.acked.expect("front is acked");
+            let recorded = entry.acked.expect("front is acked");
             let WorkerStreamItem {
                 reply, messages, ..
             } = entry.item;
             let _ = reply.send(Ok(Accepted {
-                accepted,
-                timed_out: Vec::new(),
+                accepted: recorded.accepted,
+                timed_out: recorded.timed_out,
                 messages,
             }));
         }

@@ -27,6 +27,31 @@ pub struct KeyOffset {
     pub max_offset: i64,
 }
 
+/// Per-key max offsets over the keyed messages of `messages`, for advancing
+/// the order sentinel's ACK watermarks. On a partial ack the caller passes
+/// only the completed subset: the full sub-batch's precomputed offsets would
+/// advance a watermark past unprocessed offsets, and the remainder's
+/// redelivery would then flag as a resend-after-ack violation.
+pub fn key_offsets_of(messages: &[SerializedKafkaMessage]) -> Vec<KeyOffset> {
+    let mut max_offsets: HashMap<&str, i64> = HashMap::new();
+    for message in messages {
+        let Some(key) = message.key.as_deref() else {
+            continue;
+        };
+        let entry = max_offsets.entry(key).or_insert(message.offset);
+        if message.offset > *entry {
+            *entry = message.offset;
+        }
+    }
+    max_offsets
+        .into_iter()
+        .map(|(routing_key, max_offset)| KeyOffset {
+            routing_key: routing_key.to_string(),
+            max_offset,
+        })
+        .collect()
+}
+
 /// A slice of a batch assigned to one worker, carrying the messages and the
 /// routing keys they belong to. Routing keys are needed to decrement pin
 /// ref-counts when the sub-batch resolves.
@@ -923,7 +948,99 @@ impl Dispatcher {
         send_failed: bool,
     ) {
         let mut table = self.pin_table.lock().unwrap();
+        self.resolve_locked(
+            &mut table,
+            worker,
+            message_count,
+            routing_keys,
+            clears_deferral,
+            send_failed,
+        );
+        drop(table);
 
+        record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
+            worker: worker.to_string(),
+            messages: message_count,
+            routing_keys: routing_keys.len(),
+            cleared_deferral: clears_deferral,
+        });
+    }
+
+    /// Resolve a partially acked sub-batch: stash the timed-out remainder for
+    /// redelivery, then settle the send, in one lock scope so no newer
+    /// assignment can slip between the stash and the ref-count drop. The
+    /// stash entry queues at the owning batch's sequence, ahead of any newer
+    /// group the key deferred meanwhile, and the resolve's eager release
+    /// re-routes the remainder immediately (the send did not fail, so there
+    /// is no flapping-worker loop to avoid).
+    ///
+    /// Sound only under per-key serialization: with two in-flight sub-batches
+    /// for one key, the newer one may already carry the key's later messages,
+    /// and the stashed remainder would replay behind them.
+    pub fn on_sub_batch_partial(
+        &self,
+        batch_id: &str,
+        worker: &WorkerId,
+        message_count: usize,
+        routing_keys: &[String],
+        timed_out: Vec<SerializedKafkaMessage>,
+        clears_deferral: bool,
+    ) {
+        counter!("ingestion_consumer_messages_timed_out_total")
+            .increment(timed_out.len() as u64);
+
+        let mut table = self.pin_table.lock().unwrap();
+        let GroupedMessages { groups, .. } = group_messages_by_routing_key(timed_out);
+        let deferred_count = groups.len() as u64;
+        for group in groups {
+            table.stash.defer(
+                batch_id,
+                DeferredGroup {
+                    routing_key: group.routing_key,
+                    messages: group.messages,
+                },
+            );
+        }
+        if deferred_count > 0 {
+            counter!(
+                "ingestion_consumer_dispatcher_deferred_groups_total",
+                "reason" => "timed_out",
+            )
+            .increment(deferred_count);
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "timed_out",
+                groups: deferred_count,
+            });
+        }
+        record_stash_gauges(&table.stash);
+        self.resolve_locked(
+            &mut table,
+            worker,
+            message_count,
+            routing_keys,
+            clears_deferral,
+            false,
+        );
+        drop(table);
+
+        record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
+            worker: worker.to_string(),
+            messages: message_count,
+            routing_keys: routing_keys.len(),
+            cleared_deferral: clears_deferral,
+        });
+    }
+
+    fn resolve_locked(
+        &self,
+        table: &mut PinTable,
+        worker: &WorkerId,
+        message_count: usize,
+        routing_keys: &[String],
+        clears_deferral: bool,
+        send_failed: bool,
+    ) {
         let now_zero = match table.in_flight.get_mut(worker) {
             Some(load) => {
                 *load = load.saturating_sub(message_count);
@@ -979,7 +1096,7 @@ impl Dispatcher {
 
         if let Some(tx) = eager_tx {
             if !release_keys.is_empty() {
-                self.release_next_groups(&mut table, &tx, &release_keys);
+                self.release_next_groups(table, &tx, &release_keys);
             }
         }
 
@@ -992,14 +1109,6 @@ impl Dispatcher {
         }
 
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
-        drop(table);
-
-        record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
-            worker: worker.to_string(),
-            messages: message_count,
-            routing_keys: routing_keys.len(),
-            cleared_deferral: clears_deferral,
-        });
     }
 
     /// Record the outcome of a send attempt for passive health tracking.
@@ -2170,6 +2279,120 @@ mod tests {
         let flush = rx.try_recv().expect("the ack releases the held group");
         assert_eq!(flush.batch_id, "batch-2");
         assert_eq!(flush.sub_batch.messages[0].offset, 2);
+    }
+
+    #[test]
+    fn test_key_offsets_of_takes_max_offset_of_keyed_messages() {
+        let mut offsets = key_offsets_of(&[
+            make_msg_at("t:a", 5),
+            make_msg_at("t:a", 3),
+            make_unkeyed_msg(),
+        ]);
+        assert_eq!(offsets.len(), 1, "unkeyed messages carry no watermark");
+        let offset = offsets.pop().unwrap();
+        assert_eq!(offset.routing_key, "t:a");
+        assert_eq!(offset.max_offset, 5);
+    }
+
+    #[test]
+    fn test_partial_resolve_releases_completed_keys_and_stashes_the_remainder() {
+        // A partial ack must release the fully-completed keys (pin evicted,
+        // new groups route fresh) while the timed-out remainder stays owned
+        // by its batch and replays ahead of the key's newer groups.
+        let dispatcher = Dispatcher::new(healthy_registry(1));
+        dispatcher.set_per_key_serialization(true);
+        dispatcher.register_batch("batch-1");
+        dispatcher.register_batch("batch-2");
+
+        let b1 = dispatcher.assign(
+            "batch-1",
+            vec![
+                make_msg_at("t:a", 1),
+                make_msg_at("t:a", 2),
+                make_msg_at("t:b", 3),
+            ],
+        );
+        assert_eq!(b1.len(), 1, "one worker takes the whole batch");
+        let worker = b1[0].worker.clone();
+
+        // The budget cut t:a's second message; t:a offset 1 and t:b completed.
+        dispatcher.on_sub_batch_acked(&key_offsets_of(&[
+            make_msg_at("t:a", 1),
+            make_msg_at("t:b", 3),
+        ]));
+        dispatcher.on_sub_batch_partial(
+            "batch-1",
+            &worker,
+            3,
+            &b1[0].routing_keys,
+            vec![make_msg_at("t:a", 2)],
+            false,
+        );
+
+        assert_eq!(dispatcher.stashed_messages(), 1);
+        assert_eq!(dispatcher.total_in_flight(), 0);
+        assert!(dispatcher.has_deferred("batch-1"));
+
+        // t:b resolved fully, so a new group routes immediately; t:a still
+        // has the stashed remainder, so a new group defers behind it.
+        let b2 = dispatcher.assign(
+            "batch-2",
+            vec![make_msg_at("t:a", 4), make_msg_at("t:b", 5)],
+        );
+        assert_eq!(b2.len(), 1);
+        assert_eq!(b2[0].routing_keys, vec!["t:b".to_string()]);
+        assert_eq!(dispatcher.stashed_messages(), 2);
+
+        // The completion-time flush replays the remainder first, then the
+        // newer group.
+        let replay = dispatcher.flush_deferred("batch-1");
+        assert_eq!(replay.len(), 1);
+        assert_eq!(replay[0].messages[0].offset, 2);
+        dispatcher.on_sub_batch_acked(&replay[0].key_offsets);
+        dispatcher.on_sub_batch_resolved(
+            &replay[0].worker,
+            1,
+            &replay[0].routing_keys,
+            true,
+            false,
+        );
+        let newer = dispatcher.flush_deferred("batch-2");
+        assert_eq!(newer.len(), 1);
+        assert_eq!(newer[0].messages[0].offset, 4);
+    }
+
+    #[test]
+    fn test_partial_resolve_eagerly_redelivers_the_remainder() {
+        // With eager flushing on, the timed-out remainder re-routes the
+        // moment the partial ack resolves, without waiting for the owning
+        // batch's completion-time flush.
+        let dispatcher = Dispatcher::new(healthy_registry(1));
+        dispatcher.set_per_key_serialization(true);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        dispatcher.set_eager_flush_sender(tx);
+        dispatcher.register_batch("batch-1");
+
+        let b1 = dispatcher.assign(
+            "batch-1",
+            vec![make_msg_at("t:a", 1), make_msg_at("t:a", 2)],
+        );
+        dispatcher.on_sub_batch_acked(&key_offsets_of(&[make_msg_at("t:a", 1)]));
+        dispatcher.on_sub_batch_partial(
+            "batch-1",
+            &b1[0].worker,
+            2,
+            &b1[0].routing_keys,
+            vec![make_msg_at("t:a", 2)],
+            false,
+        );
+
+        let flush = rx.try_recv().expect("remainder released at ack speed");
+        assert_eq!(flush.batch_id, "batch-1");
+        assert_eq!(flush.sub_batch.messages[0].offset, 2);
+        assert!(
+            dispatcher.has_unfinished_flush("batch-1"),
+            "the batch waits on the redelivery"
+        );
     }
 
     #[test]

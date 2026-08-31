@@ -16,7 +16,7 @@ use tracing::{error, info, warn};
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
-use crate::dispatcher::{Dispatcher, EagerFlush, KeyOffset, SubBatch};
+use crate::dispatcher::{key_offsets_of, Dispatcher, EagerFlush, KeyOffset, SubBatch};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::transport::SendError;
@@ -565,7 +565,7 @@ impl IngestionConsumer {
         } = pending;
 
         match pending.wait().await {
-            Ok(outcome) => {
+            Ok(outcome) if outcome.timed_out.is_empty() => {
                 dispatcher.on_sub_batch_acked(&key_offsets);
                 // Credit before the resolve: the resolve may hand the batch's
                 // completion the all-clear, which must already see this
@@ -578,6 +578,23 @@ impl IngestionConsumer {
                     true,
                     false,
                 );
+                dispatcher.record_send_outcome(&worker, false);
+            }
+            Ok(outcome) => {
+                // Partial ack on the eager path: stash the remainder before
+                // crediting the acceptance, so the owning batch never
+                // observes a moment with no unfinished flush work while the
+                // remainder is neither stashed nor pending.
+                dispatcher.on_sub_batch_acked(&key_offsets_of(&outcome.completed));
+                dispatcher.on_sub_batch_partial(
+                    &batch_id,
+                    &worker,
+                    message_count,
+                    &routing_keys,
+                    outcome.timed_out,
+                    true,
+                );
+                dispatcher.eager_flush_accepted(&batch_id, outcome.accepted);
                 dispatcher.record_send_outcome(&worker, false);
             }
             Err(send_err) => {
@@ -755,7 +772,7 @@ impl IngestionConsumer {
 
             handles.push(tokio::spawn(async move {
                 match pending.wait().await {
-                    Ok(outcome) => {
+                    Ok(outcome) if outcome.timed_out.is_empty() => {
                         // Advance ACK high-water marks before the resolve, which
                         // may evict the keys' sentinel state.
                         dispatcher.on_sub_batch_acked(&key_offsets);
@@ -765,6 +782,24 @@ impl IngestionConsumer {
                             &routing_keys,
                             from_flush,
                             false,
+                        );
+                        dispatcher.record_send_outcome(&worker, false);
+                        outcome.accepted
+                    }
+                    Ok(outcome) => {
+                        // Partial ack: watermarks advance from the completed
+                        // subset only, and the timed-out remainder stashes
+                        // under the owning batch for in-order redelivery. A
+                        // partial ack is a healthy worker enforcing the
+                        // budget, not a fault.
+                        dispatcher.on_sub_batch_acked(&key_offsets_of(&outcome.completed));
+                        dispatcher.on_sub_batch_partial(
+                            &bid,
+                            &worker,
+                            message_count,
+                            &routing_keys,
+                            outcome.timed_out,
+                            from_flush,
                         );
                         dispatcher.record_send_outcome(&worker, false);
                         outcome.accepted

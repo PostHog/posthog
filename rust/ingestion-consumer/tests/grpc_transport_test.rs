@@ -860,6 +860,56 @@ async fn malformed_partial_acks_fence_with_the_messages_returned() {
 }
 
 #[tokio::test]
+async fn a_partial_ack_resolves_with_the_timed_out_remainder() {
+    // A valid PARTIAL resolves the send instead of fencing: the caller gets
+    // the accepted count, the completed messages, and the timed-out
+    // remainder in send order, and the stream keeps working.
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    transport.set_soft_budget_ms(30_000);
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d1", 2), msg("d2", 3)],
+        false,
+    );
+    wait_for_received(&mock, 1).await;
+    ack_tx
+        .send(ManualAck::Raw(SubBatchAck {
+            seq: 1,
+            status: SubBatchStatus::Partial as i32,
+            accepted: 1,
+            error: String::new(),
+            timed_out: vec![1, 2],
+        }))
+        .unwrap();
+    let outcome = pending.wait().await.expect("partial resolves, not fences");
+    assert_eq!(outcome.accepted, 1);
+    let completed: Vec<i64> = outcome.completed.iter().map(|m| m.offset).collect();
+    let timed_out: Vec<i64> = outcome.timed_out.iter().map(|m| m.offset).collect();
+    assert_eq!(completed, vec![1]);
+    assert_eq!(timed_out, vec![2, 3], "remainder comes back in send order");
+
+    // The stream is not fenced: the next send goes through and acks.
+    let next = transport.begin_send(&url, "batch-2", vec![msg("d3", 4)], false);
+    wait_for_received(&mock, 2).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 2,
+            accepted: 1,
+        })
+        .unwrap();
+    assert_eq!(next.wait().await.expect("stream still healthy").accepted, 1);
+}
+
+#[tokio::test]
 async fn a_partial_ack_for_an_unbudgeted_sub_batch_fences() {
     // This consumer sent no budget, so the worker had nothing to time out; a
     // PARTIAL here is a protocol violation, not backpressure.
