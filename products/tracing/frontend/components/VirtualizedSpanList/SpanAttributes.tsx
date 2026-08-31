@@ -16,8 +16,8 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-// The key-matching helpers and their convention lists are shared with Logs — both products
-// resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
+// The key-matching helpers and their convention lists are shared with Logs, because both
+// products resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 import { tracingCorrelationConfigLogic } from 'products/tracing/frontend/tracingCorrelationConfigLogic'
 import { tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLogic'
@@ -57,8 +57,8 @@ export function SpanAttributes({
     const [appliedFilter, setAppliedFilter] = useState<{ key: string; direction: FilterDirection } | null>(null)
     const appliedFilterTimeoutRef = useRef<number | null>(null)
 
-    // Person/replay links only apply to real OTel attribute tables (propertyType set) — the
-    // synthetic "Span details" table repeats span metadata under conventional-looking keys.
+    // Person/replay links only apply to real OTel attribute tables (propertyType set), because
+    // the synthetic "Span details" table repeats span metadata under conventional-looking keys.
     const correlationLinksEnabled =
         !!featureFlags[FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS] && propertyType !== undefined
 
@@ -145,6 +145,26 @@ export function SpanAttributes({
                 if (record.value === '') {
                     return <span className="font-mono text-xs text-muted italic">(empty)</span>
                 }
+                // The stopPropagation wrapper keeps a link click from also triggering any
+                // ancestor row handler, matching SpanRowActions' convention.
+                const correlationLink = !correlationLinksEnabled ? null : isDistinctIdKey(
+                      record.key,
+                      configuredDistinctIdKeys
+                  ) ? (
+                    <span onClick={(e) => e.stopPropagation()}>
+                        <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
+                    </span>
+                ) : isSessionIdKey(record.key, configuredSessionIdKeys) ? (
+                    <span onClick={(e) => e.stopPropagation()}>
+                        <ViewRecordingButton
+                            sessionId={record.value}
+                            openPlayerIn={RecordingPlayerType.Modal}
+                            label={record.value}
+                            variant={ViewRecordingButtonVariant.Link}
+                            checkRecordingExists
+                        />
+                    </span>
+                ) : null
                 return (
                     <CopyToClipboardInline
                         explicitValue={record.value}
@@ -154,21 +174,7 @@ export function SpanAttributes({
                         selectable
                         className="gap-1 font-mono text-xs"
                     >
-                        {correlationLinksEnabled && isDistinctIdKey(record.key, configuredDistinctIdKeys) ? (
-                            <span onClick={(e) => e.stopPropagation()}>
-                                <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
-                            </span>
-                        ) : correlationLinksEnabled && isSessionIdKey(record.key, configuredSessionIdKeys) ? (
-                            <ViewRecordingButton
-                                sessionId={record.value}
-                                openPlayerIn={RecordingPlayerType.Modal}
-                                label={record.value}
-                                variant={ViewRecordingButtonVariant.Link}
-                                checkRecordingExists
-                            />
-                        ) : (
-                            <span>{record.value}</span>
-                        )}
+                        {correlationLink ?? <span>{record.value}</span>}
                     </CopyToClipboardInline>
                 )
             },

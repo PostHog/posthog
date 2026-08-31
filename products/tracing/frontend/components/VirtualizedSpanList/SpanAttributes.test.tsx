@@ -11,7 +11,7 @@ import { PropertyFilterType } from '~/types'
 
 import { SpanAttributes } from './SpanAttributes'
 
-// The branch under test is which component a value renders as, not the link internals —
+// The branch under test is which component a value renders as, not the link internals:
 // both targets mount their own data-fetching logics, so they're stubbed at the boundary.
 jest.mock('scenes/persons/PersonDisplay', () => ({
     PersonDisplay: ({ person }: { person: { distinct_id: string } }) => (
@@ -29,7 +29,7 @@ describe('SpanAttributes correlation links', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:projectId/environments/:teamId/tracing_config/': () => [
+                '/api/projects/:teamId/tracing_config/': () => [
                     200,
                     {
                         tracing_distinct_id_attribute_keys: ['posthogDistinctId'],
