@@ -479,6 +479,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
     const {
         archivingDatasetItemId,
         datasetItems,
+        datasetLoading,
         datasetItemsLoading,
         datasetItemsLoadError,
         datasetRevisionsLoading,
@@ -496,9 +497,9 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
     const {
         archiveDatasetItem,
         restoreDatasetItem,
-        loadDataset,
         loadDatasetItems,
         loadDatasetRevisions,
+        refreshDataset,
         setFilters,
         restoreDataset,
         exportDataset,
@@ -676,12 +677,8 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                     <RefreshButton
-                        onClick={() => {
-                            loadDataset()
-                            loadDatasetItems(true)
-                            loadDatasetRevisions()
-                        }}
-                        isRefreshing={datasetItemsLoading}
+                        onClick={refreshDataset}
+                        isRefreshing={datasetItemsLoading || datasetLoading || datasetRevisionsLoading}
                     />
                     <LemonButton
                         type="secondary"

@@ -335,6 +335,9 @@ export interface aiObservabilityDatasetLogicActions {
     refreshAfterDatasetItemMutation: (itemId?: string) => {
         itemId: string | undefined
     }
+    refreshDataset: () => {
+        value: true
+    }
     resetDatasetForm: (values?: DatasetFormValues) => {
         values?: DatasetFormValues
     }
@@ -492,6 +495,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         restoreDatasetItem: (itemId: string, baseVersion: number) => ({ itemId, baseVersion }),
         restoreDatasetItemVersion: (sourceVersion: number) => ({ sourceVersion }),
         refreshAfterDatasetItemMutation: (itemId?: string) => ({ itemId }),
+        refreshDataset: true,
         triggerDatasetItemModal: (open: boolean) => ({ open }),
         closeModalAndRefetchDatasetItems: (refetchDatasetItems?: boolean) => ({ refetchDatasetItems }),
         setArchivingDataset: (archiving: boolean) => ({ archiving }),
@@ -991,7 +995,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
             (dataset: DatasetFormValues | DatasetReadApi | null): string | undefined =>
                 isDataset(dataset) && dataset.current_revision !== null
                     ? undefined
-                    : 'Add an item before you can export this dataset.',
+                    : 'Add an item before exporting this dataset.',
         ],
 
         breadcrumbs: [
@@ -1209,6 +1213,12 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         loadDatasetItemDetailsSuccess: ({ selectedDatasetItem }) => {
             actions.loadDatasetItemVersions({ itemId: selectedDatasetItem.id, page: 1 })
             actions.triggerDatasetItemModal(true)
+        },
+
+        refreshDataset: () => {
+            actions.loadDataset()
+            actions.loadDatasetItems(true)
+            actions.loadDatasetRevisions()
         },
 
         refreshAfterDatasetItemMutation: async ({ itemId }) => {

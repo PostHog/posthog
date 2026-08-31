@@ -504,8 +504,7 @@ describe('aiObservabilityDatasetLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            // No canonical revision means export cannot succeed, so the click never fires.
-            expect(logic.values.datasetExportDisabledReason).toBe('Add an item before you can export this dataset.')
+            expect(logic.values.datasetExportDisabledReason).toBe('Add an item before exporting this dataset.')
 
             mockDatasetsApi.getDataset.mockResolvedValue({
                 ...mockDataset,
@@ -529,7 +528,6 @@ describe('aiObservabilityDatasetLogic', () => {
 
             expect(logic.values.datasetExportDisabledReason).toBeUndefined()
 
-            // A failed revisions request must not flip the export gate, which reads the dataset's revision.
             mockDatasetsApi.listRevisions.mockRejectedValue(new ApiError('Revision load failed', 500))
             silenceKeaLoadersErrors()
             try {
