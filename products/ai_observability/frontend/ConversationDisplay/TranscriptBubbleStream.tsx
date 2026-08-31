@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { isObject } from 'lib/utils/guards'
 
 import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
@@ -157,27 +158,25 @@ function pillSideFor(labels: string[]): 'left' | 'right' {
 // Structured ask-the-user tools carry the text shown to the user inside the call arguments.
 const TOOL_CALL_TEXT_ARG_KEYS = ['question', 'prompt', 'message', 'text']
 
-function toolCallArgumentText(message: CompatMessage): string {
-    for (const call of message.tool_calls ?? []) {
-        let args: unknown = call.function?.arguments
-        if (typeof args === 'string') {
-            try {
-                args = JSON.parse(args)
-            } catch {
-                continue
-            }
-        }
-        if (typeof args !== 'object' || args === null) {
-            continue
-        }
-        for (const key of TOOL_CALL_TEXT_ARG_KEYS) {
-            const value = (args as Record<string, unknown>)[key]
-            if (typeof value === 'string' && value.trim().length > 0) {
-                return value
-            }
-        }
+function parsedToolCallArguments(args: unknown): unknown {
+    if (typeof args !== 'string') {
+        return args
     }
-    return ''
+    try {
+        return JSON.parse(args)
+    } catch {
+        return undefined
+    }
+}
+
+function toolCallArgumentText(message: CompatMessage): string {
+    return (
+        (message.tool_calls ?? [])
+            .map((call) => parsedToolCallArguments(call.function?.arguments))
+            .filter(isObject)
+            .flatMap((args) => TOOL_CALL_TEXT_ARG_KEYS.map((key) => args[key]))
+            .find((value): value is string => typeof value === 'string' && value.trim().length > 0) ?? ''
+    )
 }
 
 // A tool call the stream ends on is the assistant handing the turn to the user, for example
@@ -185,17 +184,13 @@ function toolCallArgumentText(message: CompatMessage): string {
 // intermediate step. Any later substantive message means the turn moved on past the call.
 function isTurnEndingToolCall(messages: CompatMessage[], index: number): boolean {
     const message = messages[index]
-    if (message.role !== 'assistant' || !isToolCallMessage(message)) {
-        return false
-    }
-    for (let j = index + 1; j < messages.length; j++) {
-        const later = messages[j]
-        if (HIDDEN_ROLES.has(later.role) || later.role === INTERNAL_THINKING_ROLE) {
-            continue
-        }
-        return false
-    }
-    return true
+    return (
+        message.role === 'assistant' &&
+        isToolCallMessage(message) &&
+        messages
+            .slice(index + 1)
+            .every((later) => HIDDEN_ROLES.has(later.role) || later.role === INTERNAL_THINKING_ROLE)
+    )
 }
 
 function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
