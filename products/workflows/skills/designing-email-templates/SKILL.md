@@ -33,7 +33,7 @@ Marketing emails must include an unsubscribe link — render it with the built-i
 
 ## Click tracking and opt-out
 
-Every link is automatically rewritten through a click-tracking redirect. This breaks mobile universal links / app deeplinks, which only resolve when the href stays on their own domain. To keep a link untracked, mark its anchor (use an `html` block) with `clicktracking="off"` or `data-ph-no-track`:
+Every link is automatically rewritten through a click-tracking redirect. This has two costs. It breaks mobile universal links / app deeplinks, which only resolve when the href stays on their own domain. It also routes the link through a shared redirect host that privacy filters such as uBlock Origin and Brave block, so a recipient running one gets a dead link instead of the destination. To keep a link working and untracked, mark its anchor (use an `html` block) with `clicktracking="off"` or `data-ph-no-track`:
 
 ```html
 <a href="https://app.example.com/deeplink" data-ph-no-track>Open in app</a>
