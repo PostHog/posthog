@@ -1,5 +1,14 @@
-import { EvaluationRun } from '../evaluations/types'
-import { getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen } from '@testing-library/react'
+import { Provider } from 'kea'
+
+import { initKeaTests } from '~/test/init'
+
+import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
+import { EvaluationConfig, EvaluationRun } from '../evaluations/types'
+import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
+import { EvalResultBadges, getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
 import { getEvaluationResultDisplay, getEvaluationResultSortValue, isSentimentRun } from './EvaluationResultTag'
 
 function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
@@ -165,6 +174,60 @@ describe('EvalResultBadges', () => {
 
         it('returns false for boolean evaluation runs', () => {
             expect(isSentimentRun(makeRun())).toBe(false)
+        })
+    })
+
+    describe('rendered with the trace scene evaluations logic', () => {
+        const detectorEvaluation: EvaluationConfig = {
+            id: 'eval-detector',
+            name: 'Detects struggle',
+            enabled: true,
+            status: 'active',
+            status_reason: null,
+            status_reason_detail: null,
+            evaluation_type: 'hog',
+            evaluation_config: { source: 'return true' },
+            output_type: 'boolean',
+            output_config: { true_is_failure: true },
+            conditions: [{ id: 'cond-1', rollout_percentage: 100, properties: [] }],
+            target: 'trace',
+            target_config: {},
+            model_configuration: null,
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('colors a detector true result as danger, matching the config switch', () => {
+            const evaluationsLogic = llmEvaluationsLogic()
+            evaluationsLogic.mount()
+            evaluationsLogic.actions.loadEvaluationsSuccess([detectorEvaluation])
+
+            const runsLogic = generationEvaluationRunsLogic({ traceId: 'trace-1' })
+            runsLogic.mount()
+            runsLogic.actions.loadGenerationEvaluationRunsSuccess([
+                makeRun({ evaluation_id: 'eval-detector', evaluation_name: 'Detects struggle', generation_id: '' }),
+            ])
+
+            render(
+                <Provider>
+                    <EvalResultBadges traceId="trace-1" />
+                </Provider>
+            )
+
+            expect(screen.getByText('Detects struggle: True')).toBeInTheDocument()
+            expect(document.querySelector('.LemonTag--danger')).toBeInTheDocument()
+            expect(document.querySelector('.LemonTag--success')).not.toBeInTheDocument()
+
+            evaluationsLogic.unmount()
+            runsLogic.unmount()
         })
     })
 })

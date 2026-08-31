@@ -6,6 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import { TraceViewMode, aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
+import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
 import { EvaluationResultDisplayOptions, getEvaluationResultDisplay } from './EvaluationResultTag'
@@ -73,6 +74,7 @@ export function EvalResultBadges({
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
         generationEvaluationRunsLogic({ traceId })
     )
+    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { setViewMode } = useActions(traceLogic)
 
@@ -96,7 +98,9 @@ export function EvalResultBadges({
     return (
         <div className="flex flex-row flex-wrap items-center gap-1.5">
             {summaries.map((summary) => {
-                const { type, icon, label } = getEvalBadgeProps(summary.latestRun)
+                const { type, icon, label } = getEvalBadgeProps(summary.latestRun, {
+                    trueIsFailure: detectorEvaluationIds.includes(summary.latestRun.evaluation_id),
+                })
                 return (
                     <Tooltip key={summary.latestRun.evaluation_id} title={<EvalTooltipContent {...summary} />}>
                         <LemonTag
