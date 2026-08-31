@@ -567,7 +567,7 @@ describe('workflowLogic auto-save', () => {
             status: 'active',
             draft: { name: 'Autosave test', actions: [], edges: [] },
             draft_updated_at: '2026-05-01T00:01:00.000Z',
-        } as Partial<HogFlow>)
+        })
 
         beforeEach(async () => {
             useMocks({
@@ -628,7 +628,7 @@ describe('workflowLogic auto-save', () => {
             const loaded = makeWorkflow({
                 ...staged,
                 draft: { ...(staged.draft as any), actions: base, edges: staged.edges },
-            } as Partial<HogFlow>)
+            })
 
             useMocks({
                 get: { '/api/environments/:team_id/hog_flows/:id/': loaded },
@@ -648,7 +648,7 @@ describe('workflowLogic auto-save', () => {
                                 ...loaded,
                                 draft: { ...(loaded.draft as any), actions: body.actions ?? base },
                                 draft_updated_at: new Date(Date.parse('2026-05-01T00:02:00.000Z') + seen).toISOString(),
-                            } as Partial<HogFlow>),
+                            }),
                         ]
                     },
                 },

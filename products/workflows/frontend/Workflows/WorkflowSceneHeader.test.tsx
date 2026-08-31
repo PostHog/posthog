@@ -12,7 +12,7 @@ import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 
 const WORKFLOW_ID = 'wf-header-1'
 
-const ACTIVE_WITH_DRAFT = {
+const ACTIVE_WITH_DRAFT: HogFlow = {
     id: WORKFLOW_ID,
     name: 'Header test',
     actions: [
@@ -41,12 +41,12 @@ const ACTIVE_WITH_DRAFT = {
     version: 1,
     status: 'active',
     team_id: 1,
-    trigger: { type: 'event', filters: {} },
+    trigger: { type: 'event', filters: {} } as HogFlow['trigger'],
     created_at: '2026-05-01T00:00:00.000Z',
     updated_at: '2026-05-01T00:00:00.000Z',
     draft: { name: 'Header test', actions: [], edges: [] },
     draft_updated_at: '2026-05-01T00:01:00.000Z',
-} as unknown as HogFlow
+}
 
 // The label and order of the buttons a person points at, as rendered.
 const toolbar = (): string[] =>
