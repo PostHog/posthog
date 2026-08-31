@@ -11,6 +11,7 @@ sweep command are the only callers.
 """
 
 from collections.abc import Iterator
+from dataclasses import replace
 from typing import Literal, Optional, cast
 
 from django.db.models import Model
@@ -51,16 +52,6 @@ class SubjectRef:
 
 
 @frozen
-class ResolvedLevel:
-    level: str
-    source: str
-    source_subject: Optional[str]
-    # Name of the member or role whose row decided, so the explanation can say which role's
-    # grant applies today. None when the everyone-row or a built-in default decided.
-    subject_name: Optional[str] = None
-
-
-@frozen
 class ResolutionChange:
     subject: SubjectRef
     scope: Literal["object", "resource"]
@@ -70,8 +61,9 @@ class ResolutionChange:
     # The object's URL key (e.g. an insight's or notebook's short id) when the model has one,
     # so the page can link to the object
     object_short_id: Optional[str]
-    current: ResolvedLevel
-    proposed: ResolvedLevel
+    # Both carry subject_name, so the explanation can say which role's grant applies today
+    current: ResolvedAccess
+    proposed: ResolvedAccess
     direction: Literal["gains", "loses"]
 
 
@@ -80,15 +72,6 @@ class _Subject:
     ref: SubjectRef
     access: SubjectAccessControl
     member_user_id: Optional[int]
-
-
-def _resolved_level(access: ResolvedAccess, subject_name: Optional[str] = None) -> ResolvedLevel:
-    return ResolvedLevel(
-        level=access.access_level,
-        source=access.source,
-        source_subject=access.source_subject,
-        subject_name=subject_name,
-    )
 
 
 def _deciding_subject_name(
@@ -295,11 +278,11 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 object_id=object_id,
                 object_name=object_name,
                 object_short_id=object_short_id,
-                current=_resolved_level(
-                    current, _deciding_subject_name(subject.access, current, role_names, member_names)
+                current=replace(
+                    current, subject_name=_deciding_subject_name(subject.access, current, role_names, member_names)
                 ),
-                proposed=_resolved_level(
-                    proposed, _deciding_subject_name(subject.access, proposed, role_names, member_names)
+                proposed=replace(
+                    proposed, subject_name=_deciding_subject_name(subject.access, proposed, role_names, member_names)
                 ),
                 direction=direction,
             )

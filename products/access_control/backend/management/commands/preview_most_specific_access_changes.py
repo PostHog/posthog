@@ -53,5 +53,5 @@ class Command(BaseCommand):
             target = f'{change.resource} "{change.object_name or change.object_id}"'
         return (
             f"{change.subject.type} {change.subject.name}\t{target}\t"
-            f"{change.current.level} -> {change.proposed.level} ({change.direction})"
+            f"{change.current.access_level} -> {change.proposed.access_level} ({change.direction})"
         )

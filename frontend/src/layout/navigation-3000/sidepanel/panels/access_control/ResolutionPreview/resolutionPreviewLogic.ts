@@ -9,8 +9,9 @@ export interface ResolutionChangeSubject {
     name: string
 }
 
+/** The wire form of the backend's ResolvedAccess */
 export interface ResolutionChangeLevel {
-    level: string
+    access_level: string
     source: string
     source_subject: string | null
     /** Name of the member or role whose row decides, when one does */

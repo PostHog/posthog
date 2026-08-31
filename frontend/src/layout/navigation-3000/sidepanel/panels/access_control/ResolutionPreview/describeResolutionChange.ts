@@ -19,7 +19,7 @@ function scopePhrase(change: ResolutionChange, resolved: ResolutionChangeLevel):
 }
 
 function describeResolved(change: ResolutionChange, resolved: ResolutionChangeLevel): string {
-    const level = humanizeAccessControlLevel(resolved.level as AccessControlLevel)
+    const level = humanizeAccessControlLevel(resolved.access_level as AccessControlLevel)
     const phrase = scopePhrase(change, resolved)
     if (resolved.source_subject === 'member') {
         const owner = change.subject.type === 'member' ? 'their own' : `${resolved.subject_name ?? 'a member'}'s`

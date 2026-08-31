@@ -37,8 +37,8 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
         assert change.scope == "object"
         assert change.object_id == str(self.dashboard.id)
         assert change.object_name == "Growth KPIs"
-        assert (change.current.level, change.current.source) == ("editor", "resource")
-        assert (change.proposed.level, change.proposed.source) == ("viewer", "object")
+        assert (change.current.access_level, change.current.source) == ("editor", "resource")
+        assert (change.proposed.access_level, change.proposed.source) == ("viewer", "object")
         assert change.direction == "loses"
 
     def test_member_override_produces_member_record_only(self):
@@ -61,7 +61,7 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
         change = changes[0]
         assert change.subject.type == "member"
         assert change.subject.id == str(self.other_membership.id)
-        assert (change.current.level, change.proposed.level) == ("editor", "none")
+        assert (change.current.access_level, change.proposed.access_level) == ("editor", "none")
         assert change.proposed.source_subject == "member"
         assert change.direction == "loses"
 
@@ -78,7 +78,7 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
         change = changes[0]
         assert change.scope == "resource"
         assert change.subject.type == "member"
-        assert (change.current.level, change.proposed.level) == ("editor", "none")
+        assert (change.current.access_level, change.proposed.access_level) == ("editor", "none")
 
     def test_member_row_on_one_object_adds_no_records_for_other_objects(self):
         # The everyone record already describes objects the member holds no rule on; a
@@ -114,7 +114,7 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
 
         member_changes = [change for change in changes if change.subject.type == "member"]
         assert [(change.scope, change.object_id) for change in member_changes] == [("object", str(playlist.id))]
-        assert (member_changes[0].current.level, member_changes[0].proposed.level) == ("editor", "none")
+        assert (member_changes[0].current.access_level, member_changes[0].proposed.access_level) == ("editor", "none")
 
     def test_creator_pairs_are_skipped(self):
         # Creators keep the highest level under both ladders, so their override never applies
@@ -201,15 +201,19 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
         assert change["project_id"] == self.team.id
         assert change["project_name"] == self.team.name
         assert change["current"] == {
-            "level": "editor",
+            "access_level": "editor",
             "source": "resource",
             "source_subject": "default",
+            "source_resource": "dashboard",
+            "source_resource_id": None,
             "subject_name": None,
         }
         assert change["proposed"] == {
-            "level": "viewer",
+            "access_level": "viewer",
             "source": "object",
             "source_subject": "default",
+            "source_resource": "dashboard",
+            "source_resource_id": str(self.dashboard.id),
             "subject_name": None,
         }
 

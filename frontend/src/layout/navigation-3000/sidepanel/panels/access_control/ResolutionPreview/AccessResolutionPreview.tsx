@@ -62,7 +62,7 @@ function urlForChangeObject(change: ResolutionChange): string | null {
         resource_id: change.object_id,
         name: change.object_name ?? change.object_id,
         short_id: change.object_short_id,
-        access_level: change.proposed.level as AccessControlLevel,
+        access_level: change.proposed.access_level as AccessControlLevel,
     })
 }
 
@@ -82,10 +82,10 @@ function SubjectCell({ change }: { change: ResolutionChange }): JSX.Element {
 function LevelChangeCell({ change }: { change: ResolutionChange }): JSX.Element {
     return (
         <div className="flex items-center gap-2 whitespace-nowrap">
-            <LemonTag>{humanizeAccessControlLevel(change.current.level as AccessControlLevel)}</LemonTag>
+            <LemonTag>{humanizeAccessControlLevel(change.current.access_level as AccessControlLevel)}</LemonTag>
             <span aria-hidden="true">→</span>
             <LemonTag type={change.direction === 'gains' ? 'warning' : 'danger'}>
-                {humanizeAccessControlLevel(change.proposed.level as AccessControlLevel)}
+                {humanizeAccessControlLevel(change.proposed.access_level as AccessControlLevel)}
             </LemonTag>
         </div>
     )
