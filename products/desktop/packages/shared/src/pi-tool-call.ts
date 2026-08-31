@@ -79,6 +79,7 @@ export function createPiToolCallRecord(
   input: PiToolCallInput,
   status: AgentToolCallStatus,
 ): PiToolCallRecord {
+  const locations = readLocations(input.name, input.arguments);
   return {
     id: input.id,
     name: input.name,
@@ -86,6 +87,6 @@ export function createPiToolCallRecord(
     kind: isPiToolName(input.name) ? PI_TOOL_KIND_BY_NAME[input.name] : "other",
     status,
     rawInput: input.arguments,
-    locations: readLocations(input.name, input.arguments),
+    ...(locations ? { locations } : {}),
   };
 }

@@ -707,6 +707,7 @@ describe("createPiConversationTranslator", () => {
           timestamp: 10,
           toolCall: {
             id: "tool-1",
+            name: "bash",
             title: "bash",
             kind: "execute",
             status: "pending",
