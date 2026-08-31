@@ -110,6 +110,27 @@ This produces a smooth, continuously-updating estimate that's more accurate than
 
 Each `CacheEntry` stores the last-known weighted count from Redis (`estimated_count`)
 and the time it was synced (`synced_at`).
+
+`synced_at` is `None` until the first Redis read lands. That keeps "created just
+now" distinct from "synced just now", which decide opposite things: a
+never-synced entry is due for a sync as soon as it clears `min_sync_floor`,
+where a freshly synced one waits out its pressure tier. Collapsing the two
+delays a new key's first read by a full tier interval (4 x `sync_interval` at
+Idle), during which the node knows only its own local count and cannot see the
+fleet.
+
+**A known, tolerated race.** `check_limit_internal` reads an entry, modifies
+it, and inserts it back. `process_read_results` inserts a fresh entry after a
+Redis read. Nothing orders the two, so a request that read just before a Redis
+read landed can overwrite the fresh fleet estimate with its stale copy. The
+effect is bounded in three ways. The stale entry is due for a sync at once, so
+the pod recovers on the next tick. The stale estimate is never higher than the
+fresh one, so the race only under-counts. The window is microseconds per event
+against one Redis read per key every 7.5 to 60 seconds. A fix through moka's
+per-key entry API (`entry().and_upsert_with` at both writers) was measured at
+about 0.3 µs per evaluation, a 31 to 36 percent regression on this crate's
+bench, for no measurable change in limiter decisions. It is deliberately not
+applied.
 Between syncs, the estimate **decays** at the configured leak rate:
 
 ```text
@@ -210,7 +231,7 @@ Tier boundaries are pressure-based (level / threshold), so they apply correctly 
 ```rust
 struct CacheEntry {
     estimated_count: f64,    // weighted count from last Redis sync
-    synced_at: Instant,      // when we last read from Redis
+    synced_at: Option<Instant>, // when we last read from Redis; None until the first read
     local_pending: u64,      // events counted locally since last sync, reset to 0 on sync
     pressure: f64,           // effective_level / threshold at last sync
 }
@@ -301,6 +322,13 @@ only if you're also changing the window/sync intervals.
   a shorter idle timeout reclaims slots faster, keeping the cache responsive.
 - `local_cache_ttl` acts as an upper bound on how stale an entry can get
   before being forced to re-sync from scratch on next access.
+- **`min_sync_floor` gates reads only.** `enqueue_update` runs unconditionally
+  for every event with a non-zero count, before any floor check, so every
+  event's count reaches Redis regardless of the floor. The floor suppresses the
+  `MGET` round trip for keys too far under their threshold to be limited. Writes
+  are bounded by a different mechanism: `absorb_update` merges by
+  `(key, epoch)` within a tick, so write volume scales with the number of
+  distinct active keys per tick rather than with event rate.
 - `global_cache_ttl` is an enforcement requirement, not only Redis hygiene.
   Reads consult the current and previous epoch, so the previous epoch's key is
   still needed for a full window after its last write. Below 2 × `window_interval`

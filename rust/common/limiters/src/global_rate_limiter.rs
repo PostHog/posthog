@@ -318,8 +318,11 @@ impl Default for GlobalRateLimiterConfig {
 pub struct CacheEntry {
     /// Weighted count from last Redis sync (decays over time via leak_rate)
     pub estimated_count: f64,
-    /// When we last read from Redis
-    pub synced_at: Instant,
+    /// When we last read from Redis. `None` until the first read lands, which
+    /// keeps "created just now" distinct from "synced just now". They decide
+    /// opposite things: a never-synced entry is due for a sync as soon as it
+    /// clears the floor, where a freshly synced one must wait out its tier.
+    pub synced_at: Option<Instant>,
     /// Events counted locally since last sync
     pub local_pending: u64,
     /// effective_level / threshold at last sync, determines adaptive sync tier
@@ -332,7 +335,12 @@ pub struct CacheEntry {
 /// locally observed events. This keeps the estimate conservative (includes all
 /// local events) while allowing the global contribution to drain away.
 pub fn effective_level(entry: &CacheEntry, leak_rate: f64, now: Instant) -> f64 {
-    let elapsed = now.duration_since(entry.synced_at).as_secs_f64();
+    // Never synced, so `estimated_count` is still 0 and there is nothing to
+    // decay. The level is whatever this node has counted on its own.
+    let Some(synced_at) = entry.synced_at else {
+        return entry.local_pending as f64;
+    };
+    let elapsed = now.duration_since(synced_at).as_secs_f64();
     let drained = leak_rate * elapsed;
     (entry.estimated_count - drained).max(0.0) + entry.local_pending as f64
 }
@@ -653,9 +661,12 @@ impl GlobalRateLimiterImpl {
         let (level, entry_exists) = if let Some(mut entry) = self.cache.get(key) {
             let level = effective_level(&entry, leak_rate, now_instant);
 
-            // Record staleness for observability
-            let staleness_ms = now_instant.duration_since(entry.synced_at).as_millis() as f64;
-            metrics::histogram!(GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM, "scope" => self.scope).record(staleness_ms);
+            // Record staleness for observability. A never-synced entry has no
+            // staleness to report; it is covered by the sync decision below.
+            if let Some(synced_at) = entry.synced_at {
+                let staleness_ms = now_instant.duration_since(synced_at).as_millis() as f64;
+                metrics::histogram!(GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM, "scope" => self.scope).record(staleness_ms);
+            }
 
             // Sync decision. The absolute floor is checked first: a key this far
             // under its threshold cannot be limited whatever the other nodes
@@ -674,7 +685,16 @@ impl GlobalRateLimiterImpl {
                     tier_sync_interval(effective_pressure, self.config.sync_interval)
                         .unwrap_or_else(|| self.config.sync_interval.mul_f64(4.0));
 
-                if now_instant.duration_since(entry.synced_at) > tier_interval {
+                // A never-synced entry is due immediately. Its level is local
+                // only, so the fleet count behind it is unknown, and waiting a
+                // tier interval to find out delays every verdict on the key by
+                // that long. Keys below the floor never reach this branch, so
+                // this does not sync the long tail of one-off keys.
+                let due = match entry.synced_at {
+                    None => true,
+                    Some(synced_at) => now_instant.duration_since(synced_at) > tier_interval,
+                };
+                if due {
                     self.queue_sync(key);
                     metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "sync_queued")
                         .increment(1);
@@ -697,7 +717,7 @@ impl GlobalRateLimiterImpl {
             // Insert a fresh entry so subsequent requests have local_pending tracked
             let entry = CacheEntry {
                 estimated_count: 0.0,
-                synced_at: now_instant,
+                synced_at: None,
                 local_pending: count,
                 pressure: 0.0,
             };
@@ -1418,7 +1438,7 @@ impl GlobalRateLimiterImpl {
                 key.clone(),
                 CacheEntry {
                     estimated_count: estimated,
-                    synced_at: now_instant,
+                    synced_at: Some(now_instant),
                     local_pending: 0,
                     pressure,
                 },
@@ -1591,20 +1611,24 @@ mod tests {
     fn test_effective_level_decay() {
         let base = Instant::now();
         let cases = vec![
-            // (estimated_count, elapsed_secs, local_pending, leak_rate, expected)
-            (100.0, 0.0, 0, 10.0, 100.0),  // no elapsed: full count
-            (100.0, 10.0, 0, 10.0, 0.0),   // full drain
-            (100.0, 5.0, 0, 10.0, 50.0),   // partial drain
-            (100.0, 0.0, 50, 10.0, 150.0), // local_pending adds
-            (100.0, 5.0, 30, 10.0, 80.0),  // drain + pending: (100-50)+30
-            (10.0, 20.0, 0, 10.0, 0.0),    // over-drain floors at 0
-            (10.0, 20.0, 5, 10.0, 5.0),    // over-drain + pending
+            // (estimated_count, elapsed_secs, local_pending, leak_rate, synced, expected)
+            (100.0, 0.0, 0, 10.0, true, 100.0), // no elapsed: full count
+            (100.0, 10.0, 0, 10.0, true, 0.0),  // full drain
+            (100.0, 5.0, 0, 10.0, true, 50.0),  // partial drain
+            (100.0, 0.0, 50, 10.0, true, 150.0), // local_pending adds
+            (100.0, 5.0, 30, 10.0, true, 80.0), // drain + pending: (100-50)+30
+            (10.0, 20.0, 0, 10.0, true, 0.0),   // over-drain floors at 0
+            (10.0, 20.0, 5, 10.0, true, 5.0),   // over-drain + pending
+            // Never synced: no fleet estimate exists yet, so nothing decays and
+            // the level is the local count alone, whatever the other fields say.
+            (100.0, 10.0, 7, 10.0, false, 7.0),
+            (0.0, 0.0, 0, 10.0, false, 0.0),
         ];
 
-        for (est, elapsed, pending, rate, expected) in cases {
+        for (est, elapsed, pending, rate, synced, expected) in cases {
             let entry = CacheEntry {
                 estimated_count: est,
-                synced_at: base,
+                synced_at: synced.then_some(base),
                 local_pending: pending,
                 pressure: 0.0,
             };
@@ -1612,7 +1636,7 @@ mod tests {
             let result = effective_level(&entry, rate, now);
             assert!(
                 (result - expected).abs() < 0.01,
-                "effective_level(est={est}, elapsed={elapsed}s, pending={pending}, rate={rate}) = {result}, expected {expected}"
+                "effective_level(est={est}, elapsed={elapsed}s, pending={pending}, rate={rate}, synced={synced}) = {result}, expected {expected}"
             );
         }
     }
@@ -1713,7 +1737,7 @@ mod tests {
             "test_key".to_string(),
             CacheEntry {
                 estimated_count: 5.0,
-                synced_at: Instant::now(),
+                synced_at: Some(Instant::now()),
                 local_pending: 0,
                 pressure: 0.5,
             },
@@ -1736,7 +1760,7 @@ mod tests {
             "test_key".to_string(),
             CacheEntry {
                 estimated_count: 10.0,
-                synced_at: Instant::now(),
+                synced_at: Some(Instant::now()),
                 local_pending: 0,
                 pressure: 1.0,
             },
@@ -1759,7 +1783,7 @@ mod tests {
             "test_key".to_string(),
             CacheEntry {
                 estimated_count: 15.0,
-                synced_at: Instant::now(),
+                synced_at: Some(Instant::now()),
                 local_pending: 0,
                 pressure: 1.5,
             },
@@ -1810,7 +1834,7 @@ mod tests {
             "cached_key".to_string(),
             CacheEntry {
                 estimated_count: 5.0,
-                synced_at: Instant::now(),
+                synced_at: Some(Instant::now()),
                 local_pending: 0,
                 pressure: 0.5,
             },
@@ -1841,7 +1865,7 @@ mod tests {
             "key_a".to_string(),
             CacheEntry {
                 estimated_count: 1.0,
-                synced_at: Instant::now(),
+                synced_at: Some(Instant::now()),
                 local_pending: 0,
                 pressure: 0.1,
             },
@@ -1866,7 +1890,7 @@ mod tests {
             "limited_key".to_string(),
             CacheEntry {
                 estimated_count: 10.0,
-                synced_at: Instant::now(),
+                synced_at: Some(Instant::now()),
                 local_pending: 0,
                 pressure: 1.0,
             },
@@ -1919,7 +1943,7 @@ mod tests {
             "custom_key".to_string(),
             CacheEntry {
                 estimated_count: 5.0,
-                synced_at: Instant::now(),
+                synced_at: Some(Instant::now()),
                 local_pending: 0,
                 pressure: 1.0,
             },
@@ -1944,7 +1968,7 @@ mod tests {
             "custom_key".to_string(),
             CacheEntry {
                 estimated_count: 5.0,
-                synced_at: Instant::now(),
+                synced_at: Some(Instant::now()),
                 local_pending: 0,
                 pressure: 0.5,
             },
@@ -1989,7 +2013,7 @@ mod tests {
             "custom_a".to_string(),
             CacheEntry {
                 estimated_count: 10.0,
-                synced_at: Instant::now(),
+                synced_at: Some(Instant::now()),
                 local_pending: 0,
                 pressure: 2.0,
             },
@@ -2027,7 +2051,7 @@ mod tests {
             "stale_key".to_string(),
             CacheEntry {
                 estimated_count: 5.0,
-                synced_at: Instant::now() - Duration::from_secs(60),
+                synced_at: Some(Instant::now() - Duration::from_secs(60)),
                 local_pending: 0,
                 pressure: 0.5,
             },
@@ -2051,7 +2075,7 @@ mod tests {
             "fresh_key".to_string(),
             CacheEntry {
                 estimated_count: 5.0,
-                synced_at: Instant::now(),
+                synced_at: Some(Instant::now()),
                 local_pending: 0,
                 pressure: 0.5,
             },
@@ -2101,6 +2125,52 @@ mod tests {
                 limiter.pending_sync.contains(&key),
                 expect_queued,
                 "floor={floor} count={count} should queue sync = {expect_queued}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sync_due_immediately_only_when_never_synced() {
+        // (label, synced_at, expect_queued)
+        let cases = vec![
+            ("never synced", None, true),
+            ("synced just now", Some(Instant::now()), false),
+        ];
+
+        for (label, synced_at, expect_queued) in cases {
+            let client = Arc::new(MockRedisClient::new());
+            let config = GlobalRateLimiterConfig {
+                // 1% of the threshold is 10, so the configured floor of 5 applies.
+                global_threshold: 1000,
+                min_sync_floor: 5,
+                // Park the background drain so pending_sync shows only what
+                // check_limit queued.
+                tick_interval: Duration::from_secs(3600),
+                ..test_config()
+            };
+            let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+            // local_pending is above the floor, so the sync decision comes down
+            // to synced_at alone. Pressure stays Idle, whose tier interval is
+            // 4 x sync_interval = 60s, far longer than this test takes.
+            limiter.cache.insert(
+                "above_floor".to_string(),
+                CacheEntry {
+                    estimated_count: 0.0,
+                    synced_at,
+                    local_pending: 11,
+                    pressure: 0.0,
+                },
+            );
+
+            let _ = limiter.check_limit("above_floor", 1, None).await;
+
+            assert_eq!(
+                limiter.pending_sync.contains("above_floor"),
+                expect_queued,
+                "an entry {label} and above the floor should queue a sync={expect_queued} -- \
+                 a never-synced entry has no fleet count behind it, so making it wait out a \
+                 tier interval hides the key from the limiter for that long"
             );
         }
     }
@@ -2389,7 +2459,7 @@ mod tests {
             "fleet_hot".to_string(),
             CacheEntry {
                 estimated_count: 0.0,
-                synced_at: Instant::now() - Duration::from_secs(120),
+                synced_at: Some(Instant::now() - Duration::from_secs(120)),
                 local_pending: 50,
                 pressure: 0.05,
             },
@@ -2463,7 +2533,7 @@ mod tests {
             "dedup_key".to_string(),
             CacheEntry {
                 estimated_count: 5.0,
-                synced_at: Instant::now() - Duration::from_secs(60),
+                synced_at: Some(Instant::now() - Duration::from_secs(60)),
                 local_pending: 0,
                 pressure: 0.5,
             },
@@ -2561,7 +2631,7 @@ mod tests {
             "entity_a".to_string(),
             CacheEntry {
                 estimated_count: 0.0,
-                synced_at: Instant::now() - Duration::from_secs(30),
+                synced_at: Some(Instant::now() - Duration::from_secs(30)),
                 local_pending: 3,
                 pressure: 0.0,
             },
@@ -2607,7 +2677,7 @@ mod tests {
             "custom_entity".to_string(),
             CacheEntry {
                 estimated_count: 0.0,
-                synced_at: Instant::now() - Duration::from_secs(30),
+                synced_at: Some(Instant::now() - Duration::from_secs(30)),
                 local_pending: 3,
                 pressure: 0.0,
             },
@@ -2651,7 +2721,7 @@ mod tests {
                 "key".to_string(),
                 CacheEntry {
                     estimated_count: 0.0,
-                    synced_at: Instant::now() - Duration::from_secs(30),
+                    synced_at: Some(Instant::now() - Duration::from_secs(30)),
                     local_pending: prior_pending,
                     pressure: 0.0,
                 },
@@ -2676,7 +2746,7 @@ mod tests {
     fn seed_entry(pressure: f64) -> CacheEntry {
         CacheEntry {
             estimated_count: 0.0,
-            synced_at: Instant::now() - Duration::from_secs(30),
+            synced_at: Some(Instant::now() - Duration::from_secs(30)),
             local_pending: 0,
             pressure,
         }
