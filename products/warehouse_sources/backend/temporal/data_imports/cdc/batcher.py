@@ -25,6 +25,18 @@ CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
 # Suffix of the SCD2 companion table's resource name ({schema.name}_cdc). Shared
 # so lane classification (validate_cdc_buffer) can never drift from the writers.
 CDC_COMPANION_SUFFIX = "_cdc"
+
+
+def companion_resource_name(schema_name: str) -> str:
+    """Storage name for a schema's `_cdc` companion table.
+
+    Keyed on the schema's `name`, never its resolved folder: the companion is CDC-only and stays
+    self-consistent with its `name`-keyed snapshot seed. Capture, the snapshot seed and the
+    buffered consumer all write the same table, so they all resolve the name here.
+    """
+    return f"{schema_name}{CDC_COMPANION_SUFFIX}"
+
+
 # Per-row list of source columns the change stream omitted because they are
 # unchanged from the previous row version (Postgres: unchanged TOAST values).
 # Consumed by enrich_toast_omitted_rows; the load processor drops it before

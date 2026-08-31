@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     LOAD_POSITION_CONFIG_KEY,
     MAX_VERIFIED_DELETE_ROWS,
     SCD2_APPEND_MODE,
+    UnresolvedAppendError,
     batch_max_seq,
     dedupe_keep_highest_seq,
     drop_superseded_rows,
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     is_cdc_write_resolution_enabled,
     persist_load_position,
     read_load_position,
+    require_resolution_for_append,
     resolve_batch,
     verify_delete_enrichment,
 )
@@ -262,6 +264,21 @@ class TestResolveBatch:
 
         assert (stats.superseded, stats.duplicate_key) == (0, 0)
         assert result is table
+
+
+class TestRequireResolutionForAppend:
+    def test_the_append_lane_refuses_to_write_unresolved(self):
+        # Writing unresolved appends the replayed trailing file as new history and records no
+        # position, so every later run replays it again — permanent, compounding duplicates.
+        with pytest.raises(UnresolvedAppendError, match="users_cdc"):
+            require_resolution_for_append(SCD2_APPEND_MODE, resolution_enabled=False, resource_name="users_cdc")
+
+    @parameterized.expand(
+        [("append_resolved", SCD2_APPEND_MODE, True), ("merge_unresolved", "incremental_merge", False)]
+    )
+    def test_writes_that_can_proceed(self, _name, cdc_write_mode, resolution_enabled):
+        # The merge lane absorbs a replay as a no-op upsert, so it may write unresolved.
+        require_resolution_for_append(cdc_write_mode, resolution_enabled=resolution_enabled, resource_name="users")
 
 
 class TestVerifyDeleteEnrichment:

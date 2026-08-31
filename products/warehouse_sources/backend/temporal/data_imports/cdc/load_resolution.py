@@ -183,6 +183,24 @@ def persist_load_position(schema_id: Any, team_id: int, resource_name: str, posi
     update_sync_type_config_keys(schema_id, team_id, mutate=_merge)
 
 
+class UnresolvedAppendError(RuntimeError):
+    """Raised rather than appending history that may already be in the table."""
+
+
+def require_resolution_for_append(cdc_write_mode: str | None, *, resolution_enabled: bool, resource_name: str) -> None:
+    """Refuse to write an append-lane batch that cannot be resolved against the table.
+
+    The merge lane tolerates writing unresolved: its upsert makes a replayed row a no-op. An
+    append cannot — it writes the replay as new history, and the same run records no position, so
+    every later run replays it again. Failing the batch retries it once resolution is back.
+    """
+    if cdc_write_mode == SCD2_APPEND_MODE and not resolution_enabled:
+        raise UnresolvedAppendError(
+            f"Write resolution is unavailable, so append lane {resource_name} cannot skip rows it "
+            "already holds. Refusing to write history that may duplicate."
+        )
+
+
 def resolve_batch(
     table: pa.Table,
     primary_keys: list[str],

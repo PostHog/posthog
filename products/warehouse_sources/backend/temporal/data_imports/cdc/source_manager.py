@@ -26,7 +26,9 @@ from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_COMPANION_SUFFIX
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    companion_resource_name as build_companion_resource_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
     BufferFileSpan,
     get_buffer_prefix,
@@ -124,12 +126,8 @@ def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:
 
 
 def companion_resource_name(schema: ExternalDataSchema) -> str:
-    """Storage name for the `_cdc` companion — must match the legacy write's and the snapshot seed's.
-
-    Keyed on `name`, not the resolved folder the consolidated lane uses: the companion is CDC-only
-    and stays self-consistent with its `name`-keyed seed (see `_seed_cdc_companion_from_snapshot`).
-    """
-    return f"{schema.name}{CDC_COMPANION_SUFFIX}"
+    """Storage name for this schema's `_cdc` companion — the same table capture and the seed write."""
+    return build_companion_resource_name(schema.name)
 
 
 def served_lanes(schema: ExternalDataSchema) -> list[CDCLane]:
@@ -408,7 +406,7 @@ class CDCSourceManager:
         batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
 
         async with aget_s3_client() as s3:
-            for file in files:
+            for position, file in enumerate(files):
                 key = file.key
                 # The only place a buffer file is deleted — see _is_consumed for the proof.
                 if self._is_consumed(file.span.end_seq, file.modified, floor, proof_time):
@@ -428,12 +426,26 @@ class CDCSourceManager:
                 if table.num_rows == 0:
                     continue
 
-                if batch.add(table):
+                if batch.add(table) and self._ends_a_transaction(files, position):
                     yield self._finalize_batch(batch.tables, table_transformer)
                     batch.reset()
 
             if batch:
                 yield self._finalize_batch(batch.tables, table_transformer)
+
+    @staticmethod
+    def _ends_a_transaction(files: list[_BufferFile], position: int) -> bool:
+        """Whether the next file starts a transaction this one did not carry.
+
+        A transaction's events share one commit position and can span files, so a batch cut
+        between two of them would split it. The append lane resolves a replay by counting the
+        rows its table already holds at the position; a split lets the second batch read a
+        position the first one just advanced to, count its own head rows as already applied,
+        and drop that many rows off the tail. Only a genuinely split transaction extends a
+        batch — the common case cuts here exactly as before.
+        """
+        following = files[position + 1] if position + 1 < len(files) else None
+        return following is None or following.span.start_seq > files[position].span.end_seq
 
     def _finalize_batch(
         self, tables: list[pa.Table], table_transformer: Callable[[pa.Table], pa.Table] | None

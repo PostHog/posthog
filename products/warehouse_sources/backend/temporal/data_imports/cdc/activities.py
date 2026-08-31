@@ -46,10 +46,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters impor
     get_cdc_adapter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
-    CDC_COMPANION_SUFFIX,
     CDC_SEQ_COLUMN,
     ChangeEventBatcher,
     build_scd2_table,
+    companion_resource_name,
     deduplicate_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
@@ -755,7 +755,7 @@ class CDCExtractActivity:
                 batch_writes.append(
                     (
                         build_scd2_table(enriched_table, key_columns),
-                        f"{schema.name}{CDC_COMPANION_SUFFIX}",
+                        companion_resource_name(schema.name),
                         "scd2_append",
                     )
                 )
@@ -767,7 +767,7 @@ class CDCExtractActivity:
                 batch_writes.append(
                     (
                         build_scd2_table(enriched_table, key_columns),
-                        f"{schema.name}{CDC_COMPANION_SUFFIX}",
+                        companion_resource_name(schema.name),
                         "scd2_append",
                     )
                 )
@@ -930,7 +930,14 @@ class CDCExtractActivity:
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
         self.adapter = get_cdc_adapter(self.source)
         self.reader = self.adapter.create_reader(self.source)
-        self._shadow_enabled = is_shadow_write_enabled(self.inputs.team_id, self.log)
+        # Shadow writes validate the buffer *before* a source is flipped. Past the flip they are
+        # a hazard: a schema not yet serving the lane (mid-snapshot, say) would accumulate shadow
+        # files under its own prefix, and the consumer would merge them the moment the schema
+        # turns eligible — re-delivering rows the legacy lane already wrote, which an append lane
+        # cannot absorb. The flip command purges the prefix once; nothing purges it again.
+        self._shadow_enabled = is_shadow_write_enabled(self.inputs.team_id, self.log) and (
+            self.adapter.parse_cdc_config(self.source).ingest_mode != "buffered"
+        )
 
         if self.adapter.parse_cdc_config(self.source).ingest_mode == "buffered":
             # A schema with deferred runs pending stays legacy this tick, so the flush and any new

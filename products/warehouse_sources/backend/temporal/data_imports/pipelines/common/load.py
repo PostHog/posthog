@@ -165,6 +165,7 @@ async def _seed_cdc_companion_from_snapshot(
         DELETED_COLUMN,
         SCD2_VALID_FROM_COLUMN,
         SCD2_VALID_TO_COLUMN,
+        companion_resource_name as build_companion_resource_name,
     )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
@@ -187,7 +188,7 @@ async def _seed_cdc_companion_from_snapshot(
     }
     read_columns = [c for c in dataset.schema.names if c not in cdc_meta_cols]
 
-    companion_resource_name = f"{schema.name}_cdc"
+    companion_resource_name = build_companion_resource_name(schema.name)
     companion_ref = DeltaTableRef(
         resource_name=companion_resource_name,
         job=job,

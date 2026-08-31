@@ -174,8 +174,10 @@ a retry-heavy period is the signal to revisit. Candidate fixes are costed in the
 Consume runs are ordinary jobs: `billable=True`, `rows_synced` = consumed rows. A consolidated
 source bills the same change events once per run, so the flip is billing-neutral by construction.
 One bounded exception: the trailing file of a burst is re-read for a tick or two until a completed
-run proves it consumed and it is deleted — rows at the recorded position re-apply as no-op upserts
-in that window, never perpetually.
+run proves it consumed and it is deleted. On the merge lane those rows re-apply as no-op upserts in
+that window, never perpetually; on the append lane the replay guard drops them before the write
+(`warehouse_load_cdc_seq_guard_rows_dropped_total{reason="replayed"}`). Either way they are counted
+in `rows_synced` for that run, because the count precedes resolution.
 
 `both`-mode schemas count each change event twice, once per table it feeds. That is unchanged by
 the flip: legacy writes both tables every tick from two `ExternalDataJob` rows, and buffered writes
