@@ -70,11 +70,7 @@ fn array(values: &[Vec<Value>]) -> Vec<Value> {
 
 /// `needle in haystack`. The VM pops the needle first, so the haystack is emitted first.
 fn in_op(needle: &[Value], haystack: &[Value]) -> Vec<Value> {
-    let mut bc = vec![json!("_H"), json!(1)];
-    bc.extend_from_slice(haystack);
-    bc.extend_from_slice(needle);
-    bc.extend([json!(OP_IN), json!(OP_RETURN)]);
-    bc
+    compare(needle, haystack, OP_IN)
 }
 
 /// `name(args…)`. The compiler emits the args in order, then the call.
@@ -105,7 +101,8 @@ fn assert_both_paths(bytecode: Vec<Value>, expected: Value, label: &str) {
 #[test]
 fn int_float_equality_is_numeric_on_both_paths() {
     // `Integer(1)` and `Float(1.0)` are one value to both reference VMs, and the Rust VM's own
-    // ordering ops already widen mixed pairs, so equality has to agree or trichotomy breaks.
+    // ordering ops already widen mixed pairs, so equality has to agree: otherwise `1 == 1.0` is
+    // false while `1 >= 1.0` is true.
     assert_both_paths(
         compare(&int(1), &float(1.0), OP_EQ),
         json!(true),

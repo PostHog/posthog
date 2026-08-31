@@ -32,16 +32,20 @@ pub enum Num {
     Float(f64),
 }
 
-// The reference VMs treat all numbers as one numeric domain, because JS has only f64 and Python's
-// `1 == 1.0` is true. Equality must therefore unify the variants. A mixed pair widens to f64 and
-// compares with IEEE `==`, which is what `Num::binary_op` does for `Lt`/`Gt`, so `a == b` stays
-// consistent with `!(a < b) && !(a > b)`. Two integers compare as i64, so values beyond 2^53 stay
-// exact against each other. A mixed pair above 2^53 rounds like the TS reference; Python compares
-// mixed pairs exactly and can disagree there.
-//
-// Do not assume `Num::compare` agrees. It widens too, but then applies `total_cmp`, a total order
-// that ranks NaN and separates `-0.0` from `0`. IEEE `==` instead keeps NaN unequal to NaN and
-// calls `0` and `-0.0` equal, so the two disagree on those two inputs.
+/// The reference VMs treat all numbers as one numeric domain, because JS has only f64 and Python's
+/// `1 == 1.0` is true. Equality must therefore unify the variants. A mixed pair widens to f64 and
+/// compares with IEEE `==`, which is what `Num::binary_op` does for `Lt`/`Gt`, so `a == b` stays
+/// consistent with `!(a < b) && !(a > b)`. Two integers compare as i64, so values beyond 2^53 stay
+/// exact against each other. A mixed pair above 2^53 rounds like the TS reference; Python compares
+/// mixed pairs exactly and can disagree there.
+///
+/// Those two rules together are NOT transitive above 2^53: `Integer(2^53 + 1) == Float(2^53)` and
+/// `Float(2^53) == Integer(2^53)`, yet the two integers stay unequal. Never feed `Num` to `dedup`,
+/// `sort_by`, `binary_search` or a hash set, where that would make the result depend on input order.
+///
+/// Do not assume `Num::compare` agrees. It widens too, but then applies `total_cmp`, a total order
+/// that ranks NaN and separates `-0.0` from `0`. IEEE `==` instead keeps NaN unequal to NaN and
+/// calls `0` and `-0.0` equal, so the two disagree on those two inputs.
 impl PartialEq for Num {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -368,6 +372,8 @@ impl HogLiteral {
     }
 
     fn equals(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
+        // Coercion runs first, so a numeric string equals a number. Membership (`in`, `has`,
+        // `indexOf`) compares elements through here and inherits that, unlike the reference VMs.
         let Ok((lhs, rhs)) = self.coerce_types(rhs) else {
             return Ok(false.into()); // If we can't coerce types, they are not equal
         };
@@ -960,6 +966,8 @@ mod tests {
         assert_eq!(Num::Float(1.0), Num::Integer(1));
         assert_ne!(Num::Integer(2), Num::Float(1.0));
         assert_ne!(Num::Float(1.0), Num::Integer(2));
+        // Signed zero is the second input where `Num::compare` disagrees; IEEE `==` unifies it.
+        assert_eq!(Num::Integer(0), Num::Float(-0.0));
     }
 
     #[test]
