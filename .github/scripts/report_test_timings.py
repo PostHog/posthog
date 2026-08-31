@@ -313,6 +313,22 @@ def jest_root_for_suite(suite: str) -> str:
     return "frontend"
 
 
+def normalize_pytest_file(file: str) -> str:
+    """Keep a pytest JUnit ``file`` attribute only when it stays inside the repo.
+
+    pytest reports the decorator's own source file for tests wrapped in ``mock.patch``,
+    ``freeze_time``, or ``parameterized``, which arrives as a path into site-packages
+    (``../../../opt/.../unittest/mock.py``). Such a path can never resolve an owner, so it is
+    discarded here and the caller falls back to inferring the file from the JUnit classname.
+    """
+    if not file:
+        return ""
+    normalized = posixpath.normpath(file.replace("\\", "/"))
+    if normalized == ".." or normalized.startswith(("../", "/")):
+        return ""
+    return normalized
+
+
 def infer_pytest_file(classname: str) -> str:
     """Find a safe pytest file path from a JUnit classname."""
     parts = classname.split(".")
@@ -340,8 +356,9 @@ def test_identity(
         file_source: Literal["junit", "inferred", "missing"] = "junit" if normalized_file else "missing"
         return normalized_file, selector or name, selector, file_source
 
-    normalized_file = file or infer_pytest_file(classname)
-    file_source = "junit" if file else "inferred" if normalized_file else "missing"
+    junit_file = normalize_pytest_file(file)
+    normalized_file = junit_file or infer_pytest_file(classname)
+    file_source = "junit" if junit_file else "inferred" if normalized_file else "missing"
     return (
         normalized_file,
         to_pytest_nodeid(classname, name),
@@ -791,7 +808,9 @@ def owner_team_lookup() -> Callable[[str], str]:
     losing the emit.
     """
     try:
-        resolver = OwnersResolver()
+        # The explicit root skips the resolver's own `git rev-parse`, whose failure would
+        # silently unown every span in the run.
+        resolver = OwnersResolver(REPO_ROOT)
     except Exception:
         logger.exception("owners resolver unavailable; emitting spans without team attribution")
         return lambda _file: ""
@@ -805,7 +824,9 @@ def owner_team_lookup() -> Callable[[str], str]:
         except Exception:
             logger.exception("owners resolution failed for %s; emitting span without team attribution", file)
             return ""
-        return owners[0] if owners else ""
+        # An `@handle` first owner is a person, not a team; stamping it would mint a
+        # one-person "team" in every per-team rollup.
+        return next((owner for owner in owners or [] if not owner.startswith("@")), "")
 
     return lookup
 
