@@ -315,6 +315,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             : 'Show usage breakdown'
                                                     }
                                                     aria-label={`Toggle ${variant.displayName} usage breakdown`}
+                                                    aria-expanded={!!variantExpandedStates?.[variant.key]}
                                                     data-attr={`billing-variant-expand-${variant.key}`}
                                                     onClick={() => toggleVariantExpanded(variant.key)}
                                                 />
