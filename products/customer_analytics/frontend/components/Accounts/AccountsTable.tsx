@@ -458,7 +458,8 @@ function renderCustomPropertyEditor(
     draft: CustomPropertyDraft,
     definition: CustomPropertyDefinitionApi,
     setDraft: (draft: CustomPropertyDraft) => void,
-    saveValue: () => void
+    saveValue: (nextValue?: CustomPropertyDraft) => void,
+    cancelEdit: () => void
 ): JSX.Element {
     if (definition.display_type === 'boolean') {
         return (
@@ -486,6 +487,7 @@ function renderCustomPropertyEditor(
                     ),
                 }))}
                 size="small"
+                className="w-full"
                 data-attr="accounts-custom-property-value-input"
             />
         )
@@ -495,17 +497,14 @@ function renderCustomPropertyEditor(
             <LemonCalendarSelectInput
                 value={typeof draft === 'string' && draft ? dayjs(draft) : null}
                 onChange={(value) =>
-                    setDraft(
-                        value
-                            ? definition.display_type === 'datetime'
-                                ? value.toISOString()
-                                : value.format('YYYY-MM-DD')
-                            : ''
-                    )
+                    value &&
+                    saveValue(definition.display_type === 'datetime' ? value.toISOString() : value.format('YYYY-MM-DD'))
                 }
                 granularity={definition.display_type === 'datetime' ? 'minute' : 'day'}
                 format={definition.display_type === 'datetime' ? 'MMM D, YYYY HH:mm' : 'MMM D, YYYY'}
                 use24HourFormat
+                onClickOutside={cancelEdit}
+                onClose={cancelEdit}
                 buttonProps={{
                     size: 'small',
                     className: 'w-40',
@@ -525,7 +524,7 @@ function renderCustomPropertyEditor(
                 type="number"
                 value={numericValue}
                 onChange={(value) => setDraft(value === undefined ? '' : String(value))}
-                onPressEnter={saveValue}
+                onPressEnter={() => saveValue()}
                 size="small"
                 step="any"
                 suffix={definition.display_type === 'percent' ? <span>%</span> : undefined}
@@ -538,7 +537,7 @@ function renderCustomPropertyEditor(
             type={definition.display_type === 'link' ? 'url' : 'text'}
             value={typeof draft === 'string' ? draft : ''}
             onChange={setDraft}
-            onPressEnter={saveValue}
+            onPressEnter={() => saveValue()}
             size="small"
             status={
                 definition.display_type === 'link' && typeof draft === 'string' && draft && !isHttpUrl(draft)
@@ -582,43 +581,50 @@ function CustomPropertyCell({
         setDraft(customPropertyDraftValue(value, definition))
         setIsEditing(true)
     }
-    const saveValue = (): void => {
-        if (!accountId || !isCustomPropertyValueValid(draft, definition)) {
+    const saveValue = (nextValue: CustomPropertyDraft = draft): void => {
+        if (!accountId || !isCustomPropertyValueValid(nextValue, definition)) {
             return
         }
-        updateAccountCustomProperty(accountId, definition, customPropertyValueToSave(draft, definition))
+        updateAccountCustomProperty(accountId, definition, customPropertyValueToSave(nextValue, definition))
         setIsEditing(false)
     }
+    const isDatePicker = definition.display_type === 'date' || definition.display_type === 'datetime'
 
     if (isEditing && accountId) {
         return (
-            <div className="inline-flex w-fit items-center gap-1">
+            <div
+                className={`inline-flex w-fit items-center ${definition.display_type === 'boolean' ? 'gap-2' : 'gap-1'}`}
+            >
                 <div className={definition.display_type === 'boolean' ? undefined : 'w-40'}>
-                    {renderCustomPropertyEditor(draft, definition, setDraft, saveValue)}
+                    {renderCustomPropertyEditor(draft, definition, setDraft, saveValue, () => setIsEditing(false))}
                 </div>
-                <LemonButton
-                    type="primary"
-                    size="xsmall"
-                    icon={<IconCheck />}
-                    tooltip="Save"
-                    onClick={saveValue}
-                    disabledReason={
-                        isCustomPropertyValueValid(draft, definition)
-                            ? undefined
-                            : definition.display_type === 'link'
-                              ? 'Enter a valid HTTP or HTTPS URL'
-                              : 'Enter a value'
-                    }
-                    data-attr="accounts-custom-property-value-save"
-                />
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    icon={<IconX />}
-                    tooltip="Cancel"
-                    onClick={() => setIsEditing(false)}
-                    data-attr="accounts-custom-property-value-cancel"
-                />
+                {!isDatePicker && (
+                    <>
+                        <LemonButton
+                            type="primary"
+                            size="xsmall"
+                            icon={<IconCheck />}
+                            tooltip="Save"
+                            onClick={() => saveValue()}
+                            disabledReason={
+                                isCustomPropertyValueValid(draft, definition)
+                                    ? undefined
+                                    : definition.display_type === 'link'
+                                      ? 'Enter a valid HTTP or HTTPS URL'
+                                      : 'Enter a value'
+                            }
+                            data-attr="accounts-custom-property-value-save"
+                        />
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconX />}
+                            tooltip="Cancel"
+                            onClick={() => setIsEditing(false)}
+                            data-attr="accounts-custom-property-value-cancel"
+                        />
+                    </>
+                )}
             </div>
         )
     }
