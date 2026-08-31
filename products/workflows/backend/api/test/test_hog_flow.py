@@ -239,6 +239,40 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
 
+    @parameterized.expand(
+        [
+            ("messaging", "messaging", {"Email drip", "Push blast"}),
+            ("automation", "automation", {"Webhook sync"}),
+        ]
+    )
+    def test_list_filter_by_workflow_type(self, _name, workflow_type, expected_names):
+        HogFlow.objects.create(
+            team=self.team,
+            name="Email drip",
+            created_by=self.user,
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Push blast",
+            created_by=self.user,
+            actions=[{"id": "a", "type": "function_push", "config": {}}],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Webhook sync",
+            created_by=self.user,
+            actions=[{"id": "a", "type": "function", "config": {}}],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type={workflow_type}")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    def test_list_filter_by_workflow_type_rejects_unknown_value(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
+        assert response.status_code == 400
+
     def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
         # A webhook action whose headers carry a bearer token — the kind of credential-like value
         # that must not leak from a workflow *listing*.
