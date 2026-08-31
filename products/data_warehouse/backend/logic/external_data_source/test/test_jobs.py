@@ -368,6 +368,48 @@ class TestUpdateExternalJobStatus:
         assert schema.status == ExternalDataSchemaStatus.FAILED
         assert schema.latest_error == "The replication slot no longer exists on the source database."
 
+    @pytest.mark.parametrize(
+        "starting_status,starting_error,expected_status,expected_error",
+        [
+            (
+                ExternalDataSchemaStatus.FAILED,
+                "connection failed: server closed the connection unexpectedly",
+                ExternalDataSchemaStatus.FAILED,
+                "connection failed: server closed the connection unexpectedly",
+            ),
+            (
+                ExternalDataSchemaStatus.COMPLETED,
+                None,
+                ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+                None,
+            ),
+        ],
+    )
+    def test_billing_limit_does_not_overwrite_a_failed_schema(
+        self, starting_status, starting_error, expected_status, expected_error
+    ):
+        # The billing gate returns before extraction, so a billing-limited run must not erase the
+        # connection error a real failure left behind — that error is what keeps the source visible
+        # in the failure digest and the pipeline status panel. A healthy schema still repaints.
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        schema.status = starting_status
+        schema.latest_error = starting_error
+        schema.save()
+
+        with patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"):
+            updated = update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJobStatus.BILLING_LIMIT_REACHED,
+                logger=MagicMock(),
+                latest_error=None,
+            )
+
+        assert updated.status == ExternalDataJobStatus.BILLING_LIMIT_REACHED
+        schema.refresh_from_db()
+        assert schema.status == expected_status
+        assert schema.latest_error == expected_error
+
     def test_rejected_transition_does_not_overwrite_schema_status(self):
         team, _source, schema, job = _create_org_team_source_schema_job()
 
