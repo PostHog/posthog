@@ -846,10 +846,11 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     also serve the generally-available Inbox, whose tasks must run without the waitlist. Only
     server-verifiable Inbox shapes qualify:
 
-    - ``SIGNAL_REPORT`` linked to a report in this team and repo-less (Inbox "Discuss").
-      Reports are minted by scouts and the link is team-scoped by the write serializer, so a
-      caller can't forge one. Acting on a report is entitled through self-driving
-      (`product-autonomy`). Repository-backed report tasks require Desktop access.
+    - ``SIGNAL_REPORT`` linked to a report in this team and either repo-less (Inbox "Discuss")
+      or stamped ``ai_stage=planning`` by the feature-planning pipeline. Reports are minted by
+      scouts and the link is team-scoped by the write serializer, so a caller can't forge one.
+      Planning may attach the report's repository for investigation. Other repository-backed
+      report tasks require Desktop access.
     - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
       scout-chat endpoint; the write serializer rejects it from API callers. Only while
       repo-less: chat tasks are minted without repositories, and attaching one via update
@@ -860,25 +861,33 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     bypass. The report's own team is re-checked here even though the write serializer
     already enforces it, so a future write path can't silently widen the exemption.
     """
-    return Task.objects.filter(
-        Q(
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            signal_report__team_id=team_id,
-            repository__isnull=True,
-            repositories=[],
-            github_integration__isnull=True,
-            github_user_integration__isnull=True,
-        )
-        | Q(
-            origin_product=Task.OriginProduct.SIGNALS_CHAT,
-            repository__isnull=True,
-            repositories=[],
-            github_integration__isnull=True,
-            github_user_integration__isnull=True,
-        ),
-        id=task_id,
+    repo_less = Q(
+        repository__isnull=True,
+        repositories=[],
+        github_integration__isnull=True,
+        github_user_integration__isnull=True,
+    )
+    planning_run = TaskRun.objects.filter(
+        task_id=OuterRef("pk"),
         team_id=team_id,
-    ).exists()
+        state__ai_stage="planning",
+    )
+    return (
+        Task.objects.annotate(_has_planning_run=Exists(planning_run))
+        .filter(
+            (
+                Q(
+                    origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                    signal_report__team_id=team_id,
+                )
+                & (repo_less | Q(_has_planning_run=True))
+            )
+            | (Q(origin_product=Task.OriginProduct.SIGNALS_CHAT) & repo_less),
+            id=task_id,
+            team_id=team_id,
+        )
+        .exists()
+    )
 
 
 def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:

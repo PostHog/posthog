@@ -10471,12 +10471,15 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("signal_report_with_report", Task.OriginProduct.SIGNAL_REPORT),
-            ("signals_chat", Task.OriginProduct.SIGNALS_CHAT),
+            ("signal_report_with_report", Task.OriginProduct.SIGNAL_REPORT, None, None),
+            ("signal_report_planning", Task.OriginProduct.SIGNAL_REPORT, "posthog/posthog", "planning"),
+            ("signals_chat", Task.OriginProduct.SIGNALS_CHAT, None, None),
         ]
     )
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
-    def test_command_user_message_on_inbox_task_needs_no_code_access(self, _name, origin, mock_signal_followup):
+    def test_command_user_message_on_inbox_task_needs_no_code_access(
+        self, _name, origin, repository, ai_stage, mock_signal_followup
+    ):
         # The Inbox starts interactive runs and drops the user straight into this composer, so
         # replying on its tasks (report Discuss / scout chat) must not require Desktop access.
         from products.signals.backend.models import SignalReport
@@ -10484,12 +10487,16 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.set_tasks_feature_flag(False)
         task = self.create_task()
         task.origin_product = origin
+        task.repository = repository
         task.github_integration = None
         task.github_user_integration = None
         if origin == Task.OriginProduct.SIGNAL_REPORT:
             task.signal_report = SignalReport.objects.create(team=self.team)
         task.save()
         run = self._create_run_with_sandbox(task)
+        if ai_stage is not None:
+            run.state = {**run.state, "ai_stage": ai_stage}
+            run.save(update_fields=["state", "updated_at"])
 
         response = self.client.post(
             self._command_url(task, run),
@@ -12480,12 +12487,21 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertFalse(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
-    def test_exemption_drops_for_signal_report_task_with_repository(self):
+    @parameterized.expand(
+        [
+            ("unstamped", None),
+            ("research", "research"),
+            ("implementation", "implementation"),
+        ]
+    )
+    def test_exemption_drops_for_non_planning_signal_report_task_with_repository(self, _name, ai_stage):
         task = self._inbox_task(Task.OriginProduct.SIGNAL_REPORT)
         self.assertTrue(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
         task.repository = "posthog/posthog"
         task.save()
+        if ai_stage is not None:
+            TaskRun.objects.create(task=task, team=self.team, state={"ai_stage": ai_stage})
 
         self.assertFalse(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
