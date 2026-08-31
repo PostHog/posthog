@@ -74,8 +74,14 @@ export const TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS = [
 // `[label](url)` visible instead of making it clickable. These helpers promote such a code span into
 // a text node that carries both a `code` and a `link` mark, the same shape the parser already
 // produces for `[`label`](url)`, so authors get a link whichever way they nest the backticks.
-const CODE_SPAN_LINK_RE = /^\[([^\]]+)\]\(([^)\s]+)\)$/
+const CODE_SPAN_LINK_RE = /^\[([^\]]+)\]\((<[^>]+>|[^)\s]+)\)$/
 const BARE_URL_RE = /^https?:\/\/\S+$/
+
+// Markdown lets a link destination sit in angle brackets, as in `[label](<url>)`. The brackets are
+// syntax, not part of the address, so drop them before they reach the href.
+function unwrapDestination(destination: string): string {
+    return destination.startsWith('<') && destination.endsWith('>') ? destination.slice(1, -1) : destination
+}
 
 function isCodeMarked(node: JSONContent): boolean {
     return node.type === 'text' && !!node.marks?.some((mark) => mark.type === 'code')
@@ -100,7 +106,7 @@ function promoteCodeSpanLinks(converter: TiptapMarkdownConverter, doc: JSONConte
         if (isCodeMarked(node) && !hasLinkMark(node) && node.text) {
             const match = CODE_SPAN_LINK_RE.exec(node.text)
             const [label, href] = match
-                ? [match[1], match[2]]
+                ? [match[1], unwrapDestination(match[2])]
                 : BARE_URL_RE.test(node.text)
                   ? [node.text, node.text]
                   : []

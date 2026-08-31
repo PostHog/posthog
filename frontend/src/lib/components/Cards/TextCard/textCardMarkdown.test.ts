@@ -194,8 +194,13 @@ describe('textCardMarkdown', () => {
         expect(textCardConverter.isRoundTripSafe(markdown)).toBe(true)
     })
 
-    it('makes a markdown link written inside a code span clickable', () => {
-        const doc = textCardConverter.markdownToDoc('`[table_name](https://us.posthog.com/x)`')
+    // A destination in angle brackets is markdown syntax. The brackets must not reach the href, or
+    // the link points at a path that contains a literal `<` and `>`.
+    it.each([
+        ['a plain destination', '`[table_name](https://us.posthog.com/x)`'],
+        ['a destination in angle brackets', '`[table_name](<https://us.posthog.com/x>)`'],
+    ])('makes a markdown link written inside a code span clickable: %s', (_, markdown) => {
+        const doc = textCardConverter.markdownToDoc(markdown)
         const textNode = doc.content?.[0]?.content?.[0]
 
         expect(textNode).toMatchObject({ type: 'text', text: 'table_name' })
