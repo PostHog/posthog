@@ -1413,15 +1413,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
-            elif data.get("config", {}).get("type") in ("internal-event", "slack-message"):
+            elif data.get("config", {}).get("type") == "internal-event":
                 filters = data.get("config", {}).get("filters", {}) or {}
                 if not isinstance(filters, dict):
                     raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
-                # Workflows stored before the rename carry the event in the trigger type instead of
-                # in the filters. Upgrade on write, so editing one migrates it.
-                if data["config"]["type"] == "slack-message":
-                    data["config"]["type"] = "internal-event"
-                    filters["events"] = [{"id": "$slack_message_received", "type": "events"}]
                 filters["source"] = "internal-events"
                 # HogFunctionFiltersSerializer below rejects a non-list events with a 400. Guard the
                 # scan so a malformed value (null, a number) reaches that check instead of raising
