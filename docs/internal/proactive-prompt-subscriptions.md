@@ -30,6 +30,10 @@ The scheduled report, proactive analysis, recommendations, and artifacts produce
 
 Each delivery may create at most one proactive run, one task, one analysis task run, one execution task run, three recommendations, one draft pull request, and one experiment draft. Overlapping deliveries do not start a second active run for the same subscription.
 
+## Billing
+
+Pulse sandbox runs use the reserved `pulse_subscription` task origin and the PostHog AI gateway product. Their model usage consumes the organization's AI credits under the existing AI spend limit. Generic `task_analysis` runs remain PostHog-funded and excluded from customer usage.
+
 ## Safety boundaries
 
 - The sandbox receives no GitHub token, authenticated remote, or general PostHog write scope.

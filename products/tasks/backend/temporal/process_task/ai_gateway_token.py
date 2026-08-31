@@ -32,6 +32,7 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "onboarding": "onboarding",
     "posthog_ai": "posthog_ai",
+    "pulse_subscription": "posthog_ai",
     "signal_report": "signals",
     "signals_scout": "signals",
     "slack": "slack_app",

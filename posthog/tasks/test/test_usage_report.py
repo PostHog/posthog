@@ -4680,12 +4680,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(result, [(team.id, 1500)])
 
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_ai_credits_counts_billable_generation_with_no_trace(self, mock_region: MagicMock) -> None:
-        """A billable generation with no matching $ai_trace bills via the empty-trace fallback.
-
-        The predicate is uniform across products: bill when the trace is billable OR there is no
-        trace. So a billable posthog_ai generation whose $ai_trace was not captured still bills.
-        """
+    def test_ai_credits_bills_pulse_but_excludes_generic_task_analysis(self, mock_region: MagicMock) -> None:
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
         mock_region.return_value = "US"
@@ -4696,18 +4691,33 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         period = get_previous_day(at=now() + relativedelta(days=1))
 
-        # Billable posthog_ai generation with NO matching $ai_trace event.
         _create_event(
             event="$ai_generation",
             team=analytics_team,
-            distinct_id="user_orphan",
+            distinct_id="user_pulse",
             timestamp=period.start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_orphan",
+                "$ai_trace_id": "trace_pulse",
                 "$ai_total_cost_usd": 3.0,
                 "$ai_billable": True,
                 "ai_product": "posthog_ai",
+                "task_origin_product": "pulse_subscription",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_task_analysis",
+            timestamp=period.start + relativedelta(hours=2),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_task_analysis",
+                "$ai_total_cost_usd": 5.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_ai",
+                "task_origin_product": "task_analysis",
                 "$group_1": "https://us.posthog.com",
             },
         )
@@ -4716,7 +4726,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
-        # 3.0 USD * 100 * 1.2 = 360
         self.assertEqual(result, [(self.org_1_team_1.id, 360)])
 
     @parameterized.expand(

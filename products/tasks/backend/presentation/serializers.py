@@ -809,6 +809,7 @@ class TaskWriteSerializer(serializers.Serializer):
             # via its service JWT. A forged origin would fake that provenance.
             tasks_facade.TaskOriginProduct.WORKFLOW,
             tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
+            tasks_facade.TaskOriginProduct.PULSE_SUBSCRIPTION,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")

@@ -106,7 +106,10 @@ INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
 
 
 def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
-    if task.origin_product == Task.OriginProduct.POSTHOG_AI:
+    if task.origin_product in {
+        Task.OriginProduct.POSTHOG_AI,
+        Task.OriginProduct.PULSE_SUBSCRIPTION,
+    }:
         return "posthog_ai"
     if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
         return "signals"

@@ -169,6 +169,7 @@ def test_analysis_passes_the_immutable_context_window_cap_to_tasks(monkeypatch) 
     _start_analysis(input=MagicMock(), run=run)
 
     staged_input = create_staged_task.call_args.args[0]
+    assert staged_input.origin_product == "pulse_subscription"
     assert staged_input.context_window == "200k"
     description = json.loads(staged_input.description)
     assert description["outcome_memory"] == outcome_memory

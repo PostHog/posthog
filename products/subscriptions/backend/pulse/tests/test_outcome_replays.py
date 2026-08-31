@@ -32,7 +32,7 @@ class TestPulseOutcomeReplays(APIBaseTest):
             created_by=self.user,
             title="Pulse outcome replay",
             description="Measure a claimed Pulse outcome.",
-            origin_product=Task.OriginProduct.TASK_ANALYSIS,
+            origin_product=Task.OriginProduct.PULSE_SUBSCRIPTION,
             origin_key=f"pulse:{self.pulse_run.id}:analysis",
             internal=True,
             state={
@@ -207,6 +207,10 @@ class TestPulseOutcomeReplays(APIBaseTest):
         assert self._client(self._token()).get(self._url()).status_code == status.HTTP_404_NOT_FOUND
 
         self.task.origin_product = Task.OriginProduct.TASK_ANALYSIS
+        self.task.save(update_fields=["origin_product", "updated_at"])
+        assert self._client(self._token()).get(self._url()).status_code == status.HTTP_404_NOT_FOUND
+
+        self.task.origin_product = Task.OriginProduct.PULSE_SUBSCRIPTION
         self.task.save(update_fields=["origin_product", "updated_at"])
         state = dict(self.analysis_run.state)
         manifest = dict(state["staged_manifest"])

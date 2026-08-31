@@ -202,7 +202,7 @@ def issue_pulse_experiment_draft_token(*, team_id: int, task_id: UUID) -> str:
             team_id,
             scopes=list(_PULSE_EXPERIMENT_DRAFT_SCOPES),
             include_internal_scopes=False,
-            application="array",
+            application="posthog_ai",
             sandbox_task_id=task_id,
         )
 

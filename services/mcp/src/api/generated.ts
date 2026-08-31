@@ -52851,6 +52851,7 @@ export namespace Schemas {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
+     * * `pulse_subscription` - Pulse Subscription
      * * `workflow` - Workflow
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
@@ -52876,6 +52877,7 @@ export namespace Schemas {
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
       TaskAnalysis: 'task_analysis',
+      PulseSubscription: 'pulse_subscription',
       Workflow: 'workflow',
     } as const;
 
@@ -66708,6 +66710,7 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
+       * * `pulse_subscription` - Pulse Subscription
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -83565,6 +83568,7 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
+       * * `pulse_subscription` - Pulse Subscription
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -84959,6 +84963,7 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
+       * * `pulse_subscription` - Pulse Subscription
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -98459,6 +98464,7 @@ export namespace Schemas {
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
+     * * `pulse_subscription` - Pulse Subscription
      * * `workflow` - Workflow
      * @minLength 1
      */
@@ -98589,6 +98595,7 @@ export namespace Schemas {
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
       TaskAnalysis: 'task_analysis',
+      PulseSubscription: 'pulse_subscription',
       Workflow: 'workflow',
     } as const;
 

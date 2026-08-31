@@ -1911,7 +1911,7 @@ def _start_analysis(*, input: PulseWorkflowInput, run: PulseRun) -> None:
             caller_id=run.id,
             actor_id=_snapshot_actor_id(run),
             idempotency_key=f"pulse:{run.id}:analysis",
-            origin_product="task_analysis",
+            origin_product="pulse_subscription",
             title="Proactive subscription analysis",
             description=description,
             analysis_manifest=tasks_contracts.CapabilityManifestDTO(

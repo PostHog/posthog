@@ -1540,7 +1540,7 @@ def is_active_staged_analysis_task_binding(
         return False
     task_state = task.state if isinstance(task.state, dict) else {}
     if (
-        task.origin_product != Task.OriginProduct.TASK_ANALYSIS
+        task.origin_product != Task.OriginProduct.PULSE_SUBSCRIPTION
         or task.origin_key != f"pulse:{caller_id}:analysis"
         or task_state.get("staged_caller_id") != str(caller_id)
         or task_state.get("staged_idempotency_key") != task.origin_key
