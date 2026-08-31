@@ -963,7 +963,7 @@ Here is the taxonomy for events:
         },
         "$ai_generation": {
             "label": "AI generation (LLM)",
-            "description": "A call to an LLM model. The events table has the model used and costs, but not the input prompt or output. To read those, query the posthog.ai_events table in HogQL.",
+            "description": "A call to an LLM model. The events table has the model used and costs, but not the input prompt or output. To read those, query the input, output, and output_choices columns of the posthog.ai_events table in HogQL. That content is only available within its retention window.",
         },
         "$ai_metric": {
             "label": "AI metric (LLM)",
