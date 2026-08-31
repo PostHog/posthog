@@ -63,9 +63,9 @@ def _format_sample(
     if error:
         verdict_str = "ERROR"
     elif verdict is True:
-        verdict_str = "PASS"
+        verdict_str = "true"
     elif verdict is False:
-        verdict_str = "FAIL"
+        verdict_str = "false"
     else:
         verdict_str = "N/A"
 
@@ -261,9 +261,9 @@ class RunHogEvalTestTool(MaxTool):
             if result["error"]:
                 verdict_str = "ERROR"
             elif verdict is True:
-                verdict_str = "PASS"
+                verdict_str = "true"
             elif verdict is False:
-                verdict_str = "FAIL"
+                verdict_str = "false"
             else:
                 verdict_str = "N/A"
 
