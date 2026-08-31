@@ -134,9 +134,9 @@ impl FileSelectionArgs {
 /// How exceptions get associated with a release.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReleaseMode {
-    /// Bind the release to the uploaded symbol sets (the previous behavior)
+    /// Bind the release to the uploaded symbol sets
     SymbolSet,
-    /// EXPERIMENTAL: resolve the release per event from an id injected into each chunk
+    /// Resolve the release per event from an id injected into each chunk (the default)
     Event,
 }
 

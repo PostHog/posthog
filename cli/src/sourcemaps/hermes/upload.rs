@@ -27,17 +27,17 @@ pub struct Args {
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
 
-    /// How the release is associated with exceptions. `symbol-set` is the default. It stamps the
-    /// release id onto the uploaded maps. An exception then takes the release of the maps its
-    /// frames resolved against. EXPERIMENTAL `event` leaves the maps release-independent. Each
-    /// event then resolves its own release from the app version and namespace the SDK already
-    /// sends, so the release coordinates must match the app's. Both modes create the release.
+    /// How the release is associated with exceptions. `event` is the default. It leaves the maps
+    /// release-independent. Each event then resolves its own release from the app version and
+    /// namespace the SDK already sends, so the release coordinates must match the app's.
+    /// `symbol-set` stamps the release id onto the uploaded maps instead, and an exception then
+    /// takes the release of the maps its frames resolved against. Both modes create the release.
     /// Also settable via `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
         env = "POSTHOG_RELEASE_MODE",
         value_enum,
-        default_value = "symbol-set"
+        default_value = "event"
     )]
     pub release_mode: ReleaseMode,
 }
