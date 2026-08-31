@@ -38,6 +38,13 @@ def reverse_accessor_edges() -> list[str]:
         module = model.__module__
         return module.split(".")[1] if module.startswith("products.") else "core"
 
+    def label(model) -> str:
+        # Rows carry the module-derived product name, not _meta.app_label, so a product's rows
+        # survive the per-product filter even when the model keeps a legacy label (ee.Role).
+        # Core models keep their app label (posthog/ee) — "core" would erase real information.
+        owner = boundary(model)
+        return owner if owner != "core" else model._meta.app_label
+
     out = set()
     for model in apps.get_models():
         if model._meta.auto_created:
@@ -57,11 +64,7 @@ def reverse_accessor_edges() -> list[str]:
             accessor = field.remote_field.get_accessor_name()
             if accessor is None:
                 continue
-            out.add(
-                f"{target._meta.app_label}.{target.__name__}"
-                f" {model._meta.app_label}.{model.__name__}.{field.name}"
-                f" {accessor}"
-            )
+            out.add(f"{label(target)}.{target.__name__} {label(model)}.{model.__name__}.{field.name} {accessor}")
     return sorted(out)
 
 
