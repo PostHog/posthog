@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { createContext, useContext } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -55,7 +56,10 @@ export function SignalCardHeader({
 
     return (
         <div
-            className={disclosure && !disclosure.expanded ? 'flex items-center gap-2' : 'flex items-center gap-2 mb-2'}
+            className={clsx(
+                'flex flex-wrap items-center gap-x-2 gap-y-1',
+                (!disclosure || disclosure.expanded) && 'mb-2'
+            )}
         >
             {Icon ? (
                 <span className="inline-flex shrink-0 items-center" aria-hidden>
@@ -75,19 +79,20 @@ export function SignalCardHeader({
                 {' · '}
                 <TZLabel time={signal.timestamp} />
             </span>
-            {label && <span className="text-xs font-medium text-primary flex-1 truncate">{label}</span>}
-            <span className="flex-1" />
-            {rightSlot}
-            {disclosure ? (
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    icon={disclosure.expanded ? <IconChevronDown /> : <IconChevronRight />}
-                    aria-label={disclosure.expanded ? 'Collapse signal details' : 'Expand signal details'}
-                    onClick={() => disclosure.onChange(!disclosure.expanded)}
-                    className="shrink-0"
-                />
-            ) : null}
+            {label && <span className="text-xs font-medium text-primary flex-1 min-w-0 truncate">{label}</span>}
+            {/* Badges and the chevron stay together, and drop to their own line before they can spill past the card. */}
+            <div className="flex items-center gap-2 ml-auto shrink-0">
+                {rightSlot}
+                {disclosure ? (
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        icon={disclosure.expanded ? <IconChevronDown /> : <IconChevronRight />}
+                        aria-label={disclosure.expanded ? 'Collapse signal details' : 'Expand signal details'}
+                        onClick={() => disclosure.onChange(!disclosure.expanded)}
+                    />
+                ) : null}
+            </div>
         </div>
     )
 }
