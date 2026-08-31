@@ -15,7 +15,7 @@ use tracing::{info, warn};
 
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
-use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
@@ -493,7 +493,7 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
     if max_event_bytes == 0 {
         return;
     }
-    let window_secs = config.global_rate_limit_window_interval_secs;
+    let (window_secs, _) = ai_byte_limit_window(config);
     let window_budget = ai_byte_limit_per_second(config).saturating_mul(window_secs);
     if window_budget < max_event_bytes {
         warn!(
@@ -1002,6 +1002,43 @@ mod tests {
             err.to_string()
                 .contains("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS"),
             "the error must name the offending setting, got: {err}"
+        );
+    }
+
+    /// The AI byte limiter takes its window from its own knob when one is set,
+    /// so a zero there has to be caught and named separately. Naming the wrong
+    /// variable sends an operator to a setting that is already correct.
+    #[test]
+    fn ai_byte_limiter_rejects_a_zero_window_from_its_own_knob() {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS", "180"),
+            ("AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS", "0"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let err = match GlobalRateLimiter::new_ai_bytes(&config, vec![]) {
+            Ok(_) => panic!("a zero AI byte window must not build a limiter"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS"),
+            "the error must name the AI byte knob, not the shared one, got: {err}"
+        );
+
+        // The shared window is valid here, so the token+distinct_id limiter is
+        // unaffected by the AI byte knob being wrong.
+        assert!(
+            GlobalRateLimiter::new_token_distinct_id(&config, vec![]).is_err(),
+            "an empty redis instance list still fails, but not on the window"
         );
     }
 
