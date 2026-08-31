@@ -45,7 +45,20 @@ def _record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
     exported_asset.exception = str(e)
     exported_asset.exception_type = type(e).__name__
     exported_asset.failure_type = failure_type
-    exported_asset.save(update_fields=["exception", "exception_type", "failure_type"])
+    # The row can be deleted while the render runs (TTL sweep, cascade, or an explicit delete by id).
+    # A filtered update matches nothing then, so we skip the write instead of letting save() raise.
+    rows_updated = ExportedAsset.objects_including_ttl_deleted.filter(pk=exported_asset.pk).update(
+        exception=exported_asset.exception,
+        exception_type=exported_asset.exception_type,
+        failure_type=failure_type,
+    )
+    if not rows_updated:
+        logger.warning(
+            "export_asset.failure_not_recorded_row_missing",
+            exported_asset_id=exported_asset.pk,
+            failure_type=failure_type,
+        )
+        return
     EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_format, failure_type=failure_type).inc()
 
 
