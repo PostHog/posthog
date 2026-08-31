@@ -10,7 +10,12 @@ import { ChartDisplayType, HogQLMathType, PropertyFilterType, PropertyOperator }
 
 // eslint-disable-next-line import/no-cycle
 import { PASS_RATE_SUCCESS_THRESHOLD } from './components/EvaluationMetrics'
-import { EVALUATION_RESULT_TRUE_HOGQL, evaluationIsDetector, evaluationPassedHogQLForMany } from './constants'
+import {
+    EVALUATION_NOT_SKIPPED_HOGQL,
+    EVALUATION_RESULT_TRUE_HOGQL,
+    evaluationIsDetector,
+    evaluationPassedHogQLForMany,
+} from './constants'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig } from './types'
 
@@ -213,8 +218,8 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                             SELECT
                                 properties.$ai_evaluation_id as evaluation_id,
                                 count() as runs_count,
-                                countIf(properties.$ai_evaluation_result IS NOT NULL) as applicable_count,
-                                countIf(${EVALUATION_RESULT_TRUE_HOGQL}) as true_count
+                                countIf(properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}) as applicable_count,
+                                countIf(${EVALUATION_RESULT_TRUE_HOGQL} AND ${EVALUATION_NOT_SKIPPED_HOGQL}) as true_count
                             FROM events
                             WHERE event = '$ai_evaluation' AND {filters}
                             GROUP BY evaluation_id

@@ -6,9 +6,12 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { EVALUATION_NOT_SKIPPED_HOGQL, EVALUATION_RESULT_TRUE_HOGQL } from './constants'
 import { evaluationMetricsLogic, EvaluationStatsRow } from './evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { LLMJudgeEvaluation } from './types'
+
+const queryMock = jest.fn().mockResolvedValue({ results: [] })
 
 jest.mock('lib/api', () => {
     const actual = jest.requireActual('lib/api')
@@ -18,7 +21,7 @@ jest.mock('lib/api', () => {
         ...actual,
         default: {
             ...actual.default,
-            query: jest.fn().mockResolvedValue({ results: [] }),
+            query: (...args: unknown[]) => queryMock(...args),
         },
     }
 })
@@ -159,5 +162,13 @@ describe('evaluationMetricsLogic', () => {
         expect(metricsLogic.values.chartQuery?.series?.[0].math_hogql).toContain(
             "properties.$ai_evaluation_result = 'false'"
         )
+    })
+
+    it('excludes skipped runs from both counts, so a detector cannot count them as a pass', async () => {
+        await expectLogic(metricsLogic, () => metricsLogic.actions.loadStats()).toFinishAllListeners()
+
+        const query = queryMock.mock.calls.at(-1)?.[0]
+        expect(query.query).toContain(`IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`)
+        expect(query.query).toContain(`${EVALUATION_RESULT_TRUE_HOGQL} AND ${EVALUATION_NOT_SKIPPED_HOGQL}`)
     })
 })
