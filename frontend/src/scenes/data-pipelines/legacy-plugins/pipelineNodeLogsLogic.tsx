@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonTableColumns, Link, lemonToast } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
@@ -204,11 +204,16 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         instance_id: values.instanceId ?? undefined,
                     }
 
-                    if (values.node.backend === PipelineBackend.BatchExport) {
-                        const res = await api.batchExports.logs(values.node.id, logParams)
-                        results = res.results
-                    } else {
-                        results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
+                    try {
+                        if (values.node.backend === PipelineBackend.BatchExport) {
+                            const res = await api.batchExports.logs(values.node.id, logParams)
+                            results = res.results
+                        } else {
+                            results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
+                        }
+                    } catch (e: any) {
+                        lemonToast.error(`Failed to load logs: ${e.message}`)
+                        throw e
                     }
 
                     cache.disposables.add(() => {
@@ -227,11 +232,16 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         before: values.trailingEntry?.timestamp,
                         instance_id: values.instanceId ?? undefined,
                     }
-                    if (values.node.backend === PipelineBackend.BatchExport) {
-                        const res = await api.batchExports.logs(values.node.id, logParams)
-                        results = res.results
-                    } else {
-                        results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
+                    try {
+                        if (values.node.backend === PipelineBackend.BatchExport) {
+                            const res = await api.batchExports.logs(values.node.id, logParams)
+                            results = res.results
+                        } else {
+                            results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
+                        }
+                    } catch (e: any) {
+                        lemonToast.error(`Failed to load logs: ${e.message}`)
+                        throw e
                     }
 
                     if (results.length < LOGS_PORTION_LIMIT) {
@@ -265,11 +275,17 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         instance_id: values.instanceId ?? undefined,
                     }
 
-                    if (values.node.backend === PipelineBackend.BatchExport) {
-                        const res = await api.batchExports.logs(values.node.id, logParams)
-                        results = res.results
-                    } else {
-                        results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
+                    try {
+                        if (values.node.backend === PipelineBackend.BatchExport) {
+                            const res = await api.batchExports.logs(values.node.id, logParams)
+                            results = res.results
+                        } else {
+                            results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
+                        }
+                    } catch {
+                        // Background polling runs every few seconds. A failed poll must not throw or
+                        // toast on every tick; keep the current entries and let the next poll retry.
+                        return values.backgroundLogs
                     }
 
                     return [...results, ...values.backgroundLogs]
