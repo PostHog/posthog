@@ -29,6 +29,31 @@ pub struct Group<M> {
     pub messages: Vec<M>,
 }
 
+impl<M> Group<M> {
+    /// The completion for this whole group: what the transport side sends
+    /// back when the group's work is done. A partial acceptance narrows
+    /// `offsets` to the accepted prefix and keeps the rest for redelivery.
+    pub fn completion(&self) -> GroupCompletion {
+        GroupCompletion {
+            partition: self.partition,
+            epoch: self.epoch,
+            offsets: self.offsets.clone(),
+        }
+    }
+}
+
+/// One ACKed group, slim: the ledger needs the offsets, the epoch check needs
+/// the epoch, and nothing needs the messages back. Failures never cross the
+/// seam; a group that failed is retried by the transport side and completed
+/// once its work is done.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupCompletion {
+    pub partition: Partition,
+    pub epoch: AssignmentEpoch,
+    /// Done offsets, ascending; any subset of the group's offsets.
+    pub offsets: Vec<Offset>,
+}
+
 /// One poll's demuxed groups, in offset order per key. Obtained from the
 /// factory, lent down the demux under `&mut`, released to the transport side
 /// whole, by value.

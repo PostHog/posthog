@@ -91,7 +91,7 @@ proptest! {
                         continue;
                     }
                     let group = outstanding.remove(index as usize % outstanding.len());
-                    let advances = manager.complete(vec![group], now);
+                    let advances = manager.complete(vec![group.completion()], now);
                     budget.refund(commits.progress(advances, now, &mut issue));
                 }
                 Op::Tick => {
@@ -113,7 +113,7 @@ proptest! {
 
         // Straggler completions from before any reassignment die by epoch.
         for group in outstanding.drain(..) {
-            let advances = manager.complete(vec![group], now);
+            let advances = manager.complete(vec![group.completion()], now);
             budget.refund(commits.progress(advances, now, &mut issue));
         }
         // Drain everything: whatever the frontiers never walked over comes

@@ -17,6 +17,9 @@ pub type IssueCommit<'a> = dyn FnMut(&[(Partition, Offset)]) + 'a;
 pub struct CommitManager {
     /// Latest unissued frontier plus the charge tally behind it.
     pending: HashMap<Partition, PendingAdvance>,
+    /// The offset last issued per partition, so a drain's final issue can
+    /// skip what `progress` already committed.
+    issued: HashMap<Partition, Offset>,
     last_issue: Option<Instant>,
     interval: Duration,
 }
@@ -31,6 +34,7 @@ impl CommitManager {
     pub fn new(interval: Duration) -> CommitManager {
         CommitManager {
             pending: HashMap::new(),
+            issued: HashMap::new(),
             last_issue: None,
             interval,
         }
@@ -71,9 +75,24 @@ impl CommitManager {
         issue: &mut IssueCommit<'_>,
     ) -> Charge {
         let held = self.pending.remove(&harvest.partition);
+        let already_issued = self.issued.remove(&harvest.partition);
         if let Some(frontier) = harvest.frontier {
-            self.issue(&[(harvest.partition, frontier.next())], now, issue);
+            if already_issued != Some(frontier.next()) {
+                self.issue(&[(harvest.partition, frontier.next())], now, issue);
+            }
         }
+        // The driver is gone; its last issue must not outlive it.
+        self.issued.remove(&harvest.partition);
+        held.map_or(Charge::ZERO, |h| h.charge) + harvest.dropped
+    }
+
+    /// A drain that ends without a commit: the assignment was lost, so the
+    /// broker would reject the partition's final offset. Returns the held
+    /// tally plus the never-completed charge, exactly as `finish_revoke`
+    /// would, and issues nothing.
+    pub fn abandon(&mut self, harvest: DrainHarvest) -> Charge {
+        let held = self.pending.remove(&harvest.partition);
+        self.issued.remove(&harvest.partition);
         held.map_or(Charge::ZERO, |h| h.charge) + harvest.dropped
     }
 
@@ -100,6 +119,9 @@ impl CommitManager {
 
     fn issue(&mut self, batch: &[(Partition, Offset)], now: Instant, issue: &mut IssueCommit<'_>) {
         issue(batch);
+        for (p, o) in batch {
+            self.issued.insert(*p, *o);
+        }
         self.last_issue = Some(now);
     }
 }
@@ -116,6 +138,44 @@ mod tests {
             frontier: Offset(frontier),
             charge: Charge { events, bytes: 0 },
         }
+    }
+
+    #[test]
+    fn a_drain_does_not_reissue_a_frontier_progress_already_committed() {
+        let now = Instant::now();
+        let mut commits = CommitManager::new(INTERVAL);
+        let mut issued: Vec<Vec<(Partition, Offset)>> = vec![];
+        commits.progress(vec![advance(0, 5, 6)], now, &mut |b| {
+            issued.push(b.to_vec())
+        });
+        assert_eq!(issued.len(), 1);
+
+        let refund = commits.finish_revoke(
+            DrainHarvest {
+                partition: Partition(0),
+                frontier: Some(Offset(5)),
+                dropped: Charge {
+                    events: 2,
+                    bytes: 0,
+                },
+            },
+            now,
+            &mut |b| issued.push(b.to_vec()),
+        );
+        assert_eq!(issued.len(), 1, "the frontier was already issued");
+        assert_eq!(
+            refund,
+            Charge {
+                events: 2,
+                bytes: 0
+            }
+        );
+
+        // A later incarnation of the partition baselines afresh.
+        commits.progress(vec![advance(0, 5, 1)], now + INTERVAL, &mut |b| {
+            issued.push(b.to_vec())
+        });
+        assert_eq!(issued.len(), 2);
     }
 
     #[test]

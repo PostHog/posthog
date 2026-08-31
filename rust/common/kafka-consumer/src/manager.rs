@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::accumulator::{Accumulator, Group, PolledMessage};
+use crate::accumulator::{Accumulator, GroupCompletion, PolledMessage};
 use crate::charge::Charge;
 use crate::partition::PartitionDriver;
 use crate::types::{Advance, AssignmentEpoch, DrainHarvest, Partition};
@@ -77,15 +77,15 @@ impl PartitionManager {
     /// One ACKed request's groups, distributed to their ledgers. Stragglers
     /// from before a reassignment die here by epoch; mid-drain completions
     /// land.
-    pub fn complete<M>(&mut self, completed: Vec<Group<M>>, now: Instant) -> Vec<Advance> {
+    pub fn complete(&mut self, completed: Vec<GroupCompletion>, now: Instant) -> Vec<Advance> {
         completed
             .into_iter()
-            .filter_map(|g| {
-                let driver = self.partitions.get_mut(&g.partition)?;
-                if g.epoch != driver.epoch() {
+            .filter_map(|c| {
+                let driver = self.partitions.get_mut(&c.partition)?;
+                if c.epoch != driver.epoch() {
                     return None;
                 }
-                driver.complete(&g.offsets, now)
+                driver.complete(&c.offsets, now)
             })
             .collect()
     }
@@ -102,11 +102,35 @@ impl PartitionManager {
     pub fn is_assigned(&self, p: Partition) -> bool {
         self.partitions.contains_key(&p)
     }
+
+    pub fn is_revoking(&self, p: Partition) -> bool {
+        self.partitions.get(&p).is_some_and(|d| d.revoking())
+    }
+
+    pub fn epoch(&self, p: Partition) -> Option<AssignmentEpoch> {
+        self.partitions.get(&p).map(|d| d.epoch())
+    }
+
+    /// Every assigned partition, drains included, in ascending order.
+    pub fn assigned(&self) -> Vec<Partition> {
+        let mut assigned: Vec<Partition> = self.partitions.keys().copied().collect();
+        assigned.sort();
+        assigned
+    }
+
+    pub fn len(&self) -> usize {
+        self.partitions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.partitions.is_empty()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accumulator::Group;
     use crate::types::Offset;
 
     fn msg(offset: i64, key: &str) -> PolledMessage<()> {
@@ -119,6 +143,10 @@ mod tests {
             },
             inner: (),
         }
+    }
+
+    fn completions(groups: &[Group<()>]) -> Vec<GroupCompletion> {
+        groups.iter().map(Group::completion).collect()
     }
 
     fn poll(
@@ -145,7 +173,7 @@ mod tests {
         manager.assign(Partition(0), AssignmentEpoch(2), now);
 
         // The straggler dies by epoch: no advance, no ledger touch.
-        assert_eq!(manager.complete(groups, now), vec![]);
+        assert_eq!(manager.complete(completions(&groups), now), vec![]);
     }
 
     #[test]
@@ -161,7 +189,7 @@ mod tests {
 
         // Only "a" lands before the drain.
         let first = groups.remove(0);
-        let advances = manager.complete(vec![first], now);
+        let advances = manager.complete(vec![first.completion()], now);
         assert_eq!(advances.len(), 1);
         assert_eq!(advances[0].frontier, Offset(0));
 
@@ -196,7 +224,7 @@ mod tests {
         );
 
         // Progress on partition 0 resets its deadline; partition 1 stays stalled.
-        manager.complete(groups, later);
+        manager.complete(completions(&groups), later);
         assert_eq!(manager.stalled(later), vec![Partition(1)]);
 
         // A draining partition stands down.

@@ -53,3 +53,18 @@ pub struct DrainHarvest {
     pub frontier: Option<Offset>,
     pub dropped: Charge,
 }
+
+/// One polled message as it crosses the seam: Kafka metadata plus the raw
+/// payload. The loop never decodes it; a non-UTF-8 payload travels as is.
+/// The routing key lives on the group, not repeated here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawMessage {
+    pub partition: Partition,
+    pub offset: Offset,
+    /// Kafka message timestamp in milliseconds, when the broker set one.
+    pub timestamp_ms: Option<i64>,
+    pub payload: Vec<u8>,
+    /// Header keys and values in wire order; a header with no value is
+    /// carried as an empty value.
+    pub headers: Vec<(String, Vec<u8>)>,
+}
