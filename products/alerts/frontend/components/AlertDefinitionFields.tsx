@@ -21,23 +21,25 @@ import { isFunnelsAlertConfig, isHogQLAlertConfig } from 'products/alerts/fronte
 
 import { HogQLAlertPreviewBanner, HogQLAlertPreviewRowsTable } from './HogQLAlertPreview'
 
-const breakdownDisabledReason = (alertMode: 'detector' | 'threshold'): string =>
-    alertMode === 'detector'
-        ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-        : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'
-
 /** Trends: pick which series (or formula) to monitor. */
 export function TrendsDefinitionFields({
     alertSeries,
     formulaNodes,
     isBreakdownValid,
-    alertMode,
 }: {
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     isBreakdownValid: boolean
-    alertMode: 'detector' | 'threshold'
 }): JSX.Element {
+    // A breakdown alert watches every breakdown value, so there is no series to pick. The banner
+    // above explains this; a static readout replaces the dead select users kept clicking.
+    if (isBreakdownValid) {
+        return (
+            <AlertDefinitionRow label="When">
+                <span className="font-medium">Any breakdown value</span>
+            </AlertDefinitionRow>
+        )
+    }
     return (
         <AlertDefinitionRow label="When">
             <Group name={['config']}>
@@ -52,13 +54,10 @@ export function TrendsDefinitionFields({
                                       value: index,
                                   }))
                                 : (alertSeries?.map(({ custom_name, name, event }, index) => ({
-                                      label: isBreakdownValid
-                                          ? 'any breakdown value'
-                                          : `${alphabet[index]} - ${custom_name ?? name ?? event}`,
-                                      value: isBreakdownValid ? 0 : index,
+                                      label: `${alphabet[index]} - ${custom_name ?? name ?? event}`,
+                                      value: index,
                                   })) ?? [])
                         }
-                        disabledReason={isBreakdownValid && breakdownDisabledReason(alertMode)}
                     />
                 </LemonField>
             </Group>

@@ -666,6 +666,8 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             const triggerKey = values.selectedTriggerKey
 
             if (!destinationKey || !triggerKey) {
+                // Every exit must reset `testing`, or the Create alert button stays disabled forever.
+                actions.testConfigurationComplete()
                 return
             }
 
@@ -675,6 +677,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
 
             if (!subTemplate) {
                 lemonToast.error('Template not found for this combination')
+                actions.testConfigurationComplete()
                 return
             }
 

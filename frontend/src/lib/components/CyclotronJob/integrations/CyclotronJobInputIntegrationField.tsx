@@ -24,6 +24,7 @@ import { TwilioPhoneNumberPicker } from 'lib/integrations/TwilioIntegrationHelpe
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { CyclotronJobInputConfiguration } from '../types'
+import { findIntegrationByFormValue } from './integrationLookup'
 
 export type CyclotronJobInputIntegrationFieldProps = {
     schema: CyclotronJobInputSchemaType
@@ -67,7 +68,10 @@ export function CyclotronJobInputIntegrationField({
     }
 
     const integrationId = combinedInputs[relatedSchemaIntegration.key]?.value
-    const integration = integrations?.find((integration) => integration.id === integrationId)
+    // Match the sibling IntegrationChoice: the stored id can arrive as a string, so a strict
+    // `===` against the numeric integration id silently misses and falls through to the
+    // "Configure ... to continue" placeholder. findIntegrationByFormValue coerces both sides.
+    const integration = findIntegrationByFormValue(integrations, integrationId)
     let requiresFieldValue: string | undefined
 
     if (schema.requires_field) {
