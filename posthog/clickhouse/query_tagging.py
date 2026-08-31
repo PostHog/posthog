@@ -474,8 +474,11 @@ class QueryTags(BaseModel):
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
     experiment_exposures_path: Optional[str] = None  # "direct_scan" or "precomputed"
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
-    experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
+    # "metric", "exposures_timeseries", "actors", "precompute_build", "replay_population_cache"
+    experiment_query_surface: Optional[str] = None
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
+    # How replay's exposed-population read was served: "cache_hit", "cache_warmed", "cache_failed"
+    experiment_replay_population: Optional[str] = None
     # Why precompute was not used (set on the metric read). One of "override_direct", "team_disabled",
     # "min_runtime", "data_warehouse"; None/absent when precompute was attempted (so a direct path then
     # means the build failed or wasn't ready — derivable from the precompute_build sub-queries).

@@ -27,9 +27,17 @@ long-running experiments), activation-mode exposures always resolve with a live 
 they have no preaggregated form (carrying an explicit memory budget on precomputing teams),
 and where neither the preaggregated read nor an affordable live scan is available the query
 is refused with a ValidationError rather than left to time out.
+
+On those same precomputing teams, the expansion of exposed persons to distinct ids — a full
+scan of the team's person mapping — is served from a short-lived cached generation in
+``experiment_replay_exposed_distinct_ids``, computed at resolution time once per freshness
+window instead of inside every recordings-list query. The cache is an optimization only:
+when it can't be read or written, the expansion runs inline as before.
 """
 
-from dataclasses import dataclass
+import json
+import hashlib
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from django.contrib.auth.models import AnonymousUser
@@ -40,19 +48,29 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import IntervalType
 
 from posthog.hogql import ast
+from posthog.hogql.constants import get_default_hogql_global_settings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.preaggregation.experiment_replay_exposed_distinct_ids_sql import (
+    DISTRIBUTED_EXPERIMENT_REPLAY_EXPOSED_DISTINCT_IDS_TABLE,
+)
 from posthog.clickhouse.query_tagging import tag_queries, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.redis import get_client
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
     ensure_precomputed,
+    is_memory_limit_error,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
@@ -82,6 +100,12 @@ COHORT_NOT_CALCULATED_MESSAGE = (
 # default per-query limit, so the kill renders as the standard memory-limit error before the
 # scan becomes cluster-level pressure.
 ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES = 4 * 1024**3
+# How long one computed generation of the exposed distinct-id population serves reads before
+# resolution computes a fresh one. Bounds how stale the tab's population can be to newly
+# exposed persons and to person merges, and caps the expansion's cost at one run per
+# experiment-variant per window rather than one per list, poll, and pagination page.
+EXPOSED_DISTINCT_IDS_CACHE_TTL_SECONDS = 600
+_EXPOSED_DISTINCT_IDS_CACHE_REDIS_PREFIX = "@posthog/experiment-replay-exposed-distinct-ids"
 
 
 def validate_experiment_exposure_access(
@@ -141,6 +165,9 @@ class ExperimentExposureLinkage:
     # population is already test-filtered at the person level. Queries that restrict their rows
     # to this population can skip re-applying the same filters to their own rows.
     population_filters_test_accounts: bool = False
+    # Names the computed generation of the expanded distinct-id population to read from
+    # experiment_replay_exposed_distinct_ids. None = expand inline in the embedding query.
+    cached_population_key: str | None = None
 
 
 def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | None) -> ExperimentExposureLinkage:
@@ -207,19 +234,29 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
         activation_config=exposure_params.activation_config,
     )
     read = _resolve_exposure_read(team, experiment, context)
-    return ExperimentExposureLinkage(
+    linkage = ExperimentExposureLinkage(
         context=context,
         requested_variants=requested_variants,
         preaggregation_job_ids=read.preaggregation_job_ids,
         live_scan_max_memory_bytes=read.live_scan_max_memory_bytes,
         population_filters_test_accounts=exposure_params.filter_test_accounts,
     )
+    if read.population_cache_eligible:
+        cached_population_key = _ensure_population_cached(team, experiment, linkage)
+        if cached_population_key is not None:
+            linkage = replace(linkage, cached_population_key=cached_population_key)
+    return linkage
 
 
 @dataclass(frozen=True, kw_only=True)
 class _ExposureRead:
     preaggregation_job_ids: list[str] | None
     live_scan_max_memory_bytes: int | None
+    # Whether resolution may serve the distinct-id expansion from the population cache. Only
+    # set on precomputing teams: they are the teams where the expansion's full scan of the
+    # person mapping is a real per-request cost, and keeping everyone else on the inline path
+    # is the smallest blast radius for the cache.
+    population_cache_eligible: bool
 
 
 def _resolve_exposure_read(team: Team, experiment: Experiment, context: ExperimentQueryContext) -> _ExposureRead:
@@ -245,7 +282,9 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
         experiment.start_date, experiment.end_date
     ):
         tag_queries(experiment_exposures_path="direct_scan")
-        return _ExposureRead(preaggregation_job_ids=None, live_scan_max_memory_bytes=None)
+        return _ExposureRead(
+            preaggregation_job_ids=None, live_scan_max_memory_bytes=None, population_cache_eligible=False
+        )
 
     if has_uncalculated_cohorts(team, experiment.exposure_criteria):
         # Both reads below see the cohort's partially-inserted membership: a precompute build
@@ -265,6 +304,7 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
         return _ExposureRead(
             preaggregation_job_ids=None,
             live_scan_max_memory_bytes=ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES,
+            population_cache_eligible=True,
         )
 
     query_string, placeholders = ExposureQueryBuilder(context=context).precomputation_query()
@@ -295,15 +335,135 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
     return _ExposureRead(
         preaggregation_job_ids=[str(job_id) for job_id in result.job_ids],
         live_scan_max_memory_bytes=None,
+        population_cache_eligible=True,
     )
+
+
+def _population_cache_digest(experiment: Experiment, linkage: ExperimentExposureLinkage) -> str:
+    """Identity of the population this linkage would compute, hashed for cache keying.
+
+    Job ids cover the precomputed read (they rotate as new exposure windows are built), and
+    the updated_at stamps cover live reads whose definition changed (edited exposure
+    criteria, redefined flag variants). Over-invalidation on unrelated edits is fine: a miss
+    costs one expansion run.
+    """
+    flag = experiment.feature_flag
+    return hashlib.sha256(
+        json.dumps(
+            [
+                experiment.pk,
+                sorted(linkage.requested_variants),
+                sorted(linkage.preaggregation_job_ids or []),
+                experiment.updated_at,
+                flag.updated_at if flag is not None else None,
+            ],
+            default=str,
+        ).encode()
+    ).hexdigest()
+
+
+def _ensure_population_cached(team: Team, experiment: Experiment, linkage: ExperimentExposureLinkage) -> str | None:
+    """Serve the expanded distinct-id population from cache, computing it when needed.
+
+    Returns the generation key to read, or None to expand inline: the cache is an
+    optimization, so an unreachable Redis or a failed insert falls back rather than failing
+    the listing. Memory-limit kills are the exception and propagate, because the inline
+    expansion would exhaust the same budget after paying the scan a second time, and the
+    kill must render as the platform's standard memory-limit error either way.
+
+    Racing requests on a cold window each compute the generation (there is deliberately no
+    lock: a reader must never be pointed at a generation before its rows are written, so the
+    marker is only set after a completed insert). Their duplicate rows are collapsed by the
+    read's GROUP BY and eventually by the ReplacingMergeTree merge.
+    """
+    digest = _population_cache_digest(experiment, linkage)
+    redis_key = f"{_EXPOSED_DISTINCT_IDS_CACHE_REDIS_PREFIX}/{team.pk}/{digest}"
+    try:
+        redis_client = get_client()
+        current_generation = redis_client.get(redis_key)
+        if current_generation is not None:
+            tag_queries(experiment_replay_population="cache_hit")
+            return current_generation.decode()
+        generation = f"{digest[:32]}:{datetime.now(UTC).strftime('%Y%m%d%H%M')}"
+        insert_sql, values = _population_insert_sql(team, linkage, generation)
+        settings = get_default_hogql_global_settings(team_id=team.pk).model_dump(exclude_none=True)
+        settings.pop("readonly", None)  # INSERTs need write access
+        if linkage.live_scan_max_memory_bytes is not None:
+            settings["max_memory_usage"] = linkage.live_scan_max_memory_bytes
+        with tags_context(experiment_query_surface="replay_population_cache"):
+            sync_execute(insert_sql, values, settings=settings)
+        redis_client.setex(redis_key, EXPOSED_DISTINCT_IDS_CACHE_TTL_SECONDS, generation)
+        tag_queries(experiment_replay_population="cache_warmed")
+        return generation
+    except Exception as error:
+        if is_memory_limit_error(error):
+            raise
+        logger.exception("experiment_replay_population_cache_failed", experiment_id=experiment.pk, team_id=team.pk)
+        tag_queries(experiment_replay_population="cache_failed")
+        return None
+
+
+def _population_insert_sql(team: Team, linkage: ExperimentExposureLinkage, cache_key: str) -> tuple[str, dict]:
+    """INSERT writing one generation of the expanded population, plus its bound values."""
+    population = _live_population_select(linkage)
+    insert_select = ast.SelectQuery(
+        select=[
+            ast.Alias(alias="team_id", expr=ast.Constant(value=team.pk)),
+            ast.Alias(alias="cache_key", expr=ast.Constant(value=cache_key)),
+            ast.Alias(alias="distinct_id", expr=ast.Field(chain=["population", "distinct_id"])),
+            ast.Alias(alias="first_exposure_time", expr=ast.Field(chain=["population", "first_exposure_time"])),
+        ],
+        select_from=ast.JoinExpr(table=population, alias="population"),
+    )
+    context = HogQLContext(
+        team_id=team.pk,
+        team=team,
+        enable_select_queries=True,
+        limit_top_select=False,
+        modifiers=create_default_modifiers_for_team(team),
+    )
+    select_sql, _ = prepare_and_print_ast(insert_select, context=context, dialect="clickhouse")
+    table = DISTRIBUTED_EXPERIMENT_REPLAY_EXPOSED_DISTINCT_IDS_TABLE()
+    return f"INSERT INTO {table} (team_id, cache_key, distinct_id, first_exposure_time)\n{select_sql}", context.values
 
 
 def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.SelectQuery:
     """One row per exposed distinct id: (distinct_id, first_exposure_time).
 
-    Pure AST construction; :func:`resolve_exposure_linkage` carries the validation and the
-    precompute decision, so callers can build query ASTs without side effects.
+    Pure AST construction; :func:`resolve_exposure_linkage` carries the validation, the
+    precompute decision, and the population-cache warm, so callers can build query ASTs
+    without side effects.
     """
+    if linkage.cached_population_key is not None:
+        return _cached_population_select(linkage)
+    return _live_population_select(linkage)
+
+
+def _cached_population_select(linkage: ExperimentExposureLinkage) -> ast.SelectQuery:
+    # GROUP BY re-establishes one row per distinct id: writers racing on a cold window append
+    # the same generation's rows more than once, and the callers' join contract (no session-row
+    # duplication, min() over a single exposure row) assumes uniqueness rather than waiting on
+    # the ReplacingMergeTree merge to enforce it.
+    query = parse_select(
+        """
+        SELECT
+            distinct_id AS distinct_id,
+            min(first_exposure_time) AS first_exposure_time
+        FROM experiment_replay_exposed_distinct_ids
+        WHERE team_id = {team_id} AND cache_key = {cache_key}
+        GROUP BY distinct_id
+        """,
+        placeholders={
+            "team_id": ast.Constant(value=linkage.context.team.pk),
+            "cache_key": ast.Constant(value=linkage.cached_population_key),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
+def _live_population_select(linkage: ExperimentExposureLinkage) -> ast.SelectQuery:
+    """The population expanded inline: the exposure source joined through the person mapping."""
     exposure_select = ExposureQueryBuilder(
         context=linkage.context,
         preaggregation_job_ids=linkage.preaggregation_job_ids,

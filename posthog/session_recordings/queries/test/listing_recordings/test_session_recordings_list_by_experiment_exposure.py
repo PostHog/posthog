@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -21,6 +22,7 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.redis import get_client as get_redis_client
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
@@ -861,3 +863,158 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         )
 
         assert response.status_code == expected_status, response.content
+
+    def _insert_preaggregated_exposure(
+        self, job_id: uuid.UUID, person_uuid: object, variant: str, exposure_time: datetime
+    ) -> None:
+        # expires_at deliberately keeps its server-clock default: an explicit value would come
+        # from the frozen 2021 test clock, making the row already past TTL on arrival.
+        sync_execute(
+            "INSERT INTO experiment_exposures_preaggregated "
+            "(team_id, job_id, entity_id, variant, first_exposure_time, last_exposure_time, "
+            "exposure_event_uuid, exposure_session_id, breakdown_value) VALUES",
+            [
+                {
+                    "team_id": self.team.pk,
+                    "job_id": job_id,
+                    "entity_id": str(person_uuid),
+                    "variant": variant,
+                    "first_exposure_time": exposure_time,
+                    "last_exposure_time": exposure_time,
+                    "exposure_event_uuid": uuid.uuid4(),
+                    "exposure_session_id": "",
+                    "breakdown_value": [],
+                }
+            ],
+        )
+
+    def _patch_precomputed_jobs(self, job_id: uuid.UUID):
+        return patch(
+            "products.experiments.backend.replay_linkage.ensure_precomputed",
+            return_value=LazyComputationResult(ready=True, job_ids=[job_id]),
+        )
+
+    def test_cached_population_serves_reads_until_refreshed(self) -> None:
+        # Precomputing teams serve the distinct-id expansion from a cached generation. A
+        # population change that only the expansion can see — a new distinct id on an
+        # already-exposed person, the preaggregated exposure rows unchanged — must not
+        # appear while the generation is fresh, and must appear once it refreshes.
+        self._enable_precomputation()
+        experiment = self._create_experiment()
+        person = create_person(team=self.team, distinct_ids=["exposed-user"])
+        flush_persons_and_events()
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        job_id = uuid.uuid4()
+        self._insert_preaggregated_exposure(job_id, person.uuid, "test", exposure_time)
+        session_start = exposure_time + timedelta(hours=1)
+        self._produce_recording(
+            "exposed-user", "session-of-exposed", session_start, session_start + timedelta(minutes=10)
+        )
+
+        with self._patch_precomputed_jobs(job_id):
+            self._assert_query_matches_session_ids(
+                {"experiment_exposure": {"experiment_id": experiment.id}},
+                ["session-of-exposed"],
+            )
+
+            add_distinct_id(person=person, distinct_id="second-device")
+            flush_persons_and_events()
+            self._produce_recording(
+                "second-device", "session-on-second-device", session_start, session_start + timedelta(minutes=10)
+            )
+
+            self._assert_query_matches_session_ids(
+                {"experiment_exposure": {"experiment_id": experiment.id}},
+                ["session-of-exposed"],
+            )
+
+            # The freshness marker expiring is what triggers a recompute; flushing redis stands
+            # in for the TTL elapsing.
+            get_redis_client().flushdb()
+            self._assert_query_matches_session_ids(
+                {"experiment_exposure": {"experiment_id": experiment.id}},
+                ["session-of-exposed", "session-on-second-device"],
+            )
+
+    def test_cached_population_read_keeps_one_row_per_distinct_id(self) -> None:
+        # Writers racing on a cold window append a generation's rows more than once. The read
+        # must collapse them: duplicate exposure rows multiply the listing's join rows, which
+        # doubles the per-session aggregates it sums.
+        self._enable_precomputation()
+        experiment = self._create_experiment()
+        person = create_person(team=self.team, distinct_ids=["exposed-user"])
+        flush_persons_and_events()
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        job_id = uuid.uuid4()
+        self._insert_preaggregated_exposure(job_id, person.uuid, "test", exposure_time)
+        session_start = exposure_time + timedelta(hours=1)
+        produce_replay_summary(
+            team_id=self.team.id,
+            session_id="session-of-exposed",
+            distinct_id="exposed-user",
+            first_timestamp=session_start,
+            last_timestamp=session_start + timedelta(minutes=10),
+            click_count=3,
+        )
+
+        with self._patch_precomputed_jobs(job_id):
+            (recordings, _, _, _) = filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
+                user=self.user,
+            )
+            assert [recording["session_id"] for recording in recordings] == ["session-of-exposed"]
+            assert recordings[0]["click_count"] == 3
+
+            generations = sync_execute(
+                "SELECT DISTINCT cache_key FROM experiment_replay_exposed_distinct_ids WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+            )
+            assert len(generations) == 1
+            sync_execute(
+                "INSERT INTO experiment_replay_exposed_distinct_ids "
+                "(team_id, cache_key, distinct_id, first_exposure_time) VALUES",
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "cache_key": generations[0][0],
+                        "distinct_id": "exposed-user",
+                        "first_exposure_time": exposure_time,
+                    }
+                ],
+            )
+
+            (recordings, _, _, _) = filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
+                user=self.user,
+            )
+            assert [recording["session_id"] for recording in recordings] == ["session-of-exposed"]
+            assert recordings[0]["click_count"] == 3
+
+    def test_population_cache_failure_falls_back_to_inline_expansion(self) -> None:
+        # The cache is an optimization: a Redis outage must leave the listing working on the
+        # inline expansion, not fail it.
+        self._enable_precomputation()
+        experiment = self._create_experiment()
+        person = create_person(team=self.team, distinct_ids=["exposed-user"])
+        flush_persons_and_events()
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        job_id = uuid.uuid4()
+        self._insert_preaggregated_exposure(job_id, person.uuid, "test", exposure_time)
+        session_start = exposure_time + timedelta(hours=1)
+        self._produce_recording(
+            "exposed-user", "session-of-exposed", session_start, session_start + timedelta(minutes=10)
+        )
+
+        with (
+            self._patch_precomputed_jobs(job_id),
+            patch(
+                "products.experiments.backend.replay_linkage.get_client",
+                side_effect=ConnectionError("redis unavailable"),
+            ),
+        ):
+            self._assert_query_matches_session_ids(
+                {"experiment_exposure": {"experiment_id": experiment.id}},
+                ["session-of-exposed"],
+            )
