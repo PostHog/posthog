@@ -12,7 +12,6 @@ import { INBOX_PRIORITY_OPTIONS, INBOX_SORT_OPTIONS, INBOX_SOURCE_OPTIONS } from
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
 import {
     INBOX_LEGACY_TAB_KEYS,
-    INBOX_PRIMARY_REPORT_SECTION_KEY,
     INBOX_REPORT_SECTION_KEYS,
     INBOX_SCOPE_FOR_YOU,
     INBOX_TAB_KEYS,
@@ -112,11 +111,12 @@ export function parseFilterSearchParams(searchParams: Record<string, any>): Inbo
 }
 
 /**
- * The list the filters apply to, for the `tab` analytics property: the Reports view from the URL's
- * `?view=` (the landing view when absent), another page tab's key, or null off a tab route (the
- * scout panels, or a bare `/inbox`). With the redesign flag off every tab is its own list, so the
- * tab segment is the answer as it stands. Read from the router rather than connected from
- * `inboxSceneLogic`, which already connects this logic — the reverse edge would be a cycle.
+ * The inbox page tab the filters apply to, for the `tab` analytics property: the tab segment from
+ * the URL (`reports`, `scouts`, or `settings` under the redesign, or a legacy tab key), or null off
+ * a tab route (the scout panels, or a bare `/inbox`). The redesigned Reports tab is one flat list
+ * with no sub-view, so it reports `reports` and stays consistent with the `tab` that
+ * `captureInboxViewed` sends for the same visit. Read from the router rather than connected from
+ * `inboxSceneLogic`, which already connects this logic, because the reverse edge would be a cycle.
  */
 function currentInboxTab(redesign: boolean): string | null {
     const segments = router.values.location.pathname.split('/').filter(Boolean)
@@ -126,11 +126,7 @@ function currentInboxTab(redesign: boolean): string | null {
     if (!candidate || !tabKeys.includes(candidate)) {
         return null
     }
-    if (!redesign || candidate !== 'reports') {
-        return candidate
-    }
-    const view = router.values.searchParams.view
-    return (INBOX_REPORT_SECTION_KEYS as readonly string[]).includes(view) ? view : INBOX_PRIMARY_REPORT_SECTION_KEY
+    return candidate
 }
 
 function sameSet(a: string[], b: string[]): boolean {

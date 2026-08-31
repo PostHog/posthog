@@ -1,6 +1,11 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -156,6 +161,18 @@ describe('inboxFiltersLogic', () => {
             expect(queryChanges()).toEqual([
                 expect.objectContaining({ change: 'search', has_search: true, search_length: 8 }),
             ])
+        })
+
+        // The flat Reports list has no `?view=` sub-view, so a query change on it must attribute to
+        // the `reports` tab and agree with the `tab` that `Inbox viewed` sends for the same visit.
+        it('attributes a redesigned Reports query change to the reports tab', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+                [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            })
+            router.actions.push(urls.inbox('reports'))
+            logic.actions.toggleState('needs-decision')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(queryChanges()).toEqual([expect.objectContaining({ change: 'state', tab: 'reports' })])
         })
     })
 
