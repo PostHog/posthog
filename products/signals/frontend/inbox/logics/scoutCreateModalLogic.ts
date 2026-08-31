@@ -191,6 +191,9 @@ export interface scoutCreateModalLogicActions {
     markMcpServersDefaulted: () => {
         value: true
     }
+    resetMcpServersDefaulted: () => {
+        value: true
+    }
     resetScoutCreateForm: (values?: ScoutCreateFormValues) => {
         values?: ScoutCreateFormValues
     }
@@ -264,17 +267,22 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
         setScoutCreateScheduleMode: (scheduleMode: string) => ({ scheduleMode }),
         setScoutCreateDailyTime: (dailyTime: string) => ({ dailyTime }),
         markMcpServersDefaulted: true,
+        resetMcpServersDefaulted: true,
     }),
     reducers(({ props: logicProps }) => ({
         // A caller that passes explicit server ids opts out of the "all servers" default. Persisted
         // alongside the draft so a restored draft keeps the user's server selection, rather than the
         // "all servers" default re-applying on the next open. Scoped to the user and project so the
-        // marker cannot suppress another project's default selection.
+        // marker cannot suppress another project's default selection. Discarding the draft resets it
+        // to the initial value, so the next open re-applies the default rather than opening with every
+        // server switched off. The defaulting subscription calls `resetScoutCreateForm`, so the reset
+        // is a separate action rather than tied to the form reset.
         mcpServersDefaulted: [
             logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
             buildUserScopedPersistenceConfig(),
             {
                 markMcpServersDefaulted: () => true,
+                resetMcpServersDefaulted: () => logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
             },
         ],
     })),
@@ -325,6 +333,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                     })
 
                     actions.resetScoutCreateForm()
+                    actions.resetMcpServersDefaulted()
                     lemonToast.success(
                         scout.created ? 'Scout created' : 'Scout already exists. Its settings were updated.'
                     )

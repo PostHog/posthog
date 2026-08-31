@@ -56,7 +56,8 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
         scoutCreateFormTouches,
         showScoutCreateFormErrors,
     } = useValues(logic)
-    const { resetScoutCreateForm, setScoutCreateDailyTime, setScoutCreateScheduleMode } = useActions(logic)
+    const { resetScoutCreateForm, resetMcpServersDefaulted, setScoutCreateDailyTime, setScoutCreateScheduleMode } =
+        useActions(logic)
     const { timezone: projectTimezone } = useValues(teamLogic)
     const scheduleMode = getScoutScheduleMode(scoutCreateForm.config)
 
@@ -65,6 +66,9 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
             return
         }
         resetScoutCreateForm()
+        // Leaving the modal on purpose discards the draft, so clear the "servers defaulted" marker too.
+        // Otherwise its persisted `true` would make the next open skip the all-servers default.
+        resetMcpServersDefaulted()
         onClose()
     }
 

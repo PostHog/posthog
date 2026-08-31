@@ -223,6 +223,43 @@ describe('scoutCreateModalLogic', () => {
         prefilled.unmount()
     })
 
+    it('clears the servers-defaulted marker on create so the next open re-applies the default', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/mcp_gateway/service_accounts/': () =>
+                    scoutAccountResponse([teamServer('github-id', 'GitHub'), teamServer('linear-id', 'Linear')]),
+            },
+        })
+        mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
+
+        const logicKey = scoutCreateModalLogicKey(undefined)
+        logic = scoutCreateModalLogic({ logicKey, onClose, onCreated })
+        logic.mount()
+        // The team's servers load, so the default is applied and the marker is set.
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.mcpServersDefaulted).toBe(true)
+        expect(logic.values.scoutCreateForm.config.mcp_gateway_server_ids).toEqual(['github-id', 'linear-id'])
+
+        logic.actions.setScoutCreateFormValue('name', 'checkout-failures')
+        logic.actions.setScoutCreateFormValue('description', 'Investigates recurring checkout failures.')
+        logic.actions.setScoutCreateFormValue(
+            'body',
+            'Inspect checkout failure signals and report meaningful regressions.'
+        )
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+        // A successful create discards the draft, so the marker resets to its initial value.
+        expect(logic.values.mcpServersDefaulted).toBe(false)
+        logic.unmount()
+
+        // The next blank open re-applies the all-servers default instead of opening with every server off.
+        const reopened = scoutCreateModalLogic({ logicKey, onClose })
+        reopened.mount()
+        await expectLogic(reopened).toFinishAllListeners()
+        expect(reopened.values.mcpServersDefaulted).toBe(true)
+        expect(reopened.values.scoutCreateForm.config.mcp_gateway_server_ids).toEqual(['github-id', 'linear-id'])
+        reopened.unmount()
+    })
+
     it('submits a daily run time as a project-timezone cron schedule', async () => {
         mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
         logic = scoutCreateModalLogic({
