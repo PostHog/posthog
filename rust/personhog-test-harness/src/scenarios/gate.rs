@@ -14,7 +14,7 @@ use crate::cli::{GateArgs, DEFAULT_KEYS_PER_PERSON};
 use crate::client::{HarnessClient, IdentityClient};
 use crate::pool::TargetPool;
 use crate::report::print_report;
-use crate::scenarios::merge::{self, FatRole, MergeLane};
+use crate::scenarios::merge::{self, MergeLane, WideRole};
 use crate::scenarios::{blast, consistency};
 use crate::seed;
 use crate::stack::{Stack, StackConfig};
@@ -167,11 +167,11 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.merge_rate.is_some_and(|rate| rate <= 0.0) {
         bail!("--merge-rate must be positive; omit it to run the merge workers flat out");
     }
-    if args.merge_fat_persons > 0 && args.merge_concurrency == 0 {
-        bail!("--merge-fat-persons needs --merge-concurrency");
+    if args.merge_wide_persons > 0 && args.merge_concurrency == 0 {
+        bail!("--merge-wide-persons needs --merge-concurrency");
     }
-    let fat_role = FatRole::parse(&args.merge_fat_role)
-        .ok_or_else(|| anyhow::anyhow!("unknown --merge-fat-role {:?}", args.merge_fat_role))?;
+    let wide_role = WideRole::parse(&args.merge_wide_role)
+        .ok_or_else(|| anyhow::anyhow!("unknown --merge-wide-role {:?}", args.merge_wide_role))?;
     // The spawned identity derives its whole table set (person, distinct id,
     // hash-key overrides) from --pg-target-table, so any known table set
     // works; Stack::up rejects person tables without a known companion set.
@@ -280,22 +280,22 @@ pub async fn run(args: GateArgs) -> Result<()> {
         }
     };
     let mut person_ids = person_ids;
-    let mut fat_persons = Vec::new();
-    if let (Some(url), true) = (&identity_url, args.merge_fat_persons > 0) {
-        let created = create_fat_persons_via_identity(
+    let mut wide_persons = Vec::new();
+    if let (Some(url), true) = (&identity_url, args.merge_wide_persons > 0) {
+        let created = create_wide_persons_via_identity(
             url,
             args.team_id,
-            args.merge_fat_persons,
-            args.merge_fat_distinct_ids,
+            args.merge_wide_persons,
+            args.merge_wide_distinct_ids,
             &state,
         )
         .await?;
         println!(
-            "Created {} fat persons with {} extra distinct ids each",
+            "Created {} wide persons with {} extra distinct ids each",
             created.len(),
-            args.merge_fat_distinct_ids
+            args.merge_wide_distinct_ids
         );
-        fat_persons.extend(created.iter().map(|(id, _)| *id));
+        wide_persons.extend(created.iter().map(|(id, _)| *id));
         person_ids.extend(created.iter().map(|(id, _)| *id));
         distinct_ids.extend(created);
     }
@@ -382,11 +382,11 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 // source; the pool bounds that, so no source ever trips
                 // the move guard.
                 move_limit: i64::from(args.persons)
-                    + i64::from(args.merge_fat_persons)
-                        * (i64::from(args.merge_fat_distinct_ids) + 1)
+                    + i64::from(args.merge_wide_persons)
+                        * (i64::from(args.merge_wide_distinct_ids) + 1)
                     + 1,
-                fat_persons: fat_persons.clone(),
-                fat_role,
+                wide_persons: wide_persons.clone(),
+                wide_role,
             };
             let duration = args.duration;
             println!(
@@ -890,7 +890,7 @@ async fn create_persons_via_identity(
 /// Create persons that carry `extra_distinct_ids` extra mappings each —
 /// the shape whose merge the flip must repoint mapping by mapping. Same
 /// journaling as the ordinary create path.
-async fn create_fat_persons_via_identity(
+async fn create_wide_persons_via_identity(
     identity_url: &str,
     team_id: i64,
     count: u32,
@@ -900,7 +900,7 @@ async fn create_fat_persons_via_identity(
     let client = IdentityClient::connect(identity_url).await?;
     let mut persons = Vec::with_capacity(count as usize);
     for i in 0..count {
-        let distinct_id = format!("harness-gate-{team_id}-fat{i}");
+        let distinct_id = format!("harness-gate-{team_id}-wide{i}");
         let entry = GetOrCreatePersonEntry {
             team_id,
             distinct_id: distinct_id.clone(),
@@ -917,13 +917,13 @@ async fn create_fat_persons_via_identity(
         let mut results = client.get_or_create_persons(vec![entry]).await?;
         let result = results
             .pop()
-            .context("identity returned no result for a fat person")?;
+            .context("identity returned no result for a wide person")?;
         if let Some(error) = &result.error {
-            bail!("identity create failed for fat person {distinct_id}: {error}");
+            bail!("identity create failed for wide person {distinct_id}: {error}");
         }
         let person = result
             .person
-            .with_context(|| format!("no person for fat distinct id {distinct_id}"))?;
+            .with_context(|| format!("no person for wide distinct id {distinct_id}"))?;
         if !result.created {
             bail!("distinct id {distinct_id} already existed — the harness team must start clean");
         }

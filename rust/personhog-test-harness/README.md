@@ -78,14 +78,14 @@ The invariant extends to the fold rather than stopping at it:
 - A call that loses every response (retried under the same op id) is settled after traffic from the saga's own `lifecycle_op` record: a completed merge is journaled late (safe, because folds are ordered by version), an aborted or never-started one leaves the source live, and one that never settles is a violation. Writes refused for a fenced or destroyed person are counted as lifecycle rejections, not failures.
 - The delete leg expects merged sources to answer `not_found` on the first attempt.
 
-Pathological merges — a person carrying thousands of distinct ids, every one of which the flip must repoint — get their own lane: `--merge-fat-persons N` creates N extra persons with `--merge-fat-distinct-ids K` extra mappings each (identity caps a create entry at 5000), and `--merge-fat-role source|target|both` decides which side they take.
-Workers prefer a fat pair while one is available, and calls involving a fat person report as a separate `merges_fat` row so their cost does not hide in the ordinary median.
+Pathological merges — a person carrying thousands of distinct ids, every one of which the flip must repoint — get their own lane: `--merge-wide-persons N` creates N extra persons with `--merge-wide-distinct-ids K` extra mappings each (identity caps a create entry at 5000), and `--merge-wide-role source|target|both` decides which side they take.
+Workers prefer a wide pair while one is available, and calls involving a wide person report as a separate `merges_wide` row so their cost does not hide in the ordinary median.
 Merged sources are additionally checked for leftover mappings (`__merged_source_dids_left`): every distinct id of a destroyed person must point at the survivor.
 
 ```bash
-# 5 fat sources with 2000 distinct ids each, merged into ordinary targets
+# 5 wide sources with 2000 distinct ids each, merged into ordinary targets
 target/debug/personhog-test-harness gate --merge-concurrency 2 --merge-rate 2 \
-  --merge-fat-persons 5 --merge-fat-distinct-ids 2000 --merge-fat-role source \
+  --merge-wide-persons 5 --merge-wide-distinct-ids 2000 --merge-wide-role source \
   --persons 100 --duration 15s
 ```
 

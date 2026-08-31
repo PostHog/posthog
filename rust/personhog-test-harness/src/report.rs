@@ -58,9 +58,9 @@ pub fn print_report(
     if merge_snap.total > 0 {
         print_stats_row("merges", &merge_snap);
     }
-    let fat_snap = collector.fat_merges.snapshot();
-    if fat_snap.total > 0 {
-        print_stats_row("merges_fat", &fat_snap);
+    let wide_snap = collector.wide_merges.snapshot();
+    if wide_snap.total > 0 {
+        print_stats_row("merges_wide", &wide_snap);
     }
     println!();
     let rejected = write_snap.lifecycle_rejections + read_snap.lifecycle_rejections;

@@ -89,9 +89,9 @@ pub struct StatsCollector {
     /// MergePersons calls: one call is one saga (or one inline
     /// settlement), so its latency is the end-to-end merge cost.
     pub merges: LatencyRecorder,
-    /// Merge calls involving a fat person (many distinct ids), kept
+    /// Merge calls involving a wide person (many distinct ids), kept
     /// apart so the pathological cost does not hide in the median.
-    pub fat_merges: LatencyRecorder,
+    pub wide_merges: LatencyRecorder,
     /// Per-source merge outcomes, by the wire outcome's name.
     merge_outcomes: Mutex<BTreeMap<&'static str, u64>>,
 }
@@ -102,7 +102,7 @@ impl StatsCollector {
             writes: LatencyRecorder::new(),
             reads: LatencyRecorder::new(),
             merges: LatencyRecorder::new(),
-            fat_merges: LatencyRecorder::new(),
+            wide_merges: LatencyRecorder::new(),
             merge_outcomes: Mutex::new(BTreeMap::new()),
         }
     }

@@ -45,21 +45,21 @@ pub struct MergeLane {
     pub allow_identified_sources: bool,
     pub move_limit: i64,
     /// Persons created with many distinct ids, and the side they take.
-    /// Workers prefer a fat pair while one is available, so the
+    /// Workers prefer a wide pair while one is available, so the
     /// pathological merges happen early instead of after the pool has
     /// thinned; their latency is recorded apart.
-    pub fat_persons: Vec<i64>,
-    pub fat_role: FatRole,
+    pub wide_persons: Vec<i64>,
+    pub wide_role: WideRole,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum FatRole {
+pub enum WideRole {
     Source,
     Target,
     Both,
 }
 
-impl FatRole {
+impl WideRole {
     pub fn parse(role: &str) -> Option<Self> {
         match role {
             "source" => Some(Self::Source),
@@ -106,24 +106,24 @@ pub async fn run_merges(
     let worker_tick = lane
         .rate_per_sec
         .map(|rate| per_worker_tick(rate, lane.concurrency));
-    let fat: Arc<std::collections::HashSet<i64>> =
-        Arc::new(lane.fat_persons.iter().copied().collect());
-    // Fat sources are reserved like any other source; fat targets are
+    let wide: Arc<std::collections::HashSet<i64>> =
+        Arc::new(lane.wide_persons.iter().copied().collect());
+    // Wide sources are reserved like any other source; wide targets are
     // shared like any other target. The normal eligible set excludes the
-    // fat persons so a fat source is never spent on an ordinary pair.
+    // wide persons so a wide source is never spent on an ordinary pair.
     let eligible = Arc::new(Mutex::new(
         pool.snapshot()
             .into_iter()
-            .filter(|id| !fat.contains(id))
+            .filter(|id| !wide.contains(id))
             .collect::<Vec<_>>(),
     ));
-    let fat_sources = Arc::new(Mutex::new(match lane.fat_role {
-        FatRole::Source | FatRole::Both => lane.fat_persons.clone(),
-        FatRole::Target => Vec::new(),
+    let wide_sources = Arc::new(Mutex::new(match lane.wide_role {
+        WideRole::Source | WideRole::Both => lane.wide_persons.clone(),
+        WideRole::Target => Vec::new(),
     }));
-    let fat_targets: Arc<Vec<i64>> = Arc::new(match lane.fat_role {
-        FatRole::Target | FatRole::Both => lane.fat_persons.clone(),
-        FatRole::Source => Vec::new(),
+    let wide_targets: Arc<Vec<i64>> = Arc::new(match lane.wide_role {
+        WideRole::Target | WideRole::Both => lane.wide_persons.clone(),
+        WideRole::Source => Vec::new(),
     });
     let dry_at: Arc<Mutex<Option<Duration>>> = Arc::new(Mutex::new(None));
     let started = Instant::now();
@@ -135,9 +135,9 @@ pub async fn run_merges(
         let pool = pool.clone();
         let distinct_ids = distinct_ids.clone();
         let eligible = eligible.clone();
-        let fat = fat.clone();
-        let fat_sources = fat_sources.clone();
-        let fat_targets = fat_targets.clone();
+        let wide = wide.clone();
+        let wide_sources = wide_sources.clone();
+        let wide_targets = wide_targets.clone();
         let dry_at = dry_at.clone();
         let collector = collector.clone();
         let state = state.clone();
@@ -159,8 +159,9 @@ pub async fn run_merges(
                 if let Some(pacer) = pacer.as_mut() {
                     pacer.tick().await;
                 }
-                let picked = pick_fat_pair(&fat_sources, &fat_targets, &eligible, &pool, &mut rng)
-                    .or_else(|| pick_pair(&eligible, &pool, &mut rng));
+                let picked =
+                    pick_wide_pair(&wide_sources, &wide_targets, &eligible, &pool, &mut rng)
+                        .or_else(|| pick_pair(&eligible, &pool, &mut rng));
                 let Some((source, target)) = picked else {
                     // The pool has shrunk to one live person (or every
                     // source is reserved): nothing left to merge.
@@ -220,8 +221,8 @@ pub async fn run_merges(
                     }
                 };
 
-                let recorder = if fat.contains(&source) || fat.contains(&target) {
-                    &collector.fat_merges
+                let recorder = if wide.contains(&source) || wide.contains(&target) {
+                    &collector.wide_merges
                 } else {
                     &collector.merges
                 };
@@ -256,8 +257,8 @@ pub async fn run_merges(
                     // Settled without destroying the source: it is live
                     // and eligible again.
                     state.clear_merge_pending(source).await;
-                    if fat.contains(&source) {
-                        fat_sources.lock().unwrap().push(source);
+                    if wide.contains(&source) {
+                        wide_sources.lock().unwrap().push(source);
                     } else {
                         eligible.lock().unwrap().push(source);
                     }
@@ -450,54 +451,54 @@ pub async fn settle_unresolved(
     }
 }
 
-/// A pair with a fat person on the configured side, or None when no fat
-/// source is left to reserve and no fat target is live. With fat targets
+/// A pair with a wide person on the configured side, or None when no wide
+/// source is left to reserve and no wide target is live. With wide targets
 /// only, the source comes from the ordinary eligible set.
-fn pick_fat_pair(
-    fat_sources: &Mutex<Vec<i64>>,
-    fat_targets: &[i64],
+fn pick_wide_pair(
+    wide_sources: &Mutex<Vec<i64>>,
+    wide_targets: &[i64],
     eligible: &Mutex<Vec<i64>>,
     pool: &TargetPool,
     rng: &mut impl Rng,
 ) -> Option<(i64, i64)> {
-    let live_fat_targets: Vec<i64> = fat_targets
+    let live_wide_targets: Vec<i64> = wide_targets
         .iter()
         .copied()
         .filter(|id| pool.snapshot().contains(id))
         .collect();
     let source = {
-        let mut fat_sources = fat_sources.lock().unwrap();
-        if fat_sources.is_empty() {
+        let mut wide_sources = wide_sources.lock().unwrap();
+        if wide_sources.is_empty() {
             None
         } else {
-            let index = rng.gen_range(0..fat_sources.len());
-            Some(fat_sources.swap_remove(index))
+            let index = rng.gen_range(0..wide_sources.len());
+            Some(wide_sources.swap_remove(index))
         }
     };
     match source {
         Some(source) => {
-            let target = if live_fat_targets.is_empty() {
+            let target = if live_wide_targets.is_empty() {
                 (0..16)
                     .filter_map(|_| pool.pick_random(rng))
                     .find(|&target| target != source)
             } else {
-                live_fat_targets
+                live_wide_targets
                     .iter()
                     .copied()
                     .filter(|&target| target != source)
-                    .nth(rng.gen_range(0..live_fat_targets.len().max(1)))
-                    .or_else(|| live_fat_targets.iter().copied().find(|&t| t != source))
+                    .nth(rng.gen_range(0..live_wide_targets.len().max(1)))
+                    .or_else(|| live_wide_targets.iter().copied().find(|&t| t != source))
             };
             match target {
                 Some(target) => Some((source, target)),
                 None => {
-                    fat_sources.lock().unwrap().push(source);
+                    wide_sources.lock().unwrap().push(source);
                     None
                 }
             }
         }
-        None if !live_fat_targets.is_empty() => {
-            let target = live_fat_targets[rng.gen_range(0..live_fat_targets.len())];
+        None if !live_wide_targets.is_empty() => {
+            let target = live_wide_targets[rng.gen_range(0..live_wide_targets.len())];
             let mut eligible = eligible.lock().unwrap();
             let candidates: Vec<usize> = (0..eligible.len())
                 .filter(|&i| eligible[i] != target)

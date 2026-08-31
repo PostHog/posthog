@@ -351,25 +351,25 @@ pub struct GateArgs {
     #[arg(long)]
     pub merge_rate: Option<f64>,
 
-    /// Persons created with --merge-fat-distinct-ids extra distinct ids
+    /// Persons created with --merge-wide-distinct-ids extra distinct ids
     /// each, on top of --persons. The merge lane pairs them per
-    /// --merge-fat-role, so the pathological merges — a source whose
+    /// --merge-wide-role, so the pathological merges — a source whose
     /// every mapping the flip must repoint — get their own latency row
-    /// (`merges_fat`). Requires --merge-concurrency.
+    /// (`merges_wide`). Requires --merge-concurrency.
     #[arg(long, default_value_t = 0)]
-    pub merge_fat_persons: u32,
+    pub merge_wide_persons: u32,
 
-    /// Extra distinct ids per fat person (the identity service caps a
+    /// Extra distinct ids per wide person (the identity service caps a
     /// create entry at 5000).
     #[arg(long, default_value_t = 1000)]
-    pub merge_fat_distinct_ids: u32,
+    pub merge_wide_distinct_ids: u32,
 
-    /// Which side of a merge the fat persons take: `source` (every
+    /// Which side of a merge the wide persons take: `source` (every
     /// mapping repoints — the expensive flip), `target` (the survivor
-    /// is fat; the flip is cheap but the survivor keeps growing), or
-    /// `both` (fat into fat).
+    /// is wide; the flip is cheap but the survivor keeps growing), or
+    /// `both` (wide into wide).
     #[arg(long, default_value = "source", value_parser = ["source", "target", "both"])]
-    pub merge_fat_role: String,
+    pub merge_wide_role: String,
 
     /// Merge identified sources ($merge_dangerously semantics). A
     /// survivor becomes identified, so with this off it can never be a
