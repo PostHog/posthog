@@ -15062,7 +15062,7 @@ export namespace Schemas {
       runs: number;
       /** Latest runs that completed with conclusion 'success'. */
       passing: number;
-      /** Latest runs that completed with conclusion 'failure' or 'timed_out'. */
+      /** Latest runs that ended in failure, timeout, startup failure, or staleness. */
       failing: number;
       /** Latest runs not yet completed (queued or in progress). */
       pending: number;
@@ -59445,7 +59445,7 @@ export namespace Schemas {
       /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;
       /**
-         * Fraction (0-1) of completed runs started in this bucket that succeeded. Null when the bucket had no completed run (a gap, not a 0% pass rate).
+         * Fraction (0-1) of conclusive runs started in this bucket that succeeded. Skipped, cancelled, neutral, and action_required runs are excluded. Null when the bucket had no conclusive run (a gap, not a 0% pass rate).
          * @nullable
          */
       success_rate: number | null;
@@ -70294,7 +70294,7 @@ export namespace Schemas {
          * @nullable
          */
       wall_seconds: number | null;
-      /** True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'. */
+      /** True when any latest-per-workflow run on this push ended in a decisive failure. */
       failed: boolean;
       /** True when any latest-per-workflow run on this push hasn't completed yet. */
       pending: boolean;
@@ -73725,7 +73725,7 @@ export namespace Schemas {
       cost_series: CostPerMergeBucket[];
       /** Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       time_to_green_series: TimeToGreenBucket[];
-      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
+      /** CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, neutral, and action_required runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false. */
       success_rate_series: PassRateBucket[];
       /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
@@ -73736,12 +73736,12 @@ export namespace Schemas {
       /** Same count over the equal-length window immediately before date_from — the delta baseline. */
       run_count_prev: number;
       /**
-         * Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.
+         * Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.
          * @nullable
          */
       success_rate: number | null;
       /**
-         * Success rate over the previous window. Null if none completed.
+         * Conclusive-run success rate over the previous window. Null if no run reached a verdict.
          * @nullable
          */
       success_rate_prev: number | null;
@@ -86439,7 +86439,7 @@ export namespace Schemas {
       completed: number;
       /** Completed runs with conclusion 'success' in this bucket. */
       successes: number;
-      /** Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+      /** Completed runs with conclusion 'failure', 'timed_out', 'startup_failure', or 'stale'. Skipped, cancelled, neutral, and action_required runs are excluded. */
       failures: number;
     }
 
@@ -86452,10 +86452,12 @@ export namespace Schemas {
       workflow_name: string;
       /** Total runs started in the window. */
       run_count: number;
+      /** Completed runs with conclusion 'success'. */
       successful_run_count: number;
+      /** Completed runs that succeeded or ended in failure, timeout, startup failure, or staleness. This is the success_rate denominator. */
       conclusive_run_count: number;
       /**
-         * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
+         * Fraction of conclusive runs that succeeded (0-1). Failures include failure, timed_out, startup_failure, and stale. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.
          * @nullable
          */
       success_rate: number | null;
@@ -86470,12 +86472,12 @@ export namespace Schemas {
          */
       p95_seconds: number | null;
       /**
-         * When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.
+         * When the most recent decisive failure started, or null.
          * @nullable
          */
       last_failure_at: string | null;
       /**
-         * Whether the most recent completed run was a decisive failure (conclusion 'failure' or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.
+         * Whether the most recent completed run ended in failure, timeout, startup failure, or staleness. Null when no run has completed in the window. Powers the OK/RED status badge.
          * @nullable
          */
       latest_run_failed: boolean | null;
@@ -86503,10 +86505,11 @@ export namespace Schemas {
       /** Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy. */
       rerun_cycles?: number;
       /**
-         * Success rate over the equal-length window before date_from - the delta baseline. Null when that window had no completed runs.
+         * Conclusive-run success rate over the equal-length window before date_from - the delta baseline. Null when that window had no conclusive runs.
          * @nullable
          */
       success_rate_prev?: number | null;
+      /** Successful runs that did real CI work. This is the p50/p95 sample count. */
       percentile_run_count?: number;
     }
 
@@ -93638,6 +93641,11 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null;
+    /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
      */
@@ -93715,6 +93723,11 @@ export namespace Schemas {
      * @minLength 1
      */
     date_to?: string;
+    /**
+     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null;
     /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
