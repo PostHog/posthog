@@ -32,6 +32,9 @@ export function TableColumnResizeHandle({
         event.preventDefault()
         event.stopPropagation()
         const header = event.currentTarget.closest('th')
+        if (header) {
+            onResizeStart?.(header)
+        }
         const currentWidth = header?.getBoundingClientRect().width || MIN_COLUMN_WIDTH
         onResize(
             Math.max(
