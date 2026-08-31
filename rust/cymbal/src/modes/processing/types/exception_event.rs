@@ -654,11 +654,17 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
         let lib_version = raw.other.get("$lib_version").and_then(Value::as_str);
         let legacy_order_exception_list =
             normalize_wire_order(&mut raw.exception_list, lib, lib_version);
-        let proposed_issue_severity = raw
-            .issue_severity
-            .as_ref()
+        let proposed_issue_severity: Option<IssueSeverity> = raw
+            .other
+            .get("$issue_severity")
             .and_then(Value::as_str)
             .and_then(|severity| severity.parse().ok());
+        if let Some(severity) = proposed_issue_severity {
+            raw.other.insert(
+                "$issue_severity".to_string(),
+                Value::String(severity.to_string()),
+            );
+        }
 
         Ok(ExceptionEvent {
             uuid: event.uuid,

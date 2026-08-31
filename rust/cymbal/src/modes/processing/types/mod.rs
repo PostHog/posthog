@@ -113,8 +113,6 @@ pub struct RawExceptionProperties {
     pub issue_name: Option<String>,
     #[serde(rename = "$issue_description", skip_serializing_if = "Option::is_none")]
     pub issue_description: Option<String>,
-    #[serde(rename = "$issue_severity", skip_serializing_if = "Option::is_none")]
-    pub issue_severity: Option<Value>,
     #[serde(rename = "$exception_handled", skip_serializing_if = "Option::is_none")]
     pub handled: Option<bool>,
     #[serde(

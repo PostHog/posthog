@@ -523,7 +523,12 @@ async fn issue_severity_property_controls_only_new_issues_and_falls_back_when_in
     input.properties["$issue_severity"] = json!("urgent");
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
     assert!(status.is_success());
-    let invalid_issue_id = body.take_properties().issue_id();
+    let invalid_event = body.take_properties();
+    assert_eq!(
+        invalid_event.properties().get("$issue_severity"),
+        Some(&json!("urgent"))
+    );
+    let invalid_issue_id = invalid_event.issue_id();
     let fallback_severity: Option<String> =
         sqlx::query_scalar("SELECT severity FROM posthog_errortrackingissue WHERE id = $1")
             .bind(invalid_issue_id)
