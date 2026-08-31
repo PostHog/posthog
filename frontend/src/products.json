@@ -57,6 +57,13 @@
             "intents": ["llm_prompts"]
         },
         {
+            "path": "APM",
+            "category": "App monitoring",
+            "iconType": "tracing",
+            "type": null,
+            "intents": ["logs", "tracing", "metrics"]
+        },
+        {
             "path": "Business knowledge",
             "category": "AI engineering",
             "iconType": "conversations",

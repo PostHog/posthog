@@ -179,6 +179,7 @@ export enum Scene {
     ToolbarLaunch = 'ToolbarLaunch',
     Tracing = 'Tracing',
     Metrics = 'Metrics',
+    APM = 'APM',
     Transformations = 'Transformations',
     EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
