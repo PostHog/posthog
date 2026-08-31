@@ -6,7 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useRef } from 'react'
+import { useCallback } from 'react'
 
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
@@ -76,10 +76,6 @@ const DragHandle = ({ listeners }: DragHandleProps): JSX.Element => (
 // The taxonomic filter's showNumericalPropsOnly flag doesn't filter warehouse schema columns,
 // so numeric-only pickers must not be fed non-numeric columns in the first place.
 const NUMERIC_SCHEMA_FIELD_TYPES: DatabaseSerializedFieldType[] = ['integer', 'float', 'decimal']
-
-// A fast double click toggles the property filter panel open and shut before the user sees it.
-// Ignore a repeat toggle click that lands inside this window so the panel stays open.
-const FILTER_TOGGLE_DEBOUNCE_MS = 250
 
 // Which warehouse tables a row's picker may offer, by the caller's typeKey. Anything not listed
 // gets the unrestricted data warehouse group.
@@ -182,7 +178,6 @@ export function ActionFilterRow({
     } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
-    const lastFilterToggleAtRef = useRef(0)
 
     let name: string | null | undefined, value: PropertyFilterValue
     const {
@@ -431,15 +426,15 @@ export function ActionFilterRow({
                 data-attr={`show-prop-filter-${index}`}
                 noPadding
                 active={propertyFiltersVisible}
-                onClick={() => {
+                onClick={(event) => {
                     if (typeof filter.order !== 'number') {
                         return
                     }
-                    const now = Date.now()
-                    if (now - lastFilterToggleAtRef.current < FILTER_TOGGLE_DEBOUNCE_MS) {
+                    // A double click fires a second click carrying detail === 2. Ignore it so the
+                    // panel the first click opened stays open. Keyboard activation carries detail === 0.
+                    if (event.detail > 1) {
                         return
                     }
-                    lastFilterToggleAtRef.current = now
                     setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
