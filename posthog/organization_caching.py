@@ -108,7 +108,9 @@ def get_cached_organization(organization_id: str | UUID) -> Organization | None:
 
 def _prepare_cached_membership(membership: OrganizationMembership, user: User) -> OrganizationMembership:
     membership._state.fields_cache["user"] = user
-    organization = get_cached_organization(membership.organization_id)
+    organization = membership._state.fields_cache.get("organization") or get_cached_organization(
+        membership.organization_id
+    )
     if organization is not None:
         membership._state.fields_cache["organization"] = organization
     return membership
@@ -158,7 +160,6 @@ def get_cached_organization_memberships(user: User) -> list[OrganizationMembersh
         _organization_membership_model().objects.filter(user_id=user.id).select_related("organization")
     )
     for membership in memberships:
-        membership._state.fields_cache.pop("organization", None)
         membership._state.fields_cache.pop("user", None)
     _set_versioned_access_cache_value(key, memberships, version)
     return [_prepare_cached_membership(membership, user) for membership in memberships]
