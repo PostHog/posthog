@@ -1301,8 +1301,9 @@ class UserViewSet(
 
         # The swap needs a credential issued for the staged address. A token always is (its hash
         # includes pending_email). A code is only for a verified user; an unverified user's code
-        # proves the account address, so their staged change stays pending.
-        if user.pending_email and (token or user.is_email_verified):
+        # proves the account address, so their staged change stays pending. A legacy account
+        # (is_email_verified None) counts as verified, like in the login flow and in the verifier.
+        if user.pending_email and (token or user.is_email_verified is not False):
             old_email = user.email
             with transaction.atomic():
                 user.email = user.pending_email
