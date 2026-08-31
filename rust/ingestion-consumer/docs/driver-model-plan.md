@@ -5,6 +5,8 @@ Status: **draft, for discussion**.
 This plan implements the [driver-model redesign](https://github.com/PostHog/posthog/blob/pl/ingestion/consumer-redesign-doc/rust/ingestion-consumer/docs/driver-model.md) ([#89277](https://github.com/PostHog/posthog/pull/89277)) in small steps.
 Each step is one PR.
 
+Implementation reference: [Jose's `kafka-consumer-loop` branch](https://github.com/PostHog/posthog/compare/master...jose-sequeira/kafka-consumer-loop). It is a source of tested shared primitives, not a stack to merge whole: its first commit extracts the Kafka consumer config builder, while its second also includes primitives scheduled for later cycles. Reuse the config extraction and the cycle-2 ledger representation deliberately; leave the accumulator, budget, partition-driver, commit-manager, and drain work to their named cycles below.
+
 ## Starting point
 
 The plan starts from current master.
@@ -17,6 +19,17 @@ An assignment epoch also exists.
 A rebalance increments it, and every sub-batch carries it.
 
 These components stay as they are: the stream runners, the P2C (power-of-two-choices) router, the aperture, the worker registry, the commit sentinel, the commit monitor, and the key-order sentinel.
+
+## Initial PR stacks
+
+Both stacks start from this plan branch ([#91468](https://github.com/PostHog/posthog/pull/91468)), so the reviewed design and implementation history stay together. Within a stack, each PR is based on the preceding PR.
+
+| Stack | Branch sequence | Scope |
+| --- | --- | --- |
+| Cycle 1 | `c1-delete-eager-flush` -> `c1-fence-safe-send-resolution` | Changes 1 and 2, one PR per plan step. |
+| Cycle 2 | `c2-common-ledger` -> `c2-ledger-shadow` -> `c2-ledger-active` -> `c2-ledger-cleanup` | Changes 3 through 6, one PR per plan step. |
+
+The stacks are independent: cycle 2 can begin without cycle 1. The merge gates remain part of the plan: change 5 cannot merge until change 4 has soaked with a zero mismatch counter, and change 6 cannot merge until change 5 is stable on every lane. Draft PRs may be prepared earlier, but they must not collapse those gates.
 
 ## The cycle model
 
@@ -65,7 +78,7 @@ A change that adds metrics lists their names.
 | --- | --- | --- | --- |
 | 1 | 1 one resolve protocol | Cleanup | Delete the dead eager flush |
 | 2 | 1 one resolve protocol | Prepare | Extract fence-safe send resolution |
-| 3 | 2 frontier commits | Implement | Add the offset ledger module |
+| 3 | 2 frontier commits | Implement | Add the common Kafka consumer crate and offset ledger |
 | 4 | 2 frontier commits | Verify | Run the ledger in shadow mode |
 | 5 | 2 frontier commits | Switchover | Commit from the ledger frontier |
 | 6 | 2 frontier commits | Cleanup | Delete the old commit computation |
@@ -139,11 +152,15 @@ Outcome: commit contiguity is a property of a data structure, not of completion 
 **Verify:** change 4 compares the frontier with every real commit on all lanes.
 Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across deploys and rebalances, and `ingestion_consumer_ledger_uncommitted_offsets` returns toward zero when a lane is idle — the ring drains.
 
-### 3. Add the offset ledger module (implement)
+### 3. Add the common Kafka consumer crate and offset ledger (implement)
 
-**Task:** Create `ledger.rs` with a per-partition offset ring. Do not wire it in.
+**Task:** Create `rust/common/kafka-consumer` and add `ledger.rs` with a per-partition offset ring. Do not wire it into a consumer yet.
 
-**Goal:** Make commit contiguity a property of a data structure.
+**Goal:** Make commit contiguity a reusable property of a data structure, not a feature of the ingestion consumer.
+
+- Start from the config extraction in [Jose's branch](https://github.com/PostHog/posthog/compare/master...jose-sequeira/kafka-consumer-loop): move the current consumer config builder unchanged into `common-kafka-consumer`, retain its fixture coverage, and make `ingestion-consumer` depend on it.
+- Copy only the cycle-2 domain primitives from Jose's second commit into the new crate: the offset wrapper and the charge carried by a ledger slot. Adapt its `OffsetLedger` representation to this plan's `complete`, non-mutating `frontier`, and consuming `take_frontier` contract: Jose's current `complete` advances and removes the prefix, so it cannot be copied unchanged into the shadow comparison.
+- Do not take `Accumulator`, `Budget`, `PartitionDriver`, `PartitionManager`, or `CommitManager`; those implement later cycles and would make this PR cross several plan boundaries. The ledger module must not depend on `rdkafka`, `ingestion-consumer`, or service-specific metrics. The shared config module may retain its `rdkafka` dependency.
 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
 - Each slot records: complete or not, event count, byte count. The counts serve the budget in change 24.
@@ -156,7 +173,9 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 
 **Interfaces:**
 
-- Add `OffsetLedger` in `ledger.rs`: `charge`, `complete`, `frontier` (non-mutating), `take_frontier` (consuming). No callers yet. The name avoids a clash with the stream runner's internal un-acked ledger.
+- Add workspace crate `common-kafka-consumer`, exporting the shared config builder, `Offset`, `Charge`, and `OffsetLedger`.
+- Add `OffsetLedger` in `ledger.rs`: `charge`, `complete`, `frontier` (non-mutating), `take_frontier` (consuming). No runtime callers yet. The name avoids a clash with the stream runner's internal un-acked ledger.
+- Modify `ingestion-consumer` to import the moved config builder from the common crate.
 
 ### 4. Run the ledger in shadow mode (verify)
 
