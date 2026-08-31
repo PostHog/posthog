@@ -80,7 +80,6 @@ describe('accountsViewsLogic', () => {
         )
         mountAll()
 
-        // The gate closes synchronously on mount, before the views request resolves.
         expect(accountsLogic.values.awaitingSavedView).toBe(true)
         expect(accountsLogic.values.accountsQuerySource).toBeNull()
         expect(accountsLogic.values.metricsQuery).toBeNull()
@@ -88,7 +87,6 @@ describe('accountsViewsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadViewsSuccess', 'applyView']).toFinishAllListeners()
 
         expect(accountsLogic.values.awaitingSavedView).toBe(false)
-        // The first buildable query already carries the applied view's state.
         expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', 'csm'])
         expect(accountsLogic.values.searchQuery).toEqual('acme')
     })

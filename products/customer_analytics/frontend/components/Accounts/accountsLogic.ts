@@ -539,7 +539,8 @@ export interface accountsLogicMeta {
         ) => AccountsTableQueryPlan
         accountsQuerySource: (
             accountsTableQueryPlan: AccountsTableQueryPlan,
-            relationshipDefinitionsLoaded: boolean
+            relationshipDefinitionsLoaded: boolean,
+            awaitingSavedView: boolean
         ) => AccountsTableQuery | null
         accountsDataTableQuery: (
             accountsTableQueryPlan: AccountsTableQueryPlan,
@@ -548,7 +549,8 @@ export interface accountsLogicMeta {
         metricsQuery: (
             overviewMetrics: AccountsTableMetric[],
             accountsTableQueryPlan: AccountsTableQueryPlan,
-            relationshipDefinitionsLoaded: boolean
+            relationshipDefinitionsLoaded: boolean,
+            awaitingSavedView: boolean
         ) => AccountsTableQuery | null
     }
 }
@@ -675,9 +677,6 @@ export const accountsLogic = kea<accountsLogicType>([
         // Restrict the list to a single account by id — drives the `/accounts/:accountId/:tab`
         // path route. null clears it (back to the full list).
         setAccountIdFilter: (accountId: string | null) => ({ accountId }),
-        // accountsViewsLogic holds this true from mount until the persisted view is applied,
-        // so the first fetch runs once with the view's inputs instead of once before and once
-        // after the view lands.
         setAwaitingSavedView: (awaiting: boolean) => ({ awaiting }),
     }),
     reducers({

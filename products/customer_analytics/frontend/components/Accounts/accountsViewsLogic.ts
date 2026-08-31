@@ -652,7 +652,6 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         loadViewsFailure: ({ error }) => {
             posthog.captureException(error)
             lemonToast.error('Failed to load views')
-            // The gate must never stick closed, or the accounts list never fetches.
             actions.setAwaitingSavedView(false)
         },
         submitNewViewFormFailure: ({ error }) => {
@@ -689,15 +688,10 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     actions.applyView(view)
                 }
             }
-            // Opened after applyView so the view's state changes are already in when the first
-            // fetch builds its query. Unconditional so a deleted or missing view still opens it.
             actions.setAwaitingSavedView(false)
         },
     })),
     afterMount(({ actions, values }) => {
-        // A persisted view is about to be applied. Hold the first accounts fetch until it lands
-        // so the list does not fetch once with defaults and again with the view's inputs. A
-        // `#view=` hash restores synchronously through urlToAction instead, so it does not hold.
         if (values.currentViewId && !router.values.hashParams?.view) {
             actions.setAwaitingSavedView(true)
         }
