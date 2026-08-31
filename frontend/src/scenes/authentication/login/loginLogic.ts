@@ -153,6 +153,7 @@ export interface loginLogicValues {
     codeVerification: CodeVerificationForm
     codeVerificationAllErrors: Record<string, any>
     codeVerificationChanged: boolean
+    codeVerificationEmail: string | null
     codeVerificationErrors: DeepPartialMap<CodeVerificationForm, ValidationErrorType>
     codeVerificationHasErrors: boolean
     codeVerificationManualErrors: Record<string, any>
@@ -259,8 +260,8 @@ export interface loginLogicActions {
     setCodeVerificationManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
-    setCodeVerificationRequired: () => {
-        value: true
+    setCodeVerificationRequired: (email: string) => {
+        email: string
     }
     setCodeVerificationValue: (
         key: FieldName,
@@ -376,7 +377,7 @@ export const loginLogic = kea<loginLogicType>([
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
-        setCodeVerificationRequired: true,
+        setCodeVerificationRequired: (email: string) => ({ email }),
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
     }),
@@ -397,6 +398,14 @@ export const loginLogic = kea<loginLogicType>([
             {
                 setCodeVerificationRequired: () => true,
                 exitCodeVerification: () => false,
+            },
+        ],
+        // The address the login code went to, shown under the code screen title
+        codeVerificationEmail: [
+            null as string | null,
+            {
+                setCodeVerificationRequired: (_, { email }) => email,
+                exitCodeVerification: () => null,
             },
         ],
         // The provider we're currently bouncing the user to, so the form can say so out loud. The
@@ -583,11 +592,7 @@ export const loginLogic = kea<loginLogicType>([
                     }
                     if (code === 'code_based_verification_required') {
                         const emailAddress = detail?.email || email
-                        actions.setCodeVerificationRequired()
-                        actions.setGeneralError(
-                            'code_based_verification_sent',
-                            `For your security, we've emailed a 6-digit verification code to ${emailAddress}. Enter it below to finish logging in.`
-                        )
+                        actions.setCodeVerificationRequired(emailAddress)
                         throw e
                     }
                     // A response with no parseable JSON body (a 5xx HTML page, a 502 from the edge, a

@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
-import { twMerge } from 'tailwind-merge'
 
+import * as trafficPolicePng from '@posthog/brand/hoggies/png/traffic-police'
 import { IconCheckCircle } from '@posthog/icons'
 
 import { getCookie } from 'lib/api'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
@@ -33,6 +34,8 @@ import { SessionRiskBanner } from './SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
+const HedgehogTrafficPolice = pngHoggie(trafficPolicePng)
+
 // Bare text nodes below are wrapped in <span>s: in-page translation replaces text nodes with
 // <font> elements, which crashes React's sibling insert/remove operations (removeChild /
 // insertBefore NotFoundError, see react#11538). Text that is its own element's only child is
@@ -53,6 +56,7 @@ export function LoginForm(): JSX.Element {
         codeVerificationRequired,
         isCodeVerificationSubmitting,
         isPasswordLoginUnavailable,
+        codeVerificationEmail,
         hasNoConfiguredLoginMethod,
         restrictToProviders,
         autoRedirectingToProvider,
@@ -90,6 +94,7 @@ export function LoginForm(): JSX.Element {
         <AuthScene notes={['// welcome back', '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <AuthSceneCard footer={footer}>
+                {isCodeSent && <HedgehogTrafficPolice className="block w-auto mx-auto mb-3 h-28" />}
                 <AuthCardTitle
                     title={
                         isCodeSent ? (
@@ -105,16 +110,22 @@ export function LoginForm(): JSX.Element {
                             </>
                         )
                     }
-                    sub={isCodeSent ? undefined : "Welcome back. Let's go ship something."}
+                    sub={
+                        isCodeSent ? (
+                            <>
+                                For your security, we've emailed a 6-digit verification code to{' '}
+                                <strong>{codeVerificationEmail}</strong>.
+                                <br />
+                                Enter it below to finish logging in.
+                            </>
+                        ) : (
+                            "Welcome back. Let's go ship something."
+                        )
+                    }
                 />
                 <SessionRiskBanner className="mb-4" />
                 {generalError && (
-                    <div
-                        className={twMerge(
-                            'mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded',
-                            isCodeSent ? 'bg-success-highlight border-success' : 'bg-danger-highlight border-danger'
-                        )}
-                    >
+                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         <span>
                             {generalError.detail ||
                                 ERROR_MESSAGES[generalError.code] ||
@@ -155,7 +166,7 @@ export function LoginForm(): JSX.Element {
                         noValidate
                         className="flex flex-col gap-4"
                     >
-                        <LemonField name="code" label="Verification code">
+                        <LemonField name="code" label="Verification code" labelClassName="sr-only">
                             <VerificationCodeInput
                                 data-attr="code-verification"
                                 disabled={isCodeVerificationSubmitting}
