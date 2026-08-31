@@ -67,8 +67,9 @@ def reverse_accessor_edges() -> list[str]:
             if rel.hidden and not rel.related_query_name:
                 continue  # related_name="+" with no explicit query name — fully sealed
             # An explicit related_query_name keeps filter() traversal alive even under
-            # related_name="+", so the edge stays in the ratchet under a query: marker.
-            accessor = rel.get_accessor_name() or f"query:{field.related_query_name()}"
+            # related_name="+", so the edge stays in the ratchet under a query: marker naming
+            # the live traversal (get_accessor_name() would return the literal "+").
+            accessor = f"query:{field.related_query_name()}" if rel.hidden else rel.get_accessor_name()
             out.add(f"{label(target)}.{target.__name__} {label(model)}.{model.__name__}.{field.name} {accessor}")
     return sorted(out)
 
@@ -79,7 +80,7 @@ import os
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 # settings.TEST gates the AppConfig.ready() side effects (Redis template sync, Celery
 # enqueues) — a model-graph read must not fire them.
-os.environ.setdefault("TEST", "1")
+os.environ["TEST"] = "1"
 import django
 
 django.setup()
