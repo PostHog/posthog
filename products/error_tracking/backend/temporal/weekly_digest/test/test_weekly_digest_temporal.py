@@ -137,6 +137,11 @@ class TestLoadPageOrgs(SimpleTestCase):
 
 
 # send_digest_to_workflow refuses to send outside Cloud, so the send path needs cloud mode.
+# The fallback and final-attempt branches are defined relative to max_attempts, so the cases
+# below have to move with it rather than hardcode the attempt numbers of one particular budget.
+_MAX_ATTEMPTS = SendOrgDigestInputs(org_id="").max_attempts
+
+
 @override_settings(CLOUD_DEPLOYMENT="US")
 class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
     @classmethod
@@ -404,7 +409,7 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
             # Final attempt (attempt == max_attempts): fall back to delivering the healthy teams rather
             # than starving the recipient of a digest entirely. The activity still raises for visibility.
             with pytest.raises(ApplicationError, match="team builds") as exc_info:
-                self._run(attempt=6)
+                self._run(attempt=_MAX_ATTEMPTS)
 
         assert mock_post.call_count == 1
         sections = mock_post.call_args.kwargs["json"]["digest"]["project_sections"]
@@ -414,9 +419,9 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("before_last_two_attempts_no_fallback", 4, 0),
-            ("second_to_last_attempt_falls_back", 5, 1),
-            ("final_attempt_falls_back", 6, 1),
+            ("before_last_two_attempts_no_fallback", _MAX_ATTEMPTS - 2, 0),
+            ("second_to_last_attempt_falls_back", _MAX_ATTEMPTS - 1, 1),
+            ("final_attempt_falls_back", _MAX_ATTEMPTS, 1),
         ]
     )
     def test_broken_test_account_filter_falls_back_to_unfiltered_on_last_two_attempts(
@@ -741,17 +746,59 @@ class TestErrorTrackingWeeklyDigestWorkflow:
         assert result == WeeklyDigestResult(orgs=5, orgs_failed=0, sent=5)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("page_size", [0, -5])
-    async def test_non_positive_page_size_fails_the_run(self, page_size):
-        # 0 used to raise ZeroDivisionError from the page arithmetic, which Temporal retries
-        # as a workflow task forever rather than failing; a negative value produced an empty
-        # page range and reported a successful run that sent nothing.
+    @pytest.mark.parametrize("field", ["page_size", "max_concurrent_pages"])
+    @pytest.mark.parametrize("value", [0, -5])
+    async def test_non_positive_fan_out_input_fails_the_run(self, field, value):
+        # Both values shape the fan-out, and neither fails loudly on its own. 0 page_size raises
+        # ZeroDivisionError from the page arithmetic and 0 max_concurrent_pages waits on a
+        # semaphore permit that never arrives, and Temporal retries both as a workflow task
+        # forever rather than failing. A negative page_size yields an empty page range and
+        # reports a successful run that sent nothing.
         @activity.defn(name="send_org_digest_activity")
         async def _send(inputs: SendOrgDigestInputs) -> SendOrgDigestResult:
-            raise AssertionError("should not fan out for an invalid page_size")
+            raise AssertionError(f"should not fan out for an invalid {field}")
 
         with pytest.raises(Exception) as exc_info:
-            await self._execute(WeeklyDigestInputs(page_size=page_size), [*_storage_stubs(["org-a"]), _send])
+            await self._execute(WeeklyDigestInputs(**{field: value}), [*_storage_stubs(["org-a"]), _send])
 
         cause = exc_info.value.__cause__
-        assert cause is not None and "page_size" in str(cause)
+        assert cause is not None and field in str(cause)
+
+    @pytest.mark.asyncio
+    async def test_caps_how_many_page_children_run_at_once(self):
+        # Each page holds up to max_concurrent org activities open, so the run's peak ClickHouse
+        # concurrency is the product of the two caps. Without the page cap that product includes
+        # the page count, which means peak load climbs every time the org list grows, and the
+        # offline cluster's concurrent-query limit is shared with every other product.
+        org_ids = sorted(f"org-{i:03d}" for i in range(60))
+        active_pages: Counter[int] = Counter()
+        max_active_pages = 0
+        state_lock = asyncio.Lock()
+
+        @activity.defn(name="send_org_digest_activity")
+        async def _send(inputs: SendOrgDigestInputs) -> SendOrgDigestResult:
+            nonlocal max_active_pages
+            page = int(inputs.org_id.removeprefix("org-")) // 10 + 1
+            async with state_lock:
+                active_pages[page] += 1
+                max_active_pages = max(max_active_pages, len(active_pages))
+            try:
+                await asyncio.sleep(0.01)
+            finally:
+                async with state_lock:
+                    active_pages[page] -= 1
+                    if not active_pages[page]:
+                        del active_pages[page]
+            return SendOrgDigestResult(sent=1, teams_built=1)
+
+        result = await self._execute(
+            WeeklyDigestInputs(page_size=10, max_concurrent_pages=2, max_concurrent=5),
+            [*_storage_stubs(org_ids), _send],
+            max_concurrent_activities=len(org_ids),
+        )
+
+        assert result == WeeklyDigestResult(orgs=60, orgs_failed=0, sent=60)
+        assert max_active_pages <= 2, (
+            f"parent ran {max_active_pages} page children at once but max_concurrent_pages=2, "
+            f"so the page semaphore guard is missing"
+        )

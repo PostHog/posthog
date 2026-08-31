@@ -12,10 +12,16 @@ class WeeklyDigestInputs:
     org_ids: list[str] | None = None
     # How many per-org activities run at once within each page (bounds ClickHouse load
     # and webhook rate per page).
-    max_concurrent: int = 10
-    # Total executions per org activity: initial run + 5 retries. The final attempt sends
+    max_concurrent: int = 8
+    # How many page children run at once. Without this the parent starts every page at once,
+    # so the run's peak ClickHouse concurrency is max_concurrent * ceil(total_orgs / page_size)
+    # and grows with the org count. Together the two caps hold the whole run to
+    # max_concurrent_pages * max_concurrent org activities in flight, whatever the org count.
+    max_concurrent_pages: int = 20
+    # Total executions per org activity: initial run + 7 retries. The final attempt sends
     # partial digests instead of deferring recipients whose teams failed to build.
-    max_attempts: int = 6
+    # See SEND_ORG_* in workflow.py for the retry pacing this count is chosen against.
+    max_attempts: int = 8
     # Orgs handled per page child workflow. Bounds each page's history and the size of
     # the org-id slice its load activity returns (~40KB per 1000 orgs).
     page_size: int = 1000
@@ -55,8 +61,8 @@ class WeeklyDigestPageInputs:
     page_number: int
     page_size: int
     dry_run: bool = True
-    max_concurrent: int = 10
-    max_attempts: int = 6
+    max_concurrent: int = 8
+    max_attempts: int = 8
 
 
 @dataclasses.dataclass(frozen=True)
@@ -64,9 +70,9 @@ class SendOrgDigestInputs:
     org_id: str
     # Fail-safe default, matching WeeklyDigestInputs: the workflow always passes it explicitly.
     dry_run: bool = True
-    # Must equal the activity's RetryPolicy.maximum_attempts — an activity cannot read its own
-    # retry policy, and final-attempt detection (attempt >= max_attempts) depends on it.
-    max_attempts: int = 6
+    # Must equal the activity's RetryPolicy.maximum_attempts, because an activity cannot read
+    # its own retry policy and final-attempt detection (attempt >= max_attempts) depends on it.
+    max_attempts: int = 8
 
 
 @dataclasses.dataclass(frozen=True)
