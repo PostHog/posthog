@@ -191,3 +191,33 @@ class TestUncalculatedCohortGate(ExperimentQueryRunnerBaseTest):
         Cohort.objects.filter(pk=cohort.pk).update(version=1, is_calculating=False)
         assert runner._should_precompute() is True
         assert runner._precompute_skip_reason() is None
+
+    @freeze_time("2026-04-30T12:00:00Z")
+    def test_precomputed_override_waits_for_cohort_in_test_account_filters(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2026, 4, 29, 0, 0, 0),  # over the duration threshold
+        )
+        cohort = Cohort.objects.create(team=self.team, name="fresh cohort", is_calculating=True)
+        # The cohort is reachable only through the team's test-account filters, which the exposure
+        # precompute embeds. An uncalculated cohort there must gate precompute even under an
+        # explicit PRECOMPUTED override, so its torn first-calculation snapshot is not cached.
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]
+        self.team.save()
+        self._enable_precomputation()
+
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
+        query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+            precomputation_mode=PrecomputationMode.PRECOMPUTED,
+        )
+        runner = ExperimentQueryRunner(query=query, team=self.team)
+        assert runner._should_precompute() is False
+        assert runner._precompute_skip_reason() == "cohort_not_calculated"
+
+        Cohort.objects.filter(pk=cohort.pk).update(version=1, is_calculating=False)
+        assert runner._should_precompute() is True
+        assert runner._precompute_skip_reason() is None

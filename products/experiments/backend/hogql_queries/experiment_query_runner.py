@@ -404,6 +404,23 @@ class ExperimentQueryRunner(QueryRunner):
     def _team_experiments_config(self) -> TeamExperimentsConfig:
         return get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
+    def _cohort_gate_filter_sources(self) -> list[Any]:
+        """Filter structures the exposure precompute embeds and that can name a cohort.
+
+        The exposure criteria and the metric are always in scope. The team's test-account
+        filters are in scope only when test-account filtering is on for this experiment,
+        because build_test_accounts_filter() then embeds them in the same precompute query.
+        A cohort reached only through those filters must gate precompute too, so its
+        first-calculation snapshot is not frozen into the cache.
+        """
+        sources: list[Any] = [self.experiment.exposure_criteria, self.metric]
+        exposure_params = get_exposure_config_params_for_builder(
+            self.experiment.exposure_criteria, self.team, self.experiment.start_date
+        )
+        if exposure_params.filter_test_accounts:
+            sources.append(self.team.test_account_filters)
+        return sources
+
     def _should_precompute(self) -> bool:
         """Resolve whether to use precomputation: query-level override > team-level default + duration gate."""
         # Capability gates come first: the builder can't produce a precomputed query for these,
@@ -413,7 +430,7 @@ class ExperimentQueryRunner(QueryRunner):
         # cache incomplete exposures.
         if has_activation_config(self.experiment.exposure_criteria):
             return False
-        if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
+        if has_uncalculated_cohorts(self.team, *self._cohort_gate_filter_sources()):
             return False
 
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
@@ -435,7 +452,7 @@ class ExperimentQueryRunner(QueryRunner):
         # accurate even when a PRECOMPUTED override is present.
         if has_activation_config(self.experiment.exposure_criteria):
             return "activation_config"
-        if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
+        if has_uncalculated_cohorts(self.team, *self._cohort_gate_filter_sources()):
             return "cohort_not_calculated"
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
             return None
