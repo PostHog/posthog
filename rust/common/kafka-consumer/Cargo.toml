@@ -9,3 +9,6 @@ workspace = true
 
 [dependencies]
 rdkafka = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"
