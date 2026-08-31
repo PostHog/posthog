@@ -110,6 +110,11 @@ export function pollIntervalMs(waitedMs: number): number {
 // a client timeout, and the cell renders as errored while the server is still working on it.
 const MAX_POLL_WAIT_MS = 21 * 60 * 1000
 
+// How long the sandbox-start notice waits for a price before it fires without one. The notice
+// has to reach the user while the sandbox is still starting, so a slow status request loses the
+// price rather than the notice.
+export const PRICE_LOOKUP_TIMEOUT_MS = 1500
+
 export const SQL_V2_DEFAULT_PAGE_SIZE = 50
 
 export type NotebookNodeSQLV2Page = {
@@ -610,15 +615,15 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     notebookKernelInfoLogic.findMounted({ shortId: props.notebookShortId })?.values.kernelInfo
                         ?.hourly_price ?? null
                 if (hourlyPrice == null) {
-                    try {
-                        const status = await notebooksKernelStatusRetrieve(
-                            String(ApiConfig.getCurrentTeamId()),
-                            props.notebookShortId
-                        )
-                        hourlyPrice = status.hourly_price
-                    } catch {
-                        // Fall through to the priceless message rather than hold up the run.
-                    }
+                    // The run dispatches without waiting for this, so a status request that hangs
+                    // would otherwise start paid compute with no notice at all. Give up on the
+                    // price rather than on telling the user a sandbox is starting.
+                    hourlyPrice = await Promise.race([
+                        notebooksKernelStatusRetrieve(String(ApiConfig.getCurrentTeamId()), props.notebookShortId)
+                            .then((status) => status.hourly_price)
+                            .catch(() => null),
+                        new Promise<null>((resolve) => setTimeout(() => resolve(null), PRICE_LOOKUP_TIMEOUT_MS)),
+                    ])
                 }
                 lemonToast.info(
                     hourlyPrice == null

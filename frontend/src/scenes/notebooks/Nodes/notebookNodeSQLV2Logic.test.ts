@@ -16,6 +16,7 @@ import {
     collectSqlV2Refs,
     notebookNodeSQLV2Logic,
     pollIntervalMs,
+    PRICE_LOOKUP_TIMEOUT_MS,
     sqlV2RunErrorMessage,
 } from './notebookNodeSQLV2Logic'
 
@@ -248,6 +249,24 @@ describe('notebookNodeSQLV2Logic', () => {
             // The user never asked for a sandbox here, so the notice has to name the rate.
             expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('$0.25 / h'))
         })
+    })
+
+    it('still announces the sandbox when the price lookup hangs', async () => {
+        // The run dispatches without waiting for the price, so a status request that never
+        // settles must not swallow the notice — the user would start paid compute in silence.
+        jest.mocked(notebooksKernelStatusRetrieve).mockReturnValue(new Promise(() => {}) as never)
+        const toastSpy = jest.spyOn(lemonToast, 'info')
+        jest.useFakeTimers()
+        try {
+            mount()
+            logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
+            await jest.advanceTimersByTimeAsync(PRICE_LOOKUP_TIMEOUT_MS + 100)
+
+            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
+            expect(toastSpy).not.toHaveBeenCalledWith(expect.stringContaining('$'))
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('rejects blank code before dispatching a run', async () => {
