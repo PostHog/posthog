@@ -30,7 +30,7 @@ export function ReportSupportingMetric({
             <h3 className="m-0 truncate text-xs font-medium text-secondary" title={metric.title}>
                 {metric.title}
             </h3>
-            <div className="text-xl font-semibold leading-tight tabular-nums text-primary">
+            <div className="text-xl font-semibold leading-tight break-words tabular-nums text-primary">
                 {formattedValue ?? 'Not available'}
             </div>
             {liveState?.loading ? (
@@ -60,7 +60,7 @@ export function ReportSupportingMetric({
                     Measured <TZLabel time={metric.value_at} />
                 </span>
             ) : null}
-            {metric.caption ? <p className="m-0 text-xs text-tertiary">{metric.caption}</p> : null}
+            {metric.caption ? <p className="m-0 break-words text-xs text-tertiary">{metric.caption}</p> : null}
         </LemonCard>
     )
 }
