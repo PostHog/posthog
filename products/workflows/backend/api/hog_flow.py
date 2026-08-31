@@ -4958,6 +4958,19 @@ class HogFlowViewSet(
             response = create_hog_flow_scheduled_invocation(
                 team_id=self.team_id, hog_flow_id=str(hog_flow.id), variables=variables
             )
+        except requests.exceptions.ReadTimeout:
+            # CDP already had the request when the timeout fired, so it may already have
+            # queued the invocation — unlike a connection failure below, nothing here rules
+            # that out. Keep the reservation in place instead of releasing it: a retry with
+            # the same key gets a 409 rather than risking a second invocation for a run that
+            # already fired. The reservation still expires on its own TTL if CDP never processed it.
+            logger.exception(
+                "CDP did not respond in time for hog flow run", hog_flow_id=str(hog_flow.id), team_id=self.team_id
+            )
+            return Response(
+                {"detail": "The workflow engine did not respond in time. Wait before retrying with the same key."},
+                status=504,
+            )
         except requests.RequestException:
             if cache_key:
                 cache.delete(cache_key)

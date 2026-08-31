@@ -542,6 +542,9 @@ class TestHogFlowRun(APIBaseTest):
         mock_response = unittest.mock.MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"status": "queued", "invocation_id": invocation_id}
+        # Clear a prior side_effect (e.g. from a failure simulated earlier in the same test) —
+        # Mock prioritizes side_effect over return_value, so a stale one would keep raising.
+        mock_invocation.side_effect = None
         mock_invocation.return_value = mock_response
 
     def test_run_queues_invocation(self, mock_invocation):
@@ -627,6 +630,34 @@ class TestHogFlowRun(APIBaseTest):
         response = self.client.post(self._run_url(workflow.id))
 
         assert response.status_code == 502
+
+    def test_run_read_timeout_keeps_idempotency_reservation(self, mock_invocation):
+        # CDP may already have queued the invocation when the read times out, so a retry
+        # under the same key must not dispatch a second one — it should see the reservation
+        # still held and get a 409, not a fresh call to CDP.
+        mock_invocation.side_effect = requests.exceptions.ReadTimeout("boom")
+        workflow = self._create_workflow()
+
+        first = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="timeout-key")
+        assert first.status_code == 504
+
+        second = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="timeout-key")
+        assert second.status_code == 409
+        mock_invocation.assert_called_once()
+
+    def test_run_connection_error_releases_idempotency_reservation(self, mock_invocation):
+        # Unlike a read timeout, a connection error means CDP never saw the request, so a
+        # retry under the same key must be free to dispatch.
+        mock_invocation.side_effect = requests.ConnectionError("boom")
+        workflow = self._create_workflow()
+
+        failed = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="conn-error-key")
+        assert failed.status_code == 502
+
+        self._mock_success(mock_invocation)
+        retried = self.client.post(self._run_url(workflow.id), HTTP_IDEMPOTENCY_KEY="conn-error-key")
+        assert retried.status_code == status.HTTP_200_OK
+        assert mock_invocation.call_count == 2
 
     def test_run_with_idempotency_key_dispatches_once(self, mock_invocation):
         self._mock_success(mock_invocation)
