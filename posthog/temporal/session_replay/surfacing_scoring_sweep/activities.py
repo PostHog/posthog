@@ -281,7 +281,7 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
 
     feature_names = await sync_to_async(get_feature_names, thread_sensitive=False)()
 
-    activity.logger.info(
+    logger.info(
         "surfacing_scoring_sweep.fetched",
         chunk_id=spec.chunk_id,
         rows=len(df),
@@ -303,7 +303,7 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
     # chunk would deterministically re-fail this hash bucket every tick.
     bad_rows = out_of_contract_row_mask(df, feature_names=feature_names)
     if bad_rows.any():
-        activity.logger.warning(
+        logger.warning(
             "surfacing_scoring_sweep.rows_out_of_contract",
             chunk_id=spec.chunk_id,
             dropped=int(bad_rows.sum()),
@@ -319,7 +319,7 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
     activity.heartbeat({"phase": "publish", "chunk_id": spec.chunk_id, "rows": len(df)})
     published = await sync_to_async(_publish_scores, thread_sensitive=False)(df, scores)
 
-    activity.logger.info(
+    logger.info(
         "surfacing_scoring_sweep.chunk_done",
         chunk_id=spec.chunk_id,
         scored=published,
