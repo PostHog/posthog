@@ -61,6 +61,7 @@ jobs:
                     && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
             replay_shared: >-
                 ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
+            complexity_files: ${{ steps.filter.outputs.complexity_files }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -83,7 +84,17 @@ jobs:
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  list-files: 'escape'
                   filters: |
+                      # Consumed as a file list (complexity_files) by the changed-file
+                      # complexity check — the PR files API, not a hand-rolled git diff.
+                      complexity:
+                          - 'frontend/**/*.ts'
+                          - 'frontend/**/*.tsx'
+                          - 'ee/**/*.ts'
+                          - 'ee/**/*.tsx'
+                          - 'products/**/*.ts'
+                          - 'products/**/*.tsx'
                       frontend:
                         # Avoid running frontend tests for irrelevant changes
                         # NOTE: we are at risk of missing a dependency here.
@@ -377,25 +388,18 @@ jobs:
             # warning, >15 fails. Scoped to the PR's own diff — no repo-wide baseline.
             # Skip on an unrebased branch: bin/lint-complexity.mjs may not exist yet.
             - name: Check cyclomatic complexity of changed files
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
               env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  # Space-separated, from paths-filter (list-files: escape) — the PR
+                  # files API, so no git-diff plumbing to drift from what the PR changed.
+                  CHANGED_FILES: ${{ needs.changes.outputs.complexity_files }}
               run: |
                   if [ ! -f bin/lint-complexity.mjs ]; then
                       echo "bin/lint-complexity.mjs not present on this branch yet — skipping (rebase to pick it up)"
                       exit 0
                   fi
-                  # HEAD is the PR merge commit; prefer its first parent over the event's
-                  # base.sha as the diff base. The merge ref is rebuilt against current
-                  # master, so a stale base.sha would blame files master changed after the
-                  # event fired — the parent is the exact base snapshot HEAD contains.
-                  if [ "$(git cat-file commit HEAD | grep -c '^parent ')" = "2" ]; then
-                      BASE_SHA=$(git cat-file commit HEAD | awk '/^parent /{print $2; exit}')
-                  fi
-                  git fetch --no-tags --filter=blob:none --depth=1 origin "$BASE_SHA"
-                  git diff --name-only --diff-filter=d -z "$BASE_SHA" HEAD \
-                      -- 'frontend/*.ts' 'frontend/*.tsx' 'ee/*.ts' 'ee/*.tsx' 'products/*.ts' 'products/*.tsx' \
-                      | xargs -0 -r node bin/lint-complexity.mjs
+                  # xargs re-parses the escape format, keeping escaped paths whole.
+                  printf '%s' "$CHANGED_FILES" | xargs -r node bin/lint-complexity.mjs
 
             - name: Check markdown formatting with oxfmt
               run: pnpm exec oxfmt --check "**/*.{md,mdx}"
