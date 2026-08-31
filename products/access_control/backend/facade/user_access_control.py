@@ -277,6 +277,9 @@ class ResolvedAccess:
     # (the source a table inherited from), so a display can name it. None when the rule is
     # resource-wide or no rule decided.
     source_resource_id: Optional[str] = None
+    # Display name of the member or role whose row decided. Enforcement never sets or reads
+    # it; the resolution preview fills it so explanations can name the deciding subject.
+    subject_name: Optional[str] = None
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
