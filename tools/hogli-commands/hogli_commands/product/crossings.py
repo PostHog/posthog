@@ -1497,8 +1497,9 @@ BASELINE_HEADER = """\
 # crosses a product boundary without related_name="+" adds a reverse accessor to the target
 # class, with no import for any other check to see. The line reads
 # `target.Class owner.Model.field reverse-accessor(<name>) 1`. Seal the relation with
-# related_name="+" and delete the line in the same change; a caller that needs reverse access
-# gets a facade read function. See products/architecture.md § Cross-product foreign keys.
+# related_name="+", remove any explicit related_query_name (a query:<name> row means one keeps
+# filter() traversal alive), and delete the line in the same change; a caller that needs reverse
+# access gets a facade read function. See products/architecture.md § Cross-product foreign keys.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.
