@@ -33,7 +33,7 @@
     "@posthog/platform": "workspace:*",
     "@posthog/shared": "workspace:*",
     "@trpc/server": "catalog:",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^12.10.1",
     "drizzle-orm": "^0.45.1",
     "fflate": "^0.8.2",
     "hono": "catalog:",
