@@ -7,6 +7,7 @@
 // Usage: node post-complexity-section.mjs <python|typescript> <findings.json>
 import fs from 'node:fs'
 
+import { markdownCell } from '../../frontend/bin/ci-report/format.mjs'
 import { postSection } from '../../frontend/bin/ci-report/update-ci-report.mjs'
 
 const SECTION_IDS = { python: 'complexity-python', typescript: 'complexity-ts' }
@@ -36,7 +37,9 @@ const lines = [
 if (findings.length > 0) {
     lines.push('| Function | Location | Complexity |', '| --- | --- | --- |')
     for (const finding of [...findings].sort((a, b) => b.complexity - a.complexity)) {
-        lines.push(`| \`${finding.name}\` | \`${finding.file}:${finding.line}\` | ${finding.complexity} |`)
+        lines.push(
+            `| \`${markdownCell(finding.name)}\` | \`${markdownCell(finding.file)}:${finding.line}\` | ${finding.complexity} |`
+        )
     }
 }
 
