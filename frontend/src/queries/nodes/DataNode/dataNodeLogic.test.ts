@@ -754,4 +754,29 @@ describe('dataNodeLogic', () => {
             undefined
         )
     })
+
+    it('re-runs the total count on reload and forces a fresh recompute', async () => {
+        // Guards two defects on the persons list header: the count ran once as a lazy loader and
+        // never refreshed on reload, and it served a cached value because no refresh was forced.
+        mockedQuery.mockResolvedValue({ results: [[42]] })
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.ActorsQuery, select: ['id'] })
+
+        logic = dataNodeLogic({ key: testUniqueKey, query, autoLoad: false })
+        logic.mount()
+
+        // First access of the lazy loader triggers the initial count load.
+        logic.actions.loadTotalCount()
+        await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess']).toMatchValues({ totalCount: 42 })
+
+        // The count query must bypass the cache so it reflects current data.
+        expect(performQuery).toHaveBeenCalledWith(
+            expect.objectContaining({ kind: NodeKind.HogQLQuery }),
+            undefined,
+            'force_blocking'
+        )
+
+        // A reload must re-run the count instead of leaving the header frozen.
+        logic.actions.loadData('force_blocking')
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess', 'loadTotalCount'])
+    })
 })

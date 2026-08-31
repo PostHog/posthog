@@ -1390,7 +1390,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     try {
-                        const response = await performQuery(query)
+                        // Force a fresh recompute so the count matches the rows, not a stale cached value.
+                        const response = await performQuery(query, undefined, 'force_blocking')
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
@@ -1411,7 +1412,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     try {
-                        const response = await performQuery(query)
+                        // Force a fresh recompute so the count matches the rows, not a stale cached value.
+                        const response = await performQuery(query, undefined, 'force_blocking')
                         breakpoint()
                         return response?.results?.[0]?.[0] || 0
                     } catch (error: any) {
@@ -2015,6 +2017,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.collectionNodeLoadDataSuccess(props.key)
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
+            }
+            // The count runs once as a lazy loader, so a reload leaves the header frozen while new rows
+            // arrive. Re-run it here to keep the header in sync with the rows below it.
+            if (values.shouldCalculateCount) {
+                actions.loadTotalCount()
+                if (values.filteredCountQuery) {
+                    actions.loadFilteredCount()
+                }
             }
         },
         loadDataFailure: () => {
