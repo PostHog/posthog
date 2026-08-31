@@ -62,6 +62,13 @@ const SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES = 360
 const SCHEDULED_LANE_LABEL = '(scheduled)'
 const STALE_PAGE_RETRIES = 2
 const STALE_PAGE_RETRY_DELAY_MS = 15000
+// The diagnosis agent is started by POSTing this event to a workflow's incoming-webhook trigger.
+// The alerter sends the incident, not a Slack message: the workflow maps `properties.channel` and
+// `properties.ts` onto the agent's Slack context so the answer still lands under the anchor.
+const INCIDENT_OPENED_EVENT = 'master_ci_incident_opened'
+const WEBHOOK_ATTEMPTS = 3
+const WEBHOOK_RETRY_DELAY_MS = 2000
+const WEBHOOK_TIMEOUT_MS = 10000
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -337,6 +344,37 @@ function defaultSlackClient(token, fetchImpl) {
     }
 }
 
+// Ask the diagnosis workflow to start, and fail the run if it can't be reached.
+//
+// A direct call, rather than a workflow triggering on the anchor message: the Slack-message trigger
+// crosses regions and drops events with no error on either side, so an agent that never starts
+// leaves no trace anywhere. Here a lost start reddens this run.
+//
+// Retried because not losing the start is the whole point, and bounded because the alert itself has
+// already posted and no later tick tries again (an incident is created once).
+async function startDiagnosisAgent({ url, token, fetchImpl, sleep, core }, payload) {
+    if (!url) {return false}
+    const doFetch = fetchImpl || fetch
+    let lastError = 'unknown'
+    for (let attempt = 1; attempt <= WEBHOOK_ATTEMPTS; attempt++) {
+        try {
+            const res = await doFetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: token } : {}) },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+            })
+            if (res.ok) {return true}
+            lastError = `HTTP ${res.status}`
+        } catch (err) {
+            lastError = err.message
+        }
+        if (attempt < WEBHOOK_ATTEMPTS) {await sleep(WEBHOOK_RETRY_DELAY_MS * attempt)}
+    }
+    core.setFailed(`Could not start the diagnosis agent after ${WEBHOOK_ATTEMPTS} attempts: ${lastError}`)
+    return false
+}
+
 // The bot's own open incident, identified purely by message metadata — no other
 // app sets this event_type, so it is unambiguous without knowing our bot id.
 async function findActiveIncident(slack, channel) {
@@ -601,6 +639,28 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
                 thread_ts: posted.ts,
                 text: buildThreadReply({ created: workflows, commitStarted: commitActive }),
             })
+            await startDiagnosisAgent(
+                {
+                    url: process.env.DIAGNOSIS_WEBHOOK_URL,
+                    token: process.env.DIAGNOSIS_WEBHOOK_TOKEN,
+                    fetchImpl: _fetch,
+                    sleep,
+                    core,
+                },
+                {
+                    event: INCIDENT_OPENED_EVENT,
+                    distinct_id: 'ci-alerts-devex',
+                    properties: {
+                        channel,
+                        ts: posted.ts,
+                        workflows: workflows.map((w) => w.name),
+                        commit_streak: commitActive ? commitStreakCount : 0,
+                        since,
+                        latest_commit_sha: latestCommit?.sha || '',
+                        all_failing_runs_url: allFailingRunsUrl,
+                    },
+                }
+            )
             action = 'create'
         } else {
             await slack.update({ channel, ts: active.ts, ...message, metadata, unfurl_links: false })

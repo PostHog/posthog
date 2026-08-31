@@ -107,6 +107,11 @@ jobs:
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  # Incoming-webhook trigger of the workflow that starts the master-red diagnosis
+                  # agent. Unset means no agent: the Slack alert still posts. Set and unreachable
+                  # fails this run, because a start that vanishes is the failure mode being fixed.
+                  DIAGNOSIS_WEBHOOK_URL: ${{ secrets.MASTER_RED_DIAGNOSIS_WEBHOOK_URL }}
+                  DIAGNOSIS_WEBHOOK_TOKEN: ${{ secrets.MASTER_RED_DIAGNOSIS_WEBHOOK_TOKEN }}
               with:
                   github-token: ${{ steps.app-token.outputs.token || github.token }}
                   script: |
