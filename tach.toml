@@ -423,6 +423,8 @@ depends_on = [
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
+    # An experiment with a funnel metric runs the funnel through product analytics.
+    "products.product_analytics",
     "products.product_tours",
     "products.surveys",
     "products.tasks",
