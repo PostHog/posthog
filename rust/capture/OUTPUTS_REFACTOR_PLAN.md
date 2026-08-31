@@ -3,7 +3,7 @@
 Working contract for implementation agents. Steps 1–8 have shipped; each
 remaining step is one commit in its own PR.
 
-**Retirement.** This doc dies with `F3`. Whatever is still load-bearing then —
+**Retirement.** This doc dies with `F6`. Whatever is still load-bearing then —
 the vocabulary rules, the ordering-vs-person-processing contract, the
 repartitioning design note — graduates into module docs or
 `v1/sinks/DESIGN.md` first, and the deferred work moves to issues. A plan must
@@ -163,7 +163,9 @@ owns the configuration it produces with. Once that holds, an emergency fallback
 to another cluster is *a configuration of an output's targets* rather than a
 code path — which is what the target architecture said all along.
 
-Each step is small, ships green, and reverts by plain revert.
+Each step is small, ships green, and reverts by plain revert. F1–F3 are the
+mechanism, F4 is the fallback itself, F5 removes what it replaces, and F6
+collapses the second stack onto the same model.
 
 #### Step F1 · An output owns its connection and its topics
 
@@ -172,13 +174,20 @@ Each step is small, ships green, and reverts by plain revert.
   deployment-wide `KafkaConfig`. Two Kafka outputs in the same tree can name
   different clusters and different topics, because neither consults global
   state to find out where it produces.
+- **Adopt v1's model; do not invent a third.** `v1::sinks::kafka::Config` is
+  already exactly this: per-sink, namespaced by sink name
+  (`CAPTURE_V1_SINK_MSK_KAFKA_HOSTS` → key `HOSTS`), carrying its own
+  connection, its own producer tuning, and its own topics — declared *"Topics
+  (all required — envconfig errors if any are missing)"*, with no defaults.
+  v0 is the stack with one deployment-wide `KafkaConfig` and ten defaulted
+  topics. F1 moves v0 onto v1's shape, reusing the struct rather than
+  paralleling it. A v0-specific config model here would leave three to
+  reconcile at Step 20 instead of one.
 - **Why this is the whole mechanism.** `Output::failover` already composes two
   arbitrary outputs (Step 7). It is typed Kafka→S3 today only because `setup`
-  builds it that way. Once a leaf carries its own config, a Kafka→Kafka
-  fallback with its own topic names is a `setup` change and a values file, with
-  no new policy, no new trait, and no per-feature plumbing.
-- **Non-goal.** How any particular fallback is triggered, named, or armed. That
-  is a consumer of this mechanism and is specified separately.
+  builds it that way. Once a leaf carries its own config, a second cluster with
+  its own topic names is a `setup` change and a values file, with no new trait
+  and no per-feature plumbing.
 - **Size.** M.
 
 #### Step F2 · A reachable output must be configured
@@ -215,6 +224,68 @@ Each step is small, ships green, and reverts by plain revert.
   meaningless.
 - **Size.** M.
 
+#### Step F4 · The capture-analytics emergency fallback
+
+The consumer of F1–F3, and the reason they exist.
+
+- **Shape.** The deployment's outputs tree carries *both* Kafka outputs: the
+  primary and a fallback, each configured independently under its own F1
+  namespace (own brokers, own TLS, own topic names — the backup cluster does
+  not have to mirror the primary's topic names, and should not have to).
+- **Arming.** One environment variable, matched exactly against a sentinel —
+  not a truthy value. `"1"`, `"true"`, `"yes"` must not move a fleet's traffic,
+  and any value other than the sentinel refuses to boot rather than quietly
+  running on the primary. Unset is normal operation.
+- **The switch is static at boot.** Exactly one target publishes; arming means
+  setting the variable and rolling the pods. This is deliberate: the failure it
+  answers is "MSK is degraded and a human has decided to move", not a transient
+  the process should react to on its own. Automatic switching is Step 10's
+  breaker, and stays deferred.
+- **Both targets are verified, including the dormant one.** The tree holds the
+  fallback whether or not it is armed, so F3 probes its cluster and topics at
+  every boot. A misconfigured backup is then discovered on an ordinary deploy,
+  months before the emergency — which is the entire point. Discovering it while
+  arming is discovering it too late.
+- **Report which target is live** on a gauge, emitted in both states so a
+  dashboard can tell "on the primary" from "pod not reporting".
+- **Scope.** capture-analytics. Other capture modes carry no fallback output and
+  are not asked to configure one (F2).
+- **Known gaps to carry, not solve here.** Consumers have no equivalent switch,
+  so a repoint is not symmetric; capture-import writes the same topics and must
+  be stopped before any drain-to-zero gate; the AI lane's bridges read
+  MSK-era names. These belong in the runbook, not the code.
+- **Size.** M.
+
+#### Step F5 · Retire the S3 fallback
+
+- **Goal.** Delete `S3Sink`, its `PublishEvents` impl, the `s3_fallback_*`
+  config, and the Kafka→S3 failover wiring in `setup`.
+- **Why it is safe.** It is off in every production deployment: six
+  `S3_FALLBACK_ENABLED: "false"` across the charts apps against one `"true"`,
+  and that one is `apps/capture-analytics/values.dev.yaml`. The infra config
+  notes the IAM role is "wired but unused". Retiring it removes dead
+  break-glass machinery, not a live safety net.
+- **Why F4 replaces it.** A second Kafka cluster keeps events in the pipeline —
+  consumers read them normally. S3 parks them behind a separate replay path that
+  has never been exercised in production.
+- **The trade, stated plainly.** S3 failover is *automatic*: the advisory health
+  handle flips and the fallback takes the batch, with no human and no redeploy.
+  F4 is *configuration*: arm and roll. Retiring S3 therefore gives up an
+  automatic response — one that is currently disabled everywhere, so nothing
+  running is lost, but the capability is. If an automatic switch is wanted,
+  revive Step 10 (breaker mode) and drive F4's fallback from it; the policy node
+  already composes two outputs.
+- **Cross-repo.** Six chart values, the `CaptureAnalyticsV0S3FallbackActive`
+  alert spec and its runbook, and the IAM role in cloud-infra all go with it.
+- **Size.** M.
+
+#### Step F6 · v1 converges on the shared strata
+
+- **Goal.** v1's `Destination` bridges to `(Pipeline, Lane)`; v1 topic resolution goes through the shared table; v1's `serialize_batch` uses the Step-4 serializer. The v1 `Sink`/`Router` trait convergence stays gated on the per-event response model, as before.
+- **Why it moves up.** After F1 both stacks configure a destination the same way — per sink, namespaced, topics required — so the two differ in routing and response granularity, not in how a producer learns where it produces. Convergence is cheapest immediately after F1, and gets more expensive the longer v0 carries a second config model.
+- **Parity proof.** v1_pipeline (17) + v1_sink_integration (10) unmodified, plus `overflow_parity.rs` unmodified. That suite drives both pipelines end to end over the overflow and rate-limit matrix and is the oracle for the ordering-vs-person-processing contract this step has to carry across (see the Hazard note under "v1 convergence on the outputs machinery"). Both paths already share `OrderingGuarantee` from `crate::ordering`.
+- **Size.** M/L.
+
 #### What F2 and F3 would already have caught
 
 `KAFKA_REPLAY_OVERFLOW_TOPIC` appears in **no file** in the charts repo, while
@@ -233,21 +304,18 @@ Not scheduled. The structure to build on landed in steps 1–8; these are the
 drivers that no longer justify sequencing ahead of the fallback. Revive a step
 by moving it back into a stage above, with its parity proof intact.
 
-### Stage D (deferred) — dark failover, convergence
+### Stage D (deferred) — dark failover
 
-Step 9 is not here: it was promoted to **F2** above, which the fallback needs.
+Steps 9 and 11 are not here. Step 9 was promoted into **F2**, which the fallback
+needs; Step 11 became **F6**, because F1 makes convergence cheap and delay makes
+it dearer. Step 10 stays deferred, and is what F5 points at if the automatic
+failover it retires is ever wanted back.
 
 #### Step 10 · Breaker failover mode (dark)
 
 - **Goal.** `FailoverMode::Breaker` — a pure clock-injected `Breaker` state machine, half-open single-probe permit, and a `StaticControlPlane` seam, as the second failover mode, dark behind `failover_enabled` (default off; off ⇒ Advisory mode byte-identical).
 - **Parity proof.** 13+ deterministic breaker unit tests; four output-level behavior tests (healthy-primary, open→fallback→recover cycle, control-plane-down, fatal-no-failover). The effective-route gauge harness and a Notify-gated probe-concurrency harness graduate with the feature when it leaves dark mode.
 - **Size.** M.
-
-#### Step 11 · v1 converges on the shared strata
-
-- **Goal.** v1's `Destination` bridges to `(Pipeline, Lane)`; v1 topic resolution goes through the shared table; v1's `serialize_batch` uses the Step-4 serializer. The v1 `Sink`/`Router` trait convergence stays gated on the per-event response model, as before.
-- **Parity proof.** v1_pipeline (17) + v1_sink_integration (10) unmodified, plus `overflow_parity.rs` unmodified. That suite drives both pipelines end to end over the overflow and rate-limit matrix and is the oracle for the ordering-vs-person-processing contract this step has to carry across (see the Hazard note under "v1 convergence on the outputs machinery"). Both paths already share `OrderingGuarantee` from `crate::ordering`.
-- **Size.** M/L.
 
 ### Stage E — prep hoists up; sinks become pure transport
 
@@ -374,8 +442,10 @@ When all steps land, the five strata hold:
 | F1 · An output owns its connection and topics | pending | `refactor(capture): outputs carry their own connection and topic config` |
 | F2 · A reachable output must be configured | pending | `feat(capture): require configuration for every reachable output` |
 | F3 · Verify topics against the broker | pending | `feat(capture): verify each output's topics against its own broker at boot` |
+| F4 · capture-analytics emergency fallback | pending | `feat(capture): emergency fallback output for capture-analytics` |
+| F5 · Retire the S3 fallback | pending | `refactor(capture): delete the s3 fallback output` |
+| F6 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
 | 10 · Breaker mode (dark) | deferred | `feat(capture): breaker-driven failover mode (dark)` |
-| 11 · v1 convergence | deferred | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
 | 12 · Prep hoist; `PublishEvents` retired | deferred | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
 | 13 · Typed addresses; AI pipeline | deferred | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
 | 14 · Sinks realize namespaces | deferred | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
