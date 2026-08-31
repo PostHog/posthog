@@ -2398,6 +2398,10 @@ export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
  * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
  * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
  * the scheduler itself applies in `internal_process_due_schedules`.
+ *
+ * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
+ * after a timed-out request): a repeat with the same key returns the first call's result
+ * instead of firing a second AI task. Without the header, every call fires a new run.
  */
 export const HogFlowsRunCreateBody = /* @__PURE__ */ zod.object({
     variables: zod
