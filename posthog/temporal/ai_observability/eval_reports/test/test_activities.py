@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, Mock, patch
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
 from posthog.exceptions import ClickHouseQueryTimeOut
@@ -23,6 +24,7 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     _load_evaluation_target,
     _period_for_scheduled_report,
     _update_next_delivery_date,
+    prepare_report_context_activity,
     run_eval_report_agent_activity,
     store_report_run_activity,
 )
@@ -33,6 +35,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
 from posthog.temporal.ai_observability.eval_reports.targets import target_event_predicate
 from posthog.temporal.ai_observability.eval_reports.types import (
+    PrepareReportContextInput,
     RunEvalReportAgentInput,
     StoreReportRunInput,
     UpdateNextDeliveryDateInput,
@@ -487,6 +490,38 @@ class TestPrepareReportContext(BaseTest):
         result = _prepare_sync(str(report.id))
         self.assertEqual(result["evaluation_name"], "Test Eval")
         self.assertEqual(result["team_id"], self.team.id)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_prepare_activity_reads_detector_polarity_from_evaluation(team, user) -> None:
+    def _create_report() -> EvaluationReport:
+        evaluation = Evaluation.objects.create(
+            team=team,
+            name="Detector Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test prompt"},
+            output_type="boolean",
+            output_config={"true_is_failure": True},
+            enabled=True,
+            created_by=user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+        return EvaluationReport.objects.create(
+            team=team,
+            evaluation=evaluation,
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            rrule="FREQ=HOURLY",
+            starts_at=timezone.now() - dt.timedelta(hours=5),
+            delivery_targets=[{"type": "email", "value": "test@example.com"}],
+        )
+
+    report = await sync_to_async(_create_report)()
+
+    context = await prepare_report_context_activity(PrepareReportContextInput(report_id=str(report.id)))
+
+    assert context.true_is_failure is True
+    assert context.detector_evaluation_ids == [str(report.evaluation_id)]
 
 
 class TestCountTriggeredReportChecks(BaseTest):

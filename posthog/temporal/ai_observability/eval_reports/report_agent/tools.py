@@ -11,7 +11,7 @@ import re
 import json
 import time
 import random
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Container, Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
 
@@ -776,6 +776,31 @@ def sample_generation_details(
     return json.dumps(result, indent=2)
 
 
+def _label_generation_evals(
+    eval_rows: Sequence[Sequence[object]], detector_evaluation_ids: Container[str]
+) -> list[dict]:
+    """Label every evaluation on one generation, each by its own polarity."""
+    labeled = []
+    for row in eval_rows:
+        output_type = str(row[1]) if row[1] else "boolean"
+        evaluation_id = str(row[0]) if row[0] else ""
+        try:
+            definition = get_outcome_definition(output_type, true_is_failure=evaluation_id in detector_evaluation_ids)
+        except ValueError:
+            continue
+        raw_result = row[3] if output_type == "sentiment" else row[2]
+        entry = {
+            "evaluation_id": evaluation_id,
+            "output_type": output_type,
+            "outcome": definition.label_for(raw_result, row[6]),
+            "reasoning": row[5] or "",
+        }
+        if output_type == "sentiment":
+            entry["score"] = row[4]
+        labeled.append(entry)
+    return labeled
+
+
 @tool
 def get_generation_detail(
     state: Annotated[dict, InjectedState],
@@ -887,24 +912,7 @@ def get_generation_detail(
         placeholders=shared_placeholders,
     )
 
-    evals = []
-    for er in eval_rows:
-        output_type = str(er[1]) if er[1] else "boolean"
-        try:
-            get_outcome_definition(output_type)
-        except ValueError:
-            continue
-        row_definition = get_outcome_definition(output_type)
-        raw_result = er[3] if output_type == "sentiment" else er[2]
-        entry = {
-            "evaluation_id": str(er[0]) if er[0] else "",
-            "output_type": output_type,
-            "outcome": row_definition.label_for(raw_result, er[6]),
-            "reasoning": er[5] or "",
-        }
-        if output_type == "sentiment":
-            entry["score"] = er[4]
-        evals.append(entry)
+    evals = _label_generation_evals(eval_rows, set(state.get("detector_evaluation_ids") or []))
 
     result: dict = {
         "generation_id": str(row[0]) if row[0] else "",

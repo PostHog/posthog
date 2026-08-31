@@ -31,6 +31,7 @@ class EvalReportAgentState(TypedDict):
     evaluation_target: str
     output_type: str
     true_is_failure: bool
+    detector_evaluation_ids: list[str]
     period_start: str
     period_end: str
     previous_period_start: str

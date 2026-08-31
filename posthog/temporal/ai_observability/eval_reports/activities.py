@@ -612,6 +612,19 @@ async def prepare_report_context_activity(
 
         guidance = report.report_prompt_guidance or ""
 
+        from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
+            Evaluation,
+        )
+
+        # The generation detail tool lists every evaluation on a generation, not just this report's,
+        # so it needs each one's polarity to label it.
+        detector_evaluation_ids = [
+            str(evaluation_id)
+            for evaluation_id in Evaluation.objects.filter(
+                team_id=report.team_id, output_type="boolean", output_config__true_is_failure=True
+            ).values_list("id", flat=True)
+        ]
+
         return PrepareReportContextOutput(
             report_id=str(report.id),
             team_id=report.team_id,
@@ -622,6 +635,7 @@ async def prepare_report_context_activity(
             evaluation_type=evaluation.evaluation_type,
             output_type=evaluation.output_type,
             true_is_failure=bool(evaluation.output_config.get("true_is_failure")),
+            detector_evaluation_ids=detector_evaluation_ids,
             period_start=period_start.isoformat(),
             period_end=period_end.isoformat(),
             previous_period_start=previous_period_start.isoformat(),

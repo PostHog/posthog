@@ -40,6 +40,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _dead_backticked_ids,
     _execute_ch_query_with_retry,
     _is_retriable_ch_error,
+    _label_generation_evals,
     _widened_ts_window,
     add_citation,
     add_section,
@@ -1296,3 +1297,29 @@ class TestToolsCoordinate(SimpleTestCase):
         self.assertEqual(len(report.sections), 2)
         self.assertIsInstance(report.sections[0], ReportSection)
         self.assertEqual(len(report.citations), 1)
+
+
+class TestLabelGenerationEvals(SimpleTestCase):
+    # (eval_id, result_type, result, sentiment_label, sentiment_score, reasoning, applicable)
+    ROWS: list[list[object]] = [
+        ["detector-eval", "boolean", True, None, None, "struggled", None],
+        ["quality-eval", "boolean", True, None, None, "accurate", None],
+        ["sentiment-eval", "sentiment", None, "negative", 0.9, "", None],
+    ]
+
+    def test_each_evaluation_is_labeled_by_its_own_polarity(self):
+        labeled = _label_generation_evals(self.ROWS, {"detector-eval"})
+
+        outcomes = {row["evaluation_id"]: row["outcome"] for row in labeled}
+        self.assertEqual(outcomes, {"detector-eval": "fail", "quality-eval": "pass", "sentiment-eval": "negative"})
+
+    def test_no_detectors_keeps_every_true_result_a_pass(self):
+        labeled = _label_generation_evals(self.ROWS, set())
+
+        outcomes = {row["evaluation_id"]: row["outcome"] for row in labeled}
+        self.assertEqual(outcomes, {"detector-eval": "pass", "quality-eval": "pass", "sentiment-eval": "negative"})
+
+    def test_unsupported_output_type_is_dropped(self):
+        labeled = _label_generation_evals([["numeric-eval", "numeric", 1, None, None, "", None]], set())
+
+        self.assertEqual(labeled, [])

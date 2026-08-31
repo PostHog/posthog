@@ -314,6 +314,7 @@ def run_eval_report_agent(
         "evaluation_target": evaluation_target,
         "output_type": inputs.output_type,
         "true_is_failure": inputs.true_is_failure,
+        "detector_evaluation_ids": inputs.detector_evaluation_ids,
         "period_start": inputs.period_start,
         "period_end": inputs.period_end,
         "previous_period_start": inputs.previous_period_start,
