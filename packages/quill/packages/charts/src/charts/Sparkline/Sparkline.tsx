@@ -37,7 +37,16 @@ export interface SparklineProps {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-const BASE_CONFIG = { hideXAxis: true, hideYAxis: true } as const
+// A sparkline is a bare trend, but it renders through BarChart/LineChart, which layer the library's
+// default chrome (grid, axis lines, tick marks, monotone curve) under any config — opt back out here.
+const BASE_CONFIG = {
+    hideXAxis: true,
+    hideYAxis: true,
+    showGrid: false,
+    showAxisLines: false,
+    showTickMarks: false,
+    curve: 'linear',
+} as const
 // Reserve room for the hover highlight ring (radius + 2 = 6px) so it isn't clipped at the top/bottom edge.
 const LINE_MARGINS = { top: 6, right: 0, bottom: 6, left: 0 }
 // Bars have no hover ring — sit them flush on the baseline, with a sliver of headroom for the tallest stack.
@@ -93,7 +102,13 @@ function SparklineInner({
         () => ({
             ...BASE_CONFIG,
             ...(type === 'bar'
-                ? { barCornerRadius: 2, margins: BAR_MARGINS }
+                ? {
+                      barCornerRadius: 2,
+                      margins: BAR_MARGINS,
+                      showCrosshair: false,
+                      // Sparkline bars can be a pixel tall, or absent at a zero bucket.
+                      tooltip: { hitArea: 'band' as const },
+                  }
                 : { showCrosshair: true, margins: LINE_MARGINS }),
             ...(hasTooltip ? {} : { tooltip: { enabled: false } }),
         }),

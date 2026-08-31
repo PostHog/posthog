@@ -1,4 +1,8 @@
+import { POSTHOG_OBJECT_KINDS } from "@posthog/core/message-editor/content";
+import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
+import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { Theme } from "@radix-ui/themes";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -20,13 +24,25 @@ vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
   }),
 }));
 
+import { setRootContainer } from "@posthog/di/container";
+import { Container } from "inversify";
+import { ANALYTICS_TRACKER } from "../../../shell/analytics";
 import { openExternalUrl } from "../../../shell/openExternal";
 import { ANONYMOUS_AUTH_STATE, useAuthStore } from "../../auth/store";
+import { evidencePreviewQueryKey } from "../evidencePreview";
 import { EvidenceHoverCard, EvidenceRefChip } from "./EvidenceRefChip";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
 function renderInTheme(node: React.ReactNode) {
-  return render(<Theme>{node}</Theme>);
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Theme>{node}</Theme>
+    </QueryClientProvider>,
+  );
 }
 
 function signIn() {
@@ -39,8 +55,21 @@ function signIn() {
   });
 }
 
+function bindTracker() {
+  const track = vi.fn();
+  const container = new Container();
+  container.bind(ANALYTICS_TRACKER).toConstantValue({ track });
+  setRootContainer(container);
+  return track;
+}
+
 afterEach(() => {
   useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
+  queryClient.clear();
+  const actions = useDraftStore.getState().actions;
+  actions.setDraft("task-1", null);
+  actions.clearPendingInsert("task-1");
+  actions.clearFocusRequest("task-1");
 });
 
 describe("EvidenceRefChip", () => {
@@ -106,10 +135,57 @@ describe("EvidenceRefChip", () => {
     // real elements a keyboard user can Tab to.
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeDefined();
-    expect(dialog.classList.contains("dark")).toBe(false);
     expect(
       screen.getByRole("button", { name: /Open in PostHog/ }),
     ).toBeDefined();
+  });
+
+  it("lets the card follow the active theme instead of forcing dark", () => {
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+        Checkout funnel
+      </EvidenceRefChip>,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    const popup = screen.getByTestId("evidence-hover-card");
+    expect(popup.className.split(" ")).not.toContain("dark");
+  });
+
+  it("reports the preview as shown with a cache miss on first open", () => {
+    const track = bindTracker();
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+        Checkout funnel
+      </EvidenceRefChip>,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    expect(track).toHaveBeenCalledWith(
+      "Evidence preview shown",
+      expect.objectContaining({ kind: "insight", cache: "miss" }),
+    );
+  });
+
+  it("reports the preview as shown with a cache hit after a resolved lookup is seeded", () => {
+    queryClient.setQueryData(
+      evidencePreviewQueryKey({ kind: "insight", id: "9pQx3" }),
+      {
+        title: "Checkout funnel",
+      },
+    );
+    const track = bindTracker();
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+        Checkout funnel
+      </EvidenceRefChip>,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    expect(track).toHaveBeenCalledWith(
+      "Evidence preview shown",
+      expect.objectContaining({ kind: "insight", cache: "hit" }),
+    );
   });
 
   it("gives an unlinked reference a focusable trigger that opens the card", () => {
@@ -126,6 +202,70 @@ describe("EvidenceRefChip", () => {
     expect(trigger.getAttribute("tabindex")).toBe("0");
     fireEvent.click(trigger);
     expect(screen.getByRole("dialog")).toBeDefined();
+  });
+
+  it.each(POSTHOG_OBJECT_KINDS)(
+    "offers the compact composer action for %s references",
+    (kind) => {
+      renderInTheme(
+        <SessionTaskIdProvider taskId="task-1">
+          <EvidenceRefChip target={{ kind, id: `${kind}-1` }}>
+            {kind} reference
+          </EvidenceRefChip>
+        </SessionTaskIdProvider>,
+      );
+
+      fireEvent.focus(screen.getByRole("link", { name: `${kind} reference` }));
+      expect(
+        screen.getByRole("button", { name: "Ask about this" }),
+      ).toBeDefined();
+    },
+  );
+
+  it("hides the composer action outside a task conversation", () => {
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "flag", id: "new-checkout" }}>
+        new-checkout
+      </EvidenceRefChip>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "new-checkout" }));
+    expect(screen.queryByRole("button", { name: "Ask about this" })).toBeNull();
+  });
+
+  it("adds the exact object reference after an existing composer draft", () => {
+    signIn();
+    useDraftStore.getState().actions.setDraft("task-1", {
+      segments: [{ type: "text", text: "Compare the variants" }],
+    });
+    renderInTheme(
+      <SessionTaskIdProvider taskId="task-1">
+        <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+          Checkout funnel
+        </EvidenceRefChip>
+      </SessionTaskIdProvider>,
+    );
+
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask about this" }));
+
+    expect(useDraftStore.getState().pendingInsert["task-1"]).toEqual({
+      segments: [
+        { type: "text", text: "\n\nAsk about " },
+        {
+          type: "chip",
+          chip: {
+            type: "posthog_object",
+            objectKind: "insight",
+            id: "9pQx3",
+            label: "Insight: Checkout funnel",
+          },
+        },
+        { type: "text", text: " " },
+      ],
+    });
+    expect(useDraftStore.getState().focusRequested["task-1"]).toBeDefined();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
@@ -154,6 +294,27 @@ describe("EvidenceHoverCard", () => {
     if (preview) {
       expect(screen.getByText("conversion, last 30 days")).toBeDefined();
     }
+  });
+
+  it("copies the exact reference from the existing footer", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderInTheme(
+      <EvidenceHoverCard
+        target={{ kind: "insight", id: "9pQx3" }}
+        url={null}
+        preview={{ title: "Checkout funnel" }}
+      >
+        Checkout funnel
+      </EvidenceHoverCard>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy reference" }));
+
+    expect(writeText).toHaveBeenCalledWith("9pQx3");
   });
 
   it("draws a sparkline and headline for a series preview and opens on click", () => {

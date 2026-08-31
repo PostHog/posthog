@@ -1383,6 +1383,8 @@ impl TestContext {
     {
         super::super::flags::flag_matching_utils::get_feature_flag_hash_key_overrides(
             self.persons_reader.clone(),
+            crate::database::pool_names::PERSONS_READER,
+            self.persons_writer.clone(),
             team_id,
             distinct_ids,
         )

@@ -13,6 +13,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.models import Team
 from posthog.models.integration import GitLabIntegrationError, Integration
 
+from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.facade import api, contracts
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
@@ -21,8 +22,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingSymbolSet,
 )
-
-from ee.models.rbac.role import Role
 
 
 class TestErrorTrackingFacadeAPI(BaseTest):
@@ -67,7 +66,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         with self.assertRaises(api.IssueNotFoundError):
             api.get_issue(issue_id=issue.id, team_id=other_team.id)
 
-    @patch("products.error_tracking.backend.logic.LinearIntegration.list_teams")
+    @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.list_teams")
     def test_create_external_reference_rejects_invalid_linear_team_id(self, mock_list_teams):
         mock_list_teams.return_value = [{"id": "linear-team-id", "name": "Engineering"}]
         issue = self._create_issue(team=self.team, name="Checkout TypeError")
@@ -93,8 +92,8 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         mock_list_teams.assert_called_once_with()
 
     @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
-    @patch("products.error_tracking.backend.logic.LinearIntegration.create_issue")
-    @patch("products.error_tracking.backend.logic.LinearIntegration.list_teams")
+    @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.create_issue")
+    @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.list_teams")
     def test_create_external_reference_links_linear_attachment_via_fingerprint(
         self, mock_list_teams, mock_create_issue
     ):
@@ -121,8 +120,8 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/fingerprint/fp%2Fwith%23chars")
 
     @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
-    @patch("products.error_tracking.backend.logic.LinearIntegration.create_issue")
-    @patch("products.error_tracking.backend.logic.LinearIntegration.list_teams")
+    @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.create_issue")
+    @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.list_teams")
     def test_create_external_reference_falls_back_to_issue_url_without_fingerprints(
         self, mock_list_teams, mock_create_issue
     ):
@@ -148,7 +147,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/{issue.id}")
 
     @override_settings(ATLASSIAN_APP_CLIENT_ID="atlassian-client-id", ATLASSIAN_APP_CLIENT_SECRET="atlassian-secret")
-    @patch("products.error_tracking.backend.logic.JiraIntegration.create_issue")
+    @patch("products.error_tracking.backend.logic.external_references.JiraIntegration.create_issue")
     def test_create_external_reference_links_existing_issue_without_creating(self, mock_create_issue):
         issue = self._create_issue(team=self.team, name="Checkout TypeError")
         integration = Integration.objects.create(
@@ -171,8 +170,8 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
     @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
     @patch("products.error_tracking.backend.facade.api.posthoganalytics.capture")
-    @patch("products.error_tracking.backend.logic.LinearIntegration.create_attachment")
-    @patch("products.error_tracking.backend.logic.LinearIntegration.create_issue")
+    @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.create_attachment")
+    @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.create_issue")
     def test_link_existing_linear_issue_creates_attachment(
         self, mock_create_issue, mock_create_attachment, mock_capture
     ):
@@ -216,7 +215,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert len(created_events) == 1
 
     @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
-    @patch("products.error_tracking.backend.logic.LinearIntegration.create_attachment")
+    @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.create_attachment")
     def test_link_existing_linear_issue_aborts_when_attachment_fails(self, mock_create_attachment):
         # A failed attachment (invalid issue id, forbidden, rate limit) must not persist a
         # reference that promises a back-link Linear never created.
@@ -329,7 +328,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             ("malformed_body", ValueError("invalid json")),
         ]
     )
-    @patch("products.error_tracking.backend.logic.GitLabIntegration.search_issues")
+    @patch("products.error_tracking.backend.logic.external_references.GitLabIntegration.search_issues")
     def test_search_external_issues_maps_provider_failures_to_validation_errors(
         self, _name, side_effect, mock_search_issues
     ):
@@ -344,7 +343,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         with self.assertRaises(api.ExternalReferenceValidationError):
             api.search_external_issues(team_id=self.team.id, integration_id=integration.id, search="boom")
 
-    @patch("products.error_tracking.backend.logic.LinearIntegration.search_issues")
+    @patch("products.error_tracking.backend.logic.external_references.LinearIntegration.search_issues")
     def test_search_external_issues_dispatches_to_provider(self, mock_search_issues):
         results = [{"id": "ENG-1", "title": "Boom", "url": "https://linear.app/x", "external_context": {"id": "ENG-1"}}]
         mock_search_issues.return_value = results

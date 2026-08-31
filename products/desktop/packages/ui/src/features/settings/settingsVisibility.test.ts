@@ -21,7 +21,19 @@ describe("getHiddenSettingsCategories", () => {
         localWorkspaces: true,
         quickAskAvailable: true,
       },
-      expected: ["plan-usage"],
+      expected: ["plan-usage", "cost-management"],
+    },
+    {
+      // Every limit and recommendation on the page is measured against
+      // personal spend, so without it the page has nothing to show.
+      name: "hides cost management without spend analysis",
+      input: {
+        billingEnabled: true,
+        spendAnalysisEnabled: false,
+        localWorkspaces: true,
+        quickAskAvailable: true,
+      },
+      expected: ["cost-management"],
     },
     {
       name: "hides host-specific categories without local workspaces",
@@ -32,19 +44,6 @@ describe("getHiddenSettingsCategories", () => {
         quickAskAvailable: true,
       },
       expected: ["workspaces", "worktrees", "terminal", "harness", "discord"],
-    },
-    {
-      // The channels layout uses a fixed nav, so the Sidebar page's
-      // reorder/hide controls would have nothing to act on.
-      name: "hides the sidebar page under the channels layout",
-      input: {
-        billingEnabled: true,
-        spendAnalysisEnabled: true,
-        localWorkspaces: true,
-        channelsLayout: true,
-        quickAskAvailable: true,
-      },
-      expected: ["sidebar"],
     },
     {
       // The page's only content when the panel is unavailable is a dead-end

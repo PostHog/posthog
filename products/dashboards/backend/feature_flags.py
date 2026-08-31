@@ -15,7 +15,7 @@ DASHBOARD_CUSTOMIZATION_FLAG = "dashboard-customization"
 
 
 def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> bool:
-    """Match in-app flag evaluation: user distinct_id plus project/org groups."""
+    """Match the existing in-app widget flag evaluation."""
     if flag in _FORCE_ENABLED_FLAGS:
         return True
 

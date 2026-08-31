@@ -553,7 +553,6 @@ NATIVE_SPECS: dict[str, tuple[str, str, dict[str, dict[str, str]]]] = {
     "BingAds": ("build_bing", "bingads", BING_COLUMNS),
     "LinkedinAds": ("build_linkedin", "linkedinads", LINKEDIN_COLUMNS),
     "RedditAds": ("build_reddit", "redditads", REDDIT_COLUMNS),
-    "PinterestAds": ("build_pinterest", "pinterestads", PINTEREST_COLUMNS),
     "SnapchatAds": ("build_snapchat", "snapchatads", SNAPCHAT_COLUMNS),
     "TikTokAds": ("build_tiktok", "tiktokads", TIKTOK_COLUMNS),
 }

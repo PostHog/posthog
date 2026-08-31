@@ -5,11 +5,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
 import { createAutoPublishExtension } from "@posthog/harness/extensions/auto-publish";
-import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
 import type {
   McpToolPermissionDecision,
   McpToolPermissionRequest,
 } from "@posthog/shared";
+import { createPiContextWikiExtension } from "./context-wiki-extension";
 import { createPiEnrichmentExtension } from "./enrichment-extension";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
@@ -18,6 +18,10 @@ import {
 import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
 import type { PiRpcBootstrap, PiRuntimeExtension } from "./rpc-client";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
+import {
+  createPiTaskSystemPromptExtension,
+  resolvePiTaskContext,
+} from "./task-system-prompt-extension";
 
 interface PiHostRequest {
   type: "posthog_pi_host_request";
@@ -75,10 +79,13 @@ const extensionFactories: Record<PiRuntimeExtension, InlineExtension> = {
     name: "posthog-auto-publish",
     factory: createAutoPublishExtension(),
   },
+  "context-wiki": createPiContextWikiExtension(bootstrap.contextWikiPath),
 };
 const runtimeExtensions = (bootstrap.extensions ?? []).map(
   (extension) => extensionFactories[extension],
 );
+const taskContext = resolvePiTaskContext(sessionManager, bootstrap.taskContext);
+runtimeExtensions.push(createPiTaskSystemPromptExtension(taskContext));
 if (bootstrap.enrichment) {
   runtimeExtensions.push(createPiEnrichmentExtension(bootstrap.enrichment));
 }
@@ -86,10 +93,7 @@ if (bootstrap.enrichment) {
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
-  projectTrusted: createPiRuntimeTrustResolver(
-    cwd,
-    bootstrap.projectTrusted ?? false,
-  ),
+  projectTrusted: () => true,
   resourceLoaderOptions: { extensionFactories: runtimeExtensions },
   ...providerOptions,
   runtimeMcpServers: bootstrap.runtimeMcpServers,

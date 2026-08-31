@@ -32,7 +32,7 @@ Slack  ──HTTPS──▶  ngrok edge  ──▶  ngrok agent (laptop)  ──
   through to nothing and you get `200 OK` with an **empty body**. That's why the tunnel
   must rewrite the Host header to `localhost` (Step 1).
 - The OAuth `redirect_uri` is built **server-side** from `SITE_URL`, not from the browser
-  address bar (`OauthIntegration.redirect_uri()` in `posthog/models/integration.py`), and it
+  address bar (`OauthIntegration.redirect_uri()` in `posthog/models/integration/oauth.py`), and it
   force-upgrades the scheme to https — `SITE_URL.replace('http://', 'https://')`. `SITE_URL`
   defaults to `http://localhost:8010` (`posthog/settings/__init__.py:69`), so at that default
   Slack is handed `https://localhost:8010/...` — which has no TLS, hence the browser SSL error.
@@ -121,6 +121,7 @@ settings:
     bot_events:
       - app_mention
       - app_home_opened
+      - message.channels
   interactivity:
     is_enabled: true
     request_url: https://<you>-posthog.ngrok.dev/slack/interactivity-callback
@@ -140,6 +141,11 @@ Django must be up at that moment.
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
 > locally — they're behind the `slack-app-home` and `slack-app-oauth` flags.
+
+> `message.channels` is what makes Slack deliver plain channel messages. Without it you get
+> `app_mention` only, so `@PostHog` works and everything driven by an untagged message —
+> workflow Slack triggers, untagged thread follow-ups — receives nothing. There is no error:
+> Slack simply never sends the event, so the ngrok inspector stays empty too.
 
 ## Step 3 — backend credentials and `SITE_URL`
 
@@ -164,6 +170,14 @@ curl -sS https://<you>-posthog.ngrok.dev/_preflight | jq '.slack_service'
 `SITE_URL` must point at your tunnel for the OAuth step (Step 5), or the redirect goes to
 `https://localhost:8010/...` and the browser fails with an SSL error. Put it in `.env.local` so
 it is available every time you run `hogli start`.
+
+> **A tunnel `SITE_URL` breaks local sandbox agents.** It reaches the sandbox as
+> `POSTHOG_API_URL`, and `getCloudTaskGatewayUrl` maps only `localhost` and
+> `host.docker.internal` to the local LLM gateway on 3308. Every other host falls through to
+> the production gateway, where a local run token does not authenticate. The agent starts, sends
+> its first prompt, and hangs until its inactivity window ends, with nothing in any log. Set
+> `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308` alongside the tunnel `SITE_URL`, or
+> keep `SITE_URL` on localhost and hand-write the integration row (Step 5).
 
 > There's also an `NGROK_URL` env var that `redirect_uri()` checks before `SITE_URL` in DEBUG —
 > it would override just the OAuth redirect and leave `SITE_URL` alone. We used `SITE_URL` and
@@ -198,6 +212,15 @@ print(list(Integration.objects.filter(kind='slack').values('id','team_id','integ
 ```
 
 The `tasks` flag from Step 4 still gates the Tasks UI on top of the connected integration.
+
+> **The connect cannot complete against the Vite dev server.** `redirect_uri` is built from
+> `SITE_URL` (`OauthIntegration.redirect_uri()`), so Slack returns you to the tunnel origin, and
+> `/integrations/:kind/callback` is a frontend route rather than a Django view. The dev SPA loads
+> its modules from `http://localhost:8234`, which an https page may not fetch, so the callback
+> page never renders and the flow stops there. Serve a built frontend if you need the real OAuth
+> round-trip. To skip it, install the app to your workspace in the Slack console and write the row
+> from the bot token instead — but note that a hand-written row has no `config["authed_user"]`, and
+> the channel picker reads that field, so channel lists fail until you add it.
 
 **GitHub** (Settings → Integrations): connect a _team_ GitHub with at least one repo (otherwise
 the repo cascade has nothing to pick and creates a no-repo task), and connect your _personal_

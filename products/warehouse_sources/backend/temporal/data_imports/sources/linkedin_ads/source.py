@@ -52,6 +52,7 @@ from .linkedin_ads import (
 # LinkedIn's Marketing API uses monthly date-based versioning (YYYYMM) sent as a request header.
 LINKEDIN_ADS_VERSION_202606 = "202606"
 LINKEDIN_ADS_VERSION_202607 = "202607"
+LINKEDIN_ADS_VERSION_202608 = "202608"
 
 # Opaque source version label -> LinkedIn API version header. The legacy `v1` pin keeps sending the
 # header it always has (`API_VERSION`), so existing syncs are byte-for-byte unchanged.
@@ -59,6 +60,7 @@ _API_HEADER_BY_VERSION = {
     UNVERSIONED_API_VERSION: API_VERSION,
     LINKEDIN_ADS_VERSION_202606: LINKEDIN_ADS_VERSION_202606,
     LINKEDIN_ADS_VERSION_202607: LINKEDIN_ADS_VERSION_202607,
+    LINKEDIN_ADS_VERSION_202608: LINKEDIN_ADS_VERSION_202608,
 }
 
 
@@ -66,12 +68,21 @@ _API_HEADER_BY_VERSION = {
 class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
     api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/versioning"
 
-    supported_versions = (UNVERSIONED_API_VERSION, LINKEDIN_ADS_VERSION_202606, LINKEDIN_ADS_VERSION_202607)
-    default_version = LINKEDIN_ADS_VERSION_202607
+    supported_versions = (
+        UNVERSIONED_API_VERSION,
+        LINKEDIN_ADS_VERSION_202606,
+        LINKEDIN_ADS_VERSION_202607,
+        LINKEDIN_ADS_VERSION_202608,
+    )
+    default_version = LINKEDIN_ADS_VERSION_202608
     # LinkedIn supports each version for a minimum of one year, then starts rejecting it with a 426
     # `NONEXISTENT_VERSION` (see `get_non_retryable_errors`). The legacy `v1` pin sends the header it
-    # always has (202508, August 2025 — `_API_HEADER_BY_VERSION`), which reached that one-year mark.
-    deprecated_versions = (VersionDeprecation(version=UNVERSIONED_API_VERSION, sunset_at=date(2026, 8, 1)),)
+    # always has (202508, August 2025 — `_API_HEADER_BY_VERSION`), which reached that one-year mark;
+    # 202606 sunsets 2027-06-15. Repin migration lives alongside this bump.
+    deprecated_versions = (
+        VersionDeprecation(version=UNVERSIONED_API_VERSION, sunset_at=date(2026, 8, 1)),
+        VersionDeprecation(version=LINKEDIN_ADS_VERSION_202606, sunset_at=date(2027, 6, 15)),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

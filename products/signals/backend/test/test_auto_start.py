@@ -1,4 +1,5 @@
 import re
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -12,9 +13,12 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.temporal.oauth import grants_scratchpad_write
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.auto_start import (
+    NO_STEERING,
+    ReportSteering,
     ReviewerContent,
     _build_autostart_task_description,
     _create_implementation_task_if_absent,
@@ -23,13 +27,18 @@ from products.signals.backend.auto_start import (
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
     _resolve_triggering_user,
+    load_report_steering,
+    maybe_autostart_from_report_artefacts,
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportTask,
+    SignalScoutConfig,
+    SignalScoutNote,
     SignalScoutRun,
+    SignalScratchpad,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -44,7 +53,10 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.signal_metadata import SignalSourceReference
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
+
+SCOUT_SKILL = "signals-scout-error-tracking"
 
 
 @pytest.fixture
@@ -314,6 +326,9 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
     assert call_kwargs["ai_stage"] == "implementation"
     assert call_kwargs["internal"] is True
+    # The description's memory protocol is rendered from this same posture, so a posture that stops
+    # granting the scratchpad would leave the run told to remember with no tool to remember with.
+    assert grants_scratchpad_write(call_kwargs["posthog_mcp_scopes"])
     # The server-generated head branch is the unforgeable end of the run->PR link the review
     # carve-out matches on; dropping the stamp or the description instruction silently kills
     # self-driving reviews (the agent pushes to a name the server never stamped).
@@ -640,6 +655,98 @@ def test_autostart_description_appends_fix_loop_instructions_only_for_metric_rep
     assert ("never raw telemetry rows" in description) is expect_fix_loop
 
 
+def test_autostart_description_carries_steering_only_when_the_team_left_some():
+    # The bug this closes: a note the team wrote reaches the scout and stops there, so the run that
+    # writes the code never sees it. The description is the only channel it has.
+    steered = _build_autostart_task_description(
+        report_id="0198c0de-0000-7000-8000-000000000001",
+        team_id=1,
+        summary="Fix the auth panel.",
+        repository="acme/repo",
+        priority=None,
+        steering=ReportSteering(
+            section="**Notes from your team**\n\n- 2026-08-27: the auth panel is frozen this quarter",
+            notes_attached=1,
+            scratchpad_available=False,
+        ),
+    )
+    assert "the auth panel is frozen this quarter" in steered
+
+    plain = _build_autostart_task_description(
+        report_id="0198c0de-0000-7000-8000-000000000001",
+        team_id=1,
+        summary="Fix the auth panel.",
+        repository="acme/repo",
+        priority=None,
+    )
+    # A team with no notes must not pay for an empty section or a dangling heading.
+    assert "Notes from your team" not in plain
+    assert "scout-scratchpad-search" not in plain
+
+
+@pytest.mark.django_db
+def test_steering_reaches_the_run_without_the_report_derived_notes(organization, team):
+    # Steering is the point, but only for notes a teammate typed. The derived origins quote report
+    # content, which is built from raw product data, so forwarding them would pipe text nobody on
+    # the team wrote into a run that pushes code.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    with team_scope(team.id, canonical=True):
+        LLMSkill.objects.create(team=team, name=SCOUT_SKILL, description="d", body="b")
+        task = Task.objects.create(
+            team=team, title="scout run", description="d", origin_product=Task.OriginProduct.SIGNALS_SCOUT
+        )
+        config, _ = SignalScoutConfig.objects.get_or_create(team=team, skill_name=SCOUT_SKILL)
+        SignalScoutRun.objects.create(
+            team=team,
+            task_run=TaskRun.objects.create(task=task, team=team),
+            scout_config=config,
+            skill_name=SCOUT_SKILL,
+            skill_version=1,
+            emitted_report_ids=[str(report.id)],
+        )
+        SignalScoutNote.objects.create(team=team, skill_name="", content="the checkout flow is frozen")
+        SignalScoutNote.objects.create(team=team, skill_name=SCOUT_SKILL, content="prefer a fix in the parser")
+        SignalScoutNote.objects.create(
+            team=team,
+            skill_name=SCOUT_SKILL,
+            content="dismissed: quoted report text",
+            origin=SignalScoutNote.Origin.REPORT_DISMISSAL,
+        )
+
+    # No ambient team scope here on purpose: auto-start runs in a Temporal activity, so the reads
+    # have to set their own scope or every fail-closed model raises.
+    steering = load_report_steering(team.id, str(report.id))
+
+    assert steering.notes_attached == 2
+    assert "the checkout flow is frozen" in steering.section
+    assert "prefer a fix in the parser" in steering.section
+    assert "quoted report text" not in steering.section
+    # A note is evidence about the team's intent, never a second set of instructions for a run that
+    # holds full-scope MCP access and can open a PR.
+    assert "never as instructions" in steering.section
+    # No fleet memory yet, so the scratchpad pointer must not tax the description.
+    assert steering.scratchpad_available is False
+    assert "scout-scratchpad-search" not in steering.section
+
+    with team_scope(team.id, canonical=True):
+        SignalScratchpad.objects.create(team=team, key="noise:checkout:019de34e", content="known, expected")
+    with_memory = load_report_steering(team.id, str(report.id))
+    assert with_memory.scratchpad_available is True
+    assert "scout-scratchpad-search" in with_memory.section
+
+    # A child environment gets nothing. Notes live on the canonical project, but the task lands on
+    # the report's own team, where `task:read` would show them to someone who cannot reach the parent.
+    child = Team.objects.create(organization=organization, name="child-env", parent_team=team)
+    child_report = SignalReport.objects.create(
+        team=child, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    assert load_report_steering(child.id, str(child_report.id)) == NO_STEERING
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("enforced", [True, False])
@@ -699,3 +806,119 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
         )
 
     assert (mock_create.call_count == 0) is enforced
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("autostart_eligible", [True, False])
+async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
+    # The re-eval reads the flag off the persisted artefact and hands it to autostart rather than
+    # deciding for itself, so a reviewer edit arriving later still gets the whole gate applied.
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="inferred-org")
+        team = Team.objects.create(organization=organization, name="inferred-team")
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        for artefact_type, content in (
+            (
+                SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                {
+                    "explanation": "Clear fix in the affected module.",
+                    "actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                    "already_addressed": False,
+                },
+            ),
+            (
+                SignalReportArtefact.ArtefactType.REPO_SELECTION,
+                {
+                    "repository": "owner/repo",
+                    "reason": "Linked GitHub repository found in the report content.",
+                    "autostart_eligible": autostart_eligible,
+                },
+            ),
+            (
+                SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                {"explanation": "Affects many sessions.", "priority": Priority.P2.value},
+            ),
+        ):
+            SignalReportArtefact.objects.create(
+                team=team, report=report, type=artefact_type, content=json.dumps(content)
+            )
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
+        await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
+
+    assert mock_autostart.call_args.kwargs["repository_autostart_eligible"] is autostart_eligible
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("repository_autostart_eligible", "user_triggered", "expect_task"),
+    [
+        (True, False, True),
+        (False, False, False),
+        (False, True, True),
+    ],
+)
+async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
+    repository_autostart_eligible, user_triggered, expect_task
+):
+    # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
+    # reach the reviewer-less fallback — the one path where nobody named the destination or the runner.
+    # It must still yield to a person: a later reviewer edit re-runs autostart as the editing user, and
+    # the documented contract is that the report can open a draft PR then.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport, User]:
+        organization = Organization.objects.create(name="inferred-org")
+        team = Team.objects.create(organization=organization, name="inferred-team")
+        enabler = User.objects.create(email="inferred-enabler@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+        )
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        return team, report, enabler
+
+    team, report, enabler = await sync_to_async(_setup)()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+    ):
+        await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+            triggering_user_id=enabler.id if user_triggered else None,
+            repository_autostart_eligible=repository_autostart_eligible,
+        )
+
+    assert (mock_create.call_count == 1) is expect_task

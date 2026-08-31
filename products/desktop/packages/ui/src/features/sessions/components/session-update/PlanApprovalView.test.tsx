@@ -148,4 +148,32 @@ describe("PlanApprovalView", () => {
       screen.queryByRole("button", { name: /show plan/i }),
     ).not.toBeInTheDocument();
   });
+
+  it("prefers rawInput.plan over denial text in content once resolved", async () => {
+    const user = userEvent.setup();
+    // A denial's tool_call_update replaces `content` with the refusal message;
+    // the plan survives only on rawInput.
+    renderView({
+      toolCall: makeToolCall({
+        status: "failed",
+        rawInput: { plan: PLAN_MARKER },
+        content: [
+          {
+            type: "content",
+            content: {
+              type: "text",
+              text: "User rejected the plan with feedback: stopping.",
+            },
+          },
+        ],
+      }),
+    });
+
+    await user.click(screen.getByRole("button", { name: /show plan/i }));
+
+    expect(screen.getByText(PLAN_MARKER)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/user rejected the plan/i),
+    ).not.toBeInTheDocument();
+  });
 });

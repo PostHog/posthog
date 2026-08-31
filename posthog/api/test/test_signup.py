@@ -25,15 +25,15 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY, OrganizationInvite
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.utils import get_instance_realm
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-
-from ee.models.rbac.access_control import AccessControl
 
 MOCK_GITLAB_SSO_RESPONSE = {
     "access_token": "123",
@@ -1044,10 +1044,8 @@ class TestSignupAPI(APIBaseTest):
                 jit_provisioning_enabled=True,
                 organization=new_org,
             )
-            domain.identity_provider_config = IdentityProviderConfig.objects.create(
-                organization=new_org, scim_enabled=True
-            )
-            domain.save()
+            config = IdentityProviderConfig.objects.create(organization=new_org, scim_enabled=True)
+            LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -1090,10 +1088,8 @@ class TestSignupAPI(APIBaseTest):
                 jit_provisioning_enabled=True,
                 organization=new_org,
             )
-            domain.identity_provider_config = IdentityProviderConfig.objects.create(
-                organization=new_org, scim_enabled=True
-            )
-            domain.save()
+            config = IdentityProviderConfig.objects.create(organization=new_org, scim_enabled=True)
+            LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -3384,11 +3380,13 @@ class TestSAMLInviteLookup(APIBaseTest):
             organization=self.organization, saml_entity_id="e", saml_acs_url="a", saml_x509_cert="c"
         )
         for domain in domains:
-            OrganizationDomain.objects.create(
+            organization_domain = OrganizationDomain.objects.create(
                 organization=self.organization,
                 domain=domain,
                 verified_at=timezone.now(),
-                identity_provider_config=config,
+            )
+            LinkedIdentityProviderConfig.objects.create(
+                organization_domain=organization_domain, identity_provider_config=config
             )
         config.refresh_from_db()
         assert config.saml_relay_state is not None

@@ -10,7 +10,14 @@ from rest_framework import status
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun
 from products.notebooks.backend.sql_v2_references import resolve_sql_v2_references
-from products.notebooks.backend.sql_v2_state import build_dependency_edges, build_notebook_cell_state, extract_cells
+from products.notebooks.backend.sql_v2_state import (
+    MAX_NOTEBOOK_CELLS,
+    NotebookCellLimitExceeded,
+    build_dependency_edges,
+    build_notebook_cell_state,
+    extract_cells,
+    validate_cell_count,
+)
 
 
 def markdown_content(markdown: str) -> dict[str, Any]:
@@ -69,6 +76,67 @@ class TestCellExtractionAndEdges(SimpleTestCase):
         cells = extract_cells(content)
         build_dependency_edges(cells)
         assert cells[2].depends_on == ["s"]
+
+
+def cells_markdown(count: int) -> dict[str, Any]:
+    return markdown_content(
+        "\n\n".join(
+            f'<SQLV2 nodeId="s{index}" code="select {index}" returnVariable="df{index}" />' for index in range(count)
+        )
+    )
+
+
+class TestCellCountLimit(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("under", MAX_NOTEBOOK_CELLS - 1, True),
+            ("at_the_limit", MAX_NOTEBOOK_CELLS, True),
+            ("over", MAX_NOTEBOOK_CELLS + 1, False),
+        ]
+    )
+    def test_growth_is_refused_past_the_ceiling(self, _name: str, next_count: int, allowed: bool) -> None:
+        # Without a ceiling an agent adds cells in a loop, and every SQL or Python cell it adds
+        # is a query or a sandbox execution. Nothing else bounds that.
+        if allowed:
+            validate_cell_count(None, cells_markdown(next_count))
+            return
+        with self.assertRaises(NotebookCellLimitExceeded):
+            validate_cell_count(None, cells_markdown(next_count))
+
+    @parameterized.expand([("unchanged", 0), ("shrinking", -1)])
+    def test_a_notebook_already_over_the_ceiling_stays_editable(self, _name: str, delta: int) -> None:
+        # Notebooks written before the ceiling existed must not become unsavable, or their owner
+        # cannot delete cells down to get under it.
+        over = MAX_NOTEBOOK_CELLS + 5
+        validate_cell_count(cells_markdown(over), cells_markdown(over + delta))
+
+    def test_a_notebook_already_over_the_ceiling_still_cannot_grow(self) -> None:
+        over = MAX_NOTEBOOK_CELLS + 5
+        with self.assertRaises(NotebookCellLimitExceeded):
+            validate_cell_count(cells_markdown(over), cells_markdown(over + 1))
+
+
+class TestCellLimitEndpointWiring(APIBaseTest):
+    def test_markdown_save_refuses_a_notebook_over_the_cell_ceiling(self) -> None:
+        # The wiring guard for the unit cases above: this endpoint is what the MCP cell tools
+        # and the editor both write through, so a refactor that stops calling the validator
+        # would leave every SimpleTestCase green and still ship an uncapped endpoint.
+        notebook = Notebook.objects.create(team=self.team, short_id="nbcap01", content=cells_markdown(0), version=0)
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/notebooks/{notebook.short_id}/collab/markdown_save/",
+            {
+                "client_id": "c1",
+                "version": notebook.version,
+                "content": cells_markdown(MAX_NOTEBOOK_CELLS + 1),
+                "text_content": "",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert str(MAX_NOTEBOOK_CELLS) in response.content.decode()
+
+        notebook.refresh_from_db()
+        assert len(extract_cells(notebook.content)) == 0
 
 
 class TestNotebookCellState(APIBaseTest):

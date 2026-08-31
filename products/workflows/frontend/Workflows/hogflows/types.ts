@@ -54,6 +54,14 @@ export const HogFlowSchema = z.object({
         'exit_on_trigger_not_matched_or_conversion',
         'exit_only_at_end',
     ]),
+    // Optional email pacing: the email worker delays sends over the limit instead of dropping them
+    email_sending_rate_limit: z
+        .object({
+            count: z.number(),
+            period: z.enum(['minute', 'hour']),
+        })
+        .optional()
+        .nullable(),
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),

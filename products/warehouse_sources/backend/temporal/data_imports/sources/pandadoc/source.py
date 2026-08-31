@@ -24,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PandaDocSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.pandadoc import (
+    API_VERSION_V1,
+    API_VERSION_V2,
     PandaDocResumeConfig,
     pandadoc_source,
     validate_credentials as validate_pandadoc_credentials,
@@ -37,9 +39,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PandaDocSource(ResumableSource[PandaDocSourceConfig, PandaDocResumeConfig]):
-    supported_versions = ("v1",)
-    default_version = "v1"
-    api_docs_url = "https://developers.pandadoc.com"
+    # v2 is declared so new sources are stamped with the vendor's current API generation, but the
+    # endpoints this source reads are v1-only (see pandadoc.py), so both pins resolve to the same wire.
+    supported_versions = (API_VERSION_V1, API_VERSION_V2)
+    default_version = API_VERSION_V2
+    api_docs_url = "https://developers.pandadoc.com/reference/version"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

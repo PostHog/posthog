@@ -33,7 +33,7 @@ const spaceTreeTasksQueryKey = (spaceId: string) =>
   [...spaceTreeTasksQueryRoot, spaceId] as const;
 
 /** How many sessions a space shows when expanded in the list. */
-export const RECENT_TASKS_PER_SPACE = 5;
+const RECENT_TASKS_PER_SPACE = 5;
 
 /**
  * A little more than the tree shows, because archived tasks are filtered out
@@ -227,7 +227,9 @@ export function useRecentSpaceTasks(
       });
       // A page that came back short is the whole space, so the count is exact
       // once the archived ones are dropped. A full page falls back to the
-      // server's total, which still counts anything archived in it.
+      // server's total, which excludes archived tasks — bar any this device has
+      // archived and not yet mirrored, which `useServerArchiveSync` is working
+      // through.
       const built: SpaceTasks = {
         items: spaceTreeOrder(available, viewedAt, blockedTaskIds).slice(
           0,
@@ -321,7 +323,8 @@ export function useSpaceOverview(
       people: spacePeople(live, createdBy, peopleLimit),
       // A page that came back short is the whole space, so the count is exact
       // once the archived ones are dropped. A full page falls back to the
-      // server's total, which still counts anything archived in it.
+      // server's total, which excludes archived tasks — bar any this device has
+      // archived and not yet mirrored.
       total: data.tasks.length < TREE_FETCH_LIMIT ? live.length : data.count,
     };
   }, [data, archivedTaskIds, createdBy, peopleLimit]);

@@ -227,6 +227,12 @@ pub const FLAGS_BILLING_SECONDS_SINCE_SUCCESSFUL_FLUSH: &str =
 
 pub const FLAGS_BILLING_FLUSH_DURATION_MS: &str = "flags_billing_flush_duration_ms";
 
+// Counters: records the usage-ingestion mirror accepted / gave up on. A gap
+// between them and `flags_billing_entries_flushed_total` is expected while the
+// mirror is rolled out to a subset of teams.
+pub const FLAGS_USAGE_RECORDS_SENT: &str = "flags_usage_records_sent_total";
+pub const FLAGS_USAGE_RECORDS_FAILED: &str = "flags_usage_records_failed_total";
+
 // Histogram of per-call `record()` latency in microseconds, with no labels
 // to keep the hot-path emission allocation-free. The expected uncontended
 // p50 is sub-microsecond (one atomic increment + a hash + a HashMap entry
@@ -333,6 +339,7 @@ pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
 // Tracks the result of hash key override queries to understand cache optimization potential
 // Labels: result="empty" (no overrides found) | result="has_overrides" (overrides exist)
 pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total";
+pub const FLAG_HASH_KEY_REPLICA_CHECK: &str = "flags_hash_key_override_replica_check_total";
 
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";

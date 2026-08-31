@@ -22,14 +22,13 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-
-from ee.models import AccessControl
 
 
 class TestDuckgresRawAdapterSelection(SimpleTestCase):
@@ -197,16 +196,8 @@ class TestDuckgresStreamingClientCursor(SimpleTestCase):
 
 
 class TestDirectDuckgresQuery(APIBaseTest):
-    managed_warehouse_sql_editor_flag: MagicMock
-
     def setUp(self) -> None:
         super().setUp()
-        flag_patcher = patch(
-            "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
-            return_value=True,
-        )
-        self.managed_warehouse_sql_editor_flag = flag_patcher.start()
-        self.addCleanup(flag_patcher.stop)
         resolver_patcher = patch(
             "posthog.hogql.direct_sql.duckgres_adapter.resolve_psycopg_hostaddr_with_timeout",
             return_value=["203.0.113.10"],
@@ -553,7 +544,6 @@ class TestDirectDuckgresQuery(APIBaseTest):
 
     def test_non_raw_managed_query_ignores_warehouse_object_access_control(self) -> None:
         source = self._managed_source_with_denied_table()
-        self.managed_warehouse_sql_editor_flag.return_value = False
 
         with patch(
             "posthog.hogql.database.database.feature_enabled_or_false",
@@ -577,8 +567,6 @@ class TestDirectDuckgresQuery(APIBaseTest):
                 "credential_kind": "org_root",
             },
         )
-        self.managed_warehouse_sql_editor_flag.return_value = True
-
         with (
             patch(
                 "posthog.hogql.database.database.feature_enabled_or_false",
@@ -626,7 +614,6 @@ class TestDirectDuckgresQuery(APIBaseTest):
     @patch("posthog.hogql.query.raw_query_denied_by_table_access", side_effect=AssertionError)
     def test_managed_warehouse_raw_queries_skip_unconfigured_table_access(self, _denied, connect) -> None:
         source = self._managed_source()
-        self.managed_warehouse_sql_editor_flag.return_value = False
         connection, _cursor = self._connection_with_result([(1,)])
         connect.return_value.__enter__.return_value = connection
 
@@ -647,7 +634,6 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self, _name: str, credential_overrides: dict[str, object], connect
     ) -> None:
         source = self._managed_source()
-        self.managed_warehouse_sql_editor_flag.return_value = False
         source.job_inputs = {**source.job_inputs, **credential_overrides}
         source.save(update_fields=["job_inputs"])
 
@@ -672,8 +658,6 @@ class TestDirectDuckgresQuery(APIBaseTest):
                 "credential_kind": "org_root",
             },
         )
-        self.managed_warehouse_sql_editor_flag.return_value = True
-
         with self.assertRaisesMessage(ExposedHogQLError, "raw SQL is not allowed"):
             HogQLQueryExecutor(
                 query="SELECT 1",
@@ -733,7 +717,6 @@ class TestDirectDuckgresQuery(APIBaseTest):
             connection_metadata=connection_metadata,
             direct_query_enabled=direct_query_enabled,
         )
-        self.managed_warehouse_sql_editor_flag.return_value = False
 
         with self.assertRaises(ExposedHogQLError):
             HogQLQueryExecutor(

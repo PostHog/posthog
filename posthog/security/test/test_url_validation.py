@@ -118,9 +118,21 @@ class TestUrlValidation:
         ok, err = uv.is_url_allowed("http://localhost")
         assert ok and err is None
 
-    def test_is_url_allowed_private_resolution_blocked(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "resolved_ip",
+        [
+            "192.168.1.10",
+            # CGNAT (RFC 6598): neither is_private nor is_global, so the attribute flags
+            # alone let it through; guards the explicit _CGNAT_NETWORK check.
+            "100.64.0.1",
+            "100.127.255.255",
+            # IPv4-mapped form of a CGNAT address, which network membership alone misses.
+            "::ffff:100.64.0.1",
+        ],
+    )
+    def test_is_url_allowed_private_resolution_blocked(self, resolved_ip, monkeypatch):
         def fake_resolve(host: str):
-            return {ipaddress.ip_address("192.168.1.10")}
+            return {ipaddress.ip_address(resolved_ip)}
 
         monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
         ok, err = uv.is_url_allowed("https://example.com")

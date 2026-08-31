@@ -56,6 +56,8 @@ class _Recorder:
         self.processing_marked: list[str] = []
         # ts per forwarded followup, in execution order.
         self.forwarded: list[str] = []
+        # ts -> model override the forward call actually received.
+        self.forwarded_with_override: dict[str, SlackAppModelOverride | None] = {}
         # ts per internal-error notice posted back to the thread, in execution order.
         self.internal_errors: list[str] = []
         # ts -> forward result; missing means False (no existing task, fall through to new-task path).
@@ -112,8 +114,10 @@ def _fake_activities(rec: _Recorder) -> list:
         slack_user_id: str,
         event_text: str,
         user_message_ts: str | None,
+        model_override: SlackAppModelOverride | None = None,
     ) -> bool:
         ts = inputs.event["ts"]
+        rec.forwarded_with_override[ts] = model_override
         if rec.forward_results.get(ts, False):
             rec.forwarded.append(ts)
             return True
@@ -348,6 +352,25 @@ async def test_model_override_reaches_task_creation():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created_with_override == {"1.1": None, "1.2": override}
+
+
+@pytest.mark.asyncio
+async def test_model_override_reaches_a_followup_without_creating_a_task():
+    """The classifier runs above the follow-up/new-task split, so a reply naming a model
+    steers the run it lands on instead of being read as prose."""
+    rec = _Recorder()
+    override = SlackAppModelOverride(model="claude-fable-5", reasoning_effort="high")
+    rec.model_overrides["actually run this on fable"] = override
+    rec.forward_results["1.1"] = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(
+            h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1", text="actually run this on fable")
+        )
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.forwarded_with_override == {"1.1": override}
+    assert rec.created == []
 
 
 @pytest.mark.asyncio

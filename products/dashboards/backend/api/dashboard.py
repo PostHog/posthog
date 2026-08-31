@@ -32,6 +32,7 @@ from django.db.models import (
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
+from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
 
 import structlog
@@ -64,6 +65,7 @@ from posthog.event_usage import EventSource, get_event_source, report_user_actio
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
     MAX_SEARCH_LENGTH,
@@ -79,12 +81,6 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import (
-    UserAccessControl,
-    UserAccessControlSerializerMixin,
-    access_level_satisfied_for_resource,
-)
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -100,6 +96,14 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
@@ -115,8 +119,14 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
+from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
+from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.feature_flags import dashboard_customization_enabled, dashboard_widgets_enabled
-from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_SPACING_GAPS, Dashboard
+from products.dashboards.backend.models.dashboard import (
+    DASHBOARD_GRID_COMPACTION_MODES,
+    DASHBOARD_GRID_SPACING_GAPS,
+    Dashboard,
+)
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import (
@@ -150,10 +160,10 @@ from products.notifications.backend.facade.api import (
     create_notification,
     has_been_dispatched,
 )
-from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.product_analytics.backend.facade.api import insight_variables_for_team
+from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
     INCLUDE_DASHBOARDS_PARAMETER,
-    DashboardTileBasicSerializer,
     InsightBasicSerializer,
     InsightSerializer,
     InsightViewSet,
@@ -165,6 +175,11 @@ from ee.hogai.utils.aio import async_to_sync
 
 def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
     return customization.copy() if isinstance(customization, dict) else {}
+
+
+def _effective_layout_compaction(customization: Any) -> str:
+    layout_compaction = _normalize_dashboard_customization(customization).get("layout_compaction")
+    return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
 
 
 logger = structlog.get_logger(__name__)
@@ -242,6 +257,7 @@ DASHBOARD_SHARED_FIELDS = [
     "quick_filter_ids",
     "customization",
     "grid_spacing",
+    "layout_compaction",
 ]
 
 
@@ -1129,19 +1145,19 @@ class DashboardBasicSerializer(
             "restriction_level": {"help_text": "Controls who can edit the dashboard."},
         }
 
-    def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
+    def get_effective_restriction_level(self, dashboard: Dashboard) -> RestrictionLevel:
         if self.context.get("is_shared"):
-            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+            return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.dashboard(dashboard).effective_restriction_level
 
-    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
+    def get_effective_privilege_level(self, dashboard: Dashboard) -> PrivilegeLevel:
         if self.context.get("is_shared"):
-            return Dashboard.PrivilegeLevel.CAN_VIEW
+            return PrivilegeLevel.CAN_VIEW
         return self.user_permissions.dashboard(dashboard).effective_privilege_level
 
     def get_access_control_version(self, dashboard: Dashboard) -> str:
         # This effectively means that the dashboard they are using the old dashboard permissions
-        if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
+        if dashboard.restriction_level > RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
             return "v1"
         return "v2"
 
@@ -1179,6 +1195,14 @@ class DashboardCustomizationSerializer(serializers.Serializer):
         required=False,
         help_text="Named tile density preset.",
     )
+    layout_compaction = serializers.ChoiceField(
+        choices=DASHBOARD_GRID_COMPACTION_MODES,
+        required=False,
+        help_text=(
+            "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
+            "to the left, and stable preserves positions while moving colliding tiles."
+        ),
+    )
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
@@ -1206,6 +1230,15 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         write_only=True,
         help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
     )
+    layout_compaction = serializers.ChoiceField(
+        choices=DASHBOARD_GRID_COMPACTION_MODES,
+        required=False,
+        write_only=True,
+        help_text=(
+            "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
+            "to the left, and stable preserves positions while moving colliding tiles."
+        ),
+    )
     persisted_filters = serializers.SerializerMethodField()
     persisted_variables = serializers.SerializerMethodField()
 
@@ -1221,10 +1254,15 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
     @extend_schema_field(DashboardCustomizationSerializer)
     def get_customization(self, dashboard: Dashboard) -> dict[str, str]:
-        tile_spacing = _normalize_dashboard_customization(dashboard.customization).get("tile_spacing")
+        customization = _normalize_dashboard_customization(dashboard.customization)
+        tile_spacing = customization.get("tile_spacing")
+        layout_compaction = customization.get("layout_compaction")
+        result = {}
         if isinstance(tile_spacing, str) and tile_spacing in DASHBOARD_GRID_SPACING_GAPS:
-            return {"tile_spacing": tile_spacing}
-        return {}
+            result["tile_spacing"] = tile_spacing
+        if isinstance(layout_compaction, str) and layout_compaction in DASHBOARD_GRID_COMPACTION_MODES:
+            result["layout_compaction"] = layout_compaction
+        return result
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")
@@ -1494,8 +1532,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
         team_id = self.context["team_id"]
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)
+        layout_compaction = validated_data.pop("layout_compaction", None)
         if grid_spacing is not None and not dashboard_customization_enabled(team=team, user=request.user):
             raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
+        if layout_compaction is not None and not dashboard_customization_enabled(team=team, user=request.user):
+            raise serializers.ValidationError({"layout_compaction": "Tile movement settings aren't available."})
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
         check_count_limit(
             team=team,
@@ -1552,6 +1593,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["customization"] = {
                 **validated_data.get("customization", {}),
                 "tile_spacing": grid_spacing,
+            }
+        if layout_compaction is not None:
+            validated_data["customization"] = {
+                **validated_data.get("customization", {}),
+                "layout_compaction": layout_compaction,
             }
 
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
@@ -1741,6 +1787,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
+        previous_layout_compaction = _effective_layout_compaction(instance.customization)
         can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
         if "restriction_level" in validated_data and not can_user_restrict:
             raise exceptions.PermissionDenied(
@@ -1749,14 +1796,20 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
+        layout_compaction = validated_data.pop("layout_compaction", None)
         if grid_spacing is not None and not dashboard_customization_enabled(
             team=instance.team, user=cast(User, self.context["request"].user)
         ):
             raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
-        if grid_spacing is not None:
+        if layout_compaction is not None and not dashboard_customization_enabled(
+            team=instance.team, user=cast(User, self.context["request"].user)
+        ):
+            raise serializers.ValidationError({"layout_compaction": "Tile movement settings aren't available."})
+        if grid_spacing is not None or layout_compaction is not None:
             validated_data["customization"] = {
                 **_normalize_dashboard_customization(instance.customization),
-                "tile_spacing": grid_spacing,
+                **({"tile_spacing": grid_spacing} if grid_spacing is not None else {}),
+                **({"layout_compaction": layout_compaction} if layout_compaction is not None else {}),
             }
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
@@ -1827,6 +1880,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 self._deep_duplicate_tiles(instance, existing_tile, user_access_control)
 
         if "request" in self.context:
+            if layout_compaction is not None and layout_compaction != previous_layout_compaction:
+                report_user_action(
+                    user,
+                    "dashboard grid compaction configured",
+                    {
+                        "dashboard_id": instance.id,
+                        "previous_layout_compaction": previous_layout_compaction,
+                        "layout_compaction": layout_compaction,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
             if being_deleted:
                 report_user_action(
                     user,
@@ -2386,7 +2451,9 @@ class DashboardsViewSet(
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        # Deferred: every insight and dashboard response carries this, but only payloads that
+        # hold variables read it, so resolving it eagerly costs a query on every list request.
+        context["insight_variables"] = SimpleLazyObject(lambda: insight_variables_for_team(self.team.pk))
         context["compute_surface"] = (
             ComputeSurface.DASHBOARD_MUTATE
             if self.action in {"create", "update", "partial_update"}
@@ -2572,7 +2639,10 @@ class DashboardsViewSet(
         dashboard = self.get_object()
 
         access_method = dashboard_access_method(request)
-        record_dashboard_view(dashboard, access_method)
+        # Views during staff impersonation aren't the team's own activity - skip the write
+        # so support sessions don't bump the team-facing "Last accessed" (it also feeds cache warming).
+        if not is_impersonated(request):
+            record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
         serializer = DashboardSerializer(dashboard, context=serializer_context)
@@ -2618,7 +2688,9 @@ class DashboardsViewSet(
 
         # Do all database operations and data loading synchronously first
         access_method = dashboard_access_method(request)
-        record_dashboard_view(dashboard, access_method)
+        # Skip the "Last accessed" bump during staff impersonation (see retrieve)
+        if not is_impersonated(request):
+            record_dashboard_view(dashboard, access_method)
 
         context = self.get_serializer_context()
 

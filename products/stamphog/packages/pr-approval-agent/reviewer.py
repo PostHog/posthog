@@ -16,6 +16,7 @@ from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
+from gates import manifest_basenames
 from gateway import analytics_extra_properties, gateway_env, resolve_gateway_config
 from github import PRData, new_diff_file, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
@@ -301,6 +302,16 @@ def _apply_gateway_route(gateway: tuple[str, str] | None, attribution: dict[str,
     return query
 
 
+# What the reviewer is told about why it was asked. One slot, one sentence per trigger, no guidance
+# attached: the values differ because the facts differ, not because the reviewer should behave
+# differently. Keys are ReviewTrigger values from the hosted context.
+_INVOCATION_LINES = {
+    "label": "Invocation: this repo reviews on request only, and this PR carries the request label.",
+    "all": "Invocation: this repo reviews every pull request automatically.",
+    "self_driving": "Invocation: dispatched from a self-driving Inbox implementation run.",
+}
+
+
 class Reviewer:
     """LLM reviewer using Agent SDK."""
 
@@ -570,6 +581,7 @@ class Reviewer:
         ownership = self._format_ownership(cl)
         assurance_block = self._format_assurance(cl)
         familiarity_block = self._format_familiarity(cl)
+        invocation_block = self._format_invocation(cl)
         self_driving_block = self._format_self_driving(cl)
 
         gate_lines = []
@@ -595,7 +607,7 @@ class Reviewer:
         dep_manifests = cl.get("dep_manifests_without_lockfile", [])
         if dep_manifests:
             constraint += (
-                f"\nDependency manifests changed without a lockfile: {', '.join(dep_manifests)} — "
+                f"\nDependency manifests changed without a lockfile: {', '.join(manifest_basenames(dep_manifests))} — "
                 "no third-party code can be added, but check the manifest hunks and REFUSE if "
                 "scripts or lifecycle hooks changed."
             )
@@ -644,7 +656,7 @@ class Reviewer:
             Gate results:
             {chr(10).join(gate_lines)}
             Gate verdict: {gate_verdict}
-            {constraint}{familiarity_block}{self_driving_block}
+            {constraint}{invocation_block}{familiarity_block}{self_driving_block}
 
             The full diff is at: {diff_path}
             Read this file to review the changes, then submit your verdict.
@@ -758,6 +770,19 @@ class Reviewer:
                 + "."
             )
         return "\n" + line
+
+    def _format_invocation(self, cl: dict) -> str:
+        """The TRUSTED line naming why stamphog was asked to look at this PR, or "" when unknown.
+
+        Data, not instruction. It states what happened and never what to conclude, because what a
+        person asked for is not evidence about the diff. What it does carry is intent: in request
+        mode somebody wanted a verdict on this PR, and in automatic mode the review reaches work
+        nobody offered up, so an unfinished-looking PR means different things in the two.
+
+        Empty for a local run, which keeps that prompt byte-identical to before this existed.
+        """
+        line = _INVOCATION_LINES.get(cl.get("review_trigger") or "")
+        return f"\n{line}" if line else ""
 
     def _format_self_driving(self, cl: dict) -> str:
         """The TRUSTED provenance block for a self-driving inbox review, or "" for every other review.

@@ -57,7 +57,7 @@ class TestSlackThreadHandler(SimpleTestCase):
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_progress_message_has_no_terminate_button(self, mock_get_client, _mock_find_progress):
+    def test_progress_message_carries_only_the_logs_button(self, mock_get_client, _mock_find_progress):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
@@ -329,6 +329,38 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
         assert kwargs["text"].startswith(expected_text_start)
 
 
+class TestPostPrOpenedPersonalGithubHint(SimpleTestCase):
+    @parameterized.expand([("bot_authored", True, True), ("user_authored", False, False)])
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "_get_integration", return_value=Integration(team_id=7))
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_only_a_bot_authored_pr_asks_for_a_personal_github(
+        self,
+        _name: str,
+        bot_authored: bool,
+        expect_hint: bool,
+        mock_get_client,
+        _mock_get_integration,
+        _mock_delete_progress,
+    ):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(SlackThreadContext(integration_id=1, channel="C001", thread_ts="1.0"))
+
+        handler.post_pr_opened(
+            "https://github.com/org/repo/pull/1",
+            task_url=None,
+            bot_authored=bot_authored,
+        )
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        contexts = [b for b in blocks if b["type"] == "context"]
+        assert bool(contexts) is expect_hint
+        if expect_hint:
+            text = contexts[0]["elements"][0]["text"]
+            assert "/project/7/settings/user-personal-integrations|Connect your GitHub>" in text
+
+
 class TestReplyFooterGate(SimpleTestCase):
     def _handler(self, footer: RunFooter | None = None) -> SlackThreadHandler:
         context = SlackThreadContext(
@@ -527,3 +559,59 @@ class TestDeletedTriggerMessage(SimpleTestCase):
         assert self._handler().start_status_stream(first_markdown_text="thinking") is None
 
         mock_client.chat_startStream.assert_not_called()
+
+
+class TestForkMenuOnReplies(SimpleTestCase):
+    """Where the fork menu attaches, on the plain-post path."""
+
+    def _handler(self) -> SlackThreadHandler:
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+        return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
+
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_non_streamed_answer_hangs_the_menu_off_the_answer_not_the_footer(
+        self, mock_get_client, mock_get_integration, _flag, _home, _forking
+    ) -> None:
+        # Hanging it off the answer's section buys both things the footer alone cannot
+        # give: no extra line, and a footer that stays muted. A context block rejects
+        # interactive elements, so a footer carrying the menu would have to be a section
+        # and would render at body weight.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("the answer", with_footer=True)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert len(blocks) == 2
+        # The menu hangs off the answer, so it costs no line…
+        assert blocks[0]["accessory"]["type"] == "overflow"
+        # …and the footer stays a context block, which is the only muted text Block Kit has.
+        assert blocks[1]["type"] == "context"
+
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=False)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_outside_the_rollout_the_footer_closes_the_message(
+        self, mock_get_client, mock_get_integration, _flag, _home, _forking
+    ) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("the answer", with_footer=True)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert blocks[-1]["type"] == "context"
+        assert "accessory" not in blocks[0]

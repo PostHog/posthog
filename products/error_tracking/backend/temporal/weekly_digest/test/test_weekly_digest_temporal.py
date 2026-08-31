@@ -24,6 +24,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.messaging import MessagingRecord
 from posthog.models.utils import uuid7
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -52,9 +53,8 @@ from products.error_tracking.backend.temporal.weekly_digest.workflow import (
 from products.error_tracking.backend.weekly_digest import build_team_digest_data
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from ee.models.rbac.access_control import AccessControl
 
-_WEBHOOK_POST = "products.error_tracking.backend.weekly_digest.requests.post"
+_WEBHOOK_POST = "products.error_tracking.backend.weekly_digest_delivery.requests.post"
 _BUILD_TEAM_DIGEST_DATA = "products.error_tracking.backend.weekly_digest.build_team_digest_data"
 _IS_CLOUD = "products.error_tracking.backend.temporal.weekly_digest.activities.is_cloud"
 _OBJECT_STORAGE = "products.error_tracking.backend.temporal.weekly_digest.activities.object_storage"

@@ -406,6 +406,23 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["current_version"] == 2
 
+    @parameterized.expand([("latest_version", 2), ("historical_version", 1)])
+    def test_update_prompt_by_version_id_publishes_against_the_prompt(self, _name, version):
+        self.create_prompt_version(name="publish-prompt", version=1, is_latest=False, prompt="v1")
+        self.create_prompt_version(name="publish-prompt", version=2, is_latest=True, prompt="v2")
+        requested = LLMPrompt.objects.get(team=self.team, name="publish-prompt", version=version)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/{requested.id}/",
+            data={"prompt": "v3", "base_version": 2},
+            format="json",
+        )
+
+        # PATCH shares the GET's route, so an id the GET accepts has to publish rather than 404.
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "publish-prompt"
+        assert response.json()["version"] == 3
+
     def test_update_prompt_by_name_rejects_payload_above_max_size(self):
         self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
         oversized_prompt = "x" * (MAX_PROMPT_PAYLOAD_BYTES + 1)
@@ -803,7 +820,64 @@ class TestLLMPromptAPI(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/non-existent/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert "not found" in response.json()["detail"].lower()
+        detail = response.json()["detail"]
+        assert "non-existent" in detail
+        # The 404 has to name a recovery path for a caller that guessed the name.
+        assert "list the project's prompts" in detail.lower()
+
+    def test_fetch_prompt_at_unknown_version_points_at_the_version_not_the_name(self):
+        self.create_prompt_version(name="my-prompt", version=1, is_latest=True)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/?version=7")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        detail = response.json()["detail"]
+        # The name resolved, so sending the caller off to list prompts would be the wrong recovery path.
+        assert "version 7" in detail
+        assert "list the project's prompts" not in detail.lower()
+
+    @parameterized.expand([("latest_version", 2), ("historical_version", 1)])
+    def test_fetch_prompt_by_version_id_resolves_to_the_prompt(self, _name, version):
+        self.create_prompt_version(name="by-id", version=1, is_latest=False, prompt="v1")
+        self.create_prompt_version(name="by-id", version=2, is_latest=True, prompt="v2")
+        requested = LLMPrompt.objects.get(team=self.team, name="by-id", version=version)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{requested.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        # The id identifies the prompt, not the version, so the route still answers with the latest.
+        assert response.json()["name"] == "by-id"
+        assert response.json()["version"] == 2
+
+    def test_fetch_prompt_by_unknown_version_id_is_not_found(self):
+        self.create_prompt_version(name="by-id")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/name/019f5632-6df1-0000-5093-46d18b1bc987/"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_fetch_prompt_named_like_a_uuid_wins_over_the_id_lookup(self):
+        other = self.create_prompt_version(name="other", prompt="other content")
+        self.create_prompt_version(name=str(other.id), prompt="named like a uuid")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{other.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["prompt"] == "named like a uuid"
+
+    def test_fetch_prompt_by_version_id_from_another_team_is_not_found(self):
+        from posthog.models import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_prompt = LLMPrompt.objects.create(
+            team=other_team, name="other-team-prompt", prompt="Content", created_by=self.user
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{other_prompt.id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_fetch_prompt_by_name_other_team_not_accessible(self):
         from posthog.models import Team
