@@ -58,13 +58,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQueryColumnAnnotation,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.facade.api import (
-    pause_saved_query_schedule,
-    saved_query_workflow_exists,
-    sync_saved_query_workflow,
-    trigger_saved_query_schedule,
-    unpause_saved_query_schedule,
-)
+from products.data_warehouse.backend.facade.api import saved_query_workflow_exists, unpause_saved_query_schedule
 from products.data_warehouse.backend.presentation.views.column_annotation_base import (
     DESCRIPTION_HELP_TEXT,
     upsert_annotation,
@@ -1130,24 +1124,6 @@ class DataWarehouseSavedQuerySerializer(
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-            # Update the v1 temporal schedule if it exists. Skipped on the DAG-managed path even
-            # when a stale v1 schedule lingers from a half-finished migration — syncing it here
-            # would revive it alongside the DAG's schedules.
-            if not dag_managed_frequency:
-                temporal_schedule_exists = saved_query_workflow_exists(view)
-                if temporal_schedule_exists:
-                    try:
-                        if sync_frequency == "never":
-                            pause_saved_query_schedule(view)
-                        elif sync_frequency:
-                            sync_saved_query_workflow(view, create=not temporal_schedule_exists)
-                    except Exception as e:
-                        capture_exception(e)
-                        logger.exception(
-                            "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
-                            view.name,
-                            sync_frequency,
-                        )
         # best effort sync to new data modeling DAG representation
         if "query" in validated_data:
             try:
@@ -1630,11 +1606,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
-        from products.data_modeling.backend.facade.api import (
-            clear_incremental_state,
-            is_saved_query_on_v2_schedule,
-            materialize_saved_query,
-        )
+        from products.data_modeling.backend.facade.api import clear_incremental_state, materialize_saved_query
 
         body = SavedQueryRunSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -1646,10 +1618,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             # build on and rebuilds. Done before dispatch so the run it triggers is the rebuild.
             clear_incremental_state(saved_query)
 
-        if is_saved_query_on_v2_schedule(saved_query):
-            materialize_saved_query(saved_query)
-        else:
-            trigger_saved_query_schedule(saved_query)
+        materialize_saved_query(saved_query)
 
         log_activity(
             organization_id=self.team.organization_id,
@@ -1810,7 +1779,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 raise serializers.ValidationError(str(e))
 
-        should_unpause = saved_query.sync_frequency_interval is None
         previous_interval = saved_query.sync_frequency_interval
         previously_materialized = saved_query.is_materialized
 
@@ -1821,7 +1789,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
         try:
-            saved_query.schedule_materialization(unpause=should_unpause, trigger_immediate_run=True)
+            saved_query.schedule_materialization(trigger_immediate_run=True)
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
             # The check above already refused every cadence the lineage forbids, so reaching here
             # means the lineage moved mid-request. Say so plainly rather than forwarding a message

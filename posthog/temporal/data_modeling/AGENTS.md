@@ -6,9 +6,9 @@ v2 is the only backend. The v1 code stays registered until its schedules are rem
 ## v1 — dead, pending removal
 
 - `run_workflow.py` (1814-line monolith).
-- Nothing dispatches it. The interactive paths in
-  `products/data_modeling/backend/presentation/views/node.py` always start v2, and no
-  `data-modeling-run` schedule remains in either region.
+- Node and saved-query interactive paths always start v2. No production or management-command
+  call site creates a `data-modeling-run` schedule. Endpoint compatibility paths can still trigger
+  a pre-existing schedule until the v1 control cleanup lands.
 - `RunWorkflow` stays in `WORKFLOWS` (`__init__.py`) on purpose. A schedule that points at a
   deregistered workflow type keeps firing, fails its workflow task, and writes no job row, so
   the workflow can only be removed after its schedules are gone.

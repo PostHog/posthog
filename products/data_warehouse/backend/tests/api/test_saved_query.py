@@ -166,13 +166,7 @@ class TestSavedQuery(APIBaseTest):
         saved_query_id = response.data["id"]
         assert saved_query_id is not None
 
-        with (
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-        ):
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
             )
@@ -201,50 +195,17 @@ class TestSavedQuery(APIBaseTest):
         saved_query_id = response.data["id"]
         assert saved_query_id is not None
 
-        with (
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-        ):
-            # First call to materialize
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
-            )
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
+            for _ in range(2):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
+                )
 
-            assert response.status_code == 200
+                assert response.status_code == 200
 
-            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-            assert saved_query.is_materialized is True
-            assert saved_query.sync_frequency_interval == timedelta(hours=24)
-
-        with (
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
-            ) as mock_sync,
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=True,
-            ),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.unpause_saved_query_schedule"
-            ) as mock_unpause,
-        ):
-            # Second call to materialize - should be idempotent
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
-            )
-
-            assert response.status_code == 200
-
-            saved_query.refresh_from_db()
-            assert saved_query.is_materialized is True
-            assert saved_query.sync_frequency_interval == timedelta(hours=24)
-            # Schedule already exists, so should not unpause (unpause=False on second call)
-            mock_unpause.assert_not_called()
-            # But should still update the schedule
-            mock_sync.assert_called_once()
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        assert saved_query.is_materialized is True
+        assert saved_query.sync_frequency_interval == timedelta(hours=24)
 
     def test_materialize_leaves_nothing_persisted_when_the_frequency_is_rejected(self):
         response = self.client.post(
@@ -292,13 +253,7 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 201
         saved_query_id = response.data["id"]
 
-        with (
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-        ):
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
                 {"sync_frequency": "1hour"},
@@ -2140,13 +2095,7 @@ class TestSavedQuery(APIBaseTest):
             created_by=self.user,
         )
 
-        with (
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-        ):
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
             for action in ("materialize", "revert_materialization"):
                 # First 5 requests should succeed (rate is 5/hour)
                 for i in range(5):
@@ -2191,12 +2140,7 @@ class TestMaterializeRequestBody(SimpleTestCase):
         assert "sync_frequency" in serializer.errors
 
 
-class TestSavedQueryRunV2Aware(APIBaseTest):
-    """The run action branches on the saved query's schedule version: materialize the backing node
-    via the v2 workflow when its DAG is on a v2 schedule, otherwise trigger the v1 per-query
-    schedule (which only exists for v1 saved queries).
-    """
-
+class TestSavedQueryRun(APIBaseTest):
     def _make_saved_query_with_node(self, name: str) -> tuple[DataWarehouseSavedQuery, DAG, Node]:
         dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -2212,14 +2156,9 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         )
         return saved_query, dag, node
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")
-    def test_run_on_v2_schedule_materializes_node_without_v1_trigger(
-        self, mock_v2_dags, mock_sync_connect, mock_trigger
-    ):
-        saved_query, dag, _node = self._make_saved_query_with_node("v2_view")
-        mock_v2_dags.return_value = {str(dag.id)}
+    def test_run_materializes_node(self, mock_sync_connect):
+        saved_query, _dag, _node = self._make_saved_query_with_node("v2_view")
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 
@@ -2228,22 +2167,14 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200, response.content)
-        mock_trigger.assert_not_called()
         mock_client.start_workflow.assert_called_once()
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    @patch("products.data_modeling.backend.logic.node_materialization.get_v2_saved_query_ids")
-    def test_run_on_v2_without_backing_node_does_not_fall_back_to_v1(
-        self, mock_v2_ids, mock_sync_connect, mock_trigger
-    ):
-        # v2 is confirmed but no backing node exists: nothing is materialized, and it must not fall
-        # back to the v1 schedule trigger, which a v2 saved query has no schedule for.
+    def test_run_without_backing_node_does_not_start_a_workflow(self, mock_sync_connect):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="orphan_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
         )
-        mock_v2_ids.return_value = {saved_query.id}
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 
@@ -2252,7 +2183,6 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200, response.content)
-        mock_trigger.assert_not_called()
         mock_client.start_workflow.assert_not_called()
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
@@ -2273,19 +2203,6 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
         saved_query.refresh_from_db()
         self.assertTrue(saved_query.is_materialized)
-
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule")
-    @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")
-    def test_run_on_v1_triggers_saved_query_schedule(self, mock_v2_dags, mock_trigger):
-        saved_query, _dag, _node = self._make_saved_query_with_node("v1_view")
-        mock_v2_dags.return_value = set()
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
-        )
-
-        self.assertEqual(response.status_code, 200, response.content)
-        mock_trigger.assert_called_once()
 
     @parameterized.expand(
         [
