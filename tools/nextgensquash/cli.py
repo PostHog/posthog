@@ -71,12 +71,17 @@ def _run_emit(args: argparse.Namespace) -> None:
         emitter = emit.Emitter(state, squasher, app, cycle_breaker)
         squashes = emitter.build()
         dropped_runsql.extend(emitter.dropped_runsql)
-        # The initial squash is the second entry in `squashes` (after the stub).
-        # If THAT has no operations, the app has no models to squash.
         initial = next((sq for sq in squashes if sq.name == emitter.INITIAL_NAME), None)
-        if initial is None or not initial.operations:
-            sys.stderr.write(f"skip {app}: no models in final state\n")
+        if initial is None:
+            sys.stderr.write(f"skip {app}: no squash built\n")
             continue
+        if not initial.operations:
+            # Every model moved away (e.g. llm_analytics). Still emit the
+            # empty "tombstone" squash: skipping the fold leaves the app's old
+            # chain as live nodes woven between the other apps' squashes,
+            # which closes a CircularDependencyError through the inherited
+            # parent edges.
+            sys.stderr.write(f"tombstone {app}: no models in final state, folding history only\n")
         for sq in squashes:
             path = writer.write(sq)
             written.append(path)
