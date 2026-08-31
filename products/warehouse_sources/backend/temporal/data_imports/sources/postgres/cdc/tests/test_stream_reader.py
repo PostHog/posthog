@@ -495,8 +495,9 @@ class TestPgCDCStreamReaderConfirmPosition:
 class TestPgCDCStreamReaderCurrentPosition:
     def test_current_position_returns_the_end_of_wal(self, params):
         reader = PgCDCStreamReader(params)
-        reader._conn = mock.MagicMock()
-        reader._conn.cursor.return_value.__enter__.return_value.fetchone.return_value = ("B4/C7327D08",)
+        fake_conn = mock.MagicMock()
+        fake_conn.cursor.return_value.__enter__.return_value.fetchone.return_value = ("B4/C7327D08",)
+        reader._conn = fake_conn
 
         assert reader.current_position() == "B4/C7327D08"
 
@@ -508,12 +509,13 @@ class TestPgCDCStreamReaderCurrentPosition:
         # A source in recovery cannot run pg_current_wal_lsn(). The caller only loses the quiet-run
         # slot advance, so this must never propagate.
         reader = PgCDCStreamReader(params)
+        fake_conn = mock.MagicMock()
         if conn == "failing":
-            reader._conn = mock.MagicMock()
-            reader._conn.cursor.return_value.__enter__.return_value.execute.side_effect = (
+            fake_conn.cursor.return_value.__enter__.return_value.execute.side_effect = (
                 psycopg.errors.ObjectNotInPrerequisiteState("recovery is in progress")
             )
+            reader._conn = fake_conn
 
         assert reader.current_position() is None
         if expected_rollback:
-            reader._conn.rollback.assert_called_once()
+            fake_conn.rollback.assert_called_once()
