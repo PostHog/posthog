@@ -187,7 +187,7 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertEqual(task_kwargs["key"], "query_cache/1/evicted")
         self.assertEqual(task_kwargs["trigger"], "evicted")
 
-    def test_replace_value_never_shortens_remaining_ttl(self):
+    def test_replace_value_never_shortens_remaining_ttl(self) -> None:
         self.tracker.redis_client.set(entry_redis_key("test_key"), b"inline-bytes", ex=5000)
 
         assert self.tracker.replace_value("test_key", b"new-pointer", 1000, expected=b"inline-bytes")

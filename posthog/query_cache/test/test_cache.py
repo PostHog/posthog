@@ -94,7 +94,15 @@ class TestRetentionTtl(SimpleTestCase):
             ("api_key_experiment", None, None, "ExperimentQuery", "personal_api_key", "long"),
         ]
     )
-    def test_retention_ttl(self, _name, insight_id, dashboard_id, kind, access_method, expected):
+    def test_retention_ttl(
+        self,
+        _name: str,
+        insight_id: int | None,
+        dashboard_id: int | None,
+        kind: str | None,
+        access_method: str | None,
+        expected: str,
+    ) -> None:
         ttl = retention_ttl(
             insight_id=insight_id, dashboard_id=dashboard_id, query_kind=kind, access_method=access_method
         )
@@ -104,7 +112,7 @@ class TestRetentionTtl(SimpleTestCase):
 
 
 class TestQueryCacheRetention(BaseTest):
-    def test_store_result_applies_ttl_and_a_rewrite_never_shortens_it(self):
+    def test_store_result_applies_ttl_and_a_rewrite_never_shortens_it(self) -> None:
         cache_key = f"cache_ttl_test_{self.team.pk}"
         redis_key = entry_redis_key(cache_key)
         client = qc_storage.query_cache_raw_client()

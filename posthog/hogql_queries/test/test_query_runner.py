@@ -2000,11 +2000,11 @@ class TestRunnersBuildDatabaseOnce(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestQueryRunnerRetentionTtl(BaseTest):
-    def tearDown(self):
+    def tearDown(self) -> None:
         super().tearDown()
         cache.clear()
 
-    def test_run_applies_programmatic_retention_ttl(self):
+    def test_run_applies_programmatic_retention_ttl(self) -> None:
         TestQueryRunner = setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         redis_key = entry_redis_key(runner.get_cache_key())
