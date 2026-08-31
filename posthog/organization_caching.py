@@ -86,11 +86,6 @@ def _get_versioned_access_cache_value(key: str, version: str | None = None) -> A
     return value
 
 
-def _cache_organization(organization: Organization) -> None:
-    key = _organization_cache_key(organization.id)
-    _set_versioned_access_cache_value(key, organization, _get_cache_version(key))
-
-
 def get_cached_organization(organization_id: str | UUID) -> Organization | None:
     key = _organization_cache_key(organization_id)
     version = _get_cache_version(key)
