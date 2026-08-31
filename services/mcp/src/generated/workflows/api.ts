@@ -27,6 +27,18 @@ export const HogFlowsListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['active', 'archived', 'draft'])
         .optional()
         .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
+    trigger: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {\"type\": \"event\"}.'
+        ),
+    type: zod
+        .enum(['automation', 'messaging'])
+        .optional()
+        .describe(
+            'Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.'
+        ),
     updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
