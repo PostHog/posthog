@@ -18,6 +18,7 @@ export const manifest: ProductManifest = {
             name: 'Customer analytics',
             description: 'Understand how your customers interact with your product ',
             iconType: 'cohort',
+            docsHref: 'https://posthog.com/docs/customer-analytics',
         },
         CustomerAnalyticsConfiguration: {
             import: () =>

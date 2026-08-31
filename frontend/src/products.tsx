@@ -467,6 +467,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         description: 'Analyze and understand your AI usage and performance.',
         iconType: 'llm_analytics',
+        docsHref: 'https://posthog.com/docs/ai-observability',
     },
     AIObservabilityTrace: { projectBased: true, name: 'AI observability trace', layout: 'app-container' },
     AIObservabilitySession: { projectBased: true, name: 'AI observability session', layout: 'app-container' },
@@ -477,6 +478,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Test and experiment with LLM prompts in a sandbox environment.',
         layout: 'app-full-scene-height',
         iconType: 'llm_playground',
+        docsHref: 'https://posthog.com/docs/ai-observability/playground',
     },
     AIObservabilityDatasets: {
         projectBased: true,
@@ -484,6 +486,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Manage datasets for testing and evaluation.',
         layout: 'app-container',
         iconType: 'llm_datasets',
+        docsHref: 'https://posthog.com/docs/ai-evals/datasets',
     },
     AIObservabilityDataset: { projectBased: true, name: 'Dataset', layout: 'app-container', iconType: 'llm_datasets' },
     AIObservabilityEvaluations: {
@@ -493,6 +496,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'AIObservability',
         layout: 'app-container',
         iconType: 'llm_evaluations',
+        docsHref: 'https://posthog.com/docs/ai-evals',
     },
     AIObservabilityEvaluation: {
         projectBased: true,
@@ -515,6 +519,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'AIObservability',
         layout: 'app-container',
         iconType: 'llm_tags',
+        docsHref: 'https://posthog.com/docs/ai-evals/taggers',
     },
     AIObservabilityTag: {
         projectBased: true,
@@ -529,6 +534,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Track and manage your LLM prompts.',
         layout: 'app-container',
         iconType: 'llm_prompts',
+        docsHref: 'https://posthog.com/docs/prompt-management',
     },
     AIObservabilityPrompt: { projectBased: true, name: 'Prompt', layout: 'app-container', iconType: 'llm_prompts' },
     AIObservabilityClusters: {
@@ -537,6 +543,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Discover patterns and clusters in your AI usage.',
         layout: 'app-container',
         iconType: 'llm_clusters',
+        docsHref: 'https://posthog.com/docs/ai-observability/clusters',
     },
     AIObservabilityCluster: {
         projectBased: true,
@@ -579,6 +586,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'conversations',
         projectBased: true,
         layout: 'app-container',
+        docsHref: 'https://posthog.com/docs/support',
     },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
@@ -588,6 +596,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Customer analytics',
         description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
+        docsHref: 'https://posthog.com/docs/customer-analytics',
     },
     CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
@@ -604,6 +613,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'data_warehouse',
         description: 'Review and manage governed metrics, certifications, and relationships for your data.',
+        docsHref: 'https://posthog.com/docs/semantic-layer',
     },
     DataCatalogMetric: { projectBased: true, name: 'Metric' },
     DataOps: {
@@ -612,6 +622,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'DataWarehouse',
         description: "Manage your organization's shared data warehouse.",
         iconType: 'data_warehouse',
+        docsHref: 'https://posthog.com/docs/data-warehouse',
     },
     Models: {
         name: 'Models',
@@ -626,6 +637,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-raw-no-header',
         hideProjectNotice: true,
         description: 'Write and execute SQL queries against your data warehouse',
+        docsHref: 'https://posthog.com/docs/sql',
     },
     Sources: {
         projectBased: true,
@@ -644,6 +656,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Allow your users to individually enable or disable features that are in public beta.',
         iconType: 'early_access_feature',
+        docsHref: 'https://posthog.com/docs/feature-flags/early-access-feature-management',
     },
     EarlyAccessFeature: { name: 'Early access feature', projectBased: true },
     EndpointsScene: {
@@ -653,6 +666,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'endpoints',
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
+        docsHref: 'https://posthog.com/docs/endpoints',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
     EngineeringAnalytics: {
@@ -702,6 +716,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Error tracking',
         iconType: 'error_tracking',
         description: 'Track and analyze your error tracking data to understand and fix issues.',
+        docsHref: 'https://posthog.com/docs/error-tracking',
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
@@ -713,6 +728,7 @@ export const productConfiguration: Record<string, any> = {
         description:
             'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
         iconType: 'experiment',
+        docsHref: 'https://posthog.com/docs/experiments',
     },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
@@ -742,7 +758,11 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'link',
     },
     Link: { name: 'Link', projectBased: true, activityScope: 'Link' },
-    LiveDebugger: { name: 'Live Debugger', projectBased: true },
+    LiveDebugger: {
+        name: 'Live debugger',
+        projectBased: true,
+        description: 'Set breakpoints in your running code and inspect the state captured when they hit.',
+    },
     Logs: {
         projectBased: true,
         name: 'Logs',
@@ -750,6 +770,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
+        docsHref: 'https://posthog.com/docs/logs',
     },
     LogsAlertDetail: { projectBased: true, name: 'Alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
     LogsAlertNotificationDetail: {
@@ -794,6 +815,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
         iconType: 'mcp_analytics',
+        docsHref: 'https://posthog.com/docs/mcp-analytics',
     },
     MCPAnalyticsToolDetail: {
         projectBased: true,
@@ -808,6 +830,7 @@ export const productConfiguration: Record<string, any> = {
             'Route every MCP server your team uses through one gateway: shared credentials, per-tool policies, agent identities, and an audit log.',
         layout: 'app-container',
         iconType: 'tools',
+        docsHref: 'https://posthog.com/docs/model-context-protocol',
     },
     McpGatewayServer: { projectBased: true, name: 'MCP server' },
     McpGatewayAgent: { projectBased: true, name: 'MCP agent' },
@@ -819,6 +842,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Metrics',
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
+        docsHref: 'https://posthog.com/docs/metrics',
     },
     TaskTracker: {
         name: 'Tasks',
@@ -827,6 +851,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
         iconType: 'task',
         layout: 'app-full-scene-height',
+        docsHref: 'https://posthog.com/docs/posthog-desktop/tasks',
     },
     Pulse: {
         name: 'Pulse',
@@ -842,6 +867,7 @@ export const productConfiguration: Record<string, any> = {
             'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
         iconType: 'replay_vision',
         layout: 'app-container',
+        docsHref: 'https://posthog.com/docs/replay-vision',
     },
     ReplayVisionScanner: {
         name: 'Replay vision scanner',
@@ -884,11 +910,13 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Automated code reviews of your pull requests, and your review agent settings.',
         iconType: 'code_review',
+        docsHref: 'https://posthog.com/docs/posthog-desktop/code-review',
     },
     Inbox: {
         name: 'Inbox',
         projectBased: true,
         description: 'Actionable reports automatically generated from user session analysis and other signals.',
+        docsHref: 'https://posthog.com/docs/self-driving/inbox',
     },
     Skills: {
         projectBased: true,
@@ -896,6 +924,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
         layout: 'app-container',
         iconType: 'llm_prompts',
+        docsHref: 'https://posthog.com/docs/skills',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
     CommunitySkills: {
@@ -933,6 +962,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'PostHog toolbar launches PostHog right in your app or website.',
         iconType: 'toolbar',
+        docsHref: 'https://posthog.com/docs/toolbar',
     },
     Tracing: {
         name: 'Tracing',
@@ -941,6 +971,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Tracing',
         description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
         iconType: 'tracing',
+        docsHref: 'https://posthog.com/docs/distributed-tracing',
     },
     TracingOperation: {
         name: 'Operation',
@@ -981,6 +1012,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         iconType: 'heatmap',
         description: 'Heatmaps are a way to visualize user behavior on your website.',
+        docsHref: 'https://posthog.com/docs/toolbar/heatmaps',
     },
     Heatmap: { name: 'Heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapNew: { name: 'New heatmap', projectBased: true, iconType: 'heatmap' },
@@ -990,6 +1022,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'workflows',
         projectBased: true,
         description: 'Automate user communication and internal processes',
+        docsHref: 'https://posthog.com/docs/workflows',
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
@@ -2281,7 +2314,9 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Live Debugger',
+        displayLabel: 'Live debugger',
         intents: [ProductKey.LIVE_DEBUGGER],
+        sceneKey: 'LiveDebugger',
         category: ProductItemCategory.UNRELEASED,
         type: 'live_debugger',
         href: urls.liveDebugger(),
