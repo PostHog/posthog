@@ -271,6 +271,55 @@ export interface accountsLogicActions {
         queryId: string
         refresh: RefreshType | undefined
     } // dataNodeLogic
+    listLoadDataSuccess: (
+        response:
+            | Record<string, any>
+            | null
+            | import('~/queries/schema').ErrorTrackingQueryResponse
+            | import('~/queries/schema').HogQLAutocompleteResponse
+            | import('~/queries/schema').HogQLMetadataResponse
+            | import('~/queries/schema').HogQLQueryResponse<any[]>
+            | import('~/queries/schema').HogQueryResponse
+            | import('~/queries/schema').LogAttributesQueryResponse
+            | import('~/queries/schema').LogValuesQueryResponse
+            | import('~/queries/schema').MetricsQueryResponse
+            | import('~/queries/schema').SessionsQueryResponse
+            | import('~/queries/schema').TraceSpansAggregationQueryResponse
+            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
+            | import('~/queries/schema').TraceSpansQueryResponse
+            | undefined,
+        payload?:
+            | {
+                  overrideQuery: DataNode<Record<string, any>> | undefined
+                  pollOnly: boolean
+                  queryId: string
+                  refresh: RefreshType | undefined
+              }
+            | undefined
+    ) => {
+        payload?: {
+            overrideQuery: DataNode<Record<string, any>> | undefined
+            pollOnly: boolean
+            queryId: string
+            refresh: RefreshType | undefined
+        }
+        response:
+            | Record<string, any>
+            | null
+            | import('~/queries/schema').ErrorTrackingQueryResponse
+            | import('~/queries/schema').HogQLAutocompleteResponse
+            | import('~/queries/schema').HogQLMetadataResponse
+            | import('~/queries/schema').HogQLQueryResponse<any[]>
+            | import('~/queries/schema').HogQueryResponse
+            | import('~/queries/schema').LogAttributesQueryResponse
+            | import('~/queries/schema').LogValuesQueryResponse
+            | import('~/queries/schema').MetricsQueryResponse
+            | import('~/queries/schema').SessionsQueryResponse
+            | import('~/queries/schema').TraceSpansAggregationQueryResponse
+            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
+            | import('~/queries/schema').TraceSpansQueryResponse
+            | undefined
+    } // dataNodeLogic
     listLoadNextData: () => any // dataNodeLogic
     ensureAllMembersLoaded: () => {
         value: true
@@ -290,6 +339,9 @@ export interface accountsLogicActions {
     } // userLogic
     addTagToFilter: (tag: string) => {
         tag: string
+    }
+    clearCustomPropertyOverrides: () => {
+        value: true
     }
     customPropertyUpdateFinished: (
         accountId: string,
@@ -557,7 +609,7 @@ export const accountsLogic = kea<accountsLogicType>([
             membersLogic,
             ['ensureAllMembersLoaded'],
             dataNodeLogic({ key: ACCOUNTS_TABLE_DATA_NODE_KEY } as DataNodeLogicProps),
-            ['loadData as listLoadData', 'loadNextData as listLoadNextData'],
+            ['loadData as listLoadData', 'loadDataSuccess as listLoadDataSuccess', 'loadNextData as listLoadNextData'],
         ],
     })),
     actions({
@@ -585,6 +637,7 @@ export const accountsLogic = kea<accountsLogicType>([
         ) => ({ accountId, definition, value }),
         customPropertyUpdateStarted: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
         customPropertyUpdateFinished: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
+        clearCustomPropertyOverrides: true,
         setCustomPropertyOverride: (
             accountId: string,
             definitionId: string,
@@ -708,6 +761,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     }
                     return next
                 },
+                clearCustomPropertyOverrides: () => ({}),
             },
         ],
         savingRoles: [
@@ -977,6 +1031,19 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache, selectors }) => ({
+        listLoadData: ({ queryId }) => {
+            if (cache.awaitingCustomPropertyRefresh) {
+                cache.awaitingCustomPropertyRefresh = false
+                cache.customPropertyRefreshQueryId = queryId
+            }
+        },
+        listLoadDataSuccess: ({ payload }) => {
+            if (payload?.queryId !== cache.customPropertyRefreshQueryId) {
+                return
+            }
+            cache.customPropertyRefreshQueryId = undefined
+            actions.clearCustomPropertyOverrides()
+        },
         loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {
             cache.customPropertyDefinitionsLoaded = true
             if (!cache.relationshipDefinitionsLoaded) {
@@ -1181,6 +1248,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     value,
                 })
                 posthog.capture(AccountsEvents.CustomPropertyUpdated, { display_type: definition.display_type })
+                cache.awaitingCustomPropertyRefresh = true
                 dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
                 dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {

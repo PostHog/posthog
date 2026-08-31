@@ -1,4 +1,7 @@
-import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    CustomPropertyDefinitionApi,
+    CustomPropertySourceApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
     buildHistoryDisplay,
@@ -50,17 +53,47 @@ describe('buildHistoryDisplay', () => {
     })
 })
 
-describe('isCustomPropertyEditable', () => {
-    const definition = (overrides: Partial<CustomPropertyDefinitionApi> = {}): CustomPropertyDefinitionApi =>
-        ({ is_canonical: false, source: null, references: [], ...overrides }) as CustomPropertyDefinitionApi
+const createCustomPropertySource = (): CustomPropertySourceApi => ({
+    id: 'source-1',
+    definition: 'custom-property-1',
+    key_column: 'external_id',
+    consecutive_failures: 0,
+    last_synced_at: null,
+    last_sync_error: null,
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    sync_frequency_interval_seconds: null,
+    next_sync_at: null,
+    latest_run: null,
+    external_data_source: null,
+    table_name: null,
+    saved_query_name: null,
+})
 
+const createCustomPropertyDefinition = (
+    overrides: Partial<CustomPropertyDefinitionApi> = {}
+): CustomPropertyDefinitionApi => ({
+    id: 'custom-property-1',
+    name: 'Health score',
+    display_type: 'number',
+    is_canonical: false,
+    source: null,
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    references: [],
+    ...overrides,
+})
+
+describe('isCustomPropertyEditable', () => {
     it.each([
-        ['manual', definition(), true],
-        ['canonical', definition({ is_canonical: true }), false],
-        ['data warehouse managed', definition({ source: {} as CustomPropertyDefinitionApi['source'] }), false],
+        ['manual', createCustomPropertyDefinition(), true],
+        ['canonical', createCustomPropertyDefinition({ is_canonical: true }), false],
+        ['data warehouse managed', createCustomPropertyDefinition({ source: createCustomPropertySource() }), false],
         [
             'workflow managed',
-            definition({
+            createCustomPropertyDefinition({
                 references: [{ id: 'workflow-1', name: 'Update value', status: 'active', type: 'workflow' }],
             }),
             false,
@@ -71,16 +104,15 @@ describe('isCustomPropertyEditable', () => {
 })
 
 describe('isCustomPropertyValueValid', () => {
-    const definition = (displayType: CustomPropertyDefinitionApi['display_type']): CustomPropertyDefinitionApi =>
-        ({ display_type: displayType }) as CustomPropertyDefinitionApi
-
     it.each([
         ['accepts HTTP URLs', 'http://example.com', true],
         ['accepts HTTPS URLs', 'https://example.com', true],
         ['rejects a URL without a scheme', 'example.com', false],
         ['rejects unsupported URL schemes', 'ftp://example.com', false],
     ])('%s', (_, value, expected) => {
-        expect(isCustomPropertyValueValid(value, definition('link'))).toBe(expected)
+        expect(isCustomPropertyValueValid(value, createCustomPropertyDefinition({ display_type: 'link' }))).toBe(
+            expected
+        )
     })
 })
 

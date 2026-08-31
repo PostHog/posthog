@@ -31,6 +31,7 @@ import type {
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
+    CustomPropertySourceApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
@@ -125,6 +126,24 @@ const buildUser = (overrides: Partial<UserBasicType> = {}): UserBasicType =>
         email: 'alex@example.com',
         ...overrides,
     }) as UserBasicType
+
+const createCustomPropertySource = (): CustomPropertySourceApi => ({
+    id: 'source-1',
+    definition: 'custom-property-1',
+    key_column: 'external_id',
+    consecutive_failures: 0,
+    last_synced_at: null,
+    last_sync_error: null,
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    sync_frequency_interval_seconds: null,
+    next_sync_at: null,
+    latest_run: null,
+    external_data_source: null,
+    table_name: null,
+    saved_query_name: null,
+})
 
 const buildCustomPropertyDefinition = (
     overrides: Partial<CustomPropertyDefinitionApi> = {}
@@ -788,23 +807,25 @@ describe('accountsLogic', () => {
             })
 
             logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+
+            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBe(42)
+
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockCustomPropertyValuesCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
                 definition: definition.id,
                 value: 42,
             })
-            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBe(42)
+            expect(
+                logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]
+            ).toBeUndefined()
             expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
             expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, { display_type: 'number' })
         })
 
         it.each([
             ['canonical', buildCustomPropertyDefinition({ is_canonical: true })],
-            [
-                'data warehouse managed',
-                buildCustomPropertyDefinition({ source: {} as CustomPropertyDefinitionApi['source'] }),
-            ],
+            ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() })],
             [
                 'workflow managed',
                 buildCustomPropertyDefinition({
