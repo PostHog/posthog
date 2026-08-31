@@ -208,7 +208,10 @@ class GitHubRecorder:
         if method == "GET" and (m := _REVIEWS_RE.match(path)):
             return FakeResponse(200, json_data=self.pr_reviews.get((m.group("repo"), int(m.group("number"))), []))
         if method == "POST" and (m := _REVIEWS_RE.match(path)):
-            return self._record_write("approve_review", m.group("repo"), int(m.group("number")), json_body)
+            # Split by event so a test asserting on approvals never matches a COMMENT review.
+            event = (json_body or {}).get("event")
+            kind = "approve_review" if event == "APPROVE" else "comment_review"
+            return self._record_write(kind, m.group("repo"), int(m.group("number")), json_body)
         if method == "GET" and (m := _ISSUE_COMMENTS_RE.match(path)):
             page = int(params.get("page", 1))
             comments = self.issue_comments.get((m.group("repo"), int(m.group("number"))), []) if page == 1 else []
