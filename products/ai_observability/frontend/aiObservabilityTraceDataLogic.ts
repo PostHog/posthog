@@ -917,8 +917,8 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
                 }
             } else {
                 // Child has no children, use its direct metrics
-                const childCost = child.event.properties.$ai_total_cost_usd
-                if (shouldAggregateCost && typeof childCost === 'number') {
+                const childCost = extractTotalCost(child.event)
+                if (shouldAggregateCost && childCost !== null) {
                     totalCost = (totalCost ?? 0) + childCost
                 }
                 if (shouldAggregateLatency) {
