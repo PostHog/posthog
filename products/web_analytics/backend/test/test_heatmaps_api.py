@@ -838,11 +838,22 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("id_is_not_a_string", '[{"id": 1}]'),
             ("properties_is_not_a_list", '[{"id": "purchase", "properties": "plan"}]'),
             ("properties_entries_are_not_objects", '[{"id": "purchase", "properties": ["plan"]}]'),
+            # A "hogql" property carries a raw expression the caller authored. Accepting it here would let
+            # a heatmap-only caller read any table the HogQL database exposes, so the type is not allowed.
+            ("hogql_property_type", '[{"id": "purchase", "properties": [{"type": "hogql", "key": "1"}]}]'),
+            (
+                "cohort_property_type",
+                '[{"id": "purchase", "properties": [{"type": "cohort", "key": "id", "value": 1}]}]',
+            ),
+            (
+                "person_property_type",
+                '[{"id": "purchase", "properties": [{"type": "person", "key": "email", "value": "a"}]}]',
+            ),
         ]
     )
-    def test_event_filter_rejects_malformed_events(self, _name: str, events: str) -> None:
-        # property_to_expr raises on a bad filter shape while the query is being built, which reaches the
-        # caller as a 500. Everything malformed has to be turned away by validation instead.
+    def test_event_filter_rejects_malformed_or_disallowed_events(self, _name: str, events: str) -> None:
+        # A bad shape reaches property_to_expr while the query builds and surfaces as a 500, and a
+        # disallowed property type widens what the caller can read. Both are turned away as a 400.
         self._assert_heatmap_no_result_count(
             {"date_from": "2023-03-08", "events": quote(events, safe="")},
             expected_status_code=status.HTTP_400_BAD_REQUEST,

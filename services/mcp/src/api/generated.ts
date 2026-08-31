@@ -93557,7 +93557,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event. Several entries are combined with AND: the session must contain a matching event for every entry. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. Feature-flagged; ignored when the event filter is not enabled for the caller.
      * @nullable
      */
     events?: string | null;
@@ -93640,7 +93640,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event. Several entries are combined with AND: the session must contain a matching event for every entry. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. Feature-flagged; ignored when the event filter is not enabled for the caller.
      * @nullable
      */
     events?: string | null;

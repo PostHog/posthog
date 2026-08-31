@@ -29,6 +29,7 @@ from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
@@ -94,6 +95,12 @@ HEATMAPS_EVENT_FILTER_FLAG = "heatmaps-event-filter"
 # it sits just outside. Session replay hit this and widened its events scan by a day at each end; do the
 # same here, or sessions on the boundary drop out of the heatmap.
 EVENT_FILTER_SESSION_BUFFER = timedelta(days=1)
+
+# The property filters on a selected event reach property_to_expr, which parses the key of a "hogql"
+# property as an arbitrary expression. Heatmap access is its own API scope and its own access-control
+# resource, so accepting that type would let a caller who may only read heatmaps read any table the
+# project's HogQL database exposes. Accept only the types the heatmap filter offers.
+EVENT_FILTER_PROPERTY_TYPES = frozenset({"element", "event"})
 
 logger = structlog.get_logger(__name__)
 
@@ -326,8 +333,9 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text='JSON array of event filters (e.g. \'[{"id": "purchase", "properties": []}]\') to restrict '
         "results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and "
-        "may carry a 'properties' array of property filters applied to that event. Several entries are combined "
-        "with AND: the session must contain a matching event for every entry. "
+        "may carry a 'properties' array of property filters applied to that event, each of type 'event' or "
+        "'element'. Several entries are combined with AND: the session must contain a matching event for "
+        "every entry. "
         "Feature-flagged; ignored when the event filter is not enabled for the caller.",
     )
     limit = serializers.IntegerField(
@@ -390,6 +398,12 @@ class HeatmapsRequestSerializer(serializers.Serializer):
                 not isinstance(properties, list) or not all(isinstance(prop, dict) for prop in properties)
             ):
                 raise serializers.ValidationError("event 'properties' must be a JSON array of property objects")
+            for prop in properties or []:
+                if prop.get("type") not in EVENT_FILTER_PROPERTY_TYPES:
+                    raise serializers.ValidationError(
+                        "event property filters must have a 'type' of "
+                        f"{' or '.join(sorted(EVENT_FILTER_PROPERTY_TYPES))}"
+                    )
         return events
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
@@ -763,7 +777,13 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             predicate: ast.Expr = parse_expr("event = {event}", {"event": Constant(value=entity["id"])})
             entity_properties = entity.get("properties")
             if entity_properties:
-                predicate = ast.And(exprs=[predicate, property_to_expr(entity_properties, self.team, scope="event")])
+                # strict, so a property the caller got wrong is a 400 rather than a filter that quietly
+                # drops itself and returns the unfiltered heatmap.
+                try:
+                    properties_expr = property_to_expr(entity_properties, self.team, scope="event", strict=True)
+                except (QueryError, NotImplementedError, TypeError, ValueError) as error:
+                    raise serializers.ValidationError(f"Invalid property filter on event '{entity['id']}': {error}")
+                predicate = ast.And(exprs=[predicate, properties_expr])
             filters.append(
                 self._session_id_in(
                     self._sessions_seen_in_events(events_date_from, events_date_to, predicate=predicate)
