@@ -11,6 +11,7 @@ from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
     LOCAL_WIZARD_INSTALL_PATH,
     MAX_HANDOFF_BODY_BYTES,
+    WIZARD_PACKAGE_INSTALL_PATH,
     WIZARD_TIMEOUT_SECONDS,
 )
 
@@ -31,15 +32,26 @@ def build_wizard_command(
     if any(_WIZARD_PROGRAM_COMMAND_PATTERN.fullmatch(argument) is None for argument in program_command):
         raise ValueError("Invalid Wizard program command")
 
-    executable = (
-        f"node {shlex.quote(f'{LOCAL_WIZARD_INSTALL_PATH}/dist/bin.js')}"
-        if use_local_wizard_source
-        else f"npx --yes {shlex.quote(f'@posthog/wizard@{wizard_version}')}"
-    )
+    setup_commands: list[str] = []
+    if use_local_wizard_source:
+        executable = f"node {shlex.quote(f'{LOCAL_WIZARD_INSTALL_PATH}/dist/bin.js')}"
+    else:
+        install_path = shlex.quote(WIZARD_PACKAGE_INSTALL_PATH)
+        package = shlex.quote(f"@posthog/wizard@{wizard_version}")
+        setup_commands = [
+            f"rm -rf {install_path}",
+            f"mkdir -p {install_path}",
+            "rm -f /tmp/posthog-wizard-global.npmrc",
+            "touch /tmp/posthog-wizard-global.npmrc",
+            (
+                "npm --userconfig=/dev/null --globalconfig=/tmp/posthog-wizard-global.npmrc install "
+                "--ignore-scripts --no-package-lock --no-save "
+                f"--prefix {install_path} --registry=https://registry.npmjs.org {package}"
+            ),
+        ]
+        executable = f"node {install_path}/node_modules/@posthog/wizard/dist/bin.js"
 
-    parts = [
-        f"cd {shlex.quote(repository_path)} &&",
-        f"timeout -k 30 {WIZARD_TIMEOUT_SECONDS}",
+    invocation = [
         executable,
         *(shlex.quote(argument) for argument in program_command),
         "--headless-DONOTUSE-EXPERIMENTAL",
@@ -49,9 +61,10 @@ def build_wizard_command(
     ]
 
     if settings.DEBUG:
-        parts.append('--base-url "$POSTHOG_API_URL"')
+        invocation.append('--base-url "$POSTHOG_API_URL"')
 
-    return " ".join(parts)
+    commands = [*setup_commands, f"cd {shlex.quote(repository_path)}", " ".join(invocation)]
+    return f"timeout -k 30 {WIZARD_TIMEOUT_SECONDS} sh -c {shlex.quote(' && '.join(commands))}"
 
 
 def build_local_wizard_preparation_command() -> str:
