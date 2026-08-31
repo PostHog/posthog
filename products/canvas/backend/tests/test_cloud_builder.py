@@ -18,10 +18,15 @@ from products.canvas.backend.source import synthetic_source_project, validate_so
 
 
 class TestCanvasCloudBuilder(SimpleTestCase):
-    def test_legacy_canvas_build_mounts_react_and_injects_the_runtime_bridge(self) -> None:
+    @parameterized.expand([("double_quotes",), ("single_quotes",)])
+    def test_legacy_canvas_build_mounts_react_and_injects_the_runtime_bridge(self, quote_style: str) -> None:
         payload = synthetic_source_project(
             'import React from "react"; export default function Canvas() { return <div>Hello</div> }'
         )
+        if quote_style == "single_quotes":
+            payload["files"]["index.html"] = payload["files"]["index.html"].replace(
+                'src="/src/canvas.tsx"', "src='/src/canvas.tsx'"
+            )
 
         result = run_cloud_builder(payload)
 
@@ -31,6 +36,9 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         html = next(file["content"] for file in result["files"] if file["path"] == "index.html")
         self.assertIn("createRoot", javascript)
         self.assertIn("canvas-runtime", html)
+        meta_csp = html.split('content="', 1)[1].split('"', 1)[0]
+        self.assertNotIn("sandbox", meta_csp.split(";")[0])
+        self.assertIn("default-src 'none'", meta_csp)
 
     def test_legacy_canvas_build_compiles_tailwind_and_quill_styles(self) -> None:
         payload = synthetic_source_project(

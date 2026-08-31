@@ -459,11 +459,15 @@ async function buildCanvas(project) {
     project = { ...project, files: { ...project.files }, dependencies: { ...project.dependencies } }
     let html = project.files[project.entryHtml]
     let legacy = null
-    if (project.files['src/canvas.tsx'] && html.includes('src="/src/canvas.tsx"')) {
+    // Quote-agnostic so an entry HTML written with single quotes still gets the
+    // injected mount: a literal `src="/src/canvas.tsx"` match misses them and
+    // the build then ships a component module that nothing mounts (blank canvas).
+    const legacyEntry = /(<script\b[^>]*?\bsrc\s*=\s*)(["'])\/src\/canvas\.tsx\2/gi
+    if (project.files['src/canvas.tsx'] && legacyEntry.test(html)) {
         legacy = { legacyComponentPath: 'src/canvas.tsx', legacyCode: project.files['src/canvas.tsx'] }
         project.files['src/canvas-entry.tsx'] =
             'import React from "react"; import { createRoot } from "react-dom/client"; import Canvas from "./canvas"; const root = document.getElementById("root"); if (root) createRoot(root).render(React.createElement(Canvas));'
-        html = html.replace('src="/src/canvas.tsx"', 'src="/src/canvas-entry.tsx"')
+        html = html.replace(legacyEntry, '$1$2/src/canvas-entry.tsx$2')
         project.files[project.entryHtml] = html
         // The injected mount is platform code, not the author's — admit the react/
         // react-dom it needs even when the source only declared react.
@@ -552,7 +556,10 @@ async function buildCanvas(project) {
               .replace("media-src 'self' data: blob:", `media-src 'self' data: blob: ${externalSources}`)
               .replace("frame-src 'none'", `frame-src ${externalSources}`)
         : csp
-    const head = `<meta http-equiv="Content-Security-Policy" content="${projectCsp}" /><link rel="stylesheet" href="./${cssPath}" /><script src="./${runtimePath}"></script>`
+    // `sandbox` is ignored in a <meta> policy and logs a console warning on every
+    // artifact load; the artifact origin delivers it via the response header.
+    const metaCsp = projectCsp.replace(/^sandbox[^;]*;\s*/, '')
+    const head = `<meta http-equiv="Content-Security-Policy" content="${metaCsp}" /><link rel="stylesheet" href="./${cssPath}" /><script src="./${runtimePath}"></script>`
     html = html.includes('<head>') ? html.replace('<head>', `<head>${head}`) : `${head}${html}`
     files.unshift(artifact(project.entryHtml, html))
     const manifest = {

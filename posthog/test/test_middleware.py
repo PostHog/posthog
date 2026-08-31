@@ -1898,6 +1898,23 @@ class TestCSPMiddleware(APIBaseTest):
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
 
+    def test_html_response_with_view_managed_csp_is_not_overlaid(self):
+        from django.http import HttpResponse
+        from django.test import RequestFactory
+
+        from posthog.middleware import CSPMiddleware
+
+        def view(request):
+            response = HttpResponse("<html><body>artifact</body></html>", content_type="text/html; charset=utf-8")
+            response["Content-Security-Policy"] = "sandbox allow-scripts; default-src 'none'"
+            return response
+
+        response = CSPMiddleware(view)(RequestFactory().get("/"))
+
+        assert response["Content-Security-Policy"] == "sandbox allow-scripts; default-src 'none'"
+        assert "Content-Security-Policy-Report-Only" not in response
+        assert "Reporting-Endpoints" not in response
+
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
         # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
         # renaming it silently stops crash ingestion.
