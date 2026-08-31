@@ -154,6 +154,20 @@ export const INITIAL_PERMISSION_MODE: TaskRunBootstrapCreateRequestInitialPermis
 const AGENT_CRASH_PREFIX = 'Agent server crashed'
 
 /**
+ * `session/update` sub-types that mean the agent is producing output for a turn, and so that a turn is
+ * open. An allowlist, so an unknown or malformed sub-type fails safe to "not generating" rather than
+ * reopening a turn that finished. `tool_call_update` is deliberately absent: it updates a call the turn
+ * already started, and can trail the end of that turn.
+ */
+const AGENT_GENERATING_SESSION_UPDATES: ReadonlySet<string> = new Set([
+    'agent_message',
+    'agent_message_chunk',
+    'agent_thought_chunk',
+    'tool_call',
+    'plan',
+])
+
+/**
  * In-band durable end-of-run sentinel emitted by both the Django stream view and the agent-proxy
  * (`event: stream-end`, `data: {"status":"complete"}`). Distinct from the rotation `end` event (a
  * 15-min connection recycle that means "reconnect"): the sentinel means the run is finished, so the
@@ -1811,8 +1825,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
         setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: true,
         /**
-         * Reopens the turn on a user message that reaches the run over the wire instead of from this
-         * composer, such as a follow-up sent from Slack, sent from another tab, or replayed from history.
+         * Reopens the turn for a follow-up that started outside this composer, such as one sent from Slack
+         * or from another tab. Dispatched from a user turn seen on the wire, and from the agent's first
+         * output of a turn, which is the only marker the live stream carries.
          */
         markTurnStarted: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
@@ -2110,8 +2125,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // A run emits `_posthog/run_started` once; a follow-up message on the same run starts
                 // a fresh turn with no new run_started frame, so a human message also reopens the
                 // turn — otherwise the thinking indicator would stay off for the whole follow-up.
-                // `pushHumanMessage` covers a send from this composer, `markTurnStarted` a user turn
-                // that reaches the run some other way (Slack, another tab, a replayed history tail).
+                // `pushHumanMessage` covers a send from this composer, `markTurnStarted` a turn that
+                // started some other way (Slack, another tab, a replayed history tail).
                 markRunStarted: () => false,
                 pushHumanMessage: () => false,
                 markTurnStarted: () => false,
@@ -3317,6 +3332,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             if (!isKnownSessionUpdate(update)) {
                 return
+            }
+            // The agent producing output is the only marker of a new turn this client can rely on when the
+            // turn was started from outside its own composer. Such a follow-up is queued on the run, which
+            // emits no second `run_started`, and neither wire form of the user turn fills the gap: the live
+            // stream never carries one, and the persisted one is written when the message is received, so a
+            // message sent mid-turn is replayed *before* the previous turn's `turn_complete`. Guarded on
+            // `turnComplete` so this costs one dispatch per turn rather than one per streamed chunk.
+            if (values.turnComplete && AGENT_GENERATING_SESSION_UPDATES.has(update.sessionUpdate)) {
+                actions.markTurnStarted()
             }
             if (update.sessionUpdate === 'current_mode_update') {
                 actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
