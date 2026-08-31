@@ -70,6 +70,8 @@ if TYPE_CHECKING:
 
     from posthog.models import User
 
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
     DatabaseSerializedFieldType.FLOAT: "Float64",
@@ -199,6 +201,13 @@ class DataWarehouseTableManager(models.Manager["DataWarehouseTable"]):
 
     def queryable(self) -> DataWarehouseTableQuerySet:
         return self.get_queryset().queryable()
+
+
+def _source_job_inputs(source: "ExternalDataSource") -> dict[str, Any]:
+    # job_inputs decrypts to whatever the JSON column holds, so a bare string is possible;
+    # treat any non-dict as unset instead of letting a `.get` call throw.
+    job_inputs = source.job_inputs
+    return job_inputs if isinstance(job_inputs, dict) else {}
 
 
 def get_hogql_field_for_column(
@@ -763,7 +772,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             postgres_schema = (
                 self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION), str)
-                else (self.external_data_source.job_inputs or {}).get("schema", "public")
+                else _source_job_inputs(self.external_data_source).get("schema", "public")
             )
             postgres_table_name = (
                 self.options.get(DIRECT_POSTGRES_TABLE_OPTION)
@@ -782,7 +791,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         if self.external_data_source and self.external_data_source.is_direct_mysql:
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = _source_job_inputs(self.external_data_source)
             mysql_schema = (
                 self.options.get(DIRECT_MYSQL_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_MYSQL_SCHEMA_OPTION), str)
@@ -803,7 +812,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         if self.external_data_source and self.external_data_source.is_direct_snowflake:
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = _source_job_inputs(self.external_data_source)
             snowflake_catalog = (
                 self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION), str)
@@ -832,7 +841,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if self.external_data_source and self.external_data_source.is_direct_redshift:
             # Redshift is a Postgres fork and reuses DirectPostgresTable's schema-qualified,
             # double-quoted table-reference rendering (see DirectRedshiftTable).
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = _source_job_inputs(self.external_data_source)
             redshift_catalog = (
                 self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION), str)
@@ -865,7 +874,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "motherduck"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = _source_job_inputs(self.external_data_source)
             motherduck_database = (
                 self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION), str)
@@ -897,7 +906,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "trino"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = _source_job_inputs(self.external_data_source)
             trino_catalog = (
                 self.options.get(DIRECT_TRINO_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_TRINO_CATALOG_OPTION), str)
@@ -933,7 +942,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "clickhouse"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = _source_job_inputs(self.external_data_source)
             # Every direct-ClickHouse table is discovered from the source's single configured
             # database, so the live source config is authoritative. Prefer it over the per-table
             # option, which can be stale — e.g. stored as "default" when the source was first synced

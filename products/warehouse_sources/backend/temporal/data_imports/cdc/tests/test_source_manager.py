@@ -299,6 +299,9 @@ class TestBufferedGating:
         [
             ("source_never_flipped", {}),
             ("no_job_inputs", {"job_inputs": None}),
+            # job_inputs decrypts to whatever the JSON column holds; a bare string used to crash
+            # the activity before it could fall back to the legacy path.
+            ("job_inputs_is_a_string", {"job_inputs": "buffered"}),
             ("companion_lane", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "cdc_only"}),
             ("still_snapshotting", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_mode": "snapshot"}),
         ]
