@@ -18,13 +18,6 @@ export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
  * project-bluebird. The key predates the rename, matching the live flag.
  */
 export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
-/**
- * Gates the browser-tab strip inside the spaces layout. Off is the same code
- * path with a single tab (the tab is the window), not a second implementation,
- * so per-tab history and view state behave as their window-global predecessors.
- * Requires the spaces layout.
- */
-export const SPACES_TABS_FLAG = "posthog-desktop-spaces-tabs";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
 export const DESKTOP_HOME_FLAG = "desktop-home-flag";
@@ -41,6 +34,8 @@ export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
 export const FAST_MODE_FLAG = "posthog-desktop-fast-mode";
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
 export const SPOKEN_NARRATION_FLAG = "posthog-code-spoken-narration";
+export const CODEX_OWN_SUBSCRIPTION_FLAG =
+  "posthog-code-codex-own-subscription";
 // Gates importing and relaying local MCP servers into cloud task runs.
 export const LOCAL_MCP_IMPORT_FLAG = "posthog-code-local-mcp-import";
 /**

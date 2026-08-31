@@ -28,9 +28,7 @@ export type TipKey = (typeof TIP_KEYS)[keyof typeof TIP_KEYS];
  * showings; the anchored tips never count showings at all, and only the person
  * answering ends them, so a limit would mean nothing to them.
  */
-export type TipShowings =
-  | { kind: "counted"; max: number }
-  | { kind: "answered-only" };
+type TipShowings = { kind: "counted"; max: number } | { kind: "answered-only" };
 
 /**
  * Every lesson's stopping rule, keyed the same way, so it is readable from

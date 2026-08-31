@@ -45,21 +45,6 @@ export function useCreateWorkspace(): { isPending: boolean } {
   return { isPending: mutation.isPending };
 }
 
-export function useDeleteWorkspace(): { isPending: boolean } {
-  const trpc = useHostTRPC();
-  const invalidateCaches = useInvalidateWorkspaceCaches();
-
-  const mutation = useMutation(
-    trpc.workspace.delete.mutationOptions({
-      onSuccess: (_data, variables) => {
-        void invalidateCaches(variables.mainRepoPath);
-      },
-    }),
-  );
-
-  return { isPending: mutation.isPending };
-}
-
 export function useEnsureWorkspace(): {
   ensureWorkspace: (
     taskId: string,
