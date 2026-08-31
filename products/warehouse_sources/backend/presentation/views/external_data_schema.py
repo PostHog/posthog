@@ -1588,8 +1588,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         request=None,
         description=(
-            "Trigger a sync for the schema. This keeps the existing warehouse table and adds or "
-            "merges new rows. To drop the table and re-import every row from scratch, use resync."
+            "Trigger a sync for the schema using its configured sync method. Most methods keep the "
+            "existing warehouse table and add or merge new rows, but a full-refresh schema rebuilds "
+            "the whole table on every run. To force a rebuild from the source, use resync."
         ),
         responses={
             200: OpenApiResponse(description="The sync was triggered."),
@@ -1633,9 +1634,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         request=None,
         description=(
-            "Fully resync the schema. This drops the warehouse table and re-imports every row "
-            "from the source, so existing data is deleted first. To keep existing data and only "
-            "add new rows, use reload instead."
+            "Request a full resync of the schema. For sources that can backfill, this drops the "
+            "warehouse table and re-imports every row from the source, so existing data is deleted "
+            "first. A webhook-only schema cannot backfill, so it keeps its existing table and "
+            "resumes ingestion instead. To sync without requesting a rebuild, use reload."
         ),
         responses={
             200: OpenApiResponse(description="The full resync was triggered."),
