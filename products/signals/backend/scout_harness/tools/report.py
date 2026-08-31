@@ -1349,7 +1349,6 @@ def _do_edit_report(
                 title=title,
                 summary=summary,
                 attribution=attribution,
-                author=run.skill_name,
             )
         # Replace the report's `suggested_reviewers` status artefact (latest-wins). This is the routing
         # fix — a report authored without a reviewer (so it routes to no one) can have one added after

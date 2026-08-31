@@ -24,6 +24,22 @@ unit-testable against the real `git` binary without booting the app
 
 - **Zip export** — `GET /api/projects/:team/llm_skills/name/:name/export` → `application/zip`,
   one spec-compliant skill directory nested under `:name/` (web-authenticated, `llm_skill:read`).
+- **Skill bundle** — `GET /api/projects/:team/llm_skills/bundle?content=stub|full&limit=N` →
+  `application/zip`, every skill the requesting user created or owns (latest, not archived, not
+  `scout`, and readable under the same object-level access filter as the list endpoint), each nested
+  under `<name>/` so the zip unpacks straight into `~/.claude/skills` / `~/.agents/skills`.
+  `content=stub` (default) writes one `SKILL.md` per skill with only its name, description and
+  instructions to fetch the real skill with `skill-get` / `skill-file-get` when it is invoked, so a
+  sandbox gets discovery for a few KB and skill content only moves over MCP when a skill is used.
+  `content=full` writes the rendered `SKILL.md`, bundled files and Codex sidecar. Newest first,
+  `limit` skills (default 20, at most 100; every skill in the zip costs the agent prompt context on
+  each turn) and 5 MB uncompressed for `full`; the walk stops at the first skill that would cross a
+  cap, and sizes are checked from column byte counts before any content loads.
+  `X-Skills-Included`, `X-Skills-Dropped` (over the cap) and `X-Skills-Skipped` (failed the spec
+  check, or a legacy name or file path that is not safe to unpack) carry counts; names are logged.
+  Behind the `skills-store-in-sandbox` flag (off → 404, flag service unavailable → 503).
+  `llm_skill:read`, which the sandbox OAuth token already carries. Throttled per user, so one caller
+  cannot 429 the rest of the project. Consumer-facing contract: `docs/internal/skills/skill-bundle-api.md`.
 - **Zip import** — `POST /api/projects/:team/llm_skills/import` (multipart `file` field, a spec
   skill `.zip`) → creates the skill (web-authenticated, `llm_skill:write`). The inverse of
   export: `parse_skill_zip` reads `SKILL.md` frontmatter + bundled files. Round-trips with export.

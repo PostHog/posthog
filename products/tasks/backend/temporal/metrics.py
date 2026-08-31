@@ -110,9 +110,9 @@ def _runtime_adapter_label(value: str | None) -> str:
     return value if value in _ALLOWED_RUNTIME_ADAPTERS else "other"
 
 
-def resume_mode_label(*, handoff_resumed: bool, using_modal_snapshot: bool) -> str:
-    if handoff_resumed:
-        return "handoff_and_snapshot" if using_modal_snapshot else "handoff"
+def resume_mode_label(*, same_run_resume: bool, using_modal_snapshot: bool) -> str:
+    if same_run_resume:
+        return "same_run_and_snapshot" if using_modal_snapshot else "same_run"
     return "snapshot_only" if using_modal_snapshot else "neither"
 
 
@@ -121,9 +121,8 @@ def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
         _metric_meter({"mode": mode, "origin_product": origin_product or "unknown"}).create_counter(
             "tasks_process_resume_mode",
             "Resuming process-task runs by the resume state available at provision time. "
-            "handoff labels record that a handoff was requested, not that its git checkpoint "
-            "was captured. neither means no snapshot and no handoff state accompanied the "
-            "resume, so the agent's prior working tree could not be restored.",
+            "same_run labels identify a restart of the current run. neither means no snapshot "
+            "or same-run state accompanied the resume, so the prior working tree could not be restored.",
         ).add(1)
     except Exception:
         pass

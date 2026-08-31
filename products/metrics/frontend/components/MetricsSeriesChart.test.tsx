@@ -11,6 +11,7 @@ import {
 
 import { initKeaTests } from '~/test/init'
 
+import type { MetricsExemplar } from './MetricsExemplarMarkers'
 import type { MetricsChartSeries } from './metricsSeries'
 import { MetricsSeriesChart } from './MetricsSeriesChart'
 
@@ -20,7 +21,7 @@ function seriesWith(labels: Record<string, string>, values: (number | null)[]): 
     return { labels, points: BUCKETS.map((time, i) => ({ time, value: values[i] })) }
 }
 
-function renderChart(series: MetricsChartSeries[], exemplars?: { timeMs: number; onClick: () => void }[]): void {
+function renderChart(series: MetricsChartSeries[], exemplars?: MetricsExemplar[]): void {
     render(<MetricsSeriesChart series={series} fallbackName="http.requests" exemplars={exemplars} />)
 }
 
@@ -54,7 +55,10 @@ describe('MetricsSeriesChart', () => {
     })
 
     it('renders a clickable dot per traced exemplar', () => {
-        renderChart([seriesWith({}, [1, 2, 3])], [{ timeMs: Date.parse(BUCKETS[1]), onClick: jest.fn() }])
+        renderChart(
+            [seriesWith({}, [1, 2, 3])],
+            [{ timeMs: Date.parse(BUCKETS[1]), onClick: jest.fn(), tooltipLabel: 'test exemplar' }]
+        )
         expect(screen.getAllByTestId('metrics-exemplar-marker')).toHaveLength(1)
     })
 

@@ -49,9 +49,9 @@ export interface RunSurfaceProps {
 
 interface RunSurfaceContextValue {
     /** Original run id passed to `bootstrapRun`; `null`/`''` while the surface is pending (no run yet). */
-    rawRunId: string | null
-    /** Logic key (used for child stream keys). */
-    runId: string
+    runId: string | null
+    /** Logic key the bound `runStreamLogic` and child stream consumers share. */
+    streamKey: string
     taskId: string
     conversationId?: string
     interaction: 'live' | 'read-only'
@@ -127,8 +127,8 @@ function RunSurfaceRoot({
         <BindLogic logic={runStreamLogic} props={{ streamKey: logicKey, conversationId, replayOnly }}>
             <RunSurfaceContext.Provider
                 value={{
-                    rawRunId: runId,
-                    runId: logicKey,
+                    runId,
+                    streamKey: logicKey,
                     taskId,
                     conversationId,
                     interaction,
@@ -144,7 +144,7 @@ function RunSurfaceRoot({
 
 /** Drives the run bootstrap as a side effect; renders nothing. Kept separate so slots stay presentational. */
 function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
-    const { rawRunId, interaction } = useRunSurfaceContext()
+    const { runId, interaction } = useRunSurfaceContext()
     const { bootstrapRun, reset } = useActions(runStreamLogic)
     // The bootstrap decision reads logic-resident state (not a per-component ref) so it survives the
     // optimistic create-thread → detail-page component swap onto the same `streamKey` instance.
@@ -153,7 +153,7 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
     useEffect(() => {
         // Pending: no run to bootstrap yet — leave the seeded optimistic thread (first message +
         // provisioning indicator) untouched until the consumer supplies the real id.
-        if (!rawRunId) {
+        if (!runId) {
             return
         }
         // Wait for the project to resolve before bootstrapping — firing without it races to an
@@ -163,13 +163,13 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         }
         // Already bootstrapped this run on this instance — idempotent across re-renders and across a
         // consumer swap that adopts the same seeded instance (no reset, so the seed/stream survives).
-        if (bootstrappedRunId === rawRunId) {
+        if (bootstrappedRunId === runId) {
             return
         }
         if (awaitingOptimisticAttach) {
             // Attaching a freshly-created run to a seeded optimistic instance: skip the reset so the seed
             // survives, and take the fresh-run fast path. The live SSE echo dedups the seeded message.
-            bootstrapRun({ taskId, runId: rawRunId, justCreatedRun: true })
+            bootstrapRun({ taskId, runId, justCreatedRun: true })
             return
         }
         // Reset first so a reused instance (stable streamKey, changed run) replays/streams the new run
@@ -177,17 +177,8 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         // `interaction` is in the deps so a status transition (live → terminal) re-bootstraps the right
         // mode — the bound logic re-keys on it, so `bootstrapRun`/`reset` are fresh references anyway.
         reset()
-        bootstrapRun({ taskId, runId: rawRunId })
-    }, [
-        taskId,
-        rawRunId,
-        interaction,
-        bootstrappedRunId,
-        awaitingOptimisticAttach,
-        currentProjectId,
-        bootstrapRun,
-        reset,
-    ])
+        bootstrapRun({ taskId, runId })
+    }, [taskId, runId, interaction, bootstrappedRunId, awaitingOptimisticAttach, currentProjectId, bootstrapRun, reset])
 
     return null
 }
@@ -198,34 +189,33 @@ function RunSurfaceThread({
     listClassName,
     rowClassName,
 }: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
-    const { interaction, isScout, taskId, conversationId, runId } = useRunSurfaceContext()
+    const { interaction, isScout, taskId, streamKey, runId } = useRunSurfaceContext()
     const { bootstrapLoading, threadItems } = useValues(runStreamLogic)
-    // Feedback identity: the conversation where one exists (Max chats), else the task.
-    const feedbackSessionId = conversationId ?? taskId
+    // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
+    const feedbackSessionId = taskId
     const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
     // Memoized so the footer keeps a stable element identity across streamed frames.
     const feedbackPrompt = useMemo(
         () =>
             collectsFeedback ? (
-                <FeedbackPromptTrailer
-                    sessionId={feedbackSessionId}
-                    sessionKind={conversationId ? 'conversation' : 'task'}
-                    streamKey={runId}
-                />
+                <FeedbackPromptTrailer sessionId={feedbackSessionId} sessionKind="task" streamKey={streamKey} />
             ) : undefined,
-        [collectsFeedback, feedbackSessionId, conversationId, runId]
+        [collectsFeedback, feedbackSessionId, streamKey]
     )
+    // Stable identity so the memoized trailer rows don't re-render on every streamed frame.
+    const feedbackRun = useMemo(() => ({ taskId, runId: runId ?? undefined }), [taskId, runId])
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackSessionId ? (
                 <TurnFeedbackActions
                     sessionId={feedbackSessionId}
                     turnIndex={trailer.turnIndex}
+                    run={feedbackRun}
                     isLastTurn={trailer.isLastTurn}
                     turnText={trailer.turnText}
                 />
             ) : null,
-        [feedbackSessionId]
+        [feedbackSessionId, feedbackRun]
     )
     const showSkeleton = bootstrapLoading && threadItems.length === 0
     if (showSkeleton) {
@@ -255,7 +245,7 @@ function RunSurfaceThread({
  * message), is hidden during bootstrap, and is replaced by the prompt while a request is pending.
  */
 function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element | null {
-    const { interaction, runId } = useRunSurfaceContext()
+    const { interaction, streamKey } = useRunSurfaceContext()
     const { pendingPermissionRequest, currentRunStatus } = useValues(runStreamLogic)
     if (interaction !== 'live') {
         return null
@@ -267,9 +257,9 @@ function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element
             <div className="border-t px-4 py-3">
                 <div className="mx-auto w-full max-w-180">
                     {isQuestion ? (
-                        <QuestionInput streamKey={runId} request={pendingPermissionRequest} />
+                        <QuestionInput streamKey={streamKey} request={pendingPermissionRequest} />
                     ) : (
-                        <PermissionInput streamKey={runId} request={pendingPermissionRequest} />
+                        <PermissionInput streamKey={streamKey} request={pendingPermissionRequest} />
                     )}
                 </div>
             </div>

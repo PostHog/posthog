@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -49,6 +51,28 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
         self.assertEqual(
             {r["user"]["email"]: r["level"] for r in results}, {"cust1@example.com": 8, "cust2@example.com": 1}
         )
+
+    @parameterized.expand(
+        [
+            ("name", "ada", "ada@example.com"),
+            ("email", "hopper@", "grace.hopper@example.com"),
+            ("full name", "Grace Hopper", "grace.hopper@example.com"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_searches_members_by_name_or_email(self, _name, search, expected_email, _mock_flag):
+        self._join("ada@example.com", first_name="Ada", distinct_id="distinct-ada")
+        self._join(
+            "grace.hopper@example.com",
+            first_name="Grace",
+            last_name="Hopper",
+            distinct_id="distinct-grace",
+        )
+
+        response = self.client.get(f"{self._url(self.target_org.id)}&{urlencode({'search': search})}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([member["user"]["email"] for member in response.json()["results"]], [expected_email])
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_forbidden_when_flag_disabled(self, _mock_flag):
