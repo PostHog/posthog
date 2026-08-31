@@ -248,7 +248,7 @@ export interface inboxFiltersLogicValues {
     sortDirection: InboxSortDirection
     sortField: InboxSortField
     sourceProductFilter: string[]
-    stateFilter: InboxReportSectionKey[]
+    stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
     visibleStateFilter: InboxReportSectionKey[]
 }
 
