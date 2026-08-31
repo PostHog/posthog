@@ -1018,6 +1018,7 @@ export const productUrls = {
             search?: string
             tab?: string
             msg?: string
+            [key: string]: string | undefined
         }
     ): string => {
         const encodePathSegment = (value: string): string => {
@@ -1030,7 +1031,13 @@ export const productUrls = {
                 (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
             )
         }
-        const queryParams = new URLSearchParams(params)
+        const definedParams: Record<string, string> = {}
+        for (const [key, value] of Object.entries(params ?? {})) {
+            if (value !== undefined) {
+                definedParams[key] = value
+            }
+        }
+        const queryParams = new URLSearchParams(definedParams)
         const stringifiedParams = queryParams.toString()
         return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
