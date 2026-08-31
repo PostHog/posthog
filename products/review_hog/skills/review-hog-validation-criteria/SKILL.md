@@ -3,7 +3,8 @@ name: review-hog-validation-criteria
 description: >
   The validation criteria for PostHog Review, the bar for deciding whether a flagged PR issue is worth
   keeping. Keeps real, user-affecting correctness / security / data-loss / contract / performance
-  problems; drops overengineering, speculation, paranoia, never-gonna-happen edge cases, and style.
+  problems, plus needless complexity the PR itself introduces; drops overengineering, speculation,
+  paranoia, never-gonna-happen edge cases, and style.
 metadata:
   owner_team: review_hog
   skill_type: validation_criteria
@@ -22,7 +23,9 @@ findings is worth far more than a long list padded with maybes.
 
 ## Keep an issue (`is_valid = true`) when it is a real problem that plausibly affects users or the codebase
 
-Keep it if the flagged code, as written and as actually reached, would cause one of:
+Keep it if the flagged code, as written and as actually reached, matches one of the following. Every
+bullet except the last names a behavioral harm the code would cause; the needless-complexity bullet
+is behavior-neutral and carries its own bar in its own text.
 
 - **Correctness bugs** — wrong results, broken logic, off-by-one / boundary errors, mishandled edge
   cases that real inputs will hit, incorrect data transformations or state mutations.
@@ -46,9 +49,12 @@ Keep it if the flagged code, as written and as actually reached, would cause one
   **delete** machinery the PR added is a real maintainability problem, even though removing it
   changes no behavior.
 
-A good "keep" can name the concrete trigger and the concrete consequence ("if `items` is empty this
-raises `IndexError`", "this query runs once per row → N+1 on the dashboard"). If you can't name both,
-be skeptical.
+For a finding that claims a behavioral harm, a good "keep" can name the concrete trigger and the
+concrete consequence ("if `items` is empty this raises `IndexError`", "this query runs once per row →
+N+1 on the dashboard"); if you can't name both, be skeptical. The needless-complexity keep is the
+exception: it changes no behavior, so it has no runtime trigger or consequence to name. Its complete
+bar is the one in its own bullet — the concrete mechanism, the evidence it is unneeded, and a safe
+removal — nothing more.
 
 ## Drop an issue (`is_valid = false`) when it is noise
 
