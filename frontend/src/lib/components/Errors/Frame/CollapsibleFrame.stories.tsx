@@ -217,6 +217,10 @@ export function NoContext(): JSX.Element {
     return <Wrapper frame={baseFrame} record={{ ...baseRecord, context: null }} />
 }
 
+export function NoContextExpanded(): JSX.Element {
+    return <Wrapper frame={baseFrame} record={{ ...baseRecord, context: null }} initialExpanded />
+}
+
 export function Loading(): JSX.Element {
     return <Wrapper frame={baseFrame} recordLoading />
 }
