@@ -11,7 +11,13 @@ import { ScoutConfigForm } from './ScoutConfigControls'
 // The settings form a scout's gear opens. Use this to check that every row reads as the same kind of
 // row, and that the mode, schedule, and network controls line up down the right edge.
 
-function EditableConfigForm({ initialConfig }: { initialConfig: SignalScoutConfig }): JSX.Element {
+function EditableConfigForm({
+    initialConfig,
+    deletable = false,
+}: {
+    initialConfig: SignalScoutConfig
+    deletable?: boolean
+}): JSX.Element {
     const [config, setConfig] = useState(initialConfig)
 
     return (
@@ -19,6 +25,7 @@ function EditableConfigForm({ initialConfig }: { initialConfig: SignalScoutConfi
             <ScoutConfigForm
                 config={config}
                 onUpdate={(_, updates) => setConfig((current) => ({ ...current, ...updates }))}
+                onDelete={deletable ? () => {} : undefined}
             />
         </div>
     )
@@ -48,4 +55,26 @@ export const DryRun: Story = {
 // that would change that run's timing lock.
 export const Disabled: Story = {
     render: () => <EditableConfigForm initialConfig={{ ...mockScoutConfigs[0], enabled: false }} />,
+}
+
+// A custom scout the viewer may delete. The delete row only renders for custom scouts, so the
+// canonical stories above never show it.
+export const CustomScout: Story = {
+    render: () => <EditableConfigForm deletable initialConfig={{ ...mockScoutConfigs[0], scout_origin: 'custom' }} />,
+}
+
+// The same scout, seen by someone who neither owns it nor administers the project. Delete is the one
+// irreversible control here, so it locks with the owners named rather than failing on the request.
+export const CustomScoutOwnedBySomeoneElse: Story = {
+    render: () => (
+        <EditableConfigForm
+            deletable
+            initialConfig={{
+                ...mockScoutConfigs[0],
+                scout_origin: 'custom',
+                delete_disabled_reason:
+                    'Only an owner or a project admin can delete this scout. Ask ada@example.com or a project admin.',
+            }}
+        />
+    ),
 }

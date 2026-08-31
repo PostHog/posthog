@@ -31,6 +31,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
     return {
         scout_origin: 'canonical',
         owners: [],
+        delete_disabled_reason: null,
         enabled: true,
         status: 'active',
         pause_reason: null,

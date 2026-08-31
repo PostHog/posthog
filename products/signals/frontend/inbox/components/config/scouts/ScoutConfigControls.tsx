@@ -276,7 +276,9 @@ export function ScoutConfigForm({
                         status="danger"
                         icon={<IconTrash />}
                         loading={deleting}
-                        disabledReason={deleting ? 'Deleting…' : undefined}
+                        // The server decides who may delete an owned scout and hands back the reason,
+                        // so the button and the endpoint can never disagree.
+                        disabledReason={deleting ? 'Deleting…' : (config.delete_disabled_reason ?? undefined)}
                         onClick={() => confirmDeleteScout(config, onDelete)}
                     >
                         Delete

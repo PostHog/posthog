@@ -8,10 +8,10 @@ from django.http import HttpResponse
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import BasePermission
 from rest_framework.renderers import BaseRenderer
@@ -30,6 +30,8 @@ from posthog.auth import (
 )
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
@@ -47,7 +49,7 @@ from ..marketplace.credentials import (
     marketplace_repo_url,
 )
 from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
-from ..models.skills import LLMSkill, LLMSkillFile
+from ..models.skills import SCOUT_SKILL_CATEGORY, LLMSkill, LLMSkillFile, category_for_skill_name
 from .community_publish_services import (
     CommunitySkillPublishError,
     CommunitySkillPublishNotConfiguredError,
@@ -113,6 +115,7 @@ from .skill_services import (
     resolve_versions_page,
     set_skill_owners,
     skill_names_owned_by,
+    skill_retirement_denial,
 )
 
 logger = structlog.get_logger(__name__)
@@ -1067,7 +1070,17 @@ class LLMSkillViewSet(
         result = self._marketplace_command_payload(request, issued.key, issued.token, issued.status)
         return Response(LLMSkillMarketplaceCommandSerializer(result).data)
 
-    @extend_schema(request=None, responses={204: None})
+    @extend_schema(
+        request=None,
+        responses={
+            204: None,
+            403: OpenApiResponse(
+                description=(
+                    "The skill is a scout with owners and the caller is neither one of them nor a project admin."
+                )
+            ),
+        },
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -1080,6 +1093,18 @@ class LLMSkillViewSet(
         auth_error = self._ensure_web_authenticated(request)
         if auth_error is not None:
             return auth_error
+
+        # Archiving a scout's skill is the other half of deleting the scout: the fleet UI archives the
+        # skill and then removes the config, and a tombstoned skill retires the scout for good, because
+        # the coordinator never re-seeds one. Without the same gate here, the owner check on the config
+        # delete is bypassable by archiving first, which also drops the owner rows that check reads.
+        # Ordinary skills keep the plain `llm_skill:write` bar, which is what archive has always been.
+        if category_for_skill_name(skill_name) == SCOUT_SKILL_CATEGORY:
+            denial = skill_retirement_denial(
+                team=self.team, skill_name=skill_name, user=cast(User, request.user), subject="scout"
+            )
+            if denial is not None:
+                raise PermissionDenied(denial)
 
         try:
             skill_versions = archive_skill(self.team, skill_name)
@@ -1097,6 +1122,19 @@ class LLMSkillViewSet(
             team_id=self.team.id,
             user_id=cast(User, request.user).id,
             **props,
+        )
+        # Archiving tombstones every version of the body, and `LLMSkill` carries no activity mixin, so
+        # without this entry the project has no record of who retired a skill. Written after the
+        # archive so a failed archive logs nothing.
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=skill_name,
+            scope="LLMSkill",
+            activity="deleted",
+            detail=Detail(name=skill_name),
         )
         report_user_action(
             cast(User, request.user),

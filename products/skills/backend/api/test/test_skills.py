@@ -11,6 +11,7 @@ from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -1886,6 +1887,60 @@ class TestLLMSkillOwners(APIBaseTest):
 
         assert [o.email for o in resolve_skill_owners(env_a, "shared-name")] == [alice.email]
         assert [o.email for o in resolve_skill_owners(env_b, "shared-name")] == [bob.email]
+
+    @parameterized.expand(
+        [
+            ("a_scout_owned_by_a_teammate", "signals-scout-checkout", False, status.HTTP_403_FORBIDDEN),
+            ("a_scout_the_caller_owns", "signals-scout-checkout", True, status.HTTP_204_NO_CONTENT),
+            ("an_ordinary_skill_owned_by_a_teammate", "checkout-notes", False, status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_archive_applies_the_owner_gate_to_scouts_only(
+        self, _name: str, skill_name: str, caller_owns_it: bool, expected_status: int
+    ) -> None:
+        # Archiving is the other door to deleting a scout: it tombstones the body for good and clears
+        # the owner rows the config-delete gate reads, so an ungated archive bypasses that gate.
+        # Ordinary skills keep the plain editor bar that archive has always had.
+        member = self._member("ada@example.com")
+        create_skill(self.team, user=self.user, name=skill_name, description="d", body="# b")
+        set_skill_owners(self.team, skill_name, [self.user if caller_owns_it else member])
+
+        response = self.client.post(self._url(f"name/{skill_name}/archive"))
+
+        assert response.status_code == expected_status, response.json() if response.content else ""
+        skill_survived = expected_status == status.HTTP_403_FORBIDDEN
+        assert LLMSkill.objects.filter(name=skill_name, deleted=False).exists() is skill_survived
+
+    def test_archive_of_a_teammates_scout_is_allowed_for_a_project_admin(self) -> None:
+        # Somebody has to be able to clean up after a member who left.
+        member = self._member("ada@example.com")
+        create_skill(self.team, user=self.user, name="signals-scout-checkout", description="d", body="# b")
+        set_skill_owners(self.team, "signals-scout-checkout", [member])
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(self._url("name/signals-scout-checkout/archive"))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not LLMSkill.objects.filter(name="signals-scout-checkout", deleted=False).exists()
+
+    def test_archive_records_who_retired_the_skill(self) -> None:
+        # LLMSkill carries no activity mixin, so without an explicit entry an archived skill leaves no
+        # trace of who did it — and archiving is unrecoverable.
+        create_skill(self.team, user=self.user, name="to-archive", description="d", body="# b")
+
+        response = self.client.post(self._url("name/to-archive/archive"))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        entry = ActivityLog.objects.get(team_id=self.team.id, scope="LLMSkill", item_id="to-archive")
+        assert entry.activity == "deleted"
+        assert entry.user == self.user
+
+    def test_archive_records_nothing_when_the_skill_does_not_exist(self) -> None:
+        response = self.client.post(self._url("name/never-existed/archive"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="LLMSkill").exists()
 
 
 class TestLLMSkillDescriptionCapSplit(SimpleTestCase):

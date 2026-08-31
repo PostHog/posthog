@@ -92,6 +92,7 @@ ActivityScope = Literal[
     "EvaluationDirectory",
     "LLMPrompt",
     "LLMPromptLabel",
+    "LLMSkill",
     "LLMTrace",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",

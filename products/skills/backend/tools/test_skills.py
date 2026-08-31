@@ -5,9 +5,10 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from pydantic import ValidationError
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.skills.backend.api.skill_serializers import SPEC_DESCRIPTION_MAX_LENGTH
+from products.skills.backend.api.skill_services import set_skill_owners
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.skills.backend.tools.skills import (
     ArchiveLLMSkillTool,
@@ -306,6 +307,19 @@ class TestArchiveLLMSkillTool(BaseTest):
 
         with self.assertRaisesRegex(MaxToolFatalError, "missing"):
             _run(tool, skill_name="missing")
+
+    def test_refuses_to_archive_a_scout_owned_by_someone_else(self):
+        # The tool acts as the user who asked, so it must not be a way around the owner gate the
+        # archive endpoint applies.
+        teammate = User.objects.create_and_join(self.organization, "ada@example.com", None)
+        LLMSkill.objects.create(team=self.team, name="signals-scout-checkout", description="d", body="b")
+        set_skill_owners(self.team, "signals-scout-checkout", [teammate])
+        tool = ArchiveLLMSkillTool(team=self.team, user=self.user)
+
+        with self.assertRaisesRegex(MaxToolFatalError, "Only an owner or a project admin"):
+            _run(tool, skill_name="signals-scout-checkout")
+
+        assert LLMSkill.objects.filter(team=self.team, name="signals-scout-checkout", deleted=False).exists()
 
 
 class TestSkillToolDescriptionCap(TestCase):
