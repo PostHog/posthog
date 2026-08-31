@@ -4,9 +4,11 @@ import sys
 import subprocess
 from pathlib import Path
 
-# Heavy subsystems that must NOT be imported by a bare ``django.setup()``. Each one was
+# Modules that must NOT be imported by a bare ``django.setup()``. Most are heavy subsystems
 # deliberately pulled off the startup path (lazy API router, deferred AI-core imports,
-# deferred embedded-ClickHouse). Importing any of them at setup means a new module-level
+# deferred embedded-ClickHouse). A few are banned for compatibility, not cost — pkg_resources
+# raises ModuleNotFoundError on setuptools 81+ and a stock Python 3.14, so any boot-path import
+# of it fails the process there. Importing any of these at setup means a new module-level
 # import re-opened a door — defer it (function-local / TYPE_CHECKING / lazy facade) instead
 # of widening this budget. See logs/startup-profile and the PRs that introduced these cuts.
 FORBIDDEN_AT_SETUP = [
@@ -41,6 +43,7 @@ FORBIDDEN_AT_SETUP = [
     "posthog.hogql.query",  # query execution entrypoint — drags the layers below in
     "posthog.hogql_queries",  # the query-runner layer (every insight runner)
     "posthog.api.services.query",  # API query service — viewset-request-time only
+    "pkg_resources",  # removed in setuptools 81+ / absent from a stock Python 3.14 venv — evicted from boot via infi.clickhouse_orm; a reintroduction ModuleNotFoundErrors every process there
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
