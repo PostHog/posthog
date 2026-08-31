@@ -6,7 +6,7 @@ import type { StoredLogEntry } from "./session-events";
 import type { UploadableSkillSource } from "./skills";
 
 // Execution mode schema and type - shared between main and renderer
-export const executionModeSchema = z.enum([
+const executionModeSchema = z.enum([
   "default",
   "acceptEdits",
   "plan",
@@ -765,7 +765,7 @@ export interface SignalReportArtefactContent {
  * at most one is set — `created_by` for user writes, `task_id` for agent writes,
  * neither for system (pipeline) writes.
  */
-export interface SignalReportArtefactBase {
+interface SignalReportArtefactBase {
   id: string;
   created_at: string;
   updated_at?: string | null;
@@ -1137,5 +1137,3 @@ export interface SlackChannelsQueryParams {
   offset?: number;
   channelId?: string;
 }
-
-export type { NewTaskLinkPayload, NewTaskSharedParams } from "./deep-links";

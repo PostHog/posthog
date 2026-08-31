@@ -15,7 +15,7 @@ export interface FeedQueryEditContext {
   valueNegated: boolean;
 }
 
-export const FEED_QUERY_KEY_LABELS = [
+const FEED_QUERY_KEY_LABELS = [
   "created-by:",
   "commented-by:",
   "mentions:",
