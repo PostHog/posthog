@@ -1048,11 +1048,84 @@ describe('ingest-handler', () => {
         global.fetch = originalFetch
     })
 
+    it('dispatches the first command callback once', async () => {
+        const fetchCalls: { body: unknown }[] = []
+        const originalFetch = global.fetch
+        global.fetch = vi.fn(async (_url, init) => {
+            fetchCalls.push({ body: JSON.parse(String((init as RequestInit).body)) })
+            return new Response('', { status: 200 })
+        }) as typeof fetch
+
+        const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+        const commandEvent = {
+            type: 'notification',
+            notification: { method: '_posthog/agent_command_dispatched', params: {} },
+        }
+        const ndjson =
+            [JSON.stringify({ seq: 1, event: commandEvent }), JSON.stringify({ seq: 2, event: commandEvent })].join(
+                '\n'
+            ) + '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const response = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(response.status).toBe(200)
+        expect(fetchCalls.map(({ body }) => (body as { kind: string }).kind)).toEqual(['command_dispatched'])
+        global.fetch = originalFetch
+    })
+
     // -----------------------------------------------------------------------
     // Side effects: session/update → agent active
     // -----------------------------------------------------------------------
 
-    it('sets agent active on session/update event and fires heartbeat after claim', async () => {
+    it.each([
+        {
+            name: 'prompt echo',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'user_message_chunk' } },
+                },
+            },
+            expectedKinds: ['heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'agent output',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                },
+            },
+            expectedKinds: ['agent_activity', 'heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'restored plan',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'plan' } },
+                },
+            },
+            expectedKinds: ['heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'command dispatch',
+            event: {
+                type: 'notification',
+                notification: { method: '_posthog/agent_command_dispatched', params: {} },
+            },
+            expectedKinds: ['command_dispatched'],
+            expectedActive: false,
+        },
+    ])('dispatches side effects for $name', async ({ event, expectedKinds, expectedActive }) => {
         const fetchCalls: { url: string; body: unknown }[] = []
         const originalFetch = global.fetch
         global.fetch = vi.fn(async (url, init) => {
@@ -1063,23 +1136,20 @@ describe('ingest-handler', () => {
         const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
         mockValidate.mockResolvedValue(makeClaims())
 
-        const sessionUpdateEvent = {
-            type: 'notification',
-            notification: { method: 'session/update' },
-        }
-        const ndjson = JSON.stringify({ seq: 1, event: sessionUpdateEvent }) + '\n'
+        const ndjson = JSON.stringify({ seq: 1, event }) + '\n'
         const ctx = makeContext({ body: makeStringBody(ndjson) })
         const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
         expect(res.status).toBe(200)
 
         const agentActive = await redisStream.getAgentActive()
-        expect(agentActive).toBe(true)
+        expect(agentActive).toBe(expectedActive)
 
         await new Promise((r) => setTimeout(r, 0))
 
-        const callbackCall = fetchCalls.find((c) => c.url.includes('agent-proxy-callback'))
-        expect(callbackCall).toBeTruthy()
-        expect(callbackCall?.body).toMatchObject({ kind: 'heartbeat', agent_active: true })
+        const callbackKinds = fetchCalls
+            .filter((c) => c.url.includes('agent-proxy-callback'))
+            .map((c) => (c.body as { kind: string }).kind)
+        expect(callbackKinds).toEqual(expectedKinds)
 
         global.fetch = originalFetch
     })
@@ -1131,7 +1201,7 @@ describe('ingest-handler', () => {
     // Side effects: best-effort (callback failure does not fail ingest)
     // -----------------------------------------------------------------------
 
-    it('still returns 200 when the Django callback throws', async () => {
+    it('releases a command claim when the Django callback throws', async () => {
         const originalFetch = global.fetch
         global.fetch = vi.fn(async () => {
             throw new Error('network failure')
@@ -1139,11 +1209,11 @@ describe('ingest-handler', () => {
 
         const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
 
-        const turnCompleteEvent = {
+        const commandEvent = {
             type: 'notification',
-            notification: { method: '_posthog/turn_complete' },
+            notification: { method: '_posthog/agent_command_dispatched', params: {} },
         }
-        const ndjson = JSON.stringify({ seq: 1, event: turnCompleteEvent }) + '\n'
+        const ndjson = JSON.stringify({ seq: 1, event: commandEvent }) + '\n'
         const ctx = makeContext({ body: makeStringBody(ndjson) })
         const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
         // Callback failure must NOT affect ingest response
@@ -1152,6 +1222,7 @@ describe('ingest-handler', () => {
         // Let the detached promise settle without crashing the test
         await new Promise((r) => setTimeout(r, 10))
 
+        expect(await redisStream.claimFirstAgentCommand()).toBe(true)
         global.fetch = originalFetch
     })
 
