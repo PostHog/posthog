@@ -2405,6 +2405,27 @@ class TestHogFlowAPI(APIBaseTest):
         stored = response.json()["trigger"]["filters"]["properties"][0]["value"]
         assert stored == ["C0ALERTS"]
 
+    def test_hog_flow_legacy_slack_message_trigger_is_upgraded_on_write(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "slack-message",
+                "filters": {
+                    "properties": [{"key": "channel", "value": ["C0ALERTS"], "operator": "exact", "type": "event"}]
+                },
+            },
+        }
+        hog_flow = {"name": "Legacy Slack Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        trigger = response.json()["trigger"]
+        assert trigger["type"] == "internal-event"
+        assert trigger["filters"]["source"] == "internal-events"
+        assert trigger["filters"]["events"] == [{"id": "$slack_message_received", "type": "events"}]
+
     @staticmethod
     def _slack_trigger_action(properties: list[dict]) -> dict:
         return {

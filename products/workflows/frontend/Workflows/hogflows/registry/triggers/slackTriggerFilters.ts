@@ -20,6 +20,11 @@ export function isSlackMessageTriggerConfig(config: unknown): config is Internal
         return false
     }
     const { type, filters } = config as { type?: unknown; filters?: unknown }
+    // Stored before the internal-event rename, where the type alone named the event. Removed once
+    // the backfill has run everywhere.
+    if (type === 'slack-message') {
+        return true
+    }
     if (type !== 'internal-event' || !filters || typeof filters !== 'object') {
         return false
     }
