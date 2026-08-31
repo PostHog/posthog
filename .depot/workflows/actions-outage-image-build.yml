@@ -1,26 +1,13 @@
-# Image build for when GitHub Actions cannot run.
+# Ships an image when GitHub Actions is down. Git must still be up: the checkout
+# clones from GitHub. Runbook: https://runbooks.posthog.com/services/dev-tooling/runbooks/github-outage
 #
-# Actions is the only path that builds and pushes a deployable image, so an
-# outage leaves us able to diagnose a production bug but not to ship the fix.
-# Depot CI runs on its own control plane and starts from `depot ci dispatch`,
-# which needs no GitHub event. Git operations must still be up, because the
-# checkout below clones from GitHub.
+# Pushes to posthog-cloud-prs because the posthog-cloud role is trusted only for
+# refs/heads/master, and a fix shipped this way is never on master.
 #
-# `.depot/` otherwise holds shadows of canonical workflows, kept in sync by a
-# drift check. This file has no canonical twin and mirrors nothing.
-#
-# It pushes to posthog-cloud-prs. The posthog-cloud publish role is trusted only
-# for refs/heads/master, and a fix shipped this way is never on master.
-#
-# Two prerequisites, neither of which exists yet:
-#   1. The posthog-cloud-prs role trusts token.actions.githubusercontent.com
-#      alone, so Depot cannot assume it. It needs a trust statement for
-#      identity.depot.dev.
-#   2. AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE is a GitHub variable. Depot CI reads
-#      its own store, so register it there:
-#      depot ci vars add AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE=<arn> --repo PostHog/posthog
-#
-# Runbook: https://runbooks.posthog.com/services/dev-tooling/runbooks/github-outage
+# Does not work yet. The posthog-cloud-prs role trusts GitHub's OIDC issuer alone
+# and needs a statement for identity.depot.dev, and the role ARN must be
+# registered in Depot's own variable store:
+#   depot ci vars add AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE=<arn> --repo PostHog/posthog
 
 name: Actions outage image build
 
@@ -40,8 +27,7 @@ jobs:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            # Depot CI does not document whether it populates github.sha on a
-            # dispatched run, so read the commit from the tree instead.
+            # Depot CI does not document github.sha on a dispatched run.
             - name: Resolve commit
               id: commit
               run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -70,11 +56,9 @@ jobs:
                   build-args: COMMIT_HASH=${{ steps.commit.outputs.sha }}
                   push: true
 
-            # The branch built here never ran CI, because a dead Actions is the premise.
-            # Boot every entrypoint so a fatal import error stops the deploy instead of
-            # crash-looping in production. Web alone is not enough: temporal and celery
-            # import product code that django.setup() skips. STATIC_COLLECTION lets
-            # Django boot without live services or a real SECRET_KEY.
+            # This branch never ran CI, so a fatal import must fail here rather than
+            # crash-loop in production. Web alone is not enough: temporal and celery
+            # import product code that django.setup() skips.
             - name: Verify image boots
               env:
                   IMAGE: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs@${{ steps.build.outputs.digest }}
@@ -102,6 +86,5 @@ jobs:
                       echo ""
                       echo "\`$REGISTRY/posthog-cloud-prs@$DIGEST\`"
                       echo ""
-                      echo "Pin this digest in ArgoCD. The repository expires tags after 14 days,"
-                      echo "so a pin left in place past that stops resolving."
+                      echo "Pin this digest in ArgoCD. Tags expire after 14 days."
                   } | tee -a "$GITHUB_STEP_SUMMARY"
