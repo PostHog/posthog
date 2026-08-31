@@ -11,7 +11,6 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
-    PersonsOnEventsMode,
     PropertyOperator,
     RecordingsQuery,
 )
@@ -47,18 +46,6 @@ NEGATIVE_BLOCKLIST_LIMIT = 1_000_000
 REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER = Counter(
     "replay_negative_blocklist_truncated",
     "A replay exclusion blocklist hit its row cap, so some sessions were not excluded from the results",
-)
-
-# Modes that copy person properties onto the event row at ingest. A replay filter on a person
-# property then sees only the values the person had when each event was sent, so sessions
-# recorded before an identify never match. The other modes resolve person properties at query
-# time - PERSON_ID_OVERRIDE_PROPERTIES_JOINED joins `persons` live, DISABLED goes through
-# person_distinct_ids - and so already find those sessions without the hybrid rewrite.
-FROZEN_PERSON_PROPERTIES_MODES = frozenset(
-    {
-        PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-        PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-    }
 )
 
 # Person properties eligible for hybrid query optimization
@@ -192,19 +179,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         This solves the "late identification problem" where filtering by person properties
         in standard PoE mode only finds sessions where those properties existed at event time.
-
-        Only the modes in FROZEN_PERSON_PROPERTIES_MODES have that problem, so they get the
-        rewrite unconditionally. The flag remains for turning it on elsewhere, and is evaluated
-        locally: its distinct id is a team id, so a condition on person properties can never
-        resolve, and a remote round trip on the query path buys nothing.
         """
-        if self._team.person_on_events_mode in FROZEN_PERSON_PROPERTIES_MODES:
-            return True
-
         return feature_enabled_or_false(
             "enable-hybrid-poe-replay-filtering",
             str(self._team.id),
-            only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
 
