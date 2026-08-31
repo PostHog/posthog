@@ -360,6 +360,29 @@ def test_a_superseded_run_posts_no_failure_notice(team, stamphog_chain: Stamphog
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_notice_github_error_fails_the_activity_so_temporal_retries(team, stamphog_chain: StamphogChain) -> None:
+    # Swallowing the error completes the activity, so Temporal never retries and the run stays FAILED
+    # with nothing on the PR, which is the silence this path removes. A rate limit is exactly when
+    # that happens. The FAILED update has already committed, so raising cannot undo it.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha-notice-error"
+    stamphog_chain.recorder.register_pr(REPO, 117, _pr_object(117, "devex-dev", head_sha))
+    stamphog_chain.recorder.comment_review_side_effect = GitHubRateLimitError("secondary rate limit")
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=117, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.REVIEWING
+    )
+
+    with pytest.raises(GitHubRateLimitError):
+        _run_activity(mark_review_failed, MarkReviewFailedInput(str(run.id), team.id, "RuntimeError: worker lost"))
+
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.FAILED  # committed before the post, so the raise leaves it
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_retry_finishes_a_notice_the_previous_attempt_never_posted(team, stamphog_chain: StamphogChain) -> None:
     # The activity marks the run FAILED, then removes its reaction and sweeps GitHub, then posts. An
     # attempt that dies in that window leaves a FAILED run with no notice, and the retry meets its own
@@ -931,7 +954,7 @@ def test_fetch_review_context_carries_inline_review_threads(team, stamphog_chain
     ids=["single_line", "multiline_truncated_to_first_line"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_mark_review_failed_captures_failure_event(team, raw_error, expected_stored) -> None:
+def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_error, expected_stored) -> None:
     # Hosted failures used to be visible only in worker logs; the dashboards need the
     # stamphog_review_failed event next to the review-completed ones. The stored error is scrubbed to
     # its first line so raw exception text can't leak repo file content to stamphog:read.

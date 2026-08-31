@@ -994,17 +994,6 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     pull_request = run.pull_request
     repo = pull_request.repo_config.repository
 
-    # Until now a failed run told the author nothing: the 👀 went away and no verdict ever arrived,
-    # which reads exactly like a review still in progress. Say so on the same COMMENT-review surface
-    # a non-approval uses, so every outcome for a head lands in one list.
-    #
-    # Only when this run is the one that reached FAILED. A newer delivery can supersede it between the
-    # load above and that update, which leaves the update matching no rows; posting anyway would tell
-    # the author their review did not complete while its replacement is still running, or has already
-    # approved the same head.
-    if marked_failed:
-        _post_failure_notice(client, run, input.team_id)
-
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=pull_request.author_login or repo,
@@ -1017,6 +1006,20 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
                 "stamphog_error": first_error_line,
             },
         )
+
+    # Until now a failed run told the author nothing: the 👀 went away and no verdict ever arrived,
+    # which reads exactly like a review still in progress. Say so on the same COMMENT-review surface
+    # a non-approval uses, so every outcome for a head lands in one list.
+    #
+    # Only when this run is the one that reached FAILED. A newer delivery can supersede it between the
+    # load above and that update, which leaves the update matching no rows; posting anyway would tell
+    # the author their review did not complete while its replacement is still running, or has already
+    # approved the same head.
+    #
+    # Last, because it is the one step here that raises. The event above must be captured on this
+    # attempt: a retry returns through the terminal guard, which posts the notice and nothing else.
+    if marked_failed:
+        _post_failure_notice(client, run, input.team_id)
 
 
 def _harden_reviewer_command(command: Sequence[str] | str) -> str:
@@ -1369,15 +1372,16 @@ def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: 
     No error text. The cause is infrastructure detail the author cannot act on, and this lands on a
     public pull request; it stays on the run and in the worker logs instead.
 
-    Fail-open, like the orphan sweep beside the caller: a GitHub error must not undo a terminal save.
-    `_post_non_approval_review` records its review id, so a retry that reaches here again is a no-op.
+    A GitHub error propagates rather than being swallowed. Swallowing it completes the activity, so
+    Temporal never retries and the run stays FAILED with nothing on the PR, which is the silence this
+    exists to remove; a rate limit is exactly when that happens. Raising is safe here because the
+    FAILED update has already committed, so a retry cannot undo it, and it lands in the terminal
+    guard, which finishes this one step. `_post_non_approval_review` records its review id, so the
+    retry that follows a successful post is a no-op.
     """
-    try:
-        _post_non_approval_review(
-            client, run.pull_request.repo_config.repository, run, run.pull_request, team_id, FAILURE_NOTICE_BODY
-        )
-    except Exception:
-        activity.logger.exception(f"Failed to post the failure notice for run {run.id}")
+    _post_non_approval_review(
+        client, run.pull_request.repo_config.repository, run, run.pull_request, team_id, FAILURE_NOTICE_BODY
+    )
 
 
 def _comment_id(obj: dict) -> int | None:
