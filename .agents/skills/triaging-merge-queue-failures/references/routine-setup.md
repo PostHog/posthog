@@ -7,7 +7,11 @@ The prompt stays minimal; the checked-in `SKILL.md` in this directory is the rea
 ## Prerequisites
 
 - A routine environment whose GitHub identity can clone `PostHog/posthog` and comment on its pull requests. The sweep needs nothing beyond those two: it never pushes code.
-- `MQ_TRIAGE_BOT_LOGIN` set in that environment, to the login the sweep's comments are authored by. The marker helper trusts and updates only comments from that login, so a third party cannot plant a marker to fake or skip a triage. Without it the helper fails closed, which makes every sweep re-comment on kicks it already triaged.
+- `MQ_TRIAGE_BOT_LOGIN` set in that environment, to the login the sweep's comments are authored by. The marker helper trusts and updates only comments from that login, so a third party cannot plant a marker to fake or skip a triage. Without it the helper fails closed, which makes every sweep re-comment on kicks it already triaged. `get` exits 3 when a PR carries a marker from a different bot login, so a wrong value stops the sweep instead of quietly re-commenting on every PR it reaches.
+
+Changing the login the sweep posts as strands every marker written under the old one.
+The next sweep stops at the first PR that carries one.
+Set the variable back to the old login, or delete those marker comments, before the sweep runs again.
 
 ## Create the routine
 
