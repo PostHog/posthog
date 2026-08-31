@@ -195,16 +195,38 @@ struct WorkerStreamItem {
     messages: Vec<SerializedKafkaMessage>,
     replay: bool,
     /// Send this frame with `soft_budget_ms = 0` regardless of the configured
-    /// budget. Set for every chunk of a size-split sub-batch: chunks are
-    /// separate frames with separate budgets on the worker, so a budget cut in
-    /// one chunk while a later chunk carries the same routing key would let
-    /// the key's newer messages complete ahead of its timed-out older ones.
+    /// budget. Set for an escalated resend, and for every chunk of a
+    /// size-split sub-batch: chunks are separate frames with separate budgets
+    /// on the worker, so a budget cut in one chunk while a later chunk
+    /// carries the same routing key would let the key's newer messages
+    /// complete ahead of its timed-out older ones.
     unbudgeted: bool,
     reply: oneshot::Sender<StreamReply>,
 }
 
 struct WorkerStream {
     tx: mpsc::UnboundedSender<WorkerStreamItem>,
+}
+
+/// Per-send options for [`GrpcTransport::begin_send`].
+#[derive(Clone, Copy, Default)]
+pub struct SendOptions {
+    /// The send may repeat previously delivered messages (a retry or flush
+    /// path); the worker's sentinel counts repeats as replays.
+    pub replay: bool,
+    /// Send with `soft_budget_ms = 0` regardless of the configured budget:
+    /// the escalation path for messages that repeatedly outlive it.
+    pub unbudgeted: bool,
+}
+
+impl SendOptions {
+    /// A replaying send with the configured budget (the common retry shape).
+    pub fn replay() -> Self {
+        Self {
+            replay: true,
+            unbudgeted: false,
+        }
+    }
 }
 
 /// How a worker's gRPC address is derived from its HTTP URL.
@@ -296,7 +318,7 @@ impl GrpcTransport {
         worker_url: &str,
         batch_id: &str,
         messages: Vec<SerializedKafkaMessage>,
-        replay: bool,
+        options: SendOptions,
     ) -> PendingWorkerStreamSend {
         let chunks = split_by_size(messages, self.max_body_bytes);
         if chunks.len() > 1 {
@@ -306,7 +328,7 @@ impl GrpcTransport {
             )
             .increment((chunks.len() - 1) as u64);
         }
-        let split = chunks.len() > 1;
+        let unbudgeted = options.unbudgeted || chunks.len() > 1;
         let stream = self.worker_stream_for(worker_url);
         let receivers = chunks
             .into_iter()
@@ -315,8 +337,8 @@ impl GrpcTransport {
                 let item = WorkerStreamItem {
                     batch_id: batch_id.to_string(),
                     messages,
-                    replay,
-                    unbudgeted: split,
+                    replay: options.replay,
+                    unbudgeted,
                     reply,
                 };
                 if let Err(send_err) = stream.tx.send(item) {

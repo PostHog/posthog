@@ -17,7 +17,7 @@ use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::{key_offsets_of, Dispatcher, EagerFlush, KeyOffset, SubBatch};
-use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
+use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend, SendOptions};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::transport::SendError;
 use crate::types::SerializedKafkaMessage;
@@ -648,9 +648,15 @@ impl IngestionConsumer {
             messages,
             routing_keys,
             key_offsets,
+            unbudgeted,
         } = sub_batch;
         let message_count = messages.len();
-        let pending = transport.begin_send(&worker, batch_id, messages, replay);
+        let pending = transport.begin_send(
+            &worker,
+            batch_id,
+            messages,
+            SendOptions { replay, unbudgeted },
+        );
         PendingSubBatch {
             worker,
             routing_keys,

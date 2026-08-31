@@ -26,7 +26,7 @@ use uuid::Uuid;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
-use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
+use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport, SendOptions};
 use ingestion_consumer::order_sentinel::SentinelContext;
 use ingestion_consumer::types::SerializedKafkaMessage;
 use ingestion_consumer::worker_registry::{
@@ -1714,7 +1714,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_stream() {
     let pinned_idx = workers.iter().position(|w| w.url == pinned_url).unwrap();
     let survivor_idx = 1 - pinned_idx;
     transport
-        .begin_send(&pinned_url, "batch-1", b1[0].messages.clone(), false)
+        .begin_send(&pinned_url, "batch-1", b1[0].messages.clone(), SendOptions::default())
         .wait()
         .await
         .expect("batch-1 send");
@@ -1747,7 +1747,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_stream() {
             f2[0].worker.as_ref(),
             "batch-2",
             f2[0].messages.clone(),
-            false,
+            SendOptions::default(),
         )
         .wait()
         .await
