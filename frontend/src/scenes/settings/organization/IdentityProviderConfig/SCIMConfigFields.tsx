@@ -68,7 +68,7 @@ export function SCIMConfigFields({
                         <LemonLabel className="mb-1 block">Bearer token</LemonLabel>
                         {revealedToken ? (
                             <>
-                                <CopyToClipboardInline description="Bearer token">
+                                <CopyToClipboardInline description="Bearer token" isValueSensitive>
                                     {revealedToken}
                                 </CopyToClipboardInline>
                                 <LemonBanner type="warning" className="mt-2">
