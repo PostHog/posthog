@@ -4,6 +4,7 @@ from uuid import UUID
 
 from django.conf import settings
 
+from posthog.dataclasses import frozen
 from posthog.storage import object_storage
 
 from products.wizard.backend.facade.config import WIZARD_GIT_DIFF_CONTENT_TYPE
@@ -22,6 +23,12 @@ from products.wizard.backend.observability.service import wizard_observability a
 logger = logging.getLogger(__name__)
 
 
+@frozen
+class _DiffLineCounts:
+    additions: int
+    removals: int
+
+
 def create_git_diff_artifact(team_id: int, run_id: UUID, content: bytes) -> WizardRunGitDiffArtifactDTO | None:
     if not content:
         return None
@@ -33,7 +40,7 @@ def create_git_diff_artifact(team_id: int, run_id: UUID, content: bytes) -> Wiza
         return None
 
     storage_path = _git_diff_storage_path(team_id, run_id)
-    additions, removals = _diff_line_counts(content)
+    line_counts = _diff_line_counts(content)
 
     object_storage.write(
         storage_path,
@@ -48,8 +55,8 @@ def create_git_diff_artifact(team_id: int, run_id: UUID, content: bytes) -> Wiza
         storage_path=storage_path,
         size_bytes=len(content),
         content_hash=sha256(content).hexdigest(),
-        additions=additions,
-        removals=removals,
+        additions=line_counts.additions,
+        removals=line_counts.removals,
     )
 
     run_observability.artifact_created(run, artifact)
@@ -106,7 +113,7 @@ def get_git_diff_artifact_content(team_id: int, run_id: UUID, artifact_id: UUID)
     return content
 
 
-def _diff_line_counts(content: bytes) -> tuple[int, int]:
+def _diff_line_counts(content: bytes) -> _DiffLineCounts:
     additions = 0
     removals = 0
     for line in content.split(b"\n"):
@@ -116,7 +123,7 @@ def _diff_line_counts(content: bytes) -> tuple[int, int]:
             additions += 1
         elif line.startswith(b"-"):
             removals += 1
-    return additions, removals
+    return _DiffLineCounts(additions=additions, removals=removals)
 
 
 def _git_diff_storage_path(team_id: int, run_id: UUID) -> str:
