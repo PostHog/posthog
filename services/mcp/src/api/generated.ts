@@ -65543,11 +65543,20 @@ export namespace Schemas {
          */
       integration_id: number;
       /**
-         * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+         * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.
          * @maxLength 255
          * @nullable
          */
       channel?: string | null;
+      /**
+         * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+         * @minItems 1
+         * @maxItems 5
+         * @nullable
+         * @items.maxLength 255
+         * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
+         */
+      users?: string[] | null;
       /** When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
       thread_reports?: boolean;
     }
@@ -77223,6 +77232,27 @@ export namespace Schemas {
       task: SlackThreadContextTask | null;
       /** All runs on the task, oldest first. Empty when no mapping was found. */
       runs: SlackThreadContextRun[];
+    }
+
+    export interface SlackUser {
+      /** Slack member ID (e.g. U0123ABC) — post to it to open a direct message. */
+      id: string;
+      /** Slack username (handle) without the leading '@'. */
+      name: string;
+      /** Name to show in pickers: the member's display name, falling back to their real name or handle. */
+      display_name: string;
+    }
+
+    export interface SlackUsersResponse {
+      /** Human Slack workspace members the PostHog Slack app can DM. */
+      users: SlackUser[];
+      /**
+         * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-member lookups).
+         * @nullable
+         */
+      lastRefreshedAt?: string | null;
+      /** Whether more members match the current search beyond this page. */
+      has_more?: boolean;
     }
 
     /**
@@ -95096,6 +95126,32 @@ export namespace Schemas {
      * Optional case-insensitive team name or slug search query.
      */
     search?: string;
+    };
+
+    export type IntegrationsUsersRetrieveParams = {
+    /**
+     * Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.
+     */
+    force_refresh?: boolean;
+    /**
+     * Maximum number of members to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Number of members to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive member name or ID search query.
+     */
+    search?: string;
+    /**
+     * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
+     */
+    user_id?: string;
     };
 
     export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };
