@@ -221,7 +221,9 @@ export const activityLogLogic = kea<activityLogLogicType>([
                     controlled: true,
                     pageSize: ACTIVITY_PAGE_SIZE,
                     currentPage: page,
-                    entryCount: totalCount || 0,
+                    // Keep an unknown count unknown, so the next arrow stays driven by onForward.
+                    // Collapsing it to 0 would read as an empty page and wrongly disable navigation.
+                    entryCount: totalCount ?? undefined,
                     onBackward: () => actions.setPage(page - 1),
                     onForward: () => actions.setPage(page + 1),
                 }
