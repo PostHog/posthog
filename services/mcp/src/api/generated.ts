@@ -93841,6 +93841,14 @@ export namespace Schemas {
      * * `archived` - Archived
      */
     status?: HogFlowsListStatus;
+    /**
+     * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
+     */
+    trigger?: string;
+    /**
+     * Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.
+     */
+    type?: HogFlowsListType;
     updated_at?: string;
     };
 
@@ -93851,6 +93859,14 @@ export namespace Schemas {
       Active: 'active',
       Archived: 'archived',
       Draft: 'draft',
+    } as const;
+
+    export type HogFlowsListType = typeof HogFlowsListType[keyof typeof HogFlowsListType];
+
+
+    export const HogFlowsListType = {
+      Automation: 'automation',
+      Messaging: 'messaging',
     } as const;
 
     export type HogFlowsAssetsRetrieveParams = {
