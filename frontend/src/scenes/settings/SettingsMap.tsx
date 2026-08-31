@@ -15,6 +15,7 @@ import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analy
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/FeaturePreviews/FeaturePreviews'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -99,7 +100,6 @@ import {
     FlagsSecureApiKeys,
     RequireEvaluationContexts,
 } from './environment/FeatureFlagSettings'
-import { FeaturePreviewsComingSoon, FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
@@ -157,6 +157,7 @@ import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
 import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonalAPIKeys'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
+import { OrganizationDesktopBetaTerms } from './organization/OrgDesktopBetaTerms'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
@@ -1739,6 +1740,32 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'PostHog AI features use external AI services for data analysis. This can involve transfer of identifying user data.',
             },
             {
+                id: 'organization-desktop-beta-terms',
+                title: 'PostHog Desktop beta terms',
+                description: (
+                    <>
+                        Accept the additional data-processing terms for the PostHog Desktop beta.
+                        <br />
+                        <br />
+                        PostHog Desktop uses Baseten and Modal to process customer data, personal data, and PII. They
+                        are not currently listed as PostHog subprocessors for this feature.
+                        <br />
+                        <br />
+                        Your organization agrees to proceed notwithstanding that status. If this feature becomes
+                        generally available, PostHog will update the DPA and provide notice. This beta may change or be
+                        discontinued.
+                        <br />
+                        <br />
+                        <Link to="https://posthog.com/subprocessors" target="_blank">
+                            View PostHog subprocessors
+                        </Link>
+                    </>
+                ),
+                component: <OrganizationDesktopBetaTerms />,
+                keywords: ['desktop', 'beta', 'terms', 'consent', 'opt-in', 'data processing'],
+                searchDescription: 'Accept the additional data-processing terms for the PostHog Desktop beta.',
+            },
+            {
                 id: 'organization-ai-training-opt-out',
                 title: 'Internal AI training',
                 component: <OrganizationAITrainingOptOut />,
@@ -2140,7 +2167,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Feature previews',
                 description:
                     'Try out upcoming PostHog features before they are generally available. Toggling a preview enables it for your account only.',
-                component: <FeaturePreviewsSettings />,
+                component: <FeaturePreviews />,
                 keywords: ['beta', 'early access', 'preview', 'opt-in'],
             },
             {

@@ -12,14 +12,12 @@ export const gridDefinitionSchema = z.object({
 });
 export type GridDefinition = z.infer<typeof gridDefinitionSchema>;
 
-export const placementStatusSchema = z.enum([
+const placementStatusSchema = z.enum([
   "pending",
   "generating",
   "live",
   "failed",
 ]);
-export type PlacementStatus = z.infer<typeof placementStatusSchema>;
-
 export const gridPlacementSchema = z.object({
   id: z.string(),
   status: placementStatusSchema,
@@ -68,11 +66,7 @@ export const canvasLayoutResultSchema = z.object({
 export type CanvasLayoutResult = z.infer<typeof canvasLayoutResultSchema>;
 
 // Fields an update op may merge into a placement (id is immutable).
-export const placementChangesSchema = gridPlacementSchema
-  .omit({ id: true })
-  .partial();
-export type PlacementChanges = z.infer<typeof placementChangesSchema>;
-
+const placementChangesSchema = gridPlacementSchema.omit({ id: true }).partial();
 export const layoutOperationSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("set_grid"), grid: gridDefinitionSchema }),
   z.object({ op: z.literal("add_placement"), placement: gridPlacementSchema }),
@@ -106,7 +100,7 @@ export const patchLayoutInput = z.object({
 
 // A component's placement contract, snapshotted onto its head version and
 // frozen into its build manifest.
-export const componentSizeSchema = z.object({
+const componentSizeSchema = z.object({
   defaultW: z.number().int(),
   defaultH: z.number().int(),
   minW: z.number().int(),
@@ -114,10 +108,7 @@ export const componentSizeSchema = z.object({
   maxW: z.number().int().optional(),
   maxH: z.number().int().optional(),
 });
-export type ComponentSize = z.infer<typeof componentSizeSchema>;
-
 export const componentMetaSchema = z.object({
   size: componentSizeSchema,
   configSchema: z.record(z.string(), z.unknown()).optional(),
 });
-export type ComponentMeta = z.infer<typeof componentMetaSchema>;

@@ -4,7 +4,7 @@ import threading
 from collections.abc import Sequence
 from uuid import NAMESPACE_URL, uuid5
 
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.db import OperationalError
 from django.test import TestCase, override_settings
@@ -167,30 +167,105 @@ class TestTaskRunEventIngest(TestCase):
     def test_streaming_ingest_writes_ordered_events_with_explicit_completion(self) -> None:
         token = self._create_token()
 
-        with patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow:
+        with (
+            patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow,
+            patch.object(TaskRun, "signal_agent_boot_milestone") as signal_milestone,
+        ):
+            signal_milestone.return_value = True
             status, body = self._call_ingest(
                 token,
                 [
                     {
                         "seq": 1,
-                        "event": {"type": "notification", "notification": {"method": "session/update"}},
+                        "event": {
+                            "type": "notification",
+                            "notification": {"method": "_posthog/agent_command_dispatched", "params": {}},
+                        },
                     },
                     {
                         "seq": 2,
+                        "event": {
+                            "type": "notification",
+                            "notification": {"method": "_posthog/agent_command_dispatched", "params": {}},
+                        },
+                    },
+                    {
+                        "seq": 3,
+                        "event": {
+                            "type": "notification",
+                            "notification": {
+                                "method": "session/update",
+                                "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                            },
+                        },
+                    },
+                    {
+                        "seq": 4,
+                        "event": {
+                            "type": "notification",
+                            "notification": {
+                                "method": "session/update",
+                                "params": {"update": {"sessionUpdate": "tool_call"}},
+                            },
+                        },
+                    },
+                    {
+                        "seq": 5,
                         "event": {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
                     },
-                    {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 2},
+                    {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 5},
                 ],
             )
 
         self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 2)
-        self.assertEqual(body["last_accepted_seq"], 2)
+        self.assertEqual(body["accepted"], 5)
+        self.assertEqual(body["last_accepted_seq"], 5)
         heartbeat_workflow.assert_called_once_with(agent_active=True)
+        self.assertEqual(
+            signal_milestone.call_args_list,
+            [call("agent_command_dispatched"), call("agent_activity_observed")],
+        )
 
         events = self._read_stream_events()
-        self.assertEqual(self._read_notification_methods(), ["session/update", "_posthog/task_complete"])
+        self.assertEqual(
+            self._read_notification_methods(),
+            [
+                "_posthog/agent_command_dispatched",
+                "_posthog/agent_command_dispatched",
+                "session/update",
+                "session/update",
+                "_posthog/task_complete",
+            ],
+        )
         self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, events)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_streaming_ingest_releases_failed_activity_claim(self) -> None:
+        token = self._create_token()
+
+        with patch.object(TaskRun, "signal_agent_boot_milestone", return_value=False):
+            status, _body = self._call_ingest(
+                token,
+                [
+                    {
+                        "seq": 1,
+                        "event": {
+                            "type": "notification",
+                            "notification": {
+                                "method": "session/update",
+                                "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                            },
+                        },
+                    }
+                ],
+            )
+
+        async def claim_activity() -> bool:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(self.task_run.id)))
+            return await redis_stream.claim_first_agent_activity()
+
+        self.assertEqual(status, 200)
+        self.assertTrue(asyncio.run(claim_activity()))
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_rtk_savings_capture_uses_authenticated_ids_and_idempotent_event_uuid(self) -> None:
