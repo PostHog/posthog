@@ -55,15 +55,20 @@ export function NewSurveyActions(): JSX.Element {
                 </LemonButton>
             </AccessControlAction>
             {isMaxAvailable ? (
-                <LemonButton
-                    type="secondary"
-                    icon={<IconSparkles />}
-                    data-attr="surveys-empty-state-create-with-ai"
-                    onClick={() => openMax?.()}
-                    disabledReason={openMax ? undefined : 'PostHog AI is unavailable here'}
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Survey}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    Create with AI
-                </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconSparkles />}
+                        data-attr="surveys-empty-state-create-with-ai"
+                        onClick={() => openMax?.()}
+                        disabledReason={openMax ? undefined : 'PostHog AI is unavailable here'}
+                    >
+                        Create with AI
+                    </LemonButton>
+                </AccessControlAction>
             ) : null}
         </div>
     )
