@@ -31,7 +31,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             type: 'string',
             label: 'Google click ID for web-to-app (gbraid)',
             description:
-                'Click ID for iOS web-to-app conversions (someone clicks an ad on the web, then opens your iOS app). Used when no gclid is available after ATT. Set only one of gclid, gbraid, or wbraid per conversion.',
+                'Click ID for iOS web-to-app conversions (someone clicks an ad on the web, then opens your iOS app). Used when no gclid is available after ATT. Set only one of gclid, gbraid, or wbraid per conversion. The conversion action must use the "Every" counting type in Google Ads; one-per-click actions reject braids.',
             default: '{person.properties.gbraid ?? person.properties.$initial_gbraid}',
             secret: false,
             required: false,
@@ -41,7 +41,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             type: 'string',
             label: 'Google click ID for app-to-web (wbraid)',
             description:
-                'Click ID for iOS app-to-web conversions (someone clicks an ad in an iOS app, then opens your website). Used when no gclid is available after ATT. Set only one of gclid, gbraid, or wbraid per conversion.',
+                'Click ID for iOS app-to-web conversions (someone clicks an ad in an iOS app, then opens your website). Used when no gclid is available after ATT. Set only one of gclid, gbraid, or wbraid per conversion. The conversion action must use the "Every" counting type in Google Ads; one-per-click actions reject braids.',
             default: '{person.properties.wbraid ?? person.properties.$initial_wbraid}',
             secret: false,
             required: false,
