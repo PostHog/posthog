@@ -21,9 +21,12 @@ describe('reportMetrics', () => {
     test.each([
         ['zero count', { value_format: 'count', unit: 'users' } as const, 0, '0 users'],
         ['percentage points', { value_format: 'percentage', unit: null } as const, 34, '34%'],
+        ['small percentage points', { value_format: 'percentage', unit: null } as const, 0.04, '0.04%'],
         ['scaled percentage', { value_format: 'percentage_scaled', unit: null } as const, 0.34, '34%'],
+        ['small scaled percentage', { value_format: 'percentage_scaled', unit: null } as const, 0.0004, '0.04%'],
         ['milliseconds', { value_format: 'duration', unit: 'ms' } as const, 1250, '1.25s'],
         ['currency', { value_format: 'currency', unit: 'USD' } as const, 42.5, '$42.50'],
+        ['small number', { value_format: 'number', unit: null } as const, 0.004, '0.004'],
         ['unavailable value', { value_format: 'number', unit: null } as const, null, null],
     ])('formats a %s metric', (_name, metric, value, expected) => {
         expect(formatReportMetricValue(metric, value)).toBe(expected)

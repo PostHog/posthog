@@ -1,6 +1,6 @@
 import { formatCurrency } from 'lib/utils/currency'
 import { formatDurationMilliseconds, humanFriendlyDuration } from 'lib/utils/durations'
-import { formatPercentage, humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyNumber, percentage, significantDecimalPlaces } from 'lib/utils/numbers'
 
 import { CurrencyCode, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
@@ -55,10 +55,13 @@ export function formatReportMetricValue(
     switch (valueFormat) {
         case 'count':
             return withUnit(humanFriendlyNumber(value, 0), unit)
+        // Percentage and unbounded number values take decimal places from their magnitude, like the
+        // insight chart axis (aggregationAxisFormat), so a small non-zero rate or number does not
+        // round to `0%` or `0` and read as no impact.
         case 'percentage':
-            return withUnit(formatPercentage(value, { precise: true, compact: true }), unit === '%' ? null : unit)
+            return withUnit(percentage(value / 100, significantDecimalPlaces(value)), unit === '%' ? null : unit)
         case 'percentage_scaled':
-            return withUnit(formatPercentage(value * 100, { precise: true, compact: true }), unit === '%' ? null : unit)
+            return withUnit(percentage(value, significantDecimalPlaces(value * 100)), unit === '%' ? null : unit)
         case 'duration':
             if (unit === 'ms') {
                 return formatDurationMilliseconds(value)
@@ -66,11 +69,11 @@ export function formatReportMetricValue(
             if (unit === 's') {
                 return humanFriendlyDuration(value, { maxUnits: 2, secondsPrecision: 3 })
             }
-            return withUnit(humanFriendlyNumber(value), unit)
+            return withUnit(humanFriendlyNumber(value, significantDecimalPlaces(value)), unit)
         case 'currency':
             return isCurrencyCode(unit) ? formatCurrency(value, unit) : withUnit(humanFriendlyNumber(value, 2), unit)
         case 'number':
-            return withUnit(humanFriendlyNumber(value), unit)
+            return withUnit(humanFriendlyNumber(value, significantDecimalPlaces(value)), unit)
     }
 }
 
