@@ -131,7 +131,8 @@ export function Nav(): JSX.Element {
         visitedNavTabs,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { toggleCommand } = useActions(commandLogic)
+    const { openCommand } = useActions(commandLogic)
+    const { isCommandOpen } = useValues(commandLogic)
     const { sidebarDensity } = useValues(uiCustomizationLogic)
     const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
 
@@ -201,7 +202,9 @@ export function Nav(): JSX.Element {
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
                         {/* Collapsed nav has no room for the search bar, so it keeps the icon-only trigger */}
-                        {isLayoutNavCollapsed && <NavSearchButton toggleCommand={toggleCommand} />}
+                        {isLayoutNavCollapsed && (
+                            <NavSearchButton openCommand={openCommand} isCommandOpen={isCommandOpen} />
+                        )}
 
                         {isLayoutNavCollapsed && (
                             <ButtonPrimitive
@@ -244,7 +247,7 @@ export function Nav(): JSX.Element {
 
                 {!isLayoutNavCollapsed && (
                     <div className="px-2 py-1">
-                        <NavSearchBar toggleCommand={toggleCommand} />
+                        <NavSearchBar openCommand={openCommand} isCommandOpen={isCommandOpen} />
                     </div>
                 )}
 

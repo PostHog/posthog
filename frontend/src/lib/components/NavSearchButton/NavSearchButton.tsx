@@ -8,14 +8,18 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 /** Icon-only search trigger, used in the collapsed nav where there is no room for the search bar. */
 export function NavSearchButton({
-    toggleCommand,
+    openCommand,
+    isCommandOpen,
 }: {
-    toggleCommand: (source: CommandOpenSource) => void
+    openCommand: (source: CommandOpenSource) => void
+    isCommandOpen: boolean
 }): JSX.Element {
     return (
         <ButtonPrimitive
             iconOnly
             data-attr="nav-search"
+            active={isCommandOpen}
+            aria-pressed={isCommandOpen}
             tooltip={
                 <div className="flex items-center gap-2">
                     <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
@@ -24,7 +28,7 @@ export function NavSearchButton({
             tooltipPlacement="right"
             onClick={() => {
                 posthog.capture('nav search clicked')
-                toggleCommand('nav-search-button')
+                openCommand('nav-search-button')
             }}
         >
             <IconSearch className="size-4 shrink-0 text-secondary" />
@@ -33,15 +37,23 @@ export function NavSearchButton({
 }
 
 /** Input-styled full-width search trigger shown below the nav header when the nav is expanded. */
-export function NavSearchBar({ toggleCommand }: { toggleCommand: (source: CommandOpenSource) => void }): JSX.Element {
+export function NavSearchBar({
+    openCommand,
+    isCommandOpen,
+}: {
+    openCommand: (source: CommandOpenSource) => void
+    isCommandOpen: boolean
+}): JSX.Element {
     return (
         <ButtonPrimitive
             fullWidth
             data-attr="nav-search-bar"
+            active={isCommandOpen}
+            aria-pressed={isCommandOpen}
             className="justify-between border border-primary bg-surface-primary rounded-md px-2"
             onClick={() => {
                 posthog.capture('nav search clicked')
-                toggleCommand('nav-search-bar')
+                openCommand('nav-search-bar')
             }}
         >
             <span className="flex items-center gap-1.5 text-secondary">
