@@ -89,7 +89,7 @@ Grant read permissions for the data you want to sync. Tables you have not grante
 - Web feeds
 - Webhooks (requires Klaviyo's Advanced KDP add-on)
 
-The campaign and flow performance tables (campaign_values_reports, flow_values_reports) need a value-tracking conversion metric, such as Placed Order. Leave the conversion metric ID blank to select one automatically: your Placed Order metric, or Ordered Product if Placed Order is absent, and otherwise the first metric in your account. That last fallback may not be the metric you expect, so paste the ID of a specific value-tracking metric from [your Klaviyo metrics](https://www.klaviyo.com/analytics/metrics) to control the choice. If your account has no eligible metric, these two tables pause with an error until you set one.
+The campaign and flow performance tables (campaign_values_reports, flow_values_reports, flow_series_reports) need a value-tracking conversion metric, such as Placed Order. Leave the conversion metric ID blank to select one automatically: your Placed Order metric, or Ordered Product if Placed Order is absent, and otherwise the first metric in your account. That last fallback may not be the metric you expect, so paste the ID of a specific value-tracking metric from [your Klaviyo metrics](https://www.klaviyo.com/analytics/metrics) to control the choice. If your account has no eligible metric, these tables pause with an error until you set one.
 """,
             iconPath="/static/services/klaviyo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/klaviyo",
