@@ -11,6 +11,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -171,7 +172,13 @@ export function WorkflowsTable(): JSX.Element {
                     <LemonTableLink
                         to={urls.workflow(item.id, 'workflow')}
                         title={item.name}
-                        description={item.description}
+                        description={
+                            item.description ? (
+                                <LemonMarkdown className="max-w-[30rem] line-clamp-2" lowKeyHeadings>
+                                    {item.description}
+                                </LemonMarkdown>
+                            ) : undefined
+                        }
                     />
                 )
             },
@@ -228,11 +235,12 @@ export function WorkflowsTable(): JSX.Element {
                     <Link to={urls.workflow(id, 'metrics')}>
                         <AppMetricsSparkline
                             logicKey={id}
+                            successMetricNames={['triggered']}
                             forceParams={{
                                 appSource: 'hog_flow',
                                 appSourceId: id,
-                                metricKind: ['success', 'failure'],
-                                breakdownBy: 'metric_kind',
+                                metricName: ['triggered', 'failed'],
+                                breakdownBy: 'metric_name',
                                 interval: 'day',
                                 dateFrom: '-7d',
                             }}
