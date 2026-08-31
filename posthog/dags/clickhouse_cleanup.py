@@ -66,12 +66,14 @@ PG_CLEANUP_QUEUE_TABLE = "person_pg_cleanup_queue"
 # the op's memory to one page however large the snapshot is.
 PERSIST_PAGE_SIZE = 50_000
 
-# Each delete runs as one pair of ordered mutations per contiguous team-id range. Ranges do not
-# reduce what a mutation reads or rewrites: merged parts span nearly the whole team-id space, so
-# every batch touches most parts and each extra batch re-rewrites their delete masks. What
-# batching buys is granularity, since each batch is a separate mutation with stable command text
-# that a retry re-attaches to instead of restarting a table-sized mutation. Keep this small.
-DEFAULT_TEAM_BATCHES = 4
+# Each delete runs as one pair of ordered mutations per contiguous team-id range. Batches run in
+# sequence, never in parallel, and ranges do not reduce what a mutation reads or rewrites: merged
+# parts span nearly the whole team-id space, so every extra batch re-reads most parts and
+# re-rewrites their delete masks. Total mutation cost is therefore roughly N times the single
+# batch cost. What batching buys is a bound on one mutation's wall time under the wait deadline,
+# and per-range progress in the logs. The default is 1 because those rarely justify the cost;
+# raise team_batches together with max_persons when draining a large backlog in checkpoints.
+DEFAULT_TEAM_BATCHES = 1
 
 
 class CleanupConfig(dagster.Config):
