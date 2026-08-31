@@ -1,0 +1,99 @@
+# Break-glass image build, for when GitHub Actions cannot run.
+#
+# Actions is the only path that builds and pushes a deployable image today, so
+# an Actions outage leaves us able to diagnose a production bug but not to ship
+# the fix. Depot CI runs on its own control plane and starts a run from
+# `depot ci dispatch`, which needs a Depot API token and no GitHub event. Git
+# operations must still be up, because the checkout below clones from GitHub.
+#
+# This is deliberately not a shadow of container-images-cd.yml. It builds one
+# image and pushes it to ECR. It does not push to DockerHub or ghcr, does not
+# dispatch to PostHog/charts, and does not touch the state files. The operator
+# takes the digest this prints and pins it in ArgoCD by hand.
+#
+# It pushes to posthog-cloud-prs, not posthog-cloud. The posthog-cloud publish
+# role is OIDC-trusted only for Actions on refs/heads/master, and a break-glass
+# fix is by definition not on master. The posthog-cloud-prs role already accepts
+# any branch and can reach no other repository.
+#
+# Usage:
+#   git push origin HEAD:breakglass/<name>
+#   depot ci dispatch \
+#     --repo PostHog/posthog \
+#     --workflow breakglass-image-build.yml \
+#     --ref breakglass/<name> \
+#     --token "$DEPOT_BREAKGLASS_TOKEN"
+#
+# Runbook: https://runbooks.posthog.com/services/dev-tooling/runbooks/github-outage
+
+name: Break-glass image build
+
+on:
+    workflow_dispatch:
+        inputs:
+            platforms:
+                description: Target platforms. Drop arm64 to halve the build time when you know the target nodes.
+                type: string
+                default: linux/amd64,linux/arm64
+
+jobs:
+    build:
+        name: Build and push to ECR
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 45
+        permissions:
+            id-token: write
+            contents: read
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # The dispatched ref decides what gets built, so read the commit from the
+            # tree instead of a context value. This keeps the tag correct whichever
+            # way the run was started.
+            - name: Resolve commit
+              id: commit
+              run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Build and push
+              id: build
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: .
+                  buildx-fallback: false
+                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs:${{ steps.commit.outputs.sha }}
+                  platforms: ${{ inputs.platforms }}
+                  build-args: COMMIT_HASH=${{ steps.commit.outputs.sha }}
+                  push: true
+
+            - name: Report image reference
+              env:
+                  REGISTRY: ${{ steps.aws-ecr.outputs.registry }}
+                  DIGEST: ${{ steps.build.outputs.digest }}
+                  SHA: ${{ steps.commit.outputs.sha }}
+              run: |
+                  echo "Paste this into the ArgoCD image override:"
+                  echo "$REGISTRY/posthog-cloud-prs@$DIGEST"
+                  {
+                      echo "## Break-glass image ready"
+                      echo ""
+                      echo "\`$REGISTRY/posthog-cloud-prs@$DIGEST\`"
+                      echo ""
+                      echo "- Commit: \`$SHA\`"
+                      echo "- Deploy by pinning this digest in ArgoCD with auto-sync disabled."
+                      echo "- Re-enable auto-sync once master is deployable again."
+                  } >> "$GITHUB_STEP_SUMMARY"
