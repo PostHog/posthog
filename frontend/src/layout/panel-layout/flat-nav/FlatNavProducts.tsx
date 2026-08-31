@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
+import { Fragment } from 'react'
 
 import { IconGear } from '@posthog/icons'
 
@@ -19,7 +20,7 @@ function slugify(path: string): string {
 }
 
 export function FlatNavProducts(): JSX.Element {
-    const { productItems, customProductsLoading } = useValues(flatNavLogic)
+    const { productGroups, customProductsLoading } = useValues(flatNavLogic)
 
     return (
         <FlatNavSection
@@ -38,28 +39,37 @@ export function FlatNavProducts(): JSX.Element {
             }
         >
             <div className="flex flex-col gap-px group/colorful-product-icons colorful-product-icons-true">
-                {customProductsLoading && productItems.length === 0 ? (
+                {customProductsLoading && productGroups.length === 0 ? (
                     Array.from({ length: 4 }).map((_, index) => (
                         <WrappingLoadingSkeleton fullWidth key={index}>
                             <ButtonPrimitive aria-hidden inert menuItem />
                         </WrappingLoadingSkeleton>
                     ))
-                ) : productItems.length === 0 ? (
+                ) : productGroups.length === 0 ? (
                     <span className="text-xs text-tertiary px-2 py-1">
                         No tools selected. Use the gear icon above to pick some.
                     </span>
                 ) : (
-                    productItems.map((item) => (
-                        <NavLink
-                            key={item.path}
-                            to={item.href}
-                            label={item.label}
-                            icon={iconForType(item.iconType, item.iconColor)}
-                            isCollapsed={false}
-                            tag={item.tag}
-                            data-attr={`flat-nav-tool-${slugify(item.path)}`}
-                            onClick={() => posthog.capture('nav item clicked', { item: item.path })}
-                        />
+                    productGroups.map((group) => (
+                        <Fragment key={group.category}>
+                            {group.category && (
+                                <div className="not-first:mt-3 py-1 px-2 flex items-center">
+                                    <span className="text-xs font-semibold text-tertiary">{group.category}</span>
+                                </div>
+                            )}
+                            {group.items.map((item) => (
+                                <NavLink
+                                    key={item.path}
+                                    to={item.href}
+                                    label={item.label}
+                                    icon={iconForType(item.iconType, item.iconColor)}
+                                    isCollapsed={false}
+                                    tag={item.tag}
+                                    data-attr={`flat-nav-tool-${slugify(item.path)}`}
+                                    onClick={() => posthog.capture('nav item clicked', { item: item.path })}
+                                />
+                            ))}
+                        </Fragment>
                     ))
                 )}
             </div>

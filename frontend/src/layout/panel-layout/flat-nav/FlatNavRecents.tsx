@@ -19,7 +19,7 @@ export function FlatNavRecents(): JSX.Element {
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
 
     return (
-        <FlatNavSection label="Recents">
+        <FlatNavSection label="Recents" info="Items you viewed recently, most recent first.">
             <div className="flex flex-col gap-px group/colorful-product-icons colorful-product-icons-true">
                 {recentItemsLoading && recentItems.length === 0 ? (
                     <div className="flex items-center justify-center py-2">

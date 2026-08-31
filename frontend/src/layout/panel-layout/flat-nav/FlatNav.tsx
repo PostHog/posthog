@@ -223,8 +223,8 @@ export function FlatNav(): JSX.Element {
                         <FlatNavPanelButtons />
                     </div>
 
-                    {!isLayoutNavCollapsed && isSidebarSectionShown('my_tools') && <FlatNavProducts />}
                     {!isLayoutNavCollapsed && isSidebarSectionShown('recents') && <FlatNavRecents />}
+                    {!isLayoutNavCollapsed && isSidebarSectionShown('my_tools') && <FlatNavProducts />}
                 </ScrollableShadows>
 
                 <div className="px-2">
