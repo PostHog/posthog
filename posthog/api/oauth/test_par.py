@@ -1,0 +1,126 @@
+import base64
+import hashlib
+from urllib.parse import urlencode
+
+from posthog.test.base import APIBaseTest
+
+from rest_framework import status
+
+from posthog.api.oauth.par import PAR_REQUEST_URI_PREFIX
+from posthog.models.oauth import OAuthApplication
+
+
+class TestPushedAuthorizationRequest(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        self.confidential_application = OAuthApplication.objects.create(
+            name="Test Confidential App",
+            client_id="test_confidential_client_id",
+            client_secret="test_confidential_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+
+        self.public_application = OAuthApplication.objects.create(
+            name="Test Public App",
+            client_id="test_public_client_id",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+
+        self.client.force_login(self.user)
+
+    @property
+    def code_challenge(self) -> str:
+        digest = hashlib.sha256(b"test_challenge").digest()
+        return base64.urlsafe_b64encode(digest).decode("utf-8").replace("=", "")
+
+    def push(self, body: dict):
+        return self.client.post("/oauth/par/", data=urlencode(body), content_type="application/x-www-form-urlencoded")
+
+    def public_par_body(self) -> dict:
+        return {
+            "client_id": "test_public_client_id",
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "scope": "openid",
+        }
+
+    def test_public_client_push_returns_request_uri(self):
+        response = self.push(self.public_par_body())
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertTrue(data["request_uri"].startswith(PAR_REQUEST_URI_PREFIX))
+        self.assertGreater(data["expires_in"], 0)
+
+    def test_confidential_client_requires_valid_secret(self):
+        body = self.public_par_body()
+        body["client_id"] = "test_confidential_client_id"
+
+        # Missing secret is rejected
+        self.assertEqual(self.push(body).status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Wrong secret is rejected
+        body["client_secret"] = "wrong"
+        self.assertEqual(self.push(body).status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Correct secret succeeds
+        body["client_secret"] = "test_confidential_client_secret"
+        self.assertEqual(self.push(body).status_code, status.HTTP_201_CREATED)
+
+    def test_unknown_client_is_rejected(self):
+        body = self.public_par_body()
+        body["client_id"] = "does_not_exist"
+
+        self.assertEqual(self.push(body).status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_request_uri_param_is_rejected(self):
+        body = self.public_par_body()
+        body["request_uri"] = f"{PAR_REQUEST_URI_PREFIX}anything"
+
+        response = self.push(body)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+
+    def test_authorize_rehydrates_pushed_parameters(self):
+        # Push a full authorization request, then start the browser flow carrying
+        # only client_id + request_uri. Rehydration must supply redirect_uri, PKCE
+        # and scope so the consent screen renders instead of erroring.
+        request_uri = self.push(self.public_par_body()).json()["request_uri"]
+
+        response = self.client.get(
+            f"/oauth/authorize/?client_id=test_public_client_id&{urlencode({'request_uri': request_uri})}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_authorize_rejects_unknown_request_uri(self):
+        response = self.client.get(
+            f"/oauth/authorize/?client_id=test_public_client_id"
+            f"&{urlencode({'request_uri': f'{PAR_REQUEST_URI_PREFIX}nonexistent'})}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+
+    def test_authorize_rejects_request_uri_bound_to_other_client(self):
+        # A request_uri pushed by the public client cannot be replayed by another client.
+        request_uri = self.push(self.public_par_body()).json()["request_uri"]
+
+        response = self.client.get(
+            f"/oauth/authorize/?client_id=test_confidential_client_id&{urlencode({'request_uri': request_uri})}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
