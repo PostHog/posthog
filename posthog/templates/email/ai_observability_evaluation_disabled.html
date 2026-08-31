@@ -1,4 +1,5 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% extends "email/base.html" %}
+
 {% block preheader %}Your evaluation "{{ evaluation_name }}" has been disabled{% endblock %}
 {% block heading %}Your evaluation has been disabled{% endblock %}
 {% block section %}
