@@ -221,20 +221,50 @@ async def deliver_slack(
         await LOGGER.ainfo("deliver_subscription.slack_sent", subscription_id=subscription.id)
         recipient_results.append(RecipientResult(recipient=subscription.target_value, status="success", error=None))
     elif result.is_partial_failure:
+        failed_thread_count = len(result.failed_thread_message_indices)
         await LOGGER.awarning(
             "deliver_subscription.slack_partial_failure",
             subscription_id=subscription.id,
-            failed_thread_count=len(result.failed_thread_message_indices),
+            failed_thread_count=failed_thread_count,
             total_thread_count=result.total_thread_messages,
+            omitted_attachment_count=result.omitted_attachment_count,
         )
-        failed_count = len(result.failed_thread_message_indices)
-        partial_message = f"{failed_count} thread message{'s' if failed_count != 1 else ''} failed"
+        partial_reasons = []
+        if failed_thread_count:
+            partial_reasons.append(
+                f"{failed_thread_count} thread message{'s' if failed_thread_count != 1 else ''} failed"
+            )
+        if result.omitted_attachment_count:
+            partial_reasons.append(
+                f"{result.omitted_attachment_count} image{'s' if result.omitted_attachment_count != 1 else ''} could not be attached"
+            )
+        partial_message = "; ".join(partial_reasons)
+        if failed_thread_count and result.omitted_attachment_count:
+            partial_error_type = "partial_slack_failure"
+        elif failed_thread_count:
+            partial_error_type = "partial_thread_failure"
+        else:
+            partial_error_type = "partial_attachment_failure"
         recipient_results.append(
             RecipientResult(
                 recipient=subscription.target_value,
                 status="partial",
-                error={"message": partial_message, "type": "partial_thread_failure"},
+                error={"message": partial_message, "type": partial_error_type},
                 human_readable_error=partial_message,
+            )
+        )
+    elif result.is_complete_failure:
+        failure_message = result.failure_message or "Slack could not confirm whether the gallery was delivered."
+        await LOGGER.aerror(
+            "deliver_subscription.slack_delivery_unconfirmed",
+            subscription_id=subscription.id,
+        )
+        recipient_results.append(
+            RecipientResult(
+                recipient=subscription.target_value,
+                status="failed",
+                error={"message": failure_message, "type": "slack_delivery_unconfirmed"},
+                human_readable_error=failure_message,
             )
         )
     return DeliverSubscriptionResult(recipient_results=recipient_results)

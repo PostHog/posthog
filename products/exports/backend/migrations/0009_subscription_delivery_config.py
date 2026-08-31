@@ -10,6 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="subscription",
             name="delivery_config",
-            field=models.JSONField(default=dict),
+            field=models.JSONField(db_default={}, default=dict),
         ),
     ]

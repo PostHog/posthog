@@ -1,13 +1,14 @@
 import uuid
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.email import EmailDeliveryError
+from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportAssetResult
@@ -23,6 +24,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     validate_subscription_for_delivery,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.delivery_common import deliver_slack
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsResult,
@@ -38,9 +40,66 @@ from products.exports.backend.temporal.subscriptions.workflows import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
+from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+
+
+async def test_deliver_slack_records_unconfirmed_gallery_without_retry(team, user) -> None:
+    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        created_by=user,
+        target_type="slack",
+        target_value="C123|#general",
+        integration=integration,
+    )
+    send = AsyncMock(
+        return_value=SlackDeliveryResult(
+            main_message_sent=False,
+            total_thread_messages=0,
+            failed_thread_message_indices=[],
+            failure_message="Slack could not confirm whether the gallery was delivered.",
+        )
+    )
+
+    result = await deliver_slack(subscription, [], send)
+
+    send.assert_awaited_once_with(integration)
+    assert result.recipient_results[0].status == "failed"
+    assert result.recipient_results[0].error == {
+        "message": "Slack could not confirm whether the gallery was delivered.",
+        "type": "slack_delivery_unconfirmed",
+    }
+
+
+async def test_deliver_slack_records_omitted_gallery_attachments_as_partial(team, user) -> None:
+    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        created_by=user,
+        target_type="slack",
+        target_value="C123|#general",
+        integration=integration,
+    )
+    send = AsyncMock(
+        return_value=SlackDeliveryResult(
+            main_message_sent=True,
+            total_thread_messages=0,
+            failed_thread_message_indices=[],
+            omitted_attachment_count=2,
+        )
+    )
+
+    result = await deliver_slack(subscription, [], send)
+
+    assert result.recipient_results[0].status == "partial"
+    assert result.recipient_results[0].error == {
+        "message": "2 images could not be attached",
+        "type": "partial_attachment_failure",
+    }
+    assert result.recipient_results[0].human_readable_error == "2 images could not be attached"
 
 
 # v1 only exists as a Temporal history-compat shim for pre-patch workflows. Both

@@ -639,7 +639,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert result.main_message_sent is True
 
     @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
-    def test_deliver_slack_gallery_retries_timeout(
+    def test_deliver_slack_gallery_does_not_retry_ambiguous_timeout(
         self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
     ) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
@@ -650,9 +650,9 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
         )
         result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
-        assert mock_async.files_upload_v2.await_count == 2
-        mock_sleep.assert_awaited_once_with(1)
-        assert result.main_message_sent is True
+        mock_async.files_upload_v2.assert_awaited_once()
+        mock_sleep.assert_not_awaited()
+        assert result.main_message_sent is False
 
     def test_deliver_slack_gallery_empty_uploads_sends_plain_message(self, MockSlackIntegration: MagicMock) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
@@ -681,12 +681,21 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             export_format="image/png",
             content=b"PNGBYTES",
         )
-        assets = list(ExportedAsset.objects.filter(id=asset_with_content.id).select_related("insight"))
-        asyncio.run(
-            send_slack_message_with_integration_async(self.integration, self.subscription, assets, total_asset_count=1)
+        failed_asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            exception="render failed",
+        )
+        assets = list(
+            ExportedAsset.objects.filter(id__in=[asset_with_content.id, failed_asset.id]).select_related("insight")
+        )
+        result = asyncio.run(
+            send_slack_message_with_integration_async(self.integration, self.subscription, assets, total_asset_count=2)
         )
         mock_async.files_upload_v2.assert_awaited_once()
         mock_async.chat_postMessage.assert_not_called()
+        assert result.is_partial_failure
 
 
 class TestSlackErrorTruncation(APIBaseTest):
@@ -893,7 +902,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         ):
             gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
         assert gallery.file_uploads == []
-        assert "Could not generate" in gallery.initial_comment
+        assert "Could not attach" in gallery.initial_comment
 
     def test_prepare_slack_gallery_skips_oversized_asset(self) -> None:
         subscription = self._subscription(post_all_in_main=True)
@@ -906,7 +915,8 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         assets = list(ExportedAsset.objects.filter(id=oversized.id).select_related("insight"))
         gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
         assert gallery.file_uploads == []
-        assert "Could not generate" in gallery.initial_comment
+        assert "Could not attach" in gallery.initial_comment
+        assert "Could not generate" not in gallery.initial_comment
         assert "My Test subscription" in gallery.initial_comment
 
     def _make_integration(self, ai_enabled: bool) -> Integration:
@@ -1016,7 +1026,10 @@ class TestSlackExploreHint(APIBaseTest):
         assert self._hint_texts(self._make_integration(REQUIRED_SLACK_SCOPES)) == []
 
 
-@pytest.mark.parametrize("error_code", ["missing_scope", "not_allowed_token_type"])
+@pytest.mark.parametrize(
+    "error_code",
+    ["missing_scope", "not_allowed_token_type", "no_permission", "posting_to_channel_denied"],
+)
 def test_scope_revocation_errors_auto_disable(error_code: str) -> None:
     # Guards the wiring in delivery_common: errors in this set route to auto_disable_and_return,
     # which disables the subscription and notifies the creator when files:write is revoked.

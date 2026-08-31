@@ -773,7 +773,7 @@ describe('subscriptionLogic', () => {
     })
 
     it.each([
-        ['removes the gallery flag when files:write is missing', 'chat:write,channels:read', false],
+        ['preserves the gallery flag when files:write is missing', 'chat:write,channels:read', true],
         ['keeps the gallery flag when files:write is granted', 'chat:write,files:write', true],
     ] as const)('%s on submit', async (_label, scope, expected) => {
         const integrations = integrationsLogic()
