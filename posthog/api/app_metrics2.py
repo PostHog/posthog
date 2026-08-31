@@ -215,6 +215,9 @@ def fetch_app_metric_totals(
         "app_source_id": app_source_id,
         "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
         "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "instance_id": instance_id,
+        "name": name,
+        "kind": kind,
     }
 
     clickhouse_query = f"""
