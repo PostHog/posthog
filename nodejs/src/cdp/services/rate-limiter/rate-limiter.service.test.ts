@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { register } from 'prom-client'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -7,7 +8,7 @@ import { Hub } from '~/types'
 
 import { RateLimiterService } from './rate-limiter.service'
 
-const KEY = '@posthog-test/ses-rate-limiter/bucket'
+const KEY = `@posthog-test/ses-rate-limiter/${randomUUID()}/bucket`
 
 describe('RateLimiterService', () => {
     jest.retryTimes(3)
@@ -31,7 +32,7 @@ describe('RateLimiterService', () => {
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
         limiter = new RateLimiterService(redis, { name: 'ses-rate-limiter' })
-        await deleteKeysWithPrefix(redis, '@posthog-test/ses-rate-limiter')
+        await deleteKeysWithPrefix(redis, KEY)
     })
 
     afterEach(async () => {
@@ -133,7 +134,7 @@ describe('RateLimiterService', () => {
         }
 
         it('increments granted_full when the grant equals the request', async () => {
-            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'granted_full' }
+            const labels = { limiter: 'ses-rate-limiter', result: 'granted_full' }
             const before = await readCounter(labels)
 
             const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
@@ -147,7 +148,7 @@ describe('RateLimiterService', () => {
             // Drain to 2 tokens, then ask for 5.
             await limiter.claimUpTo({ key: KEY, requested: 8, capacity: 10, refillPerSecond: 0 })
 
-            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'granted_partial' }
+            const labels = { limiter: 'ses-rate-limiter', result: 'granted_partial' }
             const before = await readCounter(labels)
 
             const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
@@ -161,7 +162,7 @@ describe('RateLimiterService', () => {
             // Drain the bucket fully.
             await limiter.claimUpTo({ key: KEY, requested: 10, capacity: 10, refillPerSecond: 0 })
 
-            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'denied' }
+            const labels = { limiter: 'ses-rate-limiter', result: 'denied' }
             const before = await readCounter(labels)
 
             const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
@@ -179,7 +180,7 @@ describe('RateLimiterService', () => {
             } as unknown as RedisV2
             const brokenLimiter = new RateLimiterService(brokenValkey, { name: 'broken-limiter' })
 
-            const labels = { limiter: 'broken-limiter', key: KEY, result: 'valkey_error' }
+            const labels = { limiter: 'broken-limiter', result: 'valkey_error' }
             const before = await readCounter(labels)
 
             const granted = await brokenLimiter.claimUpTo({

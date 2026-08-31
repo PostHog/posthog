@@ -51,7 +51,7 @@ export interface ObjectKindDef {
  */
 export const POSTHOG_OBJECT_ICON_COLOR = "var(--primary)";
 
-export const OBJECT_KINDS: Record<string, ObjectKindDef> = {
+const OBJECT_KINDS: Record<string, ObjectKindDef> = {
   insight: {
     icon: ChartLineIcon,
     kindLabel: "Insight",
@@ -164,7 +164,7 @@ const OBJECT_KIND_ALIASES: Record<string, string> = {
   sql: "hogql",
 };
 
-export const GENERIC_OBJECT_KIND: ObjectKindDef = {
+const GENERIC_OBJECT_KIND: ObjectKindDef = {
   icon: PulseIcon,
   kindLabel: "Evidence",
   source: "PostHog",

@@ -177,7 +177,9 @@ export function DashboardsTable({
             title: 'Tags',
             dataIndex: 'tags' as keyof DashboardType,
             render: function Render(tags: DashboardType['tags']) {
-                return tags ? <ObjectTags tags={[...tags].sort()} staticOnly /> : null
+                return tags ? (
+                    <ObjectTags tags={[...tags].sort()} staticOnly onTagClick={(tag) => setFilters({ tags: [tag] })} />
+                ) : null
             },
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         {

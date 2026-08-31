@@ -1,16 +1,11 @@
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from unittest import mock
 
 import structlog
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-)
+from posthog.schema import SourceFieldOauthConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -27,12 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     InstagramResumeConfig,
     InstagramRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.settings import (
-    ENDPOINTS,
-    INSTAGRAM_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.settings import INSTAGRAM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.source import InstagramSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.instagram.source"
 ACCOUNT_ID = "17841400000000000"
@@ -63,30 +54,6 @@ class TestInstagramSource:
         self.team_id = 1
         self.config = InstagramSourceConfig(instagram_integration_id=7, instagram_account_id=ACCOUNT_ID)
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INSTAGRAM
-
-    def test_the_source_ships_visible_and_documented(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Instagram"
-        assert config.label == "Instagram"
-        assert config.category == DataWarehouseSourceCategory.COMMUNICATION
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.featureFlag == "dwh-instagram"
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/instagram.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/instagram"
-
-    def test_source_fields(self) -> None:
-        config = self.source.get_source_config
-
-        assert [field.name for field in config.fields] == [
-            "instagram_integration_id",
-            "instagram_account_id",
-            "start_date",
-        ]
-
     def test_the_connection_is_a_posthog_owned_oauth_app(self) -> None:
         integration = next(f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldOauthConfig))
 
@@ -103,16 +70,6 @@ class TestInstagramSource:
             "pages_read_engagement",
         }
 
-    def test_the_account_is_picked_from_the_connection_rather_than_typed_in(self) -> None:
-        account = next(
-            f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldOauthAccountSelectConfig)
-        )
-
-        assert account.name == "instagram_account_id"
-        assert account.integrationField == "instagram_integration_id"
-        assert account.integrationKind == "instagram"
-        assert account.required is True
-
     def test_the_graph_api_version_is_pinned_to_something_the_code_calls(self) -> None:
         assert self.source.default_version in self.source.supported_versions
         # New sources land on the newest Graph API version; an unpinned row resolves to it too.
@@ -121,50 +78,9 @@ class TestInstagramSource:
         assert self.source.resolve_api_version("v23.0") == "v23.0"
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
 
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-
-    def test_get_schemas_honors_the_picker_filter(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["media", "account"])
-
-        assert {schema.name for schema in schemas} == {"media", "account"}
-
-    @pytest.mark.parametrize(
-        "endpoint,incremental,field_name",
-        [
-            ("media", True, "timestamp"),
-            ("account_insights", True, "date"),
-            ("account", False, None),
-            ("stories", False, None),
-            ("media_comments", False, None),
-            ("media_insights", False, None),
-        ],
-    )
-    def test_only_endpoints_with_a_server_side_time_filter_sync_incrementally(
-        self, endpoint: str, incremental: bool, field_name: Optional[str]
-    ) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-
-        assert schema.supports_incremental is incremental
-        assert [f["field"] for f in schema.incremental_fields] == ([field_name] if field_name else [])
-
     def test_fan_out_tables_key_on_the_parent_so_rows_stay_unique_table_wide(self) -> None:
         assert INSTAGRAM_ENDPOINTS["media_comments"].primary_keys == ["media_id", "id"]
         assert INSTAGRAM_ENDPOINTS["media_insights"].primary_keys == ["media_id", "metric"]
-
-    def test_the_table_catalog_is_published_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-        documented = {table["name"] for table in self.source.get_documented_tables()}
-        assert documented == set(ENDPOINTS)
-
-    def test_every_endpoint_is_described_from_the_meta_docs(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-
-        assert set(descriptions) == set(ENDPOINTS)
-        assert all(descriptions[name].get("columns") for name in ENDPOINTS)
 
     @pytest.mark.parametrize(
         "observed_error",

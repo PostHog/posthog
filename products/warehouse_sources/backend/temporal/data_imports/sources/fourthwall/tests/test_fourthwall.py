@@ -119,7 +119,14 @@ def _endpoint_config(endpoint: str, should_use_incremental_field: bool = False) 
 
 
 class TestGetResource:
-    @pytest.mark.parametrize("endpoint", [name for name in ENDPOINTS if FOURTHWALL_ENDPOINTS[name].paginated])
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            name
+            for name in ENDPOINTS
+            if FOURTHWALL_ENDPOINTS[name].paginated and not FOURTHWALL_ENDPOINTS[name].page_in_path
+        ],
+    )
     def test_paginated_endpoints_select_the_results_envelope(self, endpoint):
         endpoint_config = _endpoint_config(endpoint)
 
@@ -196,6 +203,52 @@ class TestPagination:
         assert len(requests_seen) == 1
 
 
+def _templates_page(results: list[dict[str, Any]]) -> Response:
+    response = Response()
+    response.status_code = 200
+    response._content = json.dumps({"results": results, "total": 3}).encode()
+    return response
+
+
+class TestProductTemplatePagination:
+    @mock.patch(SESSION_PATCH)
+    def test_walks_pages_by_path_until_empty(self, MockSession):
+        # product-templates pages by a 1-based path segment with no `totalPages`, so it must
+        # walk `/page/1`, `/page/2`, ... and stop only when a page returns no rows.
+        session = MockSession.return_value
+        requests_seen = _wire(
+            session,
+            [
+                _templates_page([{"productId": "pt_1"}, {"productId": "pt_2"}]),
+                _templates_page([{"productId": "pt_3"}]),
+                _templates_page([]),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("product_templates", manager))
+
+        assert [row["productId"] for row in rows] == ["pt_1", "pt_2", "pt_3"]
+        assert [request["url"] for request in requests_seen] == [
+            f"{API_ROOT}/product-templates/page/1",
+            f"{API_ROOT}/product-templates/page/2",
+            f"{API_ROOT}/product-templates/page/3",
+        ]
+        # Checkpointed after each non-empty page while a next page remained; the empty page saves nothing.
+        assert manager.save_state.call_count == 2
+        assert manager.save_state.call_args.args[0] == FourthwallResumeConfig(paginator_state={"page": 3})
+
+    @mock.patch(SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession):
+        session = MockSession.return_value
+        requests_seen = _wire(session, [_templates_page([{"productId": "pt_9"}]), _templates_page([])])
+
+        rows = _rows(_source("product_templates", _make_manager(FourthwallResumeConfig(paginator_state={"page": 4}))))
+
+        assert [row["productId"] for row in rows] == ["pt_9"]
+        assert requests_seen[0]["url"] == f"{API_ROOT}/product-templates/page/4"
+
+
 class TestIncrementalRequests:
     @mock.patch(SESSION_PATCH)
     def test_incremental_sync_sends_the_watermark_on_every_page(self, MockSession):
@@ -245,9 +298,9 @@ class TestSourceResponseMetadata:
         response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
-        # Every table is a top-level list endpoint keyed by a globally unique id, so `id`
-        # alone stays unique table-wide.
-        assert response.primary_keys == ["id"]
+        # Every table is a top-level list endpoint keyed by a globally unique id, so the
+        # endpoint's primary key stays unique table-wide.
+        assert response.primary_keys == config.primary_key
         assert response.sort_mode == config.sort_mode
         assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
         assert response.partition_mode == ("datetime" if config.partition_key else None)

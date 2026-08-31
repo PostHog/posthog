@@ -3,8 +3,8 @@ import {
   BRAINROT_CELL,
   clampZoom,
   countActiveTaskCells,
+  getCanvasCellId,
   getCellCount,
-  getCellSessionId,
   getExpandedLayout,
   getExpansionCellIndex,
   getGridDimensions,
@@ -13,7 +13,9 @@ import {
   getTerminalCellCwd,
   getTerminalCellId,
   isBrainrotCell,
+  isCanvasCell,
   isTerminalCell,
+  makeCanvasCellValue,
   makeTerminalCellValue,
   reflowCells,
   resizeCells,
@@ -188,6 +190,24 @@ describe("isBrainrotCell", () => {
   });
 });
 
+describe("canvas cells", () => {
+  it("round-trips a canvas id through the cell value", () => {
+    const value = makeCanvasCellValue("canvas-1");
+    expect(isCanvasCell(value)).toBe(true);
+    expect(getCanvasCellId(value)).toBe("canvas-1");
+  });
+
+  it.each([
+    { value: "some-task-uuid", expected: false },
+    { value: BRAINROT_CELL, expected: false },
+    { value: makeTerminalCellValue("abc123"), expected: false },
+    { value: null, expected: false },
+  ])("isCanvasCell($value) -> $expected", ({ value, expected }) => {
+    expect(isCanvasCell(value)).toBe(expected);
+    if (!expected) expect(getCanvasCellId(value)).toBeNull();
+  });
+});
+
 describe("terminal cells", () => {
   it("round-trips a terminal id through the cell value", () => {
     const value = makeTerminalCellValue("abc123");
@@ -213,12 +233,6 @@ describe("terminal cells", () => {
   });
 });
 
-describe("getCellSessionId", () => {
-  it("formats the cell session id", () => {
-    expect(getCellSessionId(2)).toBe("cc-cell-2");
-  });
-});
-
 describe("countActiveTaskCells", () => {
   const live = new Set(["task-1", "task-2"]);
 
@@ -236,6 +250,7 @@ describe("countActiveTaskCells", () => {
     { name: "empty cells", cells: [null, null] },
     { name: "the brainrot sentinel", cells: [BRAINROT_CELL] },
     { name: "terminal cells", cells: [makeTerminalCellValue("abc123")] },
+    { name: "canvas cells", cells: [makeCanvasCellValue("canvas-1")] },
   ])("does not count $name", ({ cells }) => {
     expect(countActiveTaskCells(cells, live)).toBe(0);
   });
@@ -243,7 +258,14 @@ describe("countActiveTaskCells", () => {
   it("counts a mixed grid correctly", () => {
     expect(
       countActiveTaskCells(
-        [null, BRAINROT_CELL, "task-1", "deleted", makeTerminalCellValue("t")],
+        [
+          null,
+          BRAINROT_CELL,
+          "task-1",
+          "deleted",
+          makeTerminalCellValue("t"),
+          makeCanvasCellValue("canvas-1"),
+        ],
         live,
       ),
     ).toBe(1);

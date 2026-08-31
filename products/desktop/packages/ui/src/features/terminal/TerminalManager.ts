@@ -35,7 +35,7 @@ function getParkingContainer(): HTMLElement {
   return parkingContainer;
 }
 
-export interface TerminalInstance {
+interface TerminalInstance {
   term: XTerm;
   fitAddon: FitAddon;
   serializeAddon: SerializeAddon;
@@ -56,7 +56,7 @@ export interface TerminalInstance {
   recoveryPromise: Promise<void> | null;
 }
 
-export interface CreateOptions {
+interface CreateOptions {
   sessionId: string;
   persistenceKey: string;
   cwd?: string;

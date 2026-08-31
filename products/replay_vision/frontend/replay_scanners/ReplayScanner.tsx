@@ -18,9 +18,11 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { ObservationSearchTab } from '../search/ObservationSearchTab'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
+import { ScannerAlertsTab } from './components/ScannerAlertsTab'
 import { ScannerBackfillsTab } from './components/ScannerBackfillsTab'
 import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
@@ -47,7 +49,16 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const { setActiveTab } = useActions(replayScannerSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const scoutDigests = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCOUT_DIGESTS]
-    const visibleTabs = Object.values(ReplayScannerTab).filter((tab) => scoutDigests || tab !== ReplayScannerTab.Scouts)
+    const newAlerts = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ALERTS]
+    // With both flags on the Actions tab has nothing left to show: digests live on Scouts and
+    // alerts live on the new Alerts tab.
+    const hideActionsTab = newAlerts && scoutDigests
+    const visibleTabs = Object.values(ReplayScannerTab).filter(
+        (tab) =>
+            (scoutDigests || tab !== ReplayScannerTab.Scouts) &&
+            (newAlerts || tab !== ReplayScannerTab.Alerts) &&
+            (!hideActionsTab || tab !== ReplayScannerTab.Actions)
+    )
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -135,6 +146,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         content: <ScannerObservationsTable scannerId={scannerId} />,
                     },
                     {
+                        key: ReplayScannerTab.Search,
+                        label: 'Search',
+                        content: <ObservationSearchTab scannerId={scannerId} />,
+                    },
+                    {
                         key: ReplayScannerTab.OnDemand,
                         label: 'On-demand',
                         content: <ScannerRunTab scannerId={scannerId} />,
@@ -158,22 +174,43 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         ? [
                               {
                                   key: ReplayScannerTab.Scouts,
-                                  label: 'Scouts',
+                                  label: (
+                                      <>
+                                          Scouts{' '}
+                                          <LemonTag type="completion" size="small" className="ml-1">
+                                              Beta
+                                          </LemonTag>
+                                      </>
+                                  ),
                                   content: <ScannerScoutsTab scannerId={scannerId} />,
                               },
                           ]
                         : []),
-                    {
-                        key: ReplayScannerTab.Actions,
-                        // Digests moved to their own Scouts tab, leaving this one to alerts alone.
-                        label: scoutDigests ? 'Alerts' : 'Digests and alerts',
-                        content: (
-                            <VisionActionsTab
-                                scannerId={scannerId}
-                                scannerUserAccessLevel={scanner.user_access_level}
-                            />
-                        ),
-                    },
+                    ...(newAlerts
+                        ? [
+                              {
+                                  key: ReplayScannerTab.Alerts,
+                                  label: 'Alerts',
+                                  content: <ScannerAlertsTab scannerId={scannerId} />,
+                              },
+                          ]
+                        : []),
+                    ...(hideActionsTab
+                        ? []
+                        : [
+                              {
+                                  key: ReplayScannerTab.Actions,
+                                  // Digests moved to the Scouts tab and new alerts to the Alerts tab;
+                                  // the label names whatever this tab still carries.
+                                  label: newAlerts ? 'Digests' : scoutDigests ? 'Alerts' : 'Digests and alerts',
+                                  content: (
+                                      <VisionActionsTab
+                                          scannerId={scannerId}
+                                          scannerUserAccessLevel={scanner.user_access_level}
+                                      />
+                                  ),
+                              },
+                          ]),
                 ]}
             />
         </SceneContent>
@@ -191,11 +228,11 @@ function QuotaBanner(): JSX.Element | null {
         <LemonBanner type="warning">
             {state.kind === 'exhausted'
                 ? `${
-                      onFreePlan ? 'Free credits used up' : 'Monthly spend limit reached'
+                      onFreePlan ? 'Free credits used up' : 'Spend limit reached'
                   }: ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}. New observations are paused until ${state.resetsOn}.`
                 : onFreePlan
-                  ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this month. New observations will pause once they run out. Resets ${state.resetsOn}.`
-                  : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this month. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
+                  ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this billing period. New observations will pause once they run out. Resets ${state.resetsOn}.`
+                  : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this billing period. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
         </LemonBanner>
     )
 }

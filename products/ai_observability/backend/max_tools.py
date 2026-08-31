@@ -3,9 +3,9 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.ai_observability.backend.models.parser_recipe import MAX_SOURCE_LENGTH
 
 from ee.hogai.tool import MaxTool

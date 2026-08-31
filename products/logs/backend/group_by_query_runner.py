@@ -114,7 +114,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         # Defensive: this runner is invoked directly via the logs API, never through the generic
         # /api/projects/:id/query/ endpoint. Mirror LogsQueryRunner and refuse user-initiated
         # generic-query access so it can't silently bypass that gate if ever registered.
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("logs", "viewer")
 

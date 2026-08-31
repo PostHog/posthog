@@ -56,6 +56,14 @@ def get_v3_lock_skipped_metric() -> MetricCounter:
     )
 
 
+def get_version_check_skipped_metric() -> MetricCounter:
+    # Same visibility gap as the lock metric: the skip leaves no job row, so a persistently
+    # failing version check silently costs a schema every scheduled slot.
+    return workflow.metric_meter().create_counter(
+        "data_import_version_check_skipped", "Scheduled runs skipped because the pipeline version check failed."
+    )
+
+
 def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     """Emit app_metrics2 rows for a data import job that just reached terminal state.
 

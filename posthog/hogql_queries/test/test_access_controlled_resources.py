@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.schema import (
+    AccountsQuery,
     AccountsTableQuery,
     DataWarehouseNode,
     EntityType,
@@ -65,6 +66,17 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("through_subquery", "select * from (select * from system.notebooks)", {"notebook"}),
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
+            (
+                "account_email_threads_lazy_join",
+                "select accounts.email_threads.count from system.accounts as accounts",
+                {"account", "ticket"},
+            ),
+            (
+                "account_support_tickets_lazy_join",
+                "select support_tickets.recent from system.accounts",
+                {"account", "ticket"},
+            ),
+            ("account_non_communication_lazy_join", "select meetings.count from system.accounts", {"account"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
             # Catalog-enriched information_schema tables partition the cache by data_catalog access AND
@@ -138,6 +150,17 @@ class TestQueriedAccessControlledResources(BaseTest):
 
     def test_accounts_table_query_partitions_on_account_access(self):
         assert queried_access_controlled_resources(AccountsTableQuery(columns=[], filters=[]), self.team) == {"account"}
+
+    @parameterized.expand(
+        [
+            ("select", {"select": ["email_threads.count"]}),
+            ("metric", {"metrics": ["sum(support_tickets.count)"]}),
+            ("filter", {"filterExpression": "email_threads.count > 0"}),
+            ("order", {"orderBy": ["support_tickets.count"]}),
+        ]
+    )
+    def test_accounts_query_communication_fields_require_ticket_access(self, _name, query_kwargs):
+        assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {"account", "ticket"}
 
     def test_structured_query_with_data_warehouse_series(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])

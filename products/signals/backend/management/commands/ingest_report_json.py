@@ -27,13 +27,10 @@ from django.db import transaction
 
 from posthog.models import Team
 
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import SuggestedReviewers
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalUserAutonomyConfig
+from products.signals.backend.models import SignalReport, SignalUserAutonomyConfig
 from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import _persist_agentic_report_artefacts
-from products.signals.backend.temporal.report_canvas import start_report_canvas_workflow
 
 
 class Command(BaseCommand):
@@ -59,12 +56,6 @@ class Command(BaseCommand):
             type=str,
             default=None,
             help="Override the repository from the fixture (org/repo)",
-        )
-        parser.add_argument(
-            "--suggested-reviewer-login",
-            type=str,
-            default=None,
-            help="Set a GitHub login as the suggested reviewer for local notification testing",
         )
 
     def handle(self, *args, **options):
@@ -95,9 +86,6 @@ class Command(BaseCommand):
         repository = options["repository"] or payload.get("repository")
         if not repository:
             raise CommandError("Fixture is missing 'repository' and --repository was not provided")
-        suggested_reviewer_login = (options["suggested_reviewer_login"] or "").strip().lower()
-        if options["suggested_reviewer_login"] is not None and not suggested_reviewer_login:
-            raise CommandError("--suggested-reviewer-login must not be empty")
 
         try:
             team = Team.objects.select_related("organization").get(id=options["team_id"])
@@ -125,12 +113,7 @@ class Command(BaseCommand):
 
         asyncio.run(_persist_agentic_report_artefacts(team.id, str(report.id), result, repo_selection))
 
-        if suggested_reviewer_login:
-            self._set_suggested_reviewer(report, suggested_reviewer_login)
-            self.stdout.write(f"Suggested reviewer: {suggested_reviewer_login}")
-
         self._finalize_report(report, result)
-        asyncio.run(start_report_canvas_workflow(team_id=team.id, report_id=str(report.id)))
 
         self.stdout.write(self.style.SUCCESS(f"Ingested report {report.id} and persisted artefacts."))
 
@@ -155,22 +138,6 @@ class Command(BaseCommand):
             report.refresh_from_db()
             ready_fields = report.transition_to(SignalReport.Status.READY, title=result.title, summary=result.summary)
             report.save(update_fields=ready_fields)
-
-    def _set_suggested_reviewer(self, report: SignalReport, github_login: str) -> None:
-        SignalReportArtefact.append_status(
-            team_id=report.team_id,
-            report_id=str(report.id),
-            content=SuggestedReviewers.model_validate(
-                [
-                    {
-                        "github_login": github_login,
-                        "reason": "Selected for local report canvas notification testing.",
-                    }
-                ]
-            ),
-            attribution=ArtefactAttribution.system(),
-            reevaluate_autostart=False,
-        )
 
     def _warn_if_autonomy_not_configured(self, team: Team) -> None:
         from posthog.models import OrganizationMembership
