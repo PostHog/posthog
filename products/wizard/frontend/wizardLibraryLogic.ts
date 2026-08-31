@@ -19,7 +19,7 @@ import type {
     WizardRunApi,
     WizardRunCreateRequestApi,
 } from './generated/api.schemas'
-import { wizardCommand } from './wizardRunDisplay'
+import { WIZARD_LOCAL_RUNS_VISIBLE, wizardCommand } from './wizardRunDisplay'
 import { wizardRunsLogic } from './wizardRunsLogic'
 
 function requestError(error: unknown, fallback: string): string {
@@ -224,13 +224,16 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
         filteredPrograms: [
             (s) => [s.registry, s.librarySearch],
             (programs: WizardProgramApi[], search: string): WizardProgramApi[] => {
+                const availablePrograms = WIZARD_LOCAL_RUNS_VISIBLE
+                    ? programs
+                    : programs.filter((program) => program.supported_environments.includes('cloud'))
                 const searchText = search.trim().toLowerCase()
 
                 if (!searchText) {
-                    return programs
+                    return availablePrograms
                 }
 
-                return programs.filter((program) =>
+                return availablePrograms.filter((program) =>
                     `${program.name} ${program.description} ${program.tags.join(' ')}`
                         .toLowerCase()
                         .includes(searchText)
@@ -278,12 +281,16 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
             actions.loadRegistry()
             actions.loadIntegrations()
 
+            if (!WIZARD_LOCAL_RUNS_VISIBLE) {
+                actions.setLibraryEnvironment('cloud')
+            }
+
             if (values.githubIntegration) {
                 actions.loadGitHubRepositories(values.githubIntegration.id)
             }
 
-            if (!values.selectedProgram && values.registry.length > 0) {
-                actions.selectProgram(values.registry[0])
+            if (!values.selectedProgram && values.filteredPrograms.length > 0) {
+                actions.selectProgram(values.filteredPrograms[0])
             }
         },
         loadIntegrationsSuccess: ({ integrations }) => {
@@ -294,7 +301,8 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
             }
         },
         selectProgram: ({ program }) => {
-            const environment = program.supported_environments.includes('cloud') ? 'cloud' : 'local'
+            const environment =
+                WIZARD_LOCAL_RUNS_VISIBLE && !program.supported_environments.includes('cloud') ? 'local' : 'cloud'
 
             actions.setLibraryEnvironment(environment)
         },
@@ -308,6 +316,10 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
             }
         },
         runAgain: ({ run }) => {
+            if (!WIZARD_LOCAL_RUNS_VISIBLE && run.environment === 'local') {
+                return
+            }
+
             const currentProgram = values.registry.find((program) => program.id === run.program.id)
 
             if (currentProgram) {
@@ -351,10 +363,17 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
             actions.refreshRuns()
         },
         loadRegistrySuccess: ({ registry }) => {
-            if (values.selectedProgram && !registry.some((program) => program.id === values.selectedProgram?.id)) {
+            const availablePrograms = WIZARD_LOCAL_RUNS_VISIBLE
+                ? registry
+                : registry.filter((program) => program.supported_environments.includes('cloud'))
+
+            if (
+                values.selectedProgram &&
+                !availablePrograms.some((program) => program.id === values.selectedProgram?.id)
+            ) {
                 actions.invalidateProgramSelection()
-            } else if (!values.selectedProgram && registry.length > 0) {
-                actions.selectProgram(registry[0])
+            } else if (!values.selectedProgram && availablePrograms.length > 0) {
+                actions.selectProgram(availablePrograms[0])
             }
         },
     })),

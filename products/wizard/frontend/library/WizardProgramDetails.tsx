@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, LemonDivider, LemonInputSelect, LemonTabs, Le
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import type { RunEnvironmentEnumApi, WizardProgramApi } from '../generated/api.schemas'
+import { WIZARD_LOCAL_RUNS_VISIBLE } from '../wizardRunDisplay'
 import { WizardCommand } from './WizardCommand'
 
 export function WizardProgramDetails({
@@ -78,7 +79,7 @@ export function WizardProgramDetails({
                             Cloud
                         </LemonTag>
                     )}
-                    {supportsLocal && (
+                    {WIZARD_LOCAL_RUNS_VISIBLE && supportsLocal && (
                         <LemonTag size="small" icon={<IconLaptop />}>
                             Local
                         </LemonTag>
@@ -125,7 +126,7 @@ export function WizardProgramDetails({
                             </span>
                         ),
                     },
-                    supportsLocal && { key: 'local', label: 'Local' },
+                    WIZARD_LOCAL_RUNS_VISIBLE && supportsLocal && { key: 'local', label: 'Local' },
                 ]}
             />
 
@@ -161,7 +162,7 @@ export function WizardProgramDetails({
 
                             <LemonButton
                                 type="primary"
-                                onClick={onCreate}
+                                onClick={() => onCreate()}
                                 loading={creating}
                                 disabledReason={repository ? undefined : 'Select a GitHub repository.'}
                             >
@@ -183,17 +184,19 @@ export function WizardProgramDetails({
                                 </div>
                             </LemonBanner>
 
-                            <div>
-                                <div className="mb-2 text-xs font-semibold uppercase text-muted">Local command</div>
-                                <p className="text-sm">You can still run this program from your project folder.</p>
-                                <WizardCommand
-                                    command={command}
-                                    showCopyButton={false}
-                                    copied={commandCopied}
-                                    onCopy={onCopyCommand}
-                                    onCopied={onCommandCopied}
-                                />
-                            </div>
+                            {WIZARD_LOCAL_RUNS_VISIBLE && (
+                                <div>
+                                    <div className="mb-2 text-xs font-semibold uppercase text-muted">Local command</div>
+                                    <p className="text-sm">You can still run this program from your project folder.</p>
+                                    <WizardCommand
+                                        command={command}
+                                        showCopyButton={false}
+                                        copied={commandCopied}
+                                        onCopy={onCopyCommand}
+                                        onCopied={onCommandCopied}
+                                    />
+                                </div>
+                            )}
                         </div>
                     )
                 ) : (

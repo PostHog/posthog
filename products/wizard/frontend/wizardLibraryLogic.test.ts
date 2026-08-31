@@ -29,6 +29,13 @@ const program: WizardProgramApi = {
     supported_environments: ['local', 'cloud'],
 }
 
+const localProgram: WizardProgramApi = {
+    ...program,
+    id: 'local-program',
+    name: 'Local program',
+    supported_environments: ['local'],
+}
+
 describe('wizardLibraryLogic', () => {
     let logic: ReturnType<typeof wizardLibraryLogic.build>
 
@@ -40,7 +47,12 @@ describe('wizardLibraryLogic', () => {
         })
         jest.spyOn(console, 'error').mockImplementation()
         initKeaTests()
-        mockWizardRegistryList.mockResolvedValue({ count: 1, next: null, previous: null, results: [program] })
+        mockWizardRegistryList.mockResolvedValue({
+            count: 2,
+            next: null,
+            previous: null,
+            results: [program, localProgram],
+        })
         mockWizardRunsCreate.mockReset()
         await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
         logic = wizardLibraryLogic()
@@ -51,6 +63,10 @@ describe('wizardLibraryLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.restoreAllMocks()
+    })
+
+    it('hides programs that only support local runs', () => {
+        expect(logic.values.filteredPrograms).toEqual([program])
     })
 
     it('reuses the idempotency key after a failed cloud request', async () => {

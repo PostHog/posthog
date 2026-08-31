@@ -6,6 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from '../generated/api.schemas'
 import {
+    WIZARD_LOCAL_RUNS_VISIBLE,
     wizardGithubRepositoryUrl,
     wizardRunDiffCanRender,
     wizardRunIsActive,
@@ -93,7 +94,7 @@ export function WizardRunDetailsDrawer({
                             >
                                 Cancel run
                             </LemonButton>
-                        ) : run.status === 'failed' ? (
+                        ) : run.status === 'failed' && (WIZARD_LOCAL_RUNS_VISIBLE || run.environment === 'cloud') ? (
                             <LemonButton type="primary" onClick={() => onRunAgain(run)}>
                                 Run again
                             </LemonButton>
@@ -223,7 +224,7 @@ export function WizardRunDetailsDrawer({
                                     'Updates automatically.'
                                 )}
                             </span>
-                            {run.status === 'failed' ? (
+                            {run.status === 'failed' && (WIZARD_LOCAL_RUNS_VISIBLE || run.environment === 'cloud') ? (
                                 <LemonButton size="small" onClick={() => onRunAgain(run)}>
                                     Run again
                                 </LemonButton>

@@ -7,7 +7,7 @@ export function WizardRunsEmptyState({ onOpenLibrary }: { onOpenLibrary: () => v
             <IconDocument className="text-4xl text-muted" />
             <div className="font-semibold">No Wizard runs yet</div>
             <p className="m-0 max-w-md text-sm text-muted">
-                Choose a program from the Wizard Library to start in the cloud or run it from your project folder.
+                Choose a program from the Wizard Library to start a cloud run.
             </p>
             <LemonButton type="primary" onClick={onOpenLibrary}>
                 Open Wizard Library

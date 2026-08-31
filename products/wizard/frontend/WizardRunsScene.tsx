@@ -78,7 +78,7 @@ export function WizardRunsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Wizard"
-                description="Run the setup agent locally or in the cloud, then review the changes it produces."
+                description="Run the setup agent in the cloud, then review the changes it produces."
                 descriptionAlwaysVisible
                 hideProductSetupButton
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconSparkles className="text-ai" /> }}

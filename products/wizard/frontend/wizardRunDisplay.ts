@@ -2,6 +2,7 @@ import { WizardRunApi, WizardRunStageEnumApi } from './generated/api.schemas'
 import { wizardRunErrorDetails } from './runs/wizardRunErrorCatalog'
 
 export const MAX_RENDERED_WIZARD_DIFF_BYTES = 2 * 1024 * 1024
+export const WIZARD_LOCAL_RUNS_VISIBLE = false
 
 export function wizardRunDiffCanRender(sizeBytes: number): boolean {
     return sizeBytes <= MAX_RENDERED_WIZARD_DIFF_BYTES
