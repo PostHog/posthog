@@ -111,6 +111,9 @@ def alert_delivery_inputs(
         issue_description=inputs.issue.description,
         status=_status_property(inputs, include_status=include_status, humanize_status=humanize_status),
         assignee=inputs.assignee,
+        severity=inputs.issue.severity,
+        fingerprint=inputs.fingerprint,
+        first_seen=inputs.issue.created_at,
         event_uuid=inputs.event_uuid,
         # Paired with event_uuid, so it must be the exception's own time: spiking
         # passes the detection time as exception_timestamp, which can differ.
