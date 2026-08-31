@@ -10624,10 +10624,10 @@ export namespace Schemas {
      * * `file` - file
      * * `github_pr` - github_pr
      */
-    export type ArtifactTypeEnum = typeof ArtifactTypeEnum[keyof typeof ArtifactTypeEnum];
+    export type ArtifactType2f0Enum = typeof ArtifactType2f0Enum[keyof typeof ArtifactType2f0Enum];
 
 
-    export const ArtifactTypeEnum = {
+    export const ArtifactType2f0Enum = {
       SlackMessage: 'slack_message',
       SlackCanvas: 'slack_canvas',
       Document: 'document',
@@ -61506,11 +61506,11 @@ export namespace Schemas {
       /** @nullable */
       error: WizardSessionDTOError;
       /**
-         * Markdown handoff doc the wizard produced for this run (its setup report), or null while the run hasn't written one. Sticky once set.
+         * Markdown handoff doc the wizard produced for this run (its setup report), or null while the run hasn't written one.
          * @nullable
          */
       handoff_text: string | null;
-      /** The user who initiated this wizard run (null for runs created before attribution existed). Lets the UI name whose run it is. */
+      /** The user who initiated this wizard run (null for runs created before attribution existed). */
       created_by: WizardSessionUserDTO | null;
       created_at: string;
       updated_at: string;
@@ -86458,7 +86458,7 @@ export namespace Schemas {
        * * `dashboard` - dashboard
        * * `file` - file
        * * `github_pr` - github_pr */
-      artifact_type: ArtifactTypeEnum;
+      artifact_type: ArtifactType2f0Enum;
       /** Adapter that currently stores or edits the artifact.
        *
        * * `slack_message` - slack_message
@@ -86524,7 +86524,7 @@ export namespace Schemas {
        * * `dashboard` - dashboard
        * * `file` - file
        * * `github_pr` - github_pr */
-      artifact_type?: ArtifactTypeEnum;
+      artifact_type?: ArtifactType2f0Enum;
       /** Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.
        *
        * * `slack_message` - slack_message
@@ -86606,7 +86606,7 @@ export namespace Schemas {
        * * `dashboard` - dashboard
        * * `file` - file
        * * `github_pr` - github_pr */
-      artifact_type: ArtifactTypeEnum;
+      artifact_type: ArtifactType2f0Enum;
       /** Adapter that currently stores or edits the artifact.
        *
        * * `slack_message` - slack_message
@@ -89265,16 +89265,6 @@ export namespace Schemas {
       started_at?: string | null;
     }
 
-    /**
-     * * `git_diff` - git_diff
-     */
-    export type WizardRunArtifactTypeEnum = typeof WizardRunArtifactTypeEnum[keyof typeof WizardRunArtifactTypeEnum];
-
-
-    export const WizardRunArtifactTypeEnum = {
-      GitDiff: 'git_diff',
-    } as const;
-
     export interface WizardRunCreateRequest {
       /**
          * Registry program to run.
@@ -89310,6 +89300,16 @@ export namespace Schemas {
          */
       readonly attr: string | null;
     }
+
+    /**
+     * * `git_diff` - git_diff
+     */
+    export type WizardRunGitDiffArtifactArtifactTypeEnum = typeof WizardRunGitDiffArtifactArtifactTypeEnum[keyof typeof WizardRunGitDiffArtifactArtifactTypeEnum];
+
+
+    export const WizardRunGitDiffArtifactArtifactTypeEnum = {
+      GitDiff: 'git_diff',
+    } as const;
 
     /**
      * * `pull_request` - pull_request
@@ -103111,36 +103111,48 @@ export namespace Schemas {
 
     export type WizardSessionsListParams = {
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return.
+     * @minimum 0
+     * @maximum 200
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip.
+     * @minimum 0
      */
     offset?: number;
     /**
-     * Filter to a single skill within the workflow (e.g. 'nextjs').
+     * Return sessions for this skill only.
      */
     skill_id?: string;
     /**
-     * Filter to a single workflow (e.g. 'onboarding').
+     * Return sessions for this workflow only.
+     * @minLength 1
      */
     workflow_id?: string;
     };
 
     export type WizardSessionsLatestRetrieveParams = {
     /**
-     * Filter to a single skill within the workflow (e.g. 'nextjs').
+     * Optional skill within the workflow.
      */
     skill_id?: string;
     /**
-     * Filter to a single workflow (e.g. 'posthog-integration').
+     * Workflow to inspect.
+     * @minLength 1
      */
     workflow_id: string;
     };
 
     export type WizardSessionsStreamRetrieveParams = {
+    /**
+     * Optional skill within the workflow.
+     */
     skill_id?: string;
+    /**
+     * Workflow to inspect.
+     * @minLength 1
+     */
     workflow_id: string;
     };
 
