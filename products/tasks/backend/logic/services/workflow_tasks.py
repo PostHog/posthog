@@ -7,6 +7,7 @@ never touches tasks internals.
 
 import json
 import uuid
+import hashlib
 from datetime import timedelta
 from typing import Any
 
@@ -22,6 +23,9 @@ from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
+from products.skills.backend.api.skill_services import get_skill_by_name_from_db
+from products.skills.backend.marketplace.adapters import load_skill_export
+from products.skills.backend.marketplace.packaging import build_skill_zip
 from products.slack_app.backend.facade.api import slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -84,6 +88,12 @@ class WorkflowTaskOwnerIneligible(Exception):
     pass
 
 
+class WorkflowTaskSkillsInvalid(Exception):
+    def __init__(self, missing_names: list[str]) -> None:
+        self.missing_names = missing_names
+        super().__init__(f"Skill(s) not found: {missing_names}")
+
+
 class WorkflowTaskOriginKeyConflict(Exception):
     def __init__(self, origin_key: str) -> None:
         self.origin_key = origin_key
@@ -118,6 +128,7 @@ def create_workflow_task(
     reasoning_effort: str | None = None,
     mcp_installation_ids: list[str] | None = None,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+    skill_names: list[str] | None = None,
     max_parallel_tasks: int = 5,
     origin_key: str | None = None,
     event: dict[str, Any] | None = None,
@@ -129,12 +140,13 @@ def create_workflow_task(
     other check so a retry always succeeds once the first attempt did. Raises
     `WorkflowTaskOriginKeyConflict` when the key belongs to a different workflow,
     `WorkflowTaskConnectorsInvalid` when the requested connectors aren't ones the owner
-    can mount, `WorkflowTaskOwnerIneligible` when the owner lost access to the project,
-    and `WorkflowTaskLimitExceeded` when the workflow already has `max_parallel_tasks`
-    runs in flight. Also raises `WorkflowTaskUsageLimited` when the owner is over the
-    AI usage limit, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
-    the workflow or its team reached the daily created-task cap. A replayed
-    `origin_key` bypasses the gate and every cap.
+    can mount, `WorkflowTaskSkillsInvalid` when any of `skill_names` doesn't resolve to
+    a live team skill, `WorkflowTaskOwnerIneligible` when the owner lost access to the
+    project, and `WorkflowTaskLimitExceeded` when the workflow already has
+    `max_parallel_tasks` runs in flight. Also raises `WorkflowTaskUsageLimited` when the
+    owner is over the AI usage limit, and `WorkflowTaskRateCapped` /
+    `WorkflowTaskTeamRateCapped` when the workflow or its team reached the daily
+    created-task cap. A replayed `origin_key` bypasses the gate and every cap.
 
     `event` is rendered into the agent's prompt as data. The Slack thread binding decides
     the run's lifetime: a thread-bound run stays live until its inactivity timeout, so its
@@ -151,6 +163,10 @@ def create_workflow_task(
         return replay
 
     validate_connectors(team.id, owner_id, mcp_installation_ids)
+    # Resolved and zipped up front, outside the transaction: a missing skill name must fail
+    # the whole create before any lock is taken or any row written, and packaging a skill is
+    # pure CPU/memory work with no reason to run it twice or defer it.
+    resolved_skills = _resolve_workflow_skills(team, skill_names)
 
     gate_owner = User.objects.filter(id=owner_id).first()
     if gate_owner is None:
@@ -294,6 +310,17 @@ def create_workflow_task(
                 interaction_origin=interaction_origin,
             )
 
+            if resolved_skills:
+                run = task.latest_run
+                if run is None:
+                    raise RuntimeError("workflow task has no run to attach its resolved skills to")
+                # Synchronous, still holding the two advisory locks above: unlike loops' seed
+                # (deferred to post-commit because a client-uploaded bundle can be up to 10MB),
+                # this content is small team-authored text, so writing it here is an accepted
+                # tradeoff for skipping an at-rest storage layer entirely. A failed write raises
+                # and rolls back the task and run with it, via this same transaction.
+                _seed_workflow_skill_artifacts(run, resolved_skills)
+
             if slack_binding is not None:
                 # Inside the transaction on purpose: the actual agent start is deferred to
                 # on-commit, so the binding commits atomically with the run and is guaranteed
@@ -365,6 +392,107 @@ def validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[
     invalid = sorted(set(mcp_installation_ids) - valid_ids)
     if invalid:
         raise WorkflowTaskConnectorsInvalid(invalid)
+
+
+def validate_skills(team: Team, skill_names: list[str] | None) -> None:
+    """Raise `WorkflowTaskSkillsInvalid` naming every skill name that isn't a live team skill.
+
+    Called both when a run actually starts and, from the workflows product, when a
+    "Create AI task" action is saved - so a typo'd skill name fails at save time instead
+    of only on the workflow's next fire. Mirrors `validate_connectors`.
+    """
+    if not skill_names:
+        return
+    missing = [name for name in skill_names if get_skill_by_name_from_db(team, name) is None]
+    if missing:
+        raise WorkflowTaskSkillsInvalid(missing)
+
+
+@frozen
+class _ResolvedWorkflowSkill:
+    """A team skill resolved to its latest version and packaged, ready to seed onto a run."""
+
+    name: str
+    zip_bytes: bytes
+
+
+def _resolve_workflow_skills(team: Team, skill_names: list[str] | None) -> list[_ResolvedWorkflowSkill]:
+    """Resolve each named team skill to its latest version and package it as a zip.
+
+    Raises `WorkflowTaskSkillsInvalid` naming every skill that didn't resolve, once every
+    name has been checked, rather than failing on the first miss - so the caller reports the
+    complete list of typos in one round trip.
+    """
+    if not skill_names:
+        return []
+    resolved: list[_ResolvedWorkflowSkill] = []
+    missing: list[str] = []
+    for name in skill_names:
+        skill = get_skill_by_name_from_db(team, name)
+        if skill is None:
+            missing.append(name)
+            continue
+        resolved.append(_ResolvedWorkflowSkill(name=name, zip_bytes=build_skill_zip(load_skill_export(skill))))
+    if missing:
+        raise WorkflowTaskSkillsInvalid(missing)
+    return resolved
+
+
+def _seed_workflow_skill_artifacts(run: TaskRun, resolved_skills: list[_ResolvedWorkflowSkill]) -> None:
+    """Write each resolved team skill's zip under the run's own artifact prefix and append a
+    matching `skill_bundle` manifest entry - the create-task-node analogue of loops'
+    `_seed_skill_bundle_artifacts`, sourced from freshly-built zip bytes instead of copying an
+    existing S3 object. Raises on a failed write; the caller's transaction rolls back the task
+    and run with it. Objects already written in this call are deleted best-effort before
+    re-raising, since a rolled-back run would never reference them.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the fire path import
+
+    from products.tasks.backend.logic.services.staged_artifacts import get_safe_artifact_name  # noqa: PLC0415
+
+    run_prefix = run.get_artifact_s3_prefix()
+    manifest = list(run.artifacts or [])
+    written_paths: list[str] = []
+    try:
+        for skill in resolved_skills:
+            artifact_id = uuid.uuid4().hex
+            safe_name = get_safe_artifact_name(f"{skill.name}.zip")
+            target_path = f"{run_prefix}/{artifact_id[:8]}_{safe_name}"
+            object_storage.write(target_path, skill.zip_bytes, {"ContentType": "application/zip"})
+            written_paths.append(target_path)
+            manifest.append(
+                {
+                    "id": artifact_id,
+                    "name": safe_name,
+                    "type": "skill_bundle",
+                    # Matches the tag loops' client-uploaded bundles carry - both are PostHog's
+                    # own skill mechanism, just resolved from a different place.
+                    "source": "posthog_code_skill",
+                    "size": len(skill.zip_bytes),
+                    "content_type": "application/zip",
+                    "storage_path": target_path,
+                    "uploaded_at": django_timezone.now().isoformat(),
+                    "metadata": {
+                        "skill_name": skill.name,
+                        "skill_source": "workflow",
+                        "content_sha256": hashlib.sha256(skill.zip_bytes).hexdigest(),
+                        "bundle_format": "zip",
+                        "schema_version": 1,
+                    },
+                }
+            )
+        run.artifacts = manifest
+        run.save(update_fields=["artifacts", "updated_at"])
+    except Exception:
+        if written_paths:
+            try:
+                object_storage.delete_objects(written_paths)
+            except Exception as cleanup_exc:
+                logger.warning(
+                    "workflow_task.skill_bundle_seed_cleanup_failed",
+                    extra={"run_id": str(run.id), "paths": written_paths, "error": str(cleanup_exc)},
+                )
+        raise
 
 
 def _render_run_message(prompt: str, event: dict[str, Any] | None) -> str:

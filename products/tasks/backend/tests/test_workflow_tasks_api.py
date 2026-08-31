@@ -23,10 +23,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
+from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+    create_workflow_task,
 )
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
@@ -216,6 +218,37 @@ class TestWorkflowTasksAPI(APIBaseTest):
         get_active_installations.return_value = [SimpleNamespace(id="inst-1")]
 
         response = self._post({"connectors": ["inst-1", "inst-unknown"]})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+    def _create_skill(self, name: str = "changelog-writer") -> LLMSkill:
+        return LLMSkill.objects.create(
+            team=self.team,
+            name=name,
+            description="Writes a changelog entry for a given change.",
+            body="Write a changelog entry that describes the change in plain language.",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+
+    def test_accepts_a_team_skill_and_seeds_it_as_a_run_artifact(self) -> None:
+        skill = self._create_skill()
+
+        response = self._post({"skills": [skill.name]})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        bundles = [artifact for artifact in run.artifacts if artifact["type"] == "skill_bundle"]
+        assert len(bundles) == 1
+        assert bundles[0]["source"] == "posthog_code_skill"
+        assert bundles[0]["storage_path"].startswith(run.get_artifact_s3_prefix())
+        assert bundles[0]["metadata"]["skill_name"] == skill.name
+        assert bundles[0]["metadata"]["skill_source"] == "workflow"
+
+    def test_rejects_an_unknown_skill_name_before_creating_a_task(self) -> None:
+        response = self._post({"skills": ["does-not-exist"]})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
@@ -737,6 +770,67 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert mapping.mentioning_slack_user_id == "U123"
 
 
+@override_settings(TASKS_CREATE_JWT_SECRETS=[SECRET])
+class TestCreateWorkflowTaskSkillFailures(APIBaseTest):
+    """Skill seeding runs synchronously inside `create_workflow_task`'s own transaction
+    (unlike loops' post-commit seed), so a failed write must roll back the task and run it
+    would have attached to, not just terminalize them."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.hog_flow = HogFlow.objects.create(
+            team=self.team, name="Skills test", created_by=self.user, trigger={"type": "manual"}
+        )
+
+    def _create_skill(self, name: str) -> LLMSkill:
+        return LLMSkill.objects.create(
+            team=self.team,
+            name=name,
+            description="Writes a changelog entry for a given change.",
+            body="Write a changelog entry that describes the change in plain language.",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+
+    @patch("posthog.storage.object_storage.write", side_effect=RuntimeError("s3 down"))
+    def test_a_failed_write_rolls_back_the_whole_create(self, _mock_write) -> None:
+        skill = self._create_skill("changelog-writer")
+
+        with self.assertRaises(RuntimeError):
+            create_workflow_task(
+                team=self.team,
+                hog_flow_id=self.hog_flow.id,
+                owner_id=self.user.id,
+                prompt="do the thing",
+                skill_names=[skill.name],
+            )
+
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.write")
+    def test_a_partial_write_deletes_its_own_objects_before_rolling_back(self, mock_write, mock_delete) -> None:
+        mock_write.side_effect = [None, RuntimeError("s3 down")]
+        first = self._create_skill("first-skill")
+        second = self._create_skill("second-skill")
+
+        with self.assertRaises(RuntimeError):
+            create_workflow_task(
+                team=self.team,
+                hog_flow_id=self.hog_flow.id,
+                owner_id=self.user.id,
+                prompt="do the thing",
+                skill_names=[first.name, second.name],
+            )
+
+        mock_delete.assert_called_once()
+        deleted_paths = mock_delete.call_args.args[0]
+        assert len(deleted_paths) == 1
+        assert "first-skill.zip" in deleted_paths[0]
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+
 class TestWorkflowOriginIsReserved(SimpleTestCase):
     def test_the_public_tasks_api_rejects_the_workflow_origin(self) -> None:
         from products.tasks.backend.presentation.serializers import TaskCreateSerializer
@@ -756,6 +850,7 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
             ("too_many_parallel_tasks", {"prompt": "p", "max_parallel_tasks": 101}, "max_parallel_tasks"),
             ("unknown_mcp_scopes", {"prompt": "p", "posthog_mcp_scopes": "admin"}, "posthog_mcp_scopes"),
             ("connectors_not_a_list", {"prompt": "p", "connectors": "inst-1"}, "connectors"),
+            ("skills_not_a_list", {"prompt": "p", "skills": "changelog-writer"}, "skills"),
             ("event_not_a_dict", {"prompt": "p", "event": "boom"}, "event"),
             (
                 "slack_context_missing_channel",

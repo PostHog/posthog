@@ -1209,6 +1209,9 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("installations_string_list", "task_mcp_installations", ["id-1", "id-2"], True),
             ("installations_not_list", "task_mcp_installations", "id-1", False),
             ("installations_not_strings", "task_mcp_installations", [1, 2], False),
+            ("skills_string_list", "task_skills", ["changelog-writer", "code-reviewer"], True),
+            ("skills_not_list", "task_skills", "changelog-writer", False),
+            ("skills_not_strings", "task_skills", [1, 2], False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):

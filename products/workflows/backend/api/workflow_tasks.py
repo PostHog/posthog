@@ -18,6 +18,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskOriginKeyConflict,
     WorkflowTaskOwnerIneligible,
     WorkflowTaskRateCapped,
+    WorkflowTaskSkillsInvalid,
     WorkflowTaskSlackContext,
     WorkflowTaskTeamRateCapped,
     WorkflowTaskUsageLimited,
@@ -109,6 +110,11 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         default="read_only",
         help_text="What the PostHog MCP inside the sandbox may do.",
     )
+    skills = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        help_text="Names of team skills, from the Skills store, to attach to the run's sandbox.",
+    )
     max_parallel_tasks = serializers.IntegerField(
         min_value=1,
         max_value=100,
@@ -188,6 +194,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 reasoning_effort=data.get("reasoning_effort") or None,
                 mcp_installation_ids=data.get("connectors"),
                 posthog_mcp_scopes=data["posthog_mcp_scopes"],
+                skill_names=data.get("skills"),
                 max_parallel_tasks=data["max_parallel_tasks"],
                 origin_key=data.get("idempotency_key"),
                 event=data.get("event"),
@@ -199,6 +206,8 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             raise serializers.ValidationError(
                 {"connectors": f"MCP installation(s) not found or inactive: {error.invalid_ids}"}
             )
+        except WorkflowTaskSkillsInvalid as error:
+            raise serializers.ValidationError({"skills": f"Skill(s) not found: {error.missing_names}"})
         except WorkflowTaskOwnerIneligible:
             return _rejected("Workflow has no owner who can run tasks.", status.HTTP_422_UNPROCESSABLE_ENTITY)
         except WorkflowTaskOriginKeyConflict:

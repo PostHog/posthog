@@ -107,7 +107,8 @@ function normalizeArtifactMetadata(
     (value.skill_source !== "user" &&
       value.skill_source !== "repo" &&
       value.skill_source !== "marketplace" &&
-      value.skill_source !== "codex")
+      value.skill_source !== "codex" &&
+      value.skill_source !== "workflow")
   ) {
     return undefined;
   }

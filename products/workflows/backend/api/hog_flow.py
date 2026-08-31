@@ -100,7 +100,12 @@ from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, validate_connectors
+from products.tasks.backend.facade.workflow_tasks import (
+    WorkflowTaskConnectorsInvalid,
+    WorkflowTaskSkillsInvalid,
+    validate_connectors,
+    validate_skills,
+)
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
@@ -1228,8 +1233,9 @@ class HogFlowActionSerializer(serializers.Serializer):
 
     def _validate_create_task_action(self, inputs: dict) -> None:
         """Save-time checks for the "Create AI task" step beyond input shape: whether the
-        chosen connectors, model and repository are actually usable, and the parallel-run
-        limit is sane - so a misconfigured step fails here instead of only when it fires."""
+        chosen connectors, skills, model and repository are actually usable, and the
+        parallel-run limit is sane - so a misconfigured step fails here instead of only when
+        it fires."""
         connectors = (inputs.get("connectors") or {}).get("value")
         if connectors:
             get_team = self.context.get("get_team")
@@ -1243,6 +1249,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {"inputs": {"connectors": f"MCP installation(s) not found or inactive: {e.invalid_ids}"}}
                     )
+
+        skills = (inputs.get("skills") or {}).get("value")
+        if skills:
+            get_team = self.context.get("get_team")
+            if get_team is not None:
+                try:
+                    validate_skills(get_team(), skills)
+                except WorkflowTaskSkillsInvalid as e:
+                    raise serializers.ValidationError({"inputs": {"skills": f"Skill(s) not found: {e.missing_names}"}})
 
         repository = (inputs.get("repository") or {}).get("value")
         if repository and not _REPOSITORY_SHAPE.fullmatch(repository):

@@ -31,6 +31,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
+from products.skills.backend.models.skills import LLMSkill
 from products.workflows.backend.api.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
@@ -5000,6 +5001,13 @@ def _create_task_template() -> dict:
             "required": False,
         },
         {
+            "key": "skills",
+            "type": "task_skills",
+            "label": "Skills",
+            "secret": False,
+            "required": False,
+        },
+        {
             "key": "max_parallel_tasks",
             "type": "number",
             "label": "Maximum parallel tasks",
@@ -5213,6 +5221,28 @@ class TestCreateTaskActionValidation(APIBaseTest):
         # boundary) - mocking at the same seam the model-catalogue tests below use.
         with patch("products.workflows.backend.api.hog_flow.validate_connectors", return_value=None):
             response = self._post_flow({"connectors": {"value": ["some-installation-id"]}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_rejects_an_unknown_skill_name(self):
+        response = self._post_flow({"skills": {"value": ["does-not-exist"]}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__inputs__skills"
+        assert not HogFlow.objects.filter(team=self.team).exists()
+
+    def test_accepts_a_skill_that_exists_for_the_team(self):
+        LLMSkill.objects.create(
+            team=self.team,
+            name="changelog-writer",
+            description="Writes a changelog entry for a given change.",
+            body="Write a changelog entry that describes the change in plain language.",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+
+        response = self._post_flow({"skills": {"value": ["changelog-writer"]}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 

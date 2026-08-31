@@ -165,7 +165,7 @@ TASK_RUN_ARTIFACT_TYPE_CHOICES = [
 ]
 TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES = ["utf-8", "base64"]
 TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES = ["zip"]
-TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex"]
+TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex", "workflow"]
 POSTHOG_OBJECT_KIND_CHOICES = [
     "insight",
     "hogql",
