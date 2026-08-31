@@ -17,7 +17,7 @@ import re
 import json
 import math
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -33,6 +33,9 @@ MAX_METRIC_ID_LENGTH = 100
 MAX_METRIC_TITLE_LENGTH = 200
 MAX_METRIC_CAPTION_LENGTH = 500
 MAX_METRIC_UNIT_LENGTH = 40
+# `value_at` is authored content, not a server timestamp, so allow a small clock-skew margin before
+# treating a snapshot time as an impossible future one.
+METRIC_VALUE_AT_MAX_CLOCK_SKEW = timedelta(minutes=5)
 MAX_LIVE_METRIC_WINDOW_DAYS = 366
 MAX_LIVE_METRIC_QUERY_SERIES = 10
 # A detail view can execute all six report metrics together. Capping each longitudinal response at
@@ -231,9 +234,17 @@ class ReportMetric(BaseModel):
 
     @field_validator("value_at")
     @classmethod
-    def value_at_must_include_timezone(cls, value: datetime | None) -> datetime | None:
-        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+    def value_at_must_be_a_bounded_past_timestamp(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return value
+        if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("must include a timezone")
+        # The snapshot time is authored, not stamped by the server, so an LLM can emit a wrong year
+        # or a clock-confused date. A future time makes every background refresh look older than the
+        # stored snapshot, so the sweep keeps the stale value until real time catches up. Reject a
+        # time past now plus a small clock-skew allowance.
+        if value > datetime.now(tz=UTC) + METRIC_VALUE_AT_MAX_CLOCK_SKEW:
+            raise ValueError("must not be in the future")
         return value
 
     @field_validator("unit")

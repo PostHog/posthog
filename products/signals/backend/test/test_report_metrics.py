@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from django.test import SimpleTestCase
 
@@ -297,6 +297,15 @@ class TestReportMetric(SimpleTestCase):
         content["value_at"] = "2026-08-29T12:00:00"
 
         with self.assertRaisesRegex(ValidationError, "must include a timezone"):
+            ReportMetric.model_validate(content)
+
+    def test_rejects_a_future_snapshot_timestamp(self) -> None:
+        # An author-supplied future time would make every refresh look older than the snapshot and
+        # freeze the stale value, so a time past now plus the clock-skew allowance is rejected.
+        content = _affected_users_metric().model_dump(mode="json")
+        content["value_at"] = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+
+        with self.assertRaisesRegex(ValidationError, "must not be in the future"):
             ReportMetric.model_validate(content)
 
     def test_requires_a_live_query_for_every_metric(self) -> None:
