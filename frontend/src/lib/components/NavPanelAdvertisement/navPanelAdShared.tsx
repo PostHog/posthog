@@ -7,23 +7,45 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 
-export interface CampaignPayload {
-    campaign: string
+/**
+ * Which card filled the ad slot, sent as `card_type` on every ad-slot event.
+ *
+ * A broadcast is hand-authored in a feature flag and targeted by whoever wrote it. A product push
+ * is chosen by the growth scheduler from an organization's `ProductPushCampaign` queue. Two cards
+ * shared one event name once before, which made their impressions indistinguishable, so every
+ * ad-slot event states its card outright.
+ */
+// pinned: analytics property values — renaming breaks dashboards
+export const NAV_PANEL_CARD_TYPE = {
+    BROADCAST: 'broadcast',
+    PRODUCT_PUSH: 'product_push',
+} as const
+
+export interface BroadcastPayload {
+    /** Slug identifying this broadcast, e.g. 'managed-warehouse-beta'. Keys dismissal state. */
+    broadcast: string
     text: string
     emoji: string
     emojiLabel: string
     title: string
+    /**
+     * ProductKey the broadcast advertises, e.g. 'session_replay'. Optional, because a broadcast
+     * need not be about a product at all (a legal notice, say). Set it whenever the broadcast does
+     * promote one, so its impressions can be compared against the product push for that product.
+     */
+    productKey?: string
 }
 
-export function isCampaignPayload(value: unknown): value is CampaignPayload {
+export function isBroadcastPayload(value: unknown): value is BroadcastPayload {
     return (
         typeof value === 'object' &&
         value !== null &&
-        typeof (value as CampaignPayload).campaign === 'string' &&
-        typeof (value as CampaignPayload).text === 'string' &&
-        typeof (value as CampaignPayload).emoji === 'string' &&
-        typeof (value as CampaignPayload).emojiLabel === 'string' &&
-        typeof (value as CampaignPayload).title === 'string'
+        typeof (value as BroadcastPayload).broadcast === 'string' &&
+        typeof (value as BroadcastPayload).text === 'string' &&
+        typeof (value as BroadcastPayload).emoji === 'string' &&
+        typeof (value as BroadcastPayload).emojiLabel === 'string' &&
+        typeof (value as BroadcastPayload).title === 'string' &&
+        ['undefined', 'string'].includes(typeof (value as BroadcastPayload).productKey)
     )
 }
 

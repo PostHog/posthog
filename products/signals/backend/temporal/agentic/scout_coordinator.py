@@ -752,9 +752,7 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
     except WorkflowAlreadyStartedError:
         workflow.logger.info(
             "signals_scout coordinator: child already running, skipping",
-            team_id=planned.team_id,
-            skill_name=planned.skill_name,
-            child_id=child_id,
+            extra={"team_id": planned.team_id, "skill_name": planned.skill_name, "child_id": child_id},
         )
         return False
 

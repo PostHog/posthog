@@ -60,6 +60,10 @@ export function navigateToFeed(feedId: string): void {
   });
 }
 
+export function navigateToFeeds(): void {
+  void getRouterOrNull()?.navigate({ to: "/feeds" });
+}
+
 export function navigateToChannel(channelId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/spaces/$channelId",

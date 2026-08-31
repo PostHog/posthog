@@ -102,6 +102,10 @@ describe('Hog Executor', () => {
                     PosthogJwtAudience.CONVERSATIONS_TICKETS,
                     hub.CONVERSATIONS_TICKETS_JWT_SECRET
                 ),
+                customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                    hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+                ),
                 hogInputsService,
                 emailService,
                 recipientTokensService,
@@ -956,7 +960,7 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('postHogGetAccount', () => {
+    describe('account workflow actions', () => {
         const mockExecHogForAsyncFunction = (asyncFunctionName: string, asyncFunctionArgs: any[]) => {
             const hogExecModule = require('../utils/hog-exec')
             jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
@@ -981,129 +985,248 @@ describe('Hog Executor', () => {
                 { inputs: {} }
             )
 
-        it('postHogGetAccount queues internal fetch with the external_id query param', async () => {
-            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
-                id: 1,
-                secret_api_token: 'test-secret-token',
-            } as any)
+        const requestModule = require('~/common/utils/request')
 
-            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme corp/1' }])
-
-            const result = await executor.execute(createAccountInvocation())
-
-            expect(result.invocation.queueParameters).toEqual({
-                type: 'fetch',
-                url: `${hub.SITE_URL}/api/customer_analytics/external/account?external_id=acme%20corp%2F1`,
-                method: 'GET',
-                headers: { Authorization: 'Bearer test-secret-token' },
-            })
+        const mockInternalResponse = (status: number, body: unknown) => ({
+            status,
+            headers: {},
+            text: () => Promise.resolve(JSON.stringify(body)),
+            json: () => Promise.resolve(body),
+            dump: () => Promise.resolve(),
         })
 
-        it('postHogGetAccount errors when external_id is missing', async () => {
-            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
-                id: 1,
-                secret_api_token: 'test-secret-token',
-            } as any)
+        const verifyAccountClaims = (headers: Record<string, string>) =>
+            new ScopedServiceJwt(
+                PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+            ).verify(headers['Authorization'].replace('Bearer ', ''))
 
-            mockExecHogForAsyncFunction('postHogGetAccount', [{}])
-
-            const result = await executor.execute(createAccountInvocation())
-            expect(result.error).toContain("missing 'external_id'")
-        })
-
-        it('postHogGetAccount errors when team is not found', async () => {
-            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(null)
-
-            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
-
-            const result = await executor.execute(createAccountInvocation())
-            expect(result.error).toContain('Team 1 not found')
-        })
-
-        it('postHogGetAccount errors when the team has no secret API token', async () => {
-            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
-                id: 1,
-                secret_api_token: null,
-            } as any)
-
-            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
-
-            const result = await executor.execute(createAccountInvocation())
-            // The message reaches the customer verbatim in the workflow logs, so it has to name
-            // the setup step rather than the field.
-            expect(result.error).toContain('This project has no secret API key')
-            expect(result.error).toContain('account workflow actions')
-            expect(result.error).toContain('Settings > Support > Secret API key')
-        })
-
-        it('captures exception with team_id when secret API token is missing', async () => {
-            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
-                id: 1,
-                secret_api_token: null,
-            } as any)
-
-            const posthogModule = require('~/common/utils/posthog')
-            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
-
-            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
-            await executor.execute(createAccountInvocation())
-
-            expect(captureExceptionSpy).toHaveBeenCalledWith(
-                expect.any(Error),
-                expect.objectContaining({ tags: expect.objectContaining({ team_id: 1 }) })
+        // In the test env the secret defaults on (mirroring Django), so the JWT path is the
+        // default; legacy tests opt out the same way an unprovisioned environment does.
+        const disableAccountJwt = () => {
+            ;(executor as any).deps.customerAnalyticsAccountsJwt = new ScopedServiceJwt(
+                PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                ''
             )
-        })
+        }
 
-        it('does not capture exception when queue is set up successfully', async () => {
-            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
-                id: 1,
-                secret_api_token: 'test-secret-token',
-            } as any)
+        describe('scoped JWT path', () => {
+            // Transport behavior (retries, 4xx pass-through, async budget) is shared with the
+            // ticket actions and covered by their suite; these pin the account-specific wiring.
 
-            const posthogModule = require('~/common/utils/posthog')
-            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+            it('postHogGetAccount mints a team+account pinned token for the internal route and needs no team secret', async () => {
+                const fetchSpy = jest
+                    .spyOn(requestModule, 'internalFetch')
+                    .mockResolvedValue(mockInternalResponse(200, { external_id: 'acme corp/1', name: 'Acme' }))
+                const getTeamSpy = jest.spyOn(hub.teamManager, 'getTeam')
 
-            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
-            await executor.execute(createAccountInvocation())
+                mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme corp/1' }])
+                const result = await executor.execute(createAccountInvocation())
 
-            expect(captureExceptionSpy).not.toHaveBeenCalled()
-        })
+                expect(fetchSpy).toHaveBeenCalledTimes(1)
+                const [url, options] = fetchSpy.mock.calls[0] as unknown as [string, FetchOptions]
+                // URL-encoded in the query string; the claim carries the raw value Django reads
+                // back from the decoded query param.
+                expect(url).toEqual(
+                    `${hub.INTERNAL_API_BASE_URL}/api/projects/1/internal/customer_analytics/account?external_id=acme%20corp%2F1`
+                )
+                expect(options.method).toEqual('GET')
 
-        it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {
-            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
-                id: 1,
-                secret_api_token: 'test-secret-token',
-            } as any)
+                const claims = verifyAccountClaims(options.headers as Record<string, string>)
+                expect(claims.team_id).toEqual(1)
+                expect(claims.external_id).toEqual('acme corp/1')
+                expect(claims.exp! - claims.iat!).toEqual(5 * 60)
 
-            mockExecHogForAsyncFunction('postHogUpdateAccount', [
-                { external_id: 'acme-1', updates: { tags: ['enterprise'], tags_mode: 'add' } },
-            ])
+                expect(result.invocation.state.vmState!.stack).toEqual([
+                    { status: 200, body: { external_id: 'acme corp/1', name: 'Acme' } },
+                ])
+                // No credential is needed or persisted: the team secret is never read and
+                // nothing lands in queueParameters (job rows stay free of auth material).
+                expect(getTeamSpy).not.toHaveBeenCalled()
+                expect(result.invocation.queueParameters).toBeUndefined()
+            })
 
-            const result = await executor.execute(createAccountInvocation())
+            it('postHogUpdateAccount pins the claimed external_id over the updates body', async () => {
+                const fetchSpy = jest
+                    .spyOn(requestModule, 'internalFetch')
+                    .mockResolvedValue(mockInternalResponse(200, { ok: true }))
 
-            expect(result.invocation.queueParameters).toEqual({
-                type: 'fetch',
-                url: `${hub.SITE_URL}/api/customer_analytics/external/account`,
-                method: 'PATCH',
-                body: JSON.stringify({ external_id: 'acme-1', tags: ['enterprise'], tags_mode: 'add' }),
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: 'Bearer test-secret-token',
-                },
+                mockExecHogForAsyncFunction('postHogUpdateAccount', [
+                    // A Hog-provided updates.external_id must not redirect the write away from
+                    // the account the token is pinned to.
+                    { external_id: 'acme-1', updates: { tags: ['enterprise'], external_id: 'other-account' } },
+                ])
+                const invocation = createAccountInvocation()
+                ;(invocation as any).hogFlow = { id: 'flow-123' }
+                await executor.execute(invocation)
+
+                const [url, options] = fetchSpy.mock.calls[0] as unknown as [string, FetchOptions]
+                expect(url).toEqual(`${hub.INTERNAL_API_BASE_URL}/api/projects/1/internal/customer_analytics/account`)
+                expect(options.method).toEqual('PATCH')
+                expect(options.body).toEqual(JSON.stringify({ tags: ['enterprise'], external_id: 'acme-1' }))
+                expect((options.headers as Record<string, string>)['X-PostHog-Hog-Flow-Id']).toEqual('flow-123')
+                const claims = verifyAccountClaims(options.headers as Record<string, string>)
+                expect(claims.external_id).toEqual('acme-1')
+            })
+
+            it('postHogSetAccountProperties targets the custom_property_values route', async () => {
+                const fetchSpy = jest
+                    .spyOn(requestModule, 'internalFetch')
+                    .mockResolvedValue(mockInternalResponse(200, { ok: true }))
+
+                mockExecHogForAsyncFunction('postHogSetAccountProperties', [
+                    { external_id: 'acme-1', properties: { 'def-1': 'gold' } },
+                ])
+                await executor.execute(createAccountInvocation())
+
+                const [url, options] = fetchSpy.mock.calls[0] as unknown as [string, FetchOptions]
+                expect(url).toEqual(
+                    `${hub.INTERNAL_API_BASE_URL}/api/projects/1/internal/customer_analytics/account/custom_property_values`
+                )
+                expect(options.method).toEqual('PATCH')
+                expect(options.body).toEqual(JSON.stringify({ external_id: 'acme-1', properties: { 'def-1': 'gold' } }))
+            })
+
+            it('postHogCreateAccount posts the claimed external_id with workflow attribution', async () => {
+                const fetchSpy = jest
+                    .spyOn(requestModule, 'internalFetch')
+                    .mockResolvedValue(mockInternalResponse(201, { external_id: 'acme-new' }))
+
+                mockExecHogForAsyncFunction('postHogCreateAccount', [{ external_id: 'acme-new' }])
+                const invocation = createAccountInvocation()
+                ;(invocation as any).hogFlow = { id: 'flow-123' }
+                const result = await executor.execute(invocation)
+
+                const [url, options] = fetchSpy.mock.calls[0] as unknown as [string, FetchOptions]
+                expect(url).toEqual(`${hub.INTERNAL_API_BASE_URL}/api/projects/1/internal/customer_analytics/account`)
+                expect(options.method).toEqual('POST')
+                expect(options.body).toEqual(JSON.stringify({ external_id: 'acme-new' }))
+                expect((options.headers as Record<string, string>)['X-PostHog-Hog-Flow-Id']).toEqual('flow-123')
+                const claims = verifyAccountClaims(options.headers as Record<string, string>)
+                expect(claims.external_id).toEqual('acme-new')
+                expect(result.invocation.state.vmState!.stack).toEqual([
+                    { status: 201, body: { external_id: 'acme-new' } },
+                ])
             })
         })
 
-        it('postHogUpdateAccount errors when external_id is missing', async () => {
-            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
-                id: 1,
-                secret_api_token: 'test-secret-token',
-            } as any)
+        describe('legacy secret_api_token fallback (JWT secret unprovisioned)', () => {
+            it('postHogGetAccount queues external fetch with the external_id query param', async () => {
+                disableAccountJwt()
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                    id: 1,
+                    secret_api_token: 'test-secret-token',
+                } as any)
 
-            mockExecHogForAsyncFunction('postHogUpdateAccount', [{ updates: { tags: ['enterprise'] } }])
+                mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme corp/1' }])
 
-            const result = await executor.execute(createAccountInvocation())
-            expect(result.error).toContain("missing 'external_id'")
+                const result = await executor.execute(createAccountInvocation())
+
+                expect(result.invocation.queueParameters).toEqual({
+                    type: 'fetch',
+                    url: `${hub.SITE_URL}/api/customer_analytics/external/account?external_id=acme%20corp%2F1`,
+                    method: 'GET',
+                    headers: { Authorization: 'Bearer test-secret-token' },
+                })
+            })
+
+            it('postHogGetAccount errors when team is not found', async () => {
+                disableAccountJwt()
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(null)
+
+                mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+
+                const result = await executor.execute(createAccountInvocation())
+                expect(result.error).toContain('Team 1 not found')
+            })
+
+            it('postHogGetAccount errors when the team has no secret API token', async () => {
+                disableAccountJwt()
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                    id: 1,
+                    secret_api_token: null,
+                } as any)
+
+                mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+
+                const result = await executor.execute(createAccountInvocation())
+                // The message reaches the customer verbatim in the workflow logs, so it has to name
+                // the setup step rather than the field.
+                expect(result.error).toContain('This project has no secret API key')
+                expect(result.error).toContain('account workflow actions')
+                expect(result.error).toContain('Settings > Support > Secret API key')
+            })
+
+            it('captures exception with team_id when secret API token is missing', async () => {
+                disableAccountJwt()
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                    id: 1,
+                    secret_api_token: null,
+                } as any)
+
+                const posthogModule = require('~/common/utils/posthog')
+                const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+                mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+                await executor.execute(createAccountInvocation())
+
+                expect(captureExceptionSpy).toHaveBeenCalledWith(
+                    expect.any(Error),
+                    expect.objectContaining({ tags: expect.objectContaining({ team_id: 1 }) })
+                )
+            })
+
+            it('does not capture exception when queue is set up successfully', async () => {
+                disableAccountJwt()
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                    id: 1,
+                    secret_api_token: 'test-secret-token',
+                } as any)
+
+                const posthogModule = require('~/common/utils/posthog')
+                const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+                mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+                await executor.execute(createAccountInvocation())
+
+                expect(captureExceptionSpy).not.toHaveBeenCalled()
+            })
+
+            it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {
+                disableAccountJwt()
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                    id: 1,
+                    secret_api_token: 'test-secret-token',
+                } as any)
+
+                mockExecHogForAsyncFunction('postHogUpdateAccount', [
+                    { external_id: 'acme-1', updates: { tags: ['enterprise'], tags_mode: 'add' } },
+                ])
+
+                const result = await executor.execute(createAccountInvocation())
+
+                expect(result.invocation.queueParameters).toEqual({
+                    type: 'fetch',
+                    url: `${hub.SITE_URL}/api/customer_analytics/external/account`,
+                    method: 'PATCH',
+                    body: JSON.stringify({ external_id: 'acme-1', tags: ['enterprise'], tags_mode: 'add' }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: 'Bearer test-secret-token',
+                    },
+                })
+            })
         })
+
+        it.each(['postHogGetAccount', 'postHogUpdateAccount', 'postHogSetAccountProperties', 'postHogCreateAccount'])(
+            '%s errors when external_id is missing',
+            async (name) => {
+                mockExecHogForAsyncFunction(name, [{}])
+
+                const result = await executor.execute(createAccountInvocation())
+                expect(result.error).toContain("missing 'external_id'")
+            }
+        )
     })
 
     describe('produceToWarehouseWebhooks', () => {

@@ -3444,6 +3444,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
+    MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
