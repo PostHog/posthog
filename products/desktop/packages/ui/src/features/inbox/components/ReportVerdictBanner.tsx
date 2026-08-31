@@ -41,6 +41,7 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { KeyHint } from "@posthog/ui/primitives/KeyHint";
 import { useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";
@@ -51,6 +52,7 @@ const isMac =
 
 // Same sizing as PrDecisionBlock: the decision is the page's one ask.
 const BIG_BUTTON = "h-9 gap-2 px-4 text-[14px]";
+const PRIMARY_KEY_CLASS = "border-(--gray-12) bg-(--gray-12) text-(--gray-1)";
 
 const TONE_CLASS: Record<ReportVerdictTone, string> = {
   decision: "border-(--amber-6) bg-(--amber-2)",
@@ -59,20 +61,14 @@ const TONE_CLASS: Record<ReportVerdictTone, string> = {
   info: "border-(--gray-5) bg-(--gray-1)",
 };
 
-type ReportVerdictBannerVariant = "full" | "header-actions";
+type ReportVerdictBannerVariant = "full" | "header-actions" | "triage-actions";
 
 interface ReportVerdictBannerProps {
   report: SignalReport;
-  /**
-   * full: status box + action row (the triage card). header-actions: the
-   * compact action row alone (the detail page's sticky top bar owns the
-   * verbs, and the page shows no status box).
-   */
   variant?: ReportVerdictBannerVariant;
-  /** Key that fires the primary action (triage mode passes "f"). */
   actionHotkey?: string;
-  /** Key that opens the question field (triage mode passes "a"). */
   askHotkey?: string;
+  archiveHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
   /** Called after an action opens the report's conversation dock. */
@@ -91,11 +87,13 @@ export function ReportVerdictBanner({
   variant = "full",
   actionHotkey,
   askHotkey,
+  archiveHotkey,
   initialEngagementOnly = false,
   onEngaged,
   surface = "detail_pane",
 }: ReportVerdictBannerProps) {
   const compact = variant === "header-actions";
+  const triageActions = variant === "triage-actions";
   const buttonClass = BIG_BUTTON;
   const canCreatePr = canCreateImplementationPr(report);
   const { data: artefactsResp } = useInboxReportArtefacts(report.id);
@@ -321,7 +319,7 @@ export function ReportVerdictBanner({
         handleOpenTask();
       } else if (!hasExistingPr && canCreatePr) {
         event.preventDefault();
-        handleCreatePr();
+        setPrOpen(true);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -340,7 +338,6 @@ export function ReportVerdictBanner({
     canCreatePr,
     handleOpenPr,
     handleOpenTask,
-    handleCreatePr,
   ]);
 
   if (
@@ -350,8 +347,22 @@ export function ReportVerdictBanner({
     return null;
   }
 
+  const archiveButton = canArchiveHere && !compact && (
+    <Button
+      type="button"
+      variant="outline"
+      onClick={openDismissDialog}
+      className={buttonClass}
+    >
+      <ArchiveIcon size={15} />
+      Archive…
+      {archiveHotkey && <KeyHint>{archiveHotkey.toUpperCase()}</KeyHint>}
+    </Button>
+  );
+
   const actionsRow = showActions ? (
     <div className="flex flex-wrap items-center gap-2.5">
+      {triageActions && archiveButton}
       {report.status === "ready" && externalPrUrl ? (
         <Button
           type="button"
@@ -361,6 +372,11 @@ export function ReportVerdictBanner({
         >
           <ArrowSquareOutIcon size={16} />
           View PR on GitHub
+          {actionHotkey && (
+            <KeyHint className={PRIMARY_KEY_CLASS}>
+              {actionHotkey.toUpperCase()}
+            </KeyHint>
+          )}
         </Button>
       ) : report.status === "ready" && continuableTask ? (
         <Button
@@ -372,6 +388,11 @@ export function ReportVerdictBanner({
         >
           <ArrowsOutSimpleIcon />
           {surface === "triage" ? "Continue in chat" : "View task"}
+          {actionHotkey && (
+            <KeyHint className={PRIMARY_KEY_CLASS}>
+              {actionHotkey.toUpperCase()}
+            </KeyHint>
+          )}
         </Button>
       ) : report.status === "ready" && !hasExistingPr && canCreatePr ? (
         <Popover
@@ -391,6 +412,11 @@ export function ReportVerdictBanner({
               >
                 {isCreatingPr ? <Spinner /> : <GitPullRequestIcon size={15} />}
                 Fix & monitor
+                {actionHotkey && (
+                  <KeyHint className={PRIMARY_KEY_CLASS}>
+                    {actionHotkey.toUpperCase()}
+                  </KeyHint>
+                )}
               </Button>
             }
           />
@@ -443,101 +469,105 @@ export function ReportVerdictBanner({
           </PopoverContent>
         </Popover>
       ) : null}
-      <Popover
-        open={askOpen}
-        onOpenChange={(next) => {
-          setAskOpen(next);
-          if (!next && !isDiscussing) setAskQuestion("");
-        }}
-      >
-        <PopoverTrigger
-          render={
-            <Button
-              type="button"
-              variant="outline"
-              disabled={
-                isCreatingPr ||
-                isDiscussing ||
-                awaitingChannel ||
-                reportTasksLoading
-              }
-              className={buttonClass}
-            >
-              <ChatCircleIcon size={16} />
-              Ask about it
-            </Button>
-          }
-        />
-        <PopoverContent
-          align="start"
-          side="bottom"
-          sideOffset={6}
-          className="flex w-[420px] flex-col gap-2 p-3"
+      {!triageActions && (
+        <Popover
+          open={askOpen}
+          onOpenChange={(next) => {
+            setAskOpen(next);
+            if (!next && !isDiscussing) setAskQuestion("");
+          }}
         >
-          <Field>
-            <FieldLabel
-              className="sr-only"
-              htmlFor={`report-question-${report.id}`}
-            >
-              Optional question for the agent
-            </FieldLabel>
-            <Textarea
-              id={`report-question-${report.id}`}
-              autoFocus
-              placeholder="Ask a question or add direction (optional)…"
-              rows={4}
-              value={askQuestion}
-              onChange={(event) => setAskQuestion(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  handleAsk();
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  isCreatingPr ||
+                  isDiscussing ||
+                  awaitingChannel ||
+                  reportTasksLoading
                 }
-              }}
-            />
-            <FieldDescription>
-              The full report and its evidence are included.
-            </FieldDescription>
-          </Field>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[12px] text-gray-10">
-              {isMac ? "⌘↵" : "Ctrl+↵"} to start
-            </span>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              loading={isDiscussing}
-              disabled={
-                isCreatingPr ||
-                isDiscussing ||
-                awaitingChannel ||
-                reportTasksLoading
-              }
-              onClick={handleAsk}
-            >
-              Start chat
-            </Button>
-          </div>
-        </PopoverContent>
-      </Popover>
-      {canArchiveHere && !compact && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={openDismissDialog}
-          className={buttonClass}
-        >
-          <ArchiveIcon size={15} />
-          Archive…
-        </Button>
+                className={buttonClass}
+              >
+                <ChatCircleIcon size={16} />
+                Ask about it
+              </Button>
+            }
+          />
+          <PopoverContent
+            align="start"
+            side="bottom"
+            sideOffset={6}
+            className="flex w-[420px] flex-col gap-2 p-3"
+          >
+            <Field>
+              <FieldLabel
+                className="sr-only"
+                htmlFor={`report-question-${report.id}`}
+              >
+                Optional question for the agent
+              </FieldLabel>
+              <Textarea
+                id={`report-question-${report.id}`}
+                autoFocus
+                placeholder="Ask a question or add direction (optional)…"
+                rows={4}
+                value={askQuestion}
+                onChange={(event) => setAskQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey)
+                  ) {
+                    event.preventDefault();
+                    handleAsk();
+                  }
+                }}
+              />
+              <FieldDescription>
+                The full report and its evidence are included.
+              </FieldDescription>
+            </Field>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12px] text-gray-10">
+                {isMac ? "⌘↵" : "Ctrl+↵"} to start
+              </span>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                loading={isDiscussing}
+                disabled={
+                  isCreatingPr ||
+                  isDiscussing ||
+                  awaitingChannel ||
+                  reportTasksLoading
+                }
+                onClick={handleAsk}
+              >
+                Start chat
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
       )}
+      {!triageActions && archiveButton}
     </div>
   ) : null;
 
   if (variant === "header-actions") {
     if (!actionsRow) return null;
     return actionsRow;
+  }
+
+  if (variant === "triage-actions") {
+    return (
+      <>
+        {actionsRow}
+        {dismissDialog}
+      </>
+    );
   }
 
   return (

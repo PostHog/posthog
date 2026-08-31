@@ -235,4 +235,34 @@ describe("ReportVerdictBanner", () => {
     expect(openTask).toHaveBeenCalledWith(runningImplementationTask.task);
     expect(createPrReport).not.toHaveBeenCalled();
   });
+
+  it("keeps triage fix direction before starting the implementation task", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReportVerdictBanner
+        report={{ ...report, actionability: "immediately_actionable" }}
+        variant="triage-actions"
+        actionHotkey="f"
+        archiveHotkey="a"
+        surface="triage"
+      />,
+    );
+
+    expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
+    expect(screen.getByText("F")).toBeInTheDocument();
+    expect(screen.getByText("A")).toBeInTheDocument();
+
+    await user.keyboard("f");
+
+    const direction = screen.getByLabelText("Optional direction for the agent");
+    expect(direction).toBeInTheDocument();
+    expect(createPrReport).not.toHaveBeenCalled();
+
+    await user.type(direction, "Start with the smallest safe change");
+    await user.click(screen.getAllByText("Fix & monitor")[1]);
+
+    expect(createPrReport).toHaveBeenCalledWith(
+      "Start with the smallest safe change",
+    );
+  });
 });
