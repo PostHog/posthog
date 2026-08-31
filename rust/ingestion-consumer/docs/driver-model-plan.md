@@ -24,19 +24,25 @@ These components stay as they are: the stream runners, the P2C router, the apert
 - A change is a structure change or a logic change, never both.
 - A structure change does not change behavior. The e2e tests must pass without edits.
 - Structure prepares logic. Every logic change comes after the structure changes that make it small. A new implementation ships unselected in a structure change; a logic change selects it.
+- Swap the smallest piece that removes the most complexity. Components that already match the target design are not rebuilt.
 - A logic change ships behind a config switch when a switch is possible. When a switch is not possible, it ships as a canary on one lane.
 - Old code is deleted, not edited. When a cutover holds on all lanes, one structure change removes the old implementation whole.
 - The commit sentinel and the key-order sentinel stay enabled through the migration. They verify each step in production.
 
 ## Changes
 
-Part 1 prepares the structure (changes 1 to 5).
+Part 1 prepares the structure (changes 1 to 6).
 Behavior does not change.
-The offset ledger and the key-table batcher are both built here, tested, and left unselected.
+The offset ledger and the key-table scheduler are both built here, tested, and left unselected.
 
-Part 2 cuts over and simplifies (changes 6 to 14).
+Part 2 cuts over and simplifies (changes 7 to 16).
 Each cutover is a switch flip made small by part 1, with the switch as the rollback.
 Each deletion follows its cutover.
+
+The swap unit inside the batcher is the **scheduler**: the decision core that says which runs may go to a worker now, and where.
+That is where the complexity concentrates — the pins, the stash, and the flush interplay.
+Placement (P2C, aperture) and send execution (stream runners) already match the target design and are not rebuilt.
+The single-owner event loop is only plumbing once the scheduler is simple, so it moves last.
 
 | # | Type | Change |
 | --- | --- | --- |
@@ -44,16 +50,18 @@ Each deletion follows its cutover.
 | 2 | Structure | Run the ledger in shadow mode |
 | 3 | Structure | Demux polls into groups |
 | 4 | Structure | Encapsulate the worker batcher |
-| 5 | Structure | Build the key-table batcher |
-| 6 | Structure | Commit from the ledger frontier |
-| 7 | Logic | Switch to the key-table batcher |
-| 8 | Structure | Delete the old batcher implementation |
-| 9 | Structure | Remove the stream fences |
-| 10 | Logic | Complete batches in any order |
-| 11 | Logic | Replace the batch window with budget B |
-| 12 | Logic | Pack requests toward target T |
-| 13 | Logic | Add the RTT dispatch governor |
-| 14 | Logic | Add the bounded revocation drain |
+| 5 | Structure | Extract the scheduler seam |
+| 6 | Structure | Build the key-table scheduler |
+| 7 | Structure | Commit from the ledger frontier |
+| 8 | Logic | Switch to the key-table scheduler |
+| 9 | Structure | Delete the old scheduler |
+| 10 | Structure | Remove the stream fences |
+| 11 | Structure | Collapse the batcher into one event loop |
+| 12 | Logic | Complete batches in any order |
+| 13 | Logic | Replace the batch window with budget B |
+| 14 | Logic | Pack requests toward target T |
+| 15 | Logic | Add the RTT dispatch governor |
+| 16 | Logic | Add the bounded revocation drain |
 
 ### 1. Add the offset ledger module (structure)
 
@@ -62,7 +70,7 @@ Each deletion follows its cutover.
 **Goal:** Make commit contiguity a property of a data structure.
 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
-- Each slot records: complete or not, event count, byte count. The counts serve the budget in change 11.
+- Each slot records: complete or not, event count, byte count. The counts serve the budget in change 13.
 - Operations: `charge` adds a delivered offset. `complete` marks an offset done. `frontier` removes the contiguous done prefix and returns the highest removed offset.
 - Completions can arrive in any order. The frontier moves only over completed slots.
 - Kafka delivers offsets with gaps (transactions, compaction). Contiguity means the prefix of delivered offsets, not offset arithmetic.
@@ -74,7 +82,7 @@ Each deletion follows its cutover.
 
 **Goal:** Prove the ledger against production traffic before it owns the commits.
 
-- New config: the ledger mode, `off`, `shadow`, or `active`. This change ships `shadow`. Change 6 ships `active`.
+- New config: the ledger mode, `off`, `shadow`, or `active`. This change ships `shadow`. Change 7 ships `active`.
 - Charge every delivered offset into its partition ledger during `collect_batch`.
 - When a batch completes, mark all its offsets complete.
 - At each commit, compare the partition's frontier with the offset the current path commits. With oldest-first completion, the two must be equal.
@@ -104,22 +112,35 @@ Each deletion follows its cutover.
 - Move inside the boundary: assignment, scatter, the deferred flush, the eager flush, the worker registry, the router, and the stream runners.
 - The facade replicates today's behavior exactly, including the oldest-first flush pacing. This is code motion, not redesign.
 - The consumer loop keeps: poll collection, commits, the sentinels, and the batch window. It aggregates group completions per batch, so completion and commit behavior do not change.
-- The boundary is the seam for change 5: two implementations can stand behind it.
+- Changes 5 and 6 carve the scheduler seam inside this boundary.
 
-### 5. Build the key-table batcher (structure)
+### 5. Extract the scheduler seam (structure)
 
-**Task:** Write the target batcher as a second implementation behind the change-4 boundary. Do not select it.
+**Task:** Move every ordering and placement decision inside the batcher behind one interface. Keep the current semantics.
 
-**Goal:** The replacement exists, fully tested, before any behavior changes.
+**Goal:** Isolate the decision core from the plumbing, so the smallest valuable piece can swap.
 
-- One single-owner event loop task. State is task-local. There is no shared mutex. Events: accumulators, request settlements, deadlines. This is the batcher of the design doc.
-- The key table: one FIFO queue per key. A key is runnable when it has queued work and no outstanding request. Dispatch takes one contiguous run and marks the key outstanding.
-- A settlement clears the outstanding flag and dispatches the key's next run. A failed request returns its runs to the front of their key queues.
+- The scheduler decides which runs may go to a worker now, and where. Nothing else in the batcher decides that.
+- Interface in: events. A group arrives. A request settles, with success or failure. A retry deadline fires.
+- Interface out: dispatches. One dispatch is one run of one key on one worker.
+- The first implementation preserves today's semantics: pins, the stash, deferral on drain, the flush pacing, and the eager release. This is code motion from `assign`, `flush_deferred`, `on_sub_batch_resolved`, and the eager path.
+- The plumbing (tasks, channels, the mutex) stays as it is. Only the decisions move.
+- The seam makes today's implicit ordering rules explicit and reviewable in one place.
+
+### 6. Build the key-table scheduler (structure)
+
+**Task:** Write the target scheduler as a second implementation of the seam. Do not select it.
+
+**Goal:** The replacement for the ordering core exists, fully tested, before any behavior changes.
+
+- The key table: one FIFO queue per key. A key is runnable when it has queued work and no outstanding request.
+- On arrival: enqueue, and dispatch one contiguous run when the key is runnable. Dispatch marks the key outstanding.
+- On settlement: clear the flag. Success dispatches the key's next run. Failure returns the run to the front of its queue.
 - A parked-retry deadline covers the keys no settlement can release: unroutable groups, and keys behind a failed send.
-- Route each request with the existing P2C and aperture. There is no pin table and no stickiness.
-- The boundary is values in, values out. Test the batcher deterministically without Kafka: submit groups, script settlements and failures, assert per-key order and completions.
+- Placement is stateless: the existing P2C and aperture pick a worker per dispatch. There are no pins.
+- The seam is events in, dispatches out. Test the scheduler deterministically: script arrivals, settlements, and failures. Assert per-key order.
 
-### 6. Commit from the ledger frontier (structure)
+### 7. Commit from the ledger frontier (structure)
 
 **Task:** Set the ledger mode to `active`. The frontier becomes the committed offset. Keep oldest-first batch completion.
 
@@ -131,49 +152,60 @@ Each deletion follows its cutover.
 - Rollback is the config switch back to `shadow`.
 - Delete the old commit computation after `active` holds on all lanes.
 
-### 7. Switch to the key-table batcher (logic)
+### 8. Switch to the key-table scheduler (logic)
 
-**Task:** Select the key-table batcher with config. Canary one lane, then roll out.
+**Task:** Select the key-table scheduler with config. Canary one lane, then roll out.
 
 **Goal:** One ordering rule replaces pins, the stash, and the flush paths.
 
+- The switch changes the ordering rule and nothing else. Placement, transport, and completion accounting do not change in this PR.
 - At most one outstanding request per key preserves per-key order. Nothing else does, and nothing else must.
 - This is proposal 2 of the design doc: sticky pins are removed. Measure worker key-cache locality before and after (open question 3).
 - Watch: the key-order sentinel, ack latency, and the no-progress watchdog.
-- Rollback is the config switch back to the old implementation.
+- Rollback is the config switch back to the old scheduler.
 
-### 8. Delete the old batcher implementation (structure)
+### 9. Delete the old scheduler (structure)
 
-**Task:** Remove the old implementation after change 7 holds on all lanes.
+**Task:** Remove the old scheduler implementation after change 8 holds on all lanes.
 
 **Goal:** The old concurrency goes in one deletion, not in edits.
 
-- Removes: the pin table, the stash, the eager-flush channel and its credits, the completion-time flush, `DISPATCHER_EAGER_DEFERRED_FLUSH`, and the implementation switch.
-- The plan never edits this machinery. It is encapsulated in change 4, bypassed in change 7, and deleted here.
+- Removes: the pin table, the stash, both flush drivers, the eager-flush channel and its credits, `DISPATCHER_EAGER_DEFERRED_FLUSH`, and the scheduler switch.
+- The plan never edits this machinery. It is isolated in change 5, bypassed in change 8, and deleted here.
 
-### 9. Remove the stream fences (structure)
+### 10. Remove the stream fences (structure)
 
 **Task:** Delete `FenceGuard` and the fence-settle loop from `grpc_transport.rs`.
 
 **Goal:** Keep only the failure logic the new invariant needs.
 
-- After change 8, one send origin exists. A key with a failed request is not runnable. No newer send for that key can enter a stream.
+- After change 9, the scheduler blocks every key with a failed request: the key is not runnable, so no newer send for it can enter a stream.
 - A stream failure returns each request's messages to the key table. That is sufficient.
 - Keep: retry classification, busy (503) handling, the ack watchdog, and ack-prefix resolution.
 
-### 10. Complete batches in any order (logic)
+### 11. Collapse the batcher into one event loop (structure)
+
+**Task:** Move the scheduler and its plumbing into one single-owner task.
+
+**Goal:** Remove the mutex and the callback structure.
+
+- The seam's events become the loop's events: accumulators, settlements, deadlines. The scheduler is already event-shaped, so the loop owns it directly.
+- State becomes task-local. The worker-health snapshot stays the only shared read.
+- This is the batcher event loop of the design doc. It is plumbing now: the decisions it drives are already simple.
+
+### 12. Complete batches in any order (logic)
 
 **Task:** Replace the oldest-first await with completion events.
 
 **Goal:** A stalled batch stalls only its own partitions. Other partitions continue to commit.
 
-- Changes 6 and 8 are the prerequisites. Commits come from the frontier, and the old flush, whose per-key order depended on oldest-first completion, is gone. Only commits depend on completion order now, and the frontier gates those.
+- Changes 7 and 9 are the prerequisites. Commits come from the frontier, and the old flush, whose per-key order depended on oldest-first completion, is gone. Only commits depend on completion order now, and the frontier gates those.
 - Mark each group's offsets in the ledger when its completion event arrives. Stop aggregating completions per batch before commits.
 - The frontier gates each partition's commit.
 - Keep `max_in_flight_batches` as the bound on outstanding work. A batch slot frees when all its groups are accepted.
 - Behavior change: commit timing decouples across partitions and batches. Replay exposure stays inside the batch window.
 
-### 11. Replace the batch window with budget B (logic)
+### 13. Replace the batch window with budget B (logic)
 
 **Task:** Poll only while uncommitted work is below B. B counts events and bytes.
 
@@ -185,9 +217,9 @@ Each deletion follows its cutover.
 - Pause and resume the poll at the budget limit. Do not stop servicing Kafka callbacks.
 - New config: the budget in events and in bytes.
 
-### 12. Pack requests toward target T (logic)
+### 14. Pack requests toward target T (logic)
 
-**Task:** Add the packer to the key-table batcher, with target size T and `PACK_LATENCY_BUDGET`.
+**Task:** Add the packer to the scheduler, with target size T and `PACK_LATENCY_BUDGET`.
 
 **Goal:** Request size becomes deliberate. Fan-out becomes demand-driven.
 
@@ -198,7 +230,7 @@ Each deletion follows its cutover.
 - Router order inside a pass: fill open requests on healthy workers first, then pick a worker with P2C from the aperture slice. Partition affinity is a tie-breaker only.
 - Check the worker side first: a request now spans polls and keys. Confirm the worker's `concurrentBatches` accounting and the meaning of `batch_id` still hold.
 
-### 13. Add the RTT dispatch governor (logic)
+### 15. Add the RTT dispatch governor (logic)
 
 **Task:** Replace the fixed per-worker un-acked cap with a permit pool that request RTT governs.
 
@@ -210,7 +242,7 @@ Each deletion follows its cutover.
 - Keep the 503 backoff in the transport. Exclude 503 waits from the RTT signal.
 - Cap each stream channel at `DEPTH_MAX`.
 
-### 14. Add the bounded revocation drain (logic)
+### 16. Add the bounded revocation drain (logic)
 
 **Task:** Implement the drain sequence from section 4 of the design doc.
 
