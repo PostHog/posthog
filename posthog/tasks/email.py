@@ -1013,7 +1013,6 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
         return
@@ -1060,7 +1059,6 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -2280,15 +2278,33 @@ def send_project_moved(
         return
 
     mover = User.objects.filter(id=moved_by_user_id).first()
+    # These names flow into the email subject, which becomes an SMTP header when no HTTP email
+    # provider is configured. A raw newline there raises BadHeaderError and the SMTP path swallows
+    # it, dropping the notification. Degrade a bad name to a safe placeholder, matching the way
+    # get_email_team_and_org_context already sanitizes the organization name below.
+    log_context = {"task": "send_project_moved", "source_organization_id": source_organization_id}
+    safe_project_name = sanitize_display_name(
+        project_name, fallback="your project", context={**log_context, "field": "project_name"}
+    )
+    safe_source_organization_name = sanitize_display_name(
+        source_organization.name,
+        fallback="your organization",
+        context={**log_context, "field": "source_organization_name"},
+    )
+    safe_target_organization_name = sanitize_display_name(
+        target_organization_name,
+        fallback="another organization",
+        context={**log_context, "field": "target_organization_name"},
+    )
     message = EmailMessage(
         use_http=True,
         campaign_key=f"project_moved_{source_organization_id}_{timezone.now().timestamp()}",
-        subject=f"{project_name} was moved out of {source_organization.name}",
+        subject=f"{safe_project_name} was moved out of {safe_source_organization_name}",
         template_name="project_moved",
         template_context={
-            "project_name": project_name,
-            "source_organization_name": source_organization.name,
-            "target_organization_name": target_organization_name,
+            "project_name": safe_project_name,
+            "source_organization_name": safe_source_organization_name,
+            "target_organization_name": safe_target_organization_name,
             "moved_by_email": mover.email if mover else None,
             **get_email_team_and_org_context(organization=source_organization),
         },
