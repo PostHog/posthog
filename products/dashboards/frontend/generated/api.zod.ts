@@ -344,8 +344,13 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.string()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .describe(
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            )
             .optional()
-            .describe('\* `21` - Can view dashboard\n\* `37` - Can edit dashboard'),
+            .describe(
+                'Who can edit this dashboard.\n\n\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
+            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()

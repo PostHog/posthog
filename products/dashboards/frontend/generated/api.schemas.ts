@@ -1021,7 +1021,11 @@ export interface PatchedPatchedDashboardOpenApiApi {
      */
     data_color_theme_id?: number | null
     tags?: string[]
-    restriction_level?: EffectivePrivilegeLevelEnumApi
+    /** Who can edit this dashboard.
+     *
+     * * `21` - Everyone in the project can edit
+     * * `37` - Only those invited to this dashboard can edit */
+    restriction_level?: RestrictionLevelEnumApi
     /**
      * List of quick filter IDs associated with this dashboard.
      * @nullable
