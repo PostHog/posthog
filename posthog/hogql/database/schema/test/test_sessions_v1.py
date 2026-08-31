@@ -360,6 +360,22 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         for prop in results:
             get_lazy_session_table_values_v1(key=prop["id"], team=self.team, search_term=None)
 
+    @parameterized.expand([(None,), ("tub",)])
+    def test_values_query_samples_raw_rows(self, search_term):
+        with self.capture_select_queries() as queries:
+            get_lazy_session_table_values_v1(key="$entry_utm_source", team=self.team, search_term=search_term)
+
+        assert len(queries) == 1
+        sql = " ".join(queries[0].split())
+        assert "FROM sessions" in sql
+        assert "finalizeAggregation(sessions.initial_utm_source)" in sql
+        assert "ORDER BY sessions.session_id DESC" in sql
+        assert "LIMIT 100000" in sql
+        # The `sessions` lazy table would merge every row of the team first.
+        assert "argMinMerge" not in sql
+        assert sql.count("GROUP BY") == 1
+        assert ("ilike(" in sql) == (search_term is not None)
+
     def test_custom_channel_types(self):
         results = get_lazy_session_table_values_v1(key="$channel_type", team=self.team, search_term=None)
         # the custom channel types should be first, there's should be no duplicates, and any custom rules for existing

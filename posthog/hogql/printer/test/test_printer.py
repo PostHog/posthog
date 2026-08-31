@@ -220,6 +220,19 @@ class TestPrinter(BaseTest):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
 
+    def test_python_only_function_prints_from_python_ast_only(self):
+        self._assert_select_error(
+            "SELECT finalizeAggregation(initial_utm_source) FROM raw_sessions",
+            "Function finalizeAggregation() is not available in HogQL",
+        )
+        printed = self._select(
+            "SELECT {value} FROM raw_sessions",
+            placeholders={
+                "value": ast.Call(name="finalizeAggregation", args=[ast.Field(chain=["initial_utm_source"])])
+            },
+        )
+        self.assertIn("finalizeAggregation(raw_sessions.initial_utm_source)", printed)
+
     def _assert_query_error(self, statement, expected_error):
         with self.assertRaises(QueryError) as context:
             self._select(statement, None)
