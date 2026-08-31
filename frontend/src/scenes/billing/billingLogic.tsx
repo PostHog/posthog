@@ -870,9 +870,12 @@ export const billingLogic = kea<billingLogicType>([
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
                     try {
+                        // The PATCH returns the full, freshly serialized billing (the viewset ends in
+                        // `self.list(...)`), so parse and return it directly. A parallel `loadBilling()`
+                        // GET here can land after this write and overwrite the new limit with a stale
+                        // read-replica value, so we no longer refetch.
                         const response = await api.update('api/billing', { custom_limits_usd: limits })
                         lemonToast.success('Billing limits updated')
-                        actions.loadBilling()
                         return parseBillingResponse(response)
                     } catch (error: unknown) {
                         lemonToast.error(

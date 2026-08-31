@@ -82,8 +82,15 @@ function UpgradeButton({ product }: { product: BillingProductV2Type }): JSX.Elem
 }
 
 function EditLimitModal(): JSX.Element {
-    const { isModalOpen, freePrs, pricePerPrUsd, estimatedBudgetUsd, limitForm, isLimitFormSubmitting } =
-        useValues(inboxUsageLogic)
+    const {
+        isModalOpen,
+        freePrs,
+        pricePerPrUsd,
+        estimatedBudgetUsd,
+        limitForm,
+        isLimitFormSubmitting,
+        billingLoading,
+    } = useValues(inboxUsageLogic)
     const { closeModal, submitLimitForm } = useActions(inboxUsageLogic)
 
     const billablePrs = Math.max(0, (limitForm.prs ?? 0) - freePrs)
@@ -100,13 +107,17 @@ function EditLimitModal(): JSX.Element {
                     <LemonButton type="secondary" onClick={closeModal}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={submitLimitForm} loading={isLimitFormSubmitting}>
+                    <LemonButton
+                        type="primary"
+                        onClick={submitLimitForm}
+                        loading={isLimitFormSubmitting || billingLoading}
+                    >
                         Save
                     </LemonButton>
                 </>
             }
         >
-            <Form logic={inboxUsageLogic} formKey="limitForm" className="flex flex-col gap-3">
+            <Form logic={inboxUsageLogic} formKey="limitForm" enableFormOnSubmit className="flex flex-col gap-3">
                 <LemonField name="prs" label="Monthly limit (PRs)">
                     <LemonInput type="number" min={0} step={1} autoFocus />
                 </LemonField>
@@ -160,6 +171,7 @@ export function InboxUsageWidget(): JSX.Element | null {
         resetDate,
         spentUsd,
         percentage,
+        nextPeriodLimitPrs,
     } = useValues(inboxUsageLogic)
     const { openModal } = useActions(inboxUsageLogic)
 
@@ -218,6 +230,12 @@ export function InboxUsageWidget(): JSX.Element | null {
                         <span className="text-tertiary tabular-nums">Resets {resetDate.format('MMM D')}</span>
                     )}
                 </div>
+                {nextPeriodLimitPrs != null && (
+                    <span className="text-xs text-secondary">
+                        Your new limit of {nextPeriodLimitPrs} PRs starts
+                        {resetDate ? ` ${resetDate.format('MMM D')}` : ' next billing period'}.
+                    </span>
+                )}
                 {quotaLimited && (
                     <span className="text-xs font-medium text-danger">
                         Agents are paused and won't open new pull requests until the limit is raised or usage resets.

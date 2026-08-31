@@ -69,6 +69,7 @@ export interface inboxUsageLogicValues {
         ValidationErrorType
     >
     limitPrs: number | null
+    nextPeriodLimitPrs: number | null
     percentage: number
     pricePerPrUsd: number | null
     product: BillingProductV2Type | null
@@ -187,6 +188,12 @@ export interface inboxUsageLogicMeta {
             refundSummary: SignalReportRefundSummaryResponseApi | null
         ) => number
         customLimitUsd: (billing: BillingType | null, product: BillingProductV2Type | null) => number | null
+        nextPeriodLimitPrs: (
+            billing: BillingType | null,
+            product: BillingProductV2Type | null,
+            pricePerPrUsd: number | null,
+            freePrs: number
+        ) => number | null
         limitPrs: (
             product: BillingProductV2Type | null,
             creditsPerPr: number | null,
@@ -276,7 +283,6 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             {
                 openModal: () => true,
                 closeModal: () => false,
-                submitLimitFormSuccess: () => false,
             },
         ],
     }),
@@ -298,8 +304,11 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                               : undefined,
             }),
             submit: ({ prs }) => {
-                const { product, pricePerPrUsd, freePrs } = values
-                if (!product || pricePerPrUsd == null || prs == null) {
+                const { product, pricePerPrUsd, freePrs, billingLoading } = values
+                // Bail while a write is in flight. The Save button is disabled during the PATCH, but
+                // the focused input still submits on Enter, so a second Enter would fire a duplicate
+                // limit write. billingLoading stays true for the whole round trip.
+                if (!product || pricePerPrUsd == null || prs == null || billingLoading) {
                     return
                 }
                 const usd = Math.max(0, prs - freePrs) * pricePerPrUsd
@@ -406,6 +415,27 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 return limit === 0 || limit ? Number(limit) : null
             },
         ],
+        // A limit lowered below current usage takes effect next period, not now — billing keeps
+        // the current-period cap and records the new one here. Read it so the widget can say the
+        // lowered limit applies from the next period instead of looking like a silent revert.
+        nextPeriodLimitPrs: [
+            (s) => [s.billing, s.product, s.pricePerPrUsd, s.freePrs],
+            (
+                billing: null | import('~/types').BillingType,
+                product: BillingProductV2Type | null,
+                pricePerPrUsd: number | null,
+                freePrs: number
+            ): number | null => {
+                if (!product || !pricePerPrUsd) {
+                    return null
+                }
+                const usd = billing?.next_period_custom_limits_usd?.[product.type]
+                if (usd == null) {
+                    return null
+                }
+                return freePrs + Math.round(Number(usd) / pricePerPrUsd)
+            },
+        ],
         // The effective monthly PR cap: a user-set custom limit takes precedence, otherwise the
         // product's own usage_limit (credits). Null means uncapped.
         limitPrs: [
@@ -507,6 +537,14 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         // the widget's netted PR count updates in-session (mirrors the reportListLogic reconcile
         // listener — a plain archive just makes this a cheap no-op reload).
         [inboxBulkActionsLogic.actionTypes.reportArchived]: () => actions.loadRefundSummary(),
+        // Close on the billing write landing, not on the form submitting. The submit only fires the
+        // billing update, so a failed write keeps the modal open with its error toast. Reload the
+        // refund summary too: it carries `quota_limited`, so a raised limit clears the paused banner
+        // in place instead of on the next mount.
+        [billingLogic.actionTypes.updateBillingLimitsSuccess]: () => {
+            actions.closeModal()
+            actions.loadRefundSummary()
+        },
     })),
     // Fires on mount and again when the org-group-keyed flag arrives after mount — a mount-time
     // load alone silently skips the summary on pageloads where flags resolve late, leaving the
