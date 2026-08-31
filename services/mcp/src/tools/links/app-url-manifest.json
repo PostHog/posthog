@@ -209,6 +209,11 @@
         "params": [],
         "scope": "project"
     },
+    "apm": {
+        "template": "/apm",
+        "params": [],
+        "scope": "project"
+    },
     "approval": {
         "template": "/approvals/{id}",
         "params": ["id"],
