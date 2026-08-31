@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
     validate_credentials as validate_checkout_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
+    FANOUT_INCREMENTAL_FIELD,
     PAYMENTS_ENDPOINTS,
+    PAYMENTS_INCREMENTAL_FIELD,
     SYNC_BUDGET_EXCEEDED_MARKER,
     UNRESOLVED_REFERENCES_MARKER,
     checkout_com_payments_source,
@@ -69,10 +71,10 @@ _REPORT_ROWS_INCREMENTAL_FIELDS: list[IncrementalField] = [incremental_field("re
 # Payments search filters server-side on `from`/`to` over the payment request time;
 # the fan-out tables inherit that cursor through the payment that references them.
 _PAYMENTS_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    "payments": [incremental_field("requested_on")],
-    "payment_actions": [incremental_field("payment_requested_on")],
-    "customers": [incremental_field("payment_requested_on")],
-    "instruments": [incremental_field("payment_requested_on")],
+    "payments": [incremental_field(PAYMENTS_INCREMENTAL_FIELD)],
+    "payment_actions": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
+    "customers": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
+    "instruments": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
 }
 
 _PAYMENTS_ENDPOINT_DESCRIPTIONS: dict[str, str] = {
@@ -153,9 +155,10 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
             # A run that stops at its per-run API budget without advancing the watermark is
             # incomplete, not broken. Every window it finished is checkpointed, so the retry
-            # resumes there and covers more ground. Incremental runs that landed rows end
-            # cleanly instead of raising (see payments._get_rows), so this only fires when
-            # the watermark could not move: a full refresh, or a run that landed no rows.
+            # resumes there and covers more ground. Incremental runs that landed a row newer
+            # than the watermark end cleanly instead of raising (see payments._get_rows), so
+            # this only fires when the watermark could not move: a full refresh, or a run
+            # holding no row past it.
             SYNC_BUDGET_EXCEEDED_MARKER,
             # Jobs in flight across a deploy can still raise the pre-rename message text.
             "Checkout.com sync hit its per-run API budget",

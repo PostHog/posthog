@@ -6,6 +6,7 @@ from unittest import mock
 
 import pyarrow as pa
 import requests
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -35,6 +36,9 @@ SESSION_PATCH = (
 )
 
 NOW = "2024-03-01T00:00:00Z"
+# Stored watermark for the budget tests. A payment stamped with exactly this value is the
+# boundary row the search re-reads every run, because the range starts at the watermark.
+BUDGET_WATERMARK = "2024-02-28T00:00:00Z"
 
 
 class _FakeResponse:
@@ -410,7 +414,7 @@ class TestPaymentActionsFanout:
             _source(
                 "payment_actions",
                 should_use_incremental_field=True,
-                db_incremental_field_last_value="2024-02-28T00:00:00Z",
+                db_incremental_field_last_value=BUDGET_WATERMARK,
                 logger=logger,
             )
         )
@@ -421,28 +425,40 @@ class TestPaymentActionsFanout:
         warning = logger.warning.call_args[0][0]
         assert "behind" in warning
 
+    @parameterized.expand(
+        [
+            # Nothing landed, so there is no value to promote the watermark to.
+            ("no rows landed", "2024-02-29T06:00:00Z", {"items": []}),
+            # The only row is the boundary payment the watermark already covers. Counting it
+            # as progress would promote the watermark to where it already sat, so every
+            # scheduled run would re-cover this range forever while reporting success.
+            ("only rows at the watermark", BUDGET_WATERMARK, {"items": [{"id": "act_1"}]}),
+        ]
+    )
     @mock.patch(LOOKUP_BUDGET_PATCH, 1)
     @mock.patch(SESSION_PATCH)
-    def test_incremental_budget_run_with_no_rows_still_raises(self, mock_make_session):
-        # With nothing landed there is no watermark value to promote, so ending cleanly
-        # would report Completed while the table did not move; the run must stay a failure.
+    def test_incremental_budget_run_that_cannot_advance_the_watermark_raises(
+        self, _name, first_requested_on, lookup_payload, mock_make_session
+    ):
+        # Ending cleanly here would report Completed while the table stayed where it was,
+        # so the run must stay a failure and retry.
         session = _FakeSession(
             search_responses=[
                 _search_page(
                     [
-                        _payment("pay_1", "2024-02-29T06:00:00Z"),
+                        _payment("pay_1", first_requested_on),
                         _payment("pay_2", "2024-02-29T18:00:00Z"),
                     ]
                 )
             ],
-            lookup_responses=[_FakeResponse(json_data={"items": []})],
+            lookup_responses=[_FakeResponse(json_data=lookup_payload)],
         )
         mock_make_session.side_effect = [session]
 
         response = _source(
             "payment_actions",
             should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-02-28T00:00:00Z",
+            db_incremental_field_last_value=BUDGET_WATERMARK,
         )
         with pytest.raises(CheckoutComSyncBudgetExceeded):
             _rows(response)
