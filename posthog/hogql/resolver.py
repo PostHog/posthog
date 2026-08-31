@@ -11,7 +11,6 @@ from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import (
@@ -377,6 +376,8 @@ class Resolver(CloningVisitor):
         self.current_view_depth: int = 0
         self.context = context
         self.dialect = dialect
+        if context.database is None:
+            raise QueryError("Database needs to be defined")
         self.database = context.database
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
@@ -1348,7 +1349,7 @@ class Resolver(CloningVisitor):
                 return node
 
             try:
-                database_table = cast(Database, self.database).get_table(table_name_chain)
+                database_table = self.database.get_table(table_name_chain)
             except QueryError:
                 # Direct Postgres/DuckDB sources expose introspected table-valued functions
                 # (range, generate_series, unnest, …) via connection metadata. If the lookup
@@ -2750,8 +2751,6 @@ class Resolver(CloningVisitor):
         return False
 
     def _record_warehouse_sync_warnings(self, table_id: str) -> None:
-        if self.database is None:
-            return
         warnings = getattr(self.database, "_data_warehouse_sync_warnings", {}).get(table_id)
         if not warnings:
             return
