@@ -36,7 +36,7 @@ from posthog.dataclasses import frozen
 from products.engineering_analytics.backend.facade.contracts import (
     DeploymentFrequencyBucket,
     DoraOverview,
-    MergeToDeployBucket,
+    LeadTimeBucket,
 )
 from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
@@ -179,6 +179,7 @@ _DEPLOYED_PRS_CTE = """
     deployed_prs AS (
         SELECT
             pr.number AS number,
+            pr.created_at AS created_at,
             pr.merged_at AS merged_at,
             min(h.first_success_at) AS deployed_at
         FROM __PR_SOURCE__ AS pr
@@ -189,11 +190,20 @@ _DEPLOYED_PRS_CTE = """
             AND NOT pr.is_draft
             __TEAM_FILTER__
             AND h.head_merged_at >= pr.merged_at
-        GROUP BY pr.number, pr.merged_at
+        GROUP BY pr.number, pr.created_at, pr.merged_at
     )
 """
 
-_LEAD_TIME_INNER = "SELECT deployed_at, dateDiff('second', merged_at, deployed_at) AS lead_seconds FROM deployed_prs"
+# The three lead-time stages, one row per deployed PR: the box-plot series all read the SAME
+# population, so open → merge and merge → deploy visually compose into open → deploy.
+_LEAD_TIME_INNER = """
+    SELECT
+        deployed_at,
+        dateDiff('second', merged_at, deployed_at) AS lead_seconds,
+        dateDiff('second', created_at, merged_at) AS open_to_merge_seconds,
+        dateDiff('second', created_at, deployed_at) AS open_to_deploy_seconds
+    FROM deployed_prs
+"""
 
 # The two one-row CROSS JOIN halves put attribution coverage on the same round trip: how many
 # PRs merged in the window at all (same bot/draft/team recipe), and how many of those an
@@ -228,16 +238,28 @@ _LEAD_TIME_HEADLINE_SELECT = f"""
     ) AS merged
 """
 
+
+def _box_stat_columns(column: str, prefix: str) -> str:
+    """The six-number box-plot summary of ``column``, aliased under ``prefix``."""
+    return (
+        f"min({column}) AS {prefix}_min, quantile(0.25)({column}) AS {prefix}_p25, "
+        f"quantile(0.5)({column}) AS {prefix}_p50, avg({column}) AS {prefix}_mean, "
+        f"quantile(0.75)({column}) AS {prefix}_p75, max({column}) AS {prefix}_max"
+    )
+
+
+# The three lead-time stages, in the order their six-stat columns appear in
+# _LEAD_TIME_SERIES_SELECT. _lead_time_bucket's ``stage`` index walks this same list, so the
+# SQL column order and the Python row-slice order can't drift independently.
+_LEAD_TIME_STAGES = (("mtd", "lead_seconds"), ("otm", "open_to_merge_seconds"), ("otd", "open_to_deploy_seconds"))
+_STAGE_STAT_WIDTH = 6  # min, p25, p50, mean, p75, max
+_STAGE_MERGE_TO_DEPLOY, _STAGE_OPEN_TO_MERGE, _STAGE_OPEN_TO_DEPLOY = range(len(_LEAD_TIME_STAGES))
+
 _LEAD_TIME_SERIES_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
         count() AS deployed_pr_count,
-        min(lead_seconds) AS min_seconds,
-        quantile(0.25)(lead_seconds) AS p25_seconds,
-        quantile(0.5)(lead_seconds) AS p50_seconds,
-        avg(lead_seconds) AS mean_seconds,
-        quantile(0.75)(lead_seconds) AS p75_seconds,
-        max(lead_seconds) AS max_seconds
+        {", ".join(_box_stat_columns(column, prefix) for prefix, column in _LEAD_TIME_STAGES)}
     FROM ({_LEAD_TIME_INNER})
     WHERE deployed_at >= {{date_from}} __DATE_TO_DEPLOYED__
     GROUP BY bucket_start
@@ -358,6 +380,8 @@ def _empty_overview(
         latest_deploy_status_at=None,
         deployment_frequency_series=[],
         merge_to_deploy_series=[],
+        open_to_merge_series=[],
+        open_to_deploy_series=[],
         series_granularity=granularity,
     )
 
@@ -446,7 +470,9 @@ class _LeadTime:
     # PRs merged in the window (the locked recipe), and how many of those a deploy attributed.
     merged_count: int
     attributed_count: int
-    series: list[MergeToDeployBucket]
+    series: list[LeadTimeBucket]
+    open_to_merge_series: list[LeadTimeBucket]
+    open_to_deploy_series: list[LeadTimeBucket]
 
     @property
     def unattributed_share(self) -> float | None:
@@ -461,6 +487,8 @@ _EMPTY_LEAD_TIME = _LeadTime(
     merged_count=0,
     attributed_count=0,
     series=[],
+    open_to_merge_series=[],
+    open_to_deploy_series=[],
 )
 
 
@@ -499,6 +527,8 @@ def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source
     )
     rows = scan.run(series_sql, query_type="engineering_analytics.dora_lead_time_series")
     stats_by_bucket = {normalize_bucket(row[0], scan.granularity): row[1:] for row in (rows.results or [])}
+    buckets = scan.window_buckets()
+    # Row layout mirrors _LEAD_TIME_SERIES_SELECT: count, then a six-stat slice per stage.
     return _LeadTime(
         deployed_count=int(deployed_cur or 0),
         deployed_count_prev=int(deployed_prev or 0),
@@ -506,7 +536,15 @@ def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source
         median_seconds_prev=opt_float(median_prev),
         merged_count=int(merged_cur or 0),
         attributed_count=int(attributed_cur or 0),
-        series=[_lead_time_bucket(bucket, stats_by_bucket.get(bucket)) for bucket in scan.window_buckets()],
+        series=[
+            _lead_time_bucket(bucket, stats_by_bucket.get(bucket), stage=_STAGE_MERGE_TO_DEPLOY) for bucket in buckets
+        ],
+        open_to_merge_series=[
+            _lead_time_bucket(bucket, stats_by_bucket.get(bucket), stage=_STAGE_OPEN_TO_MERGE) for bucket in buckets
+        ],
+        open_to_deploy_series=[
+            _lead_time_bucket(bucket, stats_by_bucket.get(bucket), stage=_STAGE_OPEN_TO_DEPLOY) for bucket in buckets
+        ],
     )
 
 
@@ -600,13 +638,17 @@ def query_dora_overview(
         latest_deploy_status_at=outcomes.latest_status_at,
         deployment_frequency_series=_query_frequency_series(scan),
         merge_to_deploy_series=lead.series,
+        open_to_merge_series=lead.open_to_merge_series,
+        open_to_deploy_series=lead.open_to_deploy_series,
         series_granularity=granularity,
     )
 
 
-def _lead_time_bucket(bucket: datetime, stats: tuple[Any, Any, Any, Any, Any, Any, Any] | None) -> MergeToDeployBucket:
+def _lead_time_bucket(bucket: datetime, stats: tuple[Any, ...] | None, *, stage: int) -> LeadTimeBucket:
+    """One stage's bucket off a series row: ``stats`` is (count, then a _STAGE_STAT_WIDTH-wide
+    slice per stage, in _LEAD_TIME_STAGES order); ``stage`` picks which slice."""
     if not stats:
-        return MergeToDeployBucket(
+        return LeadTimeBucket(
             bucket_start=bucket,
             deployed_pr_count=0,
             min_seconds=None,
@@ -616,8 +658,10 @@ def _lead_time_bucket(bucket: datetime, stats: tuple[Any, Any, Any, Any, Any, An
             p75_seconds=None,
             max_seconds=None,
         )
-    n, min_s, p25, p50, mean, p75, max_s = stats
-    return MergeToDeployBucket(
+    n = stats[0]
+    offset = 1 + stage * _STAGE_STAT_WIDTH
+    min_s, p25, p50, mean, p75, max_s = stats[offset : offset + _STAGE_STAT_WIDTH]
+    return LeadTimeBucket(
         bucket_start=bucket,
         deployed_pr_count=int(n or 0),
         min_seconds=opt_float(min_s),

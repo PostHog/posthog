@@ -969,10 +969,6 @@ tools:
         bin_script: clickhouse-logs-init
         description: Initialize ClickHouse logs schema (temporary, pre-migration)
         hidden: true
-    clickhouse:metrics:init:
-        bin_script: clickhouse-metrics-init
-        description: Initialize ClickHouse metrics schema (temporary, pre-migration)
-        hidden: true
     clickhouse:multinode:start:
         cmd: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse
         description: Boot the multinode ClickHouse smoke-test stack (one server per logical cluster) for local migration verification
@@ -1045,10 +1041,6 @@ tools:
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
-    review:
-        click: hogli_commands.review:review
-        description: One local Greptile review of the branch before opening the PR (skips when HEAD is already reviewed; --force, --instructions, --check)
-        needs_secrets: true
 desktop:
     desktop:dev:
         cmd: pnpm --dir products/desktop dev
