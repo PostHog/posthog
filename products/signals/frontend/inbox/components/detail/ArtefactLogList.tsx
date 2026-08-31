@@ -20,7 +20,7 @@ import {
     IconVideoCamera,
     IconExternal,
 } from '@posthog/icons'
-import { LemonCard, LemonTag, type LemonTagType, Link, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, type LemonTagType, Link, ProfilePicture } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -155,37 +155,6 @@ function CodeRefBlock({ code, language }: { code: string; language: Language }):
             <CodeSnippet language={language} compact wrap>
                 {code}
             </CodeSnippet>
-        </div>
-    )
-}
-
-function CollapsibleCodeRef({
-    note,
-    code,
-    language,
-}: {
-    note?: string
-    code?: string
-    language: Language
-}): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-    const preview = note?.trim() || 'Show code'
-    return (
-        <div className="flex w-full min-w-0 flex-col gap-1">
-            <button
-                type="button"
-                onClick={() => setExpanded((value) => !value)}
-                className="flex w-full min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-xs text-secondary transition-colors hover:bg-fill-highlight-50"
-            >
-                {expanded ? <IconChevronDown className="shrink-0" /> : <IconChevronRight className="shrink-0" />}
-                <span className="truncate">{expanded ? 'Hide code' : preview}</span>
-            </button>
-            {expanded ? (
-                <div className="min-w-0">
-                    <RelevanceNote note={note} />
-                    {code ? <CodeRefBlock code={code} language={language} /> : null}
-                </div>
-            ) : null}
         </div>
     )
 }
@@ -441,11 +410,10 @@ function renderArtefactBody({
         case 'code_reference': {
             const c = content as CodeReferenceContent
             return (
-                <CollapsibleCodeRef
-                    note={c.relevance_note}
-                    code={c.contents}
-                    language={languageFromPath(c.file_path)}
-                />
+                <div>
+                    <RelevanceNote note={c.relevance_note} />
+                    {c.contents ? <CodeRefBlock code={c.contents} language={languageFromPath(c.file_path)} /> : null}
+                </div>
             )
         }
         case 'line_reference': {
@@ -568,6 +536,7 @@ function ArtefactRow({
     knownTasks?: Map<string, Task>
     knownSignals?: Map<string, SignalNode>
 }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
     const signalId = artefact.type === 'signal_finding' ? (artefact.content as SignalFindingContent).signal_id : null
     const signal = signalId ? knownSignals?.get(signalId) : undefined
     const location = artefactLocationLabel(artefact)
@@ -576,6 +545,24 @@ function ArtefactRow({
     const body = signal ? <SignalFindingBody signal={signal} /> : renderArtefactBody({ reportId, artefact, knownTasks })
     const bodyHasOwnCard = artefact.type === 'signal_finding' || artefact.type === 'commit'
     const MarkerIcon = ARTEFACT_MARKER[artefact.type] ?? IconActivity
+    const header = (
+        <div
+            className={
+                body
+                    ? 'flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-0.5'
+                    : 'flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5'
+            }
+        >
+            <span className="font-medium text-sm text-default">{artefactTypeLabel(artefact.type)}</span>
+            {summary}
+            {location ? <span className="truncate font-mono text-xs text-tertiary">{location}</span> : null}
+            <span className="inline-flex items-center gap-1.5 text-xs text-tertiary">
+                {attribution ? <span>{attribution}</span> : null}
+                {attribution ? <span aria-hidden>·</span> : null}
+                <TZLabel time={artefact.created_at} />
+            </span>
+        </div>
+    )
 
     return (
         <div className="relative flex gap-3 pb-4 last:pb-0">
@@ -583,24 +570,30 @@ function ArtefactRow({
                 <MarkerIcon className="size-3" />
             </span>
             <div className="min-w-0 flex-1">
-                <div
-                    className={
-                        body
-                            ? 'mb-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5'
-                            : 'flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5'
-                    }
-                >
-                    <span className="font-medium text-sm text-default">{artefactTypeLabel(artefact.type)}</span>
-                    {summary}
-                    {location ? <span className="truncate font-mono text-xs text-tertiary">{location}</span> : null}
-                    <span className="inline-flex items-center gap-1.5 text-xs text-tertiary">
-                        {attribution ? <span>{attribution}</span> : null}
-                        {attribution ? <span aria-hidden>·</span> : null}
-                        <TZLabel time={artefact.created_at} />
-                    </span>
-                </div>
                 {body ? (
-                    <div className="min-w-0 w-full">
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        fullWidth
+                        onClick={() => setExpanded((value) => !value)}
+                        aria-expanded={expanded}
+                        sideIcon={
+                            expanded ? (
+                                <IconChevronDown className="shrink-0" />
+                            ) : (
+                                <IconChevronRight className="shrink-0" />
+                            )
+                        }
+                        className="min-w-0 -ml-2 -my-1"
+                        data-attr="signal-artefact-toggle"
+                    >
+                        {header}
+                    </LemonButton>
+                ) : (
+                    header
+                )}
+                {body && expanded ? (
+                    <div className="mt-1 min-w-0 w-full">
                         {bodyHasOwnCard ? body : <ActivityBodyCard>{body}</ActivityBodyCard>}
                     </div>
                 ) : null}

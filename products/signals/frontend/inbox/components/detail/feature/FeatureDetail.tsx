@@ -461,8 +461,8 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
           : undefined
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between">
+        <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
+            <div className="flex shrink-0 flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between">
                 <div className="flex max-w-[80ch] flex-col gap-1">
                     <h2 className="m-0 text-base font-semibold">Planning</h2>
                     <p className="m-0 text-sm text-secondary">{planningDescription}</p>
@@ -494,7 +494,7 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
             </div>
 
             {!planningTask ? (
-                <div className="flex min-h-80 flex-col items-center justify-center gap-3 rounded border border-primary bg-surface-primary p-6 text-center">
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded border border-primary bg-surface-primary p-6 text-center">
                     <IconAI className="text-2xl text-tertiary" />
                     <div className="flex max-w-[60ch] flex-col gap-1">
                         <h3 className="m-0 text-base font-semibold">Plan this feature with an agent</h3>
@@ -510,9 +510,9 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
                     </LemonButton>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-5 min-h-0">
-                    <div className="min-w-0 flex flex-col min-h-[480px]">
-                        <div className="flex flex-col flex-1 min-h-0 rounded border border-primary bg-surface-primary px-4">
+                <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-2 gap-5 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] @4xl:grid-rows-1">
+                    <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-primary bg-surface-primary px-4">
                             {planningTaskId && planningRunId ? (
                                 <Suspense fallback={<LemonSkeleton className="my-4 h-24" />}>
                                     <TaskRunChat taskId={planningTaskId} runId={planningRunId} />
@@ -524,7 +524,7 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
                             )}
                         </div>
                     </div>
-                    <div className="min-w-0 flex flex-col gap-5 overflow-y-auto">
+                    <div className="flex min-h-0 min-w-0 flex-col gap-5 overflow-y-auto pr-2">
                         <DetailSection icon={<IconDocument />} title="Summary">
                             {report.summary ? (
                                 <LemonMarkdown className={MARKDOWN_BODY_CLASSES} disableImages>
@@ -567,8 +567,12 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
     ]
 
     return (
-        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
-            <div className="flex flex-col gap-3.5 mb-4">
+        <div
+            className={`@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm ${
+                activeSubTab === 'planning' ? 'flex h-full min-h-0 flex-col overflow-hidden' : ''
+            }`}
+        >
+            <div className="mb-4 flex shrink-0 flex-col gap-3.5">
                 <LemonButton
                     type="tertiary"
                     size="small"
@@ -630,34 +634,38 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                 </div>
             </div>
 
-            <LemonTabs<FeatureDetailSubTab>
-                activeKey={activeSubTab}
-                onChange={setActiveSubTab}
-                tabs={tabs.map(({ key, label }) => ({
-                    key,
-                    label:
-                        key === 'planning' ? (
-                            <span className="flex items-center gap-1.5">
-                                <IconListCheck className="text-sm" />
-                                {label}
-                            </span>
-                        ) : key === 'owner' ? (
-                            <span className="flex items-center gap-1.5">
-                                <IconAI className="text-sm" />
-                                {label}
-                            </span>
-                        ) : key === 'feed' ? (
-                            <span className="flex items-center gap-1.5">
-                                <IconClockRewind className="text-sm" />
-                                {label}
-                            </span>
-                        ) : (
-                            label
-                        ),
-                    content: <></>,
-                }))}
-            />
-            <div className="pt-4">{tabs.find((t) => t.key === activeSubTab)?.content}</div>
+            <div className="shrink-0">
+                <LemonTabs<FeatureDetailSubTab>
+                    activeKey={activeSubTab}
+                    onChange={setActiveSubTab}
+                    tabs={tabs.map(({ key, label }) => ({
+                        key,
+                        label:
+                            key === 'planning' ? (
+                                <span className="flex items-center gap-1.5">
+                                    <IconListCheck className="text-sm" />
+                                    {label}
+                                </span>
+                            ) : key === 'owner' ? (
+                                <span className="flex items-center gap-1.5">
+                                    <IconAI className="text-sm" />
+                                    {label}
+                                </span>
+                            ) : key === 'feed' ? (
+                                <span className="flex items-center gap-1.5">
+                                    <IconClockRewind className="text-sm" />
+                                    {label}
+                                </span>
+                            ) : (
+                                label
+                            ),
+                        content: <></>,
+                    }))}
+                />
+            </div>
+            <div className={activeSubTab === 'planning' ? 'min-h-0 flex-1 overflow-hidden pt-4' : 'pt-4'}>
+                {tabs.find((t) => t.key === activeSubTab)?.content}
+            </div>
         </div>
     )
 }
