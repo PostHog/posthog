@@ -904,3 +904,26 @@ class TestRenderRunMessage(SimpleTestCase):
         event_section = message.split("<triggering_event>", 1)[1].replace("</triggering_event>", "", 1)
         assert "<" not in event_section
         assert ">" not in event_section
+
+
+class TestZipFlatSkillTree(SimpleTestCase):
+    def test_skill_md_is_at_the_archive_root(self) -> None:
+        import io
+        import zipfile
+
+        from products.skills.backend.marketplace.packaging import SkillExport
+        from products.tasks.backend.logic.services.workflow_tasks import _zip_flat_skill_tree
+
+        export = SkillExport(name="changelog-writer", description="Writes changelog entries.", body="Do it.", version=1)
+
+        zip_bytes = _zip_flat_skill_tree(export)
+
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+            names = archive.namelist()
+
+        # The sandbox installer extracts every entry verbatim (no leading-directory
+        # stripping) and then reads SKILL.md at the extraction root - a name-prefixed
+        # entry like "changelog-writer/SKILL.md" would extract one level too deep and
+        # the installer would report the bundle as missing SKILL.md.
+        assert "SKILL.md" in names
+        assert not any(name.startswith("changelog-writer/") for name in names)

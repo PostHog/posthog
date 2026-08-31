@@ -5,9 +5,11 @@ asking and which user owns it; everything task-shaped happens here so the workfl
 never touches tasks internals.
 """
 
+import io
 import json
 import uuid
 import hashlib
+import zipfile
 from datetime import timedelta
 from typing import Any
 
@@ -25,7 +27,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.skills.backend.api.skill_services import get_skill_by_name_from_db
 from products.skills.backend.marketplace.adapters import load_skill_export
-from products.skills.backend.marketplace.packaging import build_skill_zip
+from products.skills.backend.marketplace.packaging import SkillExport, build_skill_tree
 from products.slack_app.backend.facade.api import slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -419,8 +421,25 @@ class _ResolvedWorkflowSkill:
     zip_bytes: bytes
 
 
+def _zip_flat_skill_tree(export: SkillExport) -> bytes:
+    """Zip a skill's tree with `SKILL.md` at the archive root, not under a `<name>/` directory.
+
+    `build_skill_zip` nests every entry under `<name>/`, which is correct for a standalone
+    export a person drags into their own `~/.claude/skills/`, but the sandbox's installer
+    (`extractSkillBundle` in the desktop agent server) extracts a bundle's entries verbatim
+    with no leading-directory stripping and then reads `SKILL.md` at the extraction root - a
+    nested zip would extract to `<root>/<name>/SKILL.md` and fail with "does not contain
+    SKILL.md". This mirrors the flat layout a locally-uploaded skill bundle already produces.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for rel_path, content in build_skill_tree(export).items():
+            archive.writestr(rel_path, content)
+    return buffer.getvalue()
+
+
 def _resolve_workflow_skills(team: Team, skill_names: list[str] | None) -> list[_ResolvedWorkflowSkill]:
-    """Resolve each named team skill to its latest version and package it as a zip.
+    """Resolve each named team skill to its latest version and package it as a flat zip.
 
     Raises `WorkflowTaskSkillsInvalid` naming every skill that didn't resolve, once every
     name has been checked, rather than failing on the first miss - so the caller reports the
@@ -435,7 +454,7 @@ def _resolve_workflow_skills(team: Team, skill_names: list[str] | None) -> list[
         if skill is None:
             missing.append(name)
             continue
-        resolved.append(_ResolvedWorkflowSkill(name=name, zip_bytes=build_skill_zip(load_skill_export(skill))))
+        resolved.append(_ResolvedWorkflowSkill(name=name, zip_bytes=_zip_flat_skill_tree(load_skill_export(skill))))
     if missing:
         raise WorkflowTaskSkillsInvalid(missing)
     return resolved
