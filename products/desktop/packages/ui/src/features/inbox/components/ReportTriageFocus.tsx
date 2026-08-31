@@ -362,14 +362,14 @@ export function ReportTriageFocus({
                 </div>
               )}
 
-              <div className="flex items-start gap-3">
-                <PriorityMonogram priority={report.priority} size="large" />
-                <h2 className="min-w-0 font-semibold text-[22px] text-gray-12 leading-tight tracking-tight">
+              <div className="flex items-center gap-5">
+                <PriorityMonogram priority={report.priority} size="hero" />
+                <h2 className="min-w-0 font-semibold text-[32px] text-gray-12 leading-tight tracking-tight">
                   {conventionalTitle && (
                     <ConventionalCommitScopeTag
                       type={conventionalTitle.type}
                       scope={conventionalTitle.scope}
-                      compact
+                      size="hero"
                     />
                   )}
                   {reportTitle}

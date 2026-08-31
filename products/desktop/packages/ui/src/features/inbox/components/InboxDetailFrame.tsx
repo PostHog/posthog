@@ -3,6 +3,7 @@ import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
 import {
   humanizeReportTitle,
+  parseConventionalCommitTitle,
   splitReportSummary,
 } from "@posthog/core/inbox/reportPresentation";
 import {
@@ -14,6 +15,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
+import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
 import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBackLink";
 import { ReportChartsSection } from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
 import {
@@ -134,7 +136,19 @@ export function InboxDetailFrame({
       : signals.length;
   const hasEvidence =
     evidenceSection != null && EvidenceIcon != null && evidenceCount > 0;
+  const conventionalTitle = parseConventionalCommitTitle(report.title);
   const displayTitle = humanizeReportTitle(report.title, fallbackTitle);
+  const title = (
+    <>
+      {conventionalTitle && (
+        <ConventionalCommitScopeTag
+          type={conventionalTitle.type}
+          scope={conventionalTitle.scope}
+        />
+      )}
+      {displayTitle}
+    </>
+  );
 
   const reportMeta = (
     <>
@@ -267,7 +281,7 @@ export function InboxDetailFrame({
             {secondaryTab && activeTab === "secondary" ? (
               <div className="flex min-w-0 flex-col gap-5">
                 <h1 className="m-0 min-w-0 font-bold text-[24px] text-gray-12 leading-tight tracking-tight">
-                  {displayTitle}
+                  {title}
                 </h1>
                 {secondaryTab.content}
               </div>
@@ -275,7 +289,7 @@ export function InboxDetailFrame({
               <div className="flex min-h-full min-w-0 flex-col gap-6">
                 <div className="flex flex-col gap-2">
                   <h1 className="m-0 min-w-0 font-bold text-[24px] text-gray-12 leading-tight tracking-tight">
-                    {displayTitle}
+                    {title}
                   </h1>
                   <div className="flex flex-wrap items-center gap-2">
                     {report.status !== "ready" && (

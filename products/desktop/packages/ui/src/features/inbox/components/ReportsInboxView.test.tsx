@@ -246,7 +246,7 @@ describe("ReportsInboxView", () => {
   it("groups actionable reports by PR state and omits pipeline sections", () => {
     mocks.activeReports = [
       {
-        ...activeReport("with-pr", "Report with PR"),
+        ...activeReport("with-pr", "feat(cohorts): Report with PR"),
         implementation_pr_url: "https://github.com/PostHog/posthog/pull/1",
       },
       activeReport("without-pr", "Report without PR"),
@@ -265,6 +265,7 @@ describe("ReportsInboxView", () => {
     const needsPrSection = screen.getByText("Needs a PR").closest("section");
 
     expect(reviewSection).toHaveTextContent("Report with PR");
+    expect(reviewSection).toHaveTextContent("feat(cohorts)");
     expect(reviewSection).not.toHaveTextContent("Report without PR");
     expect(needsPrSection).toHaveTextContent("Report without PR");
     expect(needsPrSection).not.toHaveTextContent("Pipeline report");

@@ -19,6 +19,7 @@ import { inboxReviewerScopeValue } from "@posthog/core/inbox/reportMembership";
 import {
   deriveHeadline,
   humanizeReportTitle,
+  parseConventionalCommitTitle,
   parsePrUrl,
 } from "@posthog/core/inbox/reportPresentation";
 import {
@@ -37,6 +38,7 @@ import {
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
+import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
 import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
 import { InboxSearchFilterBar } from "@posthog/ui/features/inbox/components/InboxSearchFilterBar";
 import { ReportRestoreButton } from "@posthog/ui/features/inbox/components/ReportRestoreButton";
@@ -435,6 +437,7 @@ function InboxSection({
 }
 
 function InboxReportRow({ report }: { report: SignalReport }) {
+  const conventionalTitle = parseConventionalCommitTitle(report.title);
   const products = (report.source_products ?? [])
     .map((product) => humanizeIdentifier(product).toLowerCase())
     .join(" · ");
@@ -466,10 +469,14 @@ function InboxReportRow({ report }: { report: SignalReport }) {
         className="flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-3 py-2 text-left transition hover:border-(--gray-6) hover:bg-(--gray-2)"
       >
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="flex items-center gap-1.5">
-            <span className="truncate font-medium text-[14px] text-gray-12">
-              {humanizeReportTitle(report.title, "Untitled report")}
-            </span>
+          <span className="truncate font-medium text-[14px] text-gray-12">
+            {conventionalTitle && (
+              <ConventionalCommitScopeTag
+                type={conventionalTitle.type}
+                scope={conventionalTitle.scope}
+              />
+            )}
+            <span>{humanizeReportTitle(report.title, "Untitled report")}</span>
           </span>
           {headline && (
             <span className="line-clamp-2 text-[13px] text-gray-11">
