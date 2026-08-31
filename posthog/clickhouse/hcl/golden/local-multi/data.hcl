@@ -1736,6 +1736,35 @@ database "posthog" {
     }
   }
 
+  table "experiment_replay_exposed_distinct_ids" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "cache_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_exposure_time" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(1)"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_experiment_replay_exposed_distinct_ids"
+      sharding_key    = "cityHash64(distinct_id)"
+    }
+  }
+
   table "flag_evaluations" {
     column "uuid" {
       type = "UUID"
@@ -6199,6 +6228,41 @@ database "posthog" {
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
+
+  table "sharded_experiment_replay_exposed_distinct_ids" {
+    order_by     = ["team_id", "cache_key", "distinct_id"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "expires_at"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "cache_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_exposure_time" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(1)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.experiment_replay_exposed_distinct_ids"
       replica_name   = "{replica}"
       version_column = "computed_at"
     }

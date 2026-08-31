@@ -1955,6 +1955,31 @@
   
   '''
 # ---
+# name: test_create_table_query[experiment_replay_exposed_distinct_ids]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS experiment_replay_exposed_distinct_ids
+  (
+      team_id Int64,
+  
+      -- Opaque key naming one computed generation of one experiment's exposed population
+      cache_key String,
+  
+      -- One exposed distinct id with its person's first exposure time
+      distinct_id String,
+      first_exposure_time DateTime64(6, 'UTC'),
+  
+      -- When this row was computed (used as ReplacingMergeTree version)
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- TTL: rows are automatically deleted after expires_at. Generations only need to
+      -- outlive the freshness marker that points readers at them (minutes), so a day is
+      -- a comfortable bound.
+      expires_at Date DEFAULT today() + INTERVAL 1 DAY
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_experiment_replay_exposed_distinct_ids', cityHash64(distinct_id))
+  
+  '''
+# ---
 # name: test_create_table_query[flag_evaluations]
   '''
   
@@ -7078,6 +7103,36 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_experiment_replay_exposed_distinct_ids]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_experiment_replay_exposed_distinct_ids
+  (
+      team_id Int64,
+  
+      -- Opaque key naming one computed generation of one experiment's exposed population
+      cache_key String,
+  
+      -- One exposed distinct id with its person's first exposure time
+      distinct_id String,
+      first_exposure_time DateTime64(6, 'UTC'),
+  
+      -- When this row was computed (used as ReplacingMergeTree version)
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- TTL: rows are automatically deleted after expires_at. Generations only need to
+      -- outlive the freshness marker that points readers at them (minutes), so a day is
+      -- a comfortable bound.
+      expires_at Date DEFAULT today() + INTERVAL 1 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.experiment_replay_exposed_distinct_ids', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, cache_key, distinct_id)
+  TTL expires_at
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_flag_evaluations]
   '''
   
@@ -12107,6 +12162,36 @@
   
   PARTITION BY toYYYYMMDD(expires_at)
   ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid)
+  TTL expires_at
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_experiment_replay_exposed_distinct_ids]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_experiment_replay_exposed_distinct_ids
+  (
+      team_id Int64,
+  
+      -- Opaque key naming one computed generation of one experiment's exposed population
+      cache_key String,
+  
+      -- One exposed distinct id with its person's first exposure time
+      distinct_id String,
+      first_exposure_time DateTime64(6, 'UTC'),
+  
+      -- When this row was computed (used as ReplacingMergeTree version)
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- TTL: rows are automatically deleted after expires_at. Generations only need to
+      -- outlive the freshness marker that points readers at them (minutes), so a day is
+      -- a comfortable bound.
+      expires_at Date DEFAULT today() + INTERVAL 1 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.experiment_replay_exposed_distinct_ids', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, cache_key, distinct_id)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
