@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from freezegun import freeze_time
@@ -534,7 +535,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    def test_can_materialize_allowed_insight_query(self, _name, query):
+    def test_can_materialize_allowed_insight_query(self, _name: str, query: dict[str, Any]) -> None:
         endpoint = create_endpoint_with_version(
             name=f"test_{_name}_query",
             team=self.team,
