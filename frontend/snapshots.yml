@@ -1760,6 +1760,10 @@ snapshots:
         hash: v1.k794b7964.f10735d00b8b7484f071fdcaebec654ef0042bf7894e374cbe077acb88d1de1f.DVP2UF6lwJvd5PyN12NBZIhS9EOv5z-N0T-aYKrAONw
     components-product-empty-state--ai-observability-needs-setup--light:
         hash: v1.k794b7964.356081f2e978bf91130ebf0aa39fdc921a169780d2c3b9e289191d40dc73f6f1.nOlwt03p_7y2o0g2xV7835qBylZDe7uIdPxowxXI8mA
+    components-product-empty-state--annotations-needs-setup--dark:
+        hash: v1.k794b7964.375eb5c484baae36185d43a8b1ae04a6ec0915405be7f4f4a05887816dfde456.L2szPOMNE0IT-m3Dxbt1SKmvgfc9bT1pvlF13-L4doI
+    components-product-empty-state--annotations-needs-setup--light:
+        hash: v1.k794b7964.56dbdea2b6fb8aaf02bf4ff304ba2d4bff2df277d11255585ceb5c58453a9ceb.jmML3vhPE30ZAvN7k5Fr8gC0RDKY3GusMz-_osZ5o-I
     components-product-empty-state--early-access-features-needs-setup--dark:
         hash: v1.k794b7964.ce612c03290780c1098886d9e2e0f9d920bfa899c591fadfecabf969b1897fe6.RlwNrGim39bhZH0hO39-bt6bWPUPJU-5XgIq2smDxSk
     components-product-empty-state--early-access-features-needs-setup--light:
@@ -5913,17 +5917,17 @@ snapshots:
     scenes-app-aigateway--page--light:
         hash: v1.k794b7964.c0c671f9520955f2d7b427ea9d998cafcaa32498677b7c0c933e887786a016cc.P3yeVak_kL5AjaxOowXaoIxcGpWslxE9XKtHckP1_sk
     scenes-app-annotations--annotations--dark:
-        hash: v1.k794b7964.ee361eed99f04232ba32af0b7b7e38eb803860ee2faee52e094cf4fd126c30b1.ljX92vC8uyiUAdMxYyoQCDb2U9lqekhny9AhNrfVLpg
+        hash: v1.k794b7964.651aae7146d31971a314f627499eafdaa3d35933cde8dd0ad47abc6eab722148.H9u02T71vFBWS4vd-5sVVqacwrqXc9xeeOHs7b4qnL4
     scenes-app-annotations--annotations--light:
-        hash: v1.k794b7964.c4cd2e6378d0ca91c00ab119af9a6f90176f22c543a5bd528d5aace6f7b8735d._IB-eDQtHoWcvfVHdowMOuWI_-I4Vl3ocmRFR_9VbQQ
+        hash: v1.k794b7964.3a5efa1132f5645476b02c317d2722c755c8140bd22d7ebef1c3604da56b9a55.gRBLehN4iFhe4hjAdQ-s-Zg7RQ2IRkLELQbilD82l1M
     scenes-app-annotations--new-annotation-modal-lemon-ui-date-picker--dark:
-        hash: v1.k794b7964.2897b63eec94e0010603ce742c62307857482ed93c1d452b6c818c23582b60d7.Ly2KAZSnvkoh4VAkutRET8VyxM-u4RIlot2dAGerRME
+        hash: v1.k794b7964.836ed57b5116ea3e1d1c0923300e519670dbb31441d8321bec780c008ae61ae2.8xyGCATTfXtnncf1B0NYPs1eEusfJ3Ok5yQGE3orjUQ
     scenes-app-annotations--new-annotation-modal-lemon-ui-date-picker--light:
-        hash: v1.k794b7964.c235866a3fa6b24848866527076439d80e65846ab4eae834d67b5fd5aa8de5f4.vwgbPqvntlUIst3HD7CbT44IUH1x0vb9JVNOgTlfbIw
+        hash: v1.k794b7964.8b698dcaeb714e79114d305797220cba14a23c9945c3f53638294613d5630d3e.V426gKG2RQf3uR7Jt_9BpRewHHeFa0D3V7OP52NqOvQ
     scenes-app-annotations--new-annotation-modal-quill-date-picker--dark:
-        hash: v1.k794b7964.a107ec4f1a5d1a0c2bfc855af287d11950a5b9200282d85dfb623850c70a9079.uk9yTbLgIwALjw2ehSojXRAyCVuuCmr3w-nvQkB639E
+        hash: v1.k794b7964.d0203fea61aee15ac584fa0386834615751bbcd6f50aaaaed4dc111bfc2ef8bd.g6BEMBzNGgJVhCuR9doqE1sIWiy7hlLu09s9XtmFwnw
     scenes-app-annotations--new-annotation-modal-quill-date-picker--light:
-        hash: v1.k794b7964.609c7911fc3a6ae0bee8e425a7e3a3d40f1efa271688392ca1c36892188cf7ff.JLaAMu0jmyaXXVcU02Yg69waPQyMxjoBu_4Nd9QBURI
+        hash: v1.k794b7964.80e951d6a80390a8f78649dd20bd3a267d638faa180f57fd4250f2af89a02d1b.JtotgGUtEhBga78Cwphlhyy7Pxp5GHq752kJAPiyRnQ
     scenes-app-batchexports--backfills-empty--dark:
         hash: v1.k794b7964.8addbab5dc9322002703f43982a0f950666fd19066808134206cf88a4d3fca23.rQn27PGaf9lf989r2DJBj1BYEWNECVUB8h3wcMgQo5c
     scenes-app-batchexports--backfills-empty--light:
