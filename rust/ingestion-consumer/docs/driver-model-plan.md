@@ -38,19 +38,22 @@ Rules:
 - Every cycle names its verify evidence: the metrics to read and the exit criterion.
 - Old code is deleted in cleanup, never edited.
 - Dead code is deleted before a seam is carved around it. A cleanup of a switch that never shipped can open a cycle (change 1).
-- A structural outcome with no behavior change needs no switchover. Review and the e2e tests control its risk. The table labels such a change Structure (change 13).
+- A structural outcome with no behavior change needs no switchover. Review and the e2e tests control its risk. The table labels such a change Structure (change 15).
 - A cycle's cleanup lands only after its switchover holds on all lanes.
 - Swap the smallest piece that removes the most complexity. Components that already match the target design are not rebuilt.
 - A change must not alter the meaning of an existing metric. Metrics of deleted machinery are deleted with it.
 - The commit sentinel and the key-order sentinel stay enabled through every cycle.
 
 Cycle 1 lands first: two fast, behavior-preserving complexity wins with no dependency on anything else.
-After that, the cycles run in order, with one exception: cycle 3 does not depend on cycle 2, so it can proceed while cycle 2 soaks.
-Cycle 5 needs cycles 2 and 3.
+After that, the cycles run in order, with two exceptions.
+Cycle 3 does not depend on cycle 2, so it can proceed while cycle 2 soaks.
+Cycle 4 needs only cycle 3's switchover, so it can proceed while cycle 3's cleanup soaks.
+Cycle 6 needs cycles 2 and 3.
 
 The swap unit in cycle 3 is the **scheduler**: the decision core that says which runs may go to a worker now, and where.
 That is where the complexity concentrates — the pins, the stash, and the flush interplay.
-The single-owner event loop follows as its own outcome (cycle 4), once the scheduler is simple.
+Packing follows at once (cycle 4): the performance win depends only on the key-table scheduler, not on the event loop, decoupled commits, or the budget.
+The single-owner event loop follows as its own outcome (cycle 5), once the scheduler is simple.
 
 Each change ends with its interface impact: the types it adds, modifies, or removes.
 A change that adds metrics lists their names.
@@ -69,15 +72,15 @@ A change that adds metrics lists their names.
 | 10 | 3 per-key order | Implement | Build the key-table scheduler |
 | 11 | 3 per-key order | Switchover | Switch to the key-table scheduler |
 | 12 | 3 per-key order | Cleanup | Delete the old scheduler |
-| 13 | 4 single-owner batcher | Structure | Collapse the batcher into one event loop |
-| 14 | 4 single-owner batcher | Cleanup | Remove the stream fences |
-| 15 | 5 decoupled commits | Switchover | Switch completion to group granularity |
-| 16 | 5 decoupled commits | Cleanup | Delete the per-poll completion path |
-| 17 | 6 bounded replay | Implement | Add the budget accounting |
-| 18 | 6 bounded replay | Switchover | Enable the budget |
-| 19 | 6 bounded replay | Cleanup | Remove the in-flight admission cap |
-| 20 | 7 target-sized requests | Implement | Add the packer |
-| 21 | 7 target-sized requests | Switchover | Set the packing targets |
+| 13 | 4 target-sized requests | Implement | Add the packer |
+| 14 | 4 target-sized requests | Switchover | Set the packing targets |
+| 15 | 5 single-owner batcher | Structure | Collapse the batcher into one event loop |
+| 16 | 5 single-owner batcher | Cleanup | Remove the stream fences |
+| 17 | 6 decoupled commits | Switchover | Switch completion to group granularity |
+| 18 | 6 decoupled commits | Cleanup | Delete the per-poll completion path |
+| 19 | 7 bounded replay | Implement | Add the budget accounting |
+| 20 | 7 bounded replay | Switchover | Enable the budget |
+| 21 | 7 bounded replay | Cleanup | Remove the in-flight admission cap |
 | 22 | 8 adaptive concurrency | Implement | Add the governor |
 | 23 | 8 adaptive concurrency | Switchover | Enable RTT adaptation |
 | 24 | 8 adaptive concurrency | Cleanup | Remove the fixed per-worker cap |
@@ -138,7 +141,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 **Goal:** Make commit contiguity a property of a data structure.
 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
-- Each slot records: complete or not, event count, byte count. The counts serve the budget in change 17.
+- Each slot records: complete or not, event count, byte count. The counts serve the budget in change 19.
 - Operations: `charge` adds a delivered offset. `complete` marks an offset done. `frontier` returns the highest contiguous done offset and does not mutate. `take_frontier` consumes the done prefix up to the frontier.
 - The read/consume split matters: the comparison read is idempotent and cannot consume state by accident. Consumption happens at commit points in every mode, so the ring holds only uncommitted offsets.
 - Completions can arrive in any order. The frontier moves only over completed slots.
@@ -273,7 +276,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Interface out: dispatches. One dispatch is one run of one key on one worker.
 - The first implementation preserves today's semantics: pins, the stash, deferral on drain, and the flush pacing. This is code motion from `assign`, `flush_deferred`, and `on_sub_batch_resolved`.
 - The plumbing (tasks, channels, the mutex) stays as it is. Only the decisions move.
-- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches). This shape is what later makes change 13 mechanical: the seam's handlers become the loop's select arms.
+- The seam is event-shaped, by design: each call is one event, runs to completion, does no I/O, takes no locks, and returns its effects as data (the dispatches). This shape is what later makes change 15 mechanical: the seam's handlers become the loop's select arms.
 - The seam makes today's implicit ordering rules explicit and reviewable in one place.
 
 **Interfaces:**
@@ -338,14 +341,60 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Modify `Dispatcher`: remove the dead resolve plumbing (`clears_deferral`, `send_failed`, the flush driver).
 - Remove the pin and stash metrics (`ingestion_consumer_dispatcher_pins_total`, `ingestion_consumer_dispatcher_stashed_*`, the deferral counters). The key-table gauges replace them.
 
-## Cycle 4: the batcher is one single-owner event loop
+## Cycle 4: workers receive target-sized requests
+
+Outcome: request size tracks target T, and fan-out is demand-driven. No cleanup: body splitting stays as a defence.
+This cycle sits directly after the scheduler on purpose: the win depends only on the key-table scheduler.
+It needs cycle 3's switchover on all lanes, and can proceed while cycle 3's cleanup soaks.
+A scheduler rollback also reverts packing: the packer exists only in the key-table scheduler.
+
+**Verify:** with the pack budget at zero, the packer emits on arrival and the e2e suite passes unchanged.
+Exit criterion after the targets: the request-size histograms center near T, and `ingestion_lag_ms` does not regress.
+
+### 13. Add the packer (implement)
+
+**Task:** Add the packer to the scheduler, with target size T and `PACK_LATENCY_BUDGET`. Ship with the pack budget at zero: send-on-arrival, behavior unchanged.
+
+**Goal:** The packing machinery exists before it changes any request.
+
+- Check the worker side first: a packed request spans polls and keys. Confirm the worker's `concurrentBatches` accounting and the meaning of `batch_id` still hold.
+- Pack runs from multiple runnable keys into one request near T. T counts events and bytes.
+- Emit immediately when the ready work can fill the free stream slots with near-T requests. Otherwise arm the pack deadline. The governor later replaces the slots with permits.
+- When the deadline expires, emit partial requests. The deadline also bounds the wait when held groups keep polls open: packing adds latency, never a wedge.
+- Router order inside a pass: fill open requests on healthy workers first, then pick a worker with P2C from the aperture slice. Partition affinity is a tie-breaker only.
+
+**Interfaces:**
+
+- Add `Packer` inside `KeyTableScheduler`.
+- Modify `Dispatch`: one request may carry runs from several keys.
+- Modify `Config`: add T and `PACK_LATENCY_BUDGET`, default zero. The worker proto does not change.
+
+**Metrics:**
+
+- Add `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` (histograms): the size of each sent request.
+- Add `ingestion_consumer_pack_emits_total` (counter, reason `arrival`, `full`, or `deadline`).
+
+### 14. Set the packing targets (switchover)
+
+**Task:** Set T and the pack budget per lane.
+
+**Goal:** Workers receive target-sized requests.
+
+- A charts values PR sets the targets lane by lane.
+- Watch the request-size histograms, worker occupancy, and end-to-end latency. Rollback is a pack budget of zero.
+
+**Interfaces:**
+
+- None in this repository. Config values only.
+
+## Cycle 5: the batcher is one single-owner event loop
 
 Outcome: one task owns all batcher state. The mutex and the callback structure are gone.
 This is a deliberate structural outcome, not tidy-up: it is the largest single concurrency simplification in the plan.
 
 **Verify:** the e2e suite and review. The change is behavior-identical, and the consumer-facing metrics must not move.
 
-### 13. Collapse the batcher into one event loop (structure)
+### 15. Collapse the batcher into one event loop (structure)
 
 **Task:** Move the scheduler and its plumbing into one single-owner task.
 
@@ -361,13 +410,13 @@ This is a deliberate structural outcome, not tidy-up: it is the largest single c
 - Modify `Batcher`: one single-owner task replaces the lock, the resolve callbacks, and the per-send tasks. `Dispatcher` dissolves into the loop and is removed.
 - Keep `Scheduler` as the loop's decision component. The consumer-facing interface does not change.
 
-### 14. Remove the stream fences (cleanup)
+### 16. Remove the stream fences (cleanup)
 
 **Task:** Delete `FenceGuard` and the fence-settle loop from `grpc_transport.rs`.
 
 **Goal:** Keep only the failure logic the new invariant needs.
 
-- Fences go only after the batcher is single-owner. Change 12 makes requeue-before-release a scheduler invariant; change 13 makes it mechanical: one task performs settlement, requeue, and the next dispatch, so no window exists for a newer send to leapfrog a failure.
+- Fences go only after the batcher is single-owner. Change 12 makes requeue-before-release a scheduler invariant; change 15 makes it mechanical: one task performs settlement, requeue, and the next dispatch, so no window exists for a newer send to leapfrog a failure.
 - A stream failure returns each request's messages to the key table. That is sufficient.
 - This change is deferrable. With one send origin, fences are inert insurance whose only cost is code.
 - Keep: retry classification, busy (503) handling, the ack watchdog, and ack-prefix resolution.
@@ -379,14 +428,14 @@ This is a deliberate structural outcome, not tidy-up: it is the largest single c
 - Keep `TransportError` and the `WorkerStreamRunner` reconnect logic.
 - Remove `ingestion_consumer_worker_stream_fenced_sub_batches_total`. Stream teardowns stay counted.
 
-## Cycle 5: a stalled key stalls only its partition
+## Cycle 6: a stalled key stalls only its partition
 
 Outcome: commits advance per partition as groups complete. Needs cycles 2 and 3.
 
 **Verify:** the commit sentinel checks every commit, and `ingestion_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
 Exit criterion at the canary: zero sentinel violations, and a stalled partition no longer moves the commit rate of other partitions.
 
-### 15. Switch completion to group granularity (switchover)
+### 17. Switch completion to group granularity (switchover)
 
 **Task:** Add a completion granularity, `poll` or `group`. At `group` granularity, mark the ledger per group and stop waiting for whole polls.
 
@@ -405,7 +454,7 @@ Exit criterion at the canary: zero sentinel violations, and a stalled partition 
 - Modify `Config`: add the completion granularity.
 - Modify `IngestionConsumer::process`: at `group` granularity, select over `GroupCompletion` events. The per-poll path stays for rollback.
 
-### 16. Delete the per-poll completion path (cleanup)
+### 18. Delete the per-poll completion path (cleanup)
 
 **Task:** Remove the per-poll completion path after `group` granularity holds on all lanes.
 
@@ -415,14 +464,14 @@ Exit criterion at the canary: zero sentinel violations, and a stalled partition 
 
 - Remove the ordered `InFlightBatch` queue, the per-poll aggregation from change 8, and the completion granularity from `Config`.
 
-## Cycle 6: replay exposure is bounded by B
+## Cycle 7: replay exposure is bounded by B
 
 Outcome: uncommitted work never exceeds the budget, in events and bytes. The in-flight admission cap is gone.
 
-**Verify:** change 17's gauges run on all lanes with the budget unset.
+**Verify:** change 19's gauges run on all lanes with the budget unset.
 Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admission cap's occupancy, and the pause gauge stays flat at zero.
 
-### 17. Add the budget accounting (implement)
+### 19. Add the budget accounting (implement)
 
 **Task:** Track uncommitted work in events and bytes. Ship with no budget set: the admission cap still governs alone.
 
@@ -441,9 +490,9 @@ Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admiss
 **Metrics:**
 
 - Add `ingestion_consumer_budget_outstanding_events` and `ingestion_consumer_budget_outstanding_bytes` (gauges).
-- Add `ingestion_consumer_budget_paused` (gauge, 0 or 1) and `ingestion_consumer_budget_pauses_total` (counter). Both stay flat until change 18.
+- Add `ingestion_consumer_budget_paused` (gauge, 0 or 1) and `ingestion_consumer_budget_pauses_total` (counter). Both stay flat until change 20.
 
-### 18. Enable the budget (switchover)
+### 20. Enable the budget (switchover)
 
 **Task:** Set the budget per lane. Pause the poll at the limit and resume on refund.
 
@@ -458,7 +507,7 @@ Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admiss
 
 - None in this repository. Config values only.
 
-### 19. Remove the in-flight admission cap (cleanup)
+### 21. Remove the in-flight admission cap (cleanup)
 
 **Task:** Remove `max_in_flight_batches` after the budget holds on all lanes.
 
@@ -470,49 +519,6 @@ Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admiss
 
 - Remove `max_in_flight_batches` from `Config` and the admission bookkeeping from `IngestionConsumer`.
 - Remove `ingestion_consumer_in_flight_batches`. The budget gauges replace it.
-
-## Cycle 7: workers receive target-sized requests
-
-Outcome: request size tracks target T, and fan-out is demand-driven. No cleanup: body splitting stays as a defence.
-
-**Verify:** with the pack budget at zero, the packer emits on arrival and the e2e suite passes unchanged.
-Exit criterion after the targets: the request-size histograms center near T, and `ingestion_lag_ms` does not regress.
-
-### 20. Add the packer (implement)
-
-**Task:** Add the packer to the scheduler, with target size T and `PACK_LATENCY_BUDGET`. Ship with the pack budget at zero: send-on-arrival, behavior unchanged.
-
-**Goal:** The packing machinery exists before it changes any request.
-
-- Check the worker side first: a packed request spans polls and keys. Confirm the worker's `concurrentBatches` accounting and the meaning of `batch_id` still hold.
-- Pack runs from multiple runnable keys into one request near T. T counts events and bytes.
-- Emit immediately when the ready work can fill the free permits with near-T requests. Otherwise arm the pack deadline.
-- When the deadline expires, emit partial requests.
-- Router order inside a pass: fill open requests on healthy workers first, then pick a worker with P2C from the aperture slice. Partition affinity is a tie-breaker only.
-
-**Interfaces:**
-
-- Add `Packer` inside `KeyTableScheduler`.
-- Modify `Dispatch`: one request may carry runs from several keys.
-- Modify `Config`: add T and `PACK_LATENCY_BUDGET`, default zero. The worker proto does not change.
-
-**Metrics:**
-
-- Add `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` (histograms): the size of each sent request.
-- Add `ingestion_consumer_pack_emits_total` (counter, reason `arrival`, `full`, or `deadline`).
-
-### 21. Set the packing targets (switchover)
-
-**Task:** Set T and the pack budget per lane.
-
-**Goal:** Workers receive target-sized requests.
-
-- A charts values PR sets the targets lane by lane.
-- Watch the request-size histograms, worker occupancy, and end-to-end latency. Rollback is a pack budget of zero.
-
-**Interfaces:**
-
-- None in this repository. Config values only.
 
 ## Cycle 8: concurrency adapts to worker health
 
