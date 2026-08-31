@@ -193,6 +193,11 @@ def extract_message_text(msg: dict) -> str:
         pieces.append(text)
 
     blocks = msg.get("blocks") or []
+    if text:
+        # A `rich_text` block is Slack's structured mirror of `text`. Flattening it drops
+        # mentions and emoji, yielding a near-duplicate the exact-match dedup below can't
+        # catch — skip it and let `text` (which keeps both) speak for that content.
+        blocks = [b for b in blocks if not (isinstance(b, dict) and b.get("type") == "rich_text")]
     attachments = msg.get("attachments") or []
     try:
         pieces.extend(flatten_block_text(blocks))

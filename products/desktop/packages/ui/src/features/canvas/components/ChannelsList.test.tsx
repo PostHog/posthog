@@ -76,6 +76,9 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => ({ fileTask: vi.fn() }),
 }));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
 vi.mock(
   "@posthog/ui/features/task-detail/components/HandoffTaskDialog",
   () => ({
@@ -142,7 +145,11 @@ vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useRouterState: () => "/spaces",
+  useRouterState: ({
+    select,
+  }: {
+    select: (s: { location: { pathname: string } }) => unknown;
+  }) => select({ location: { pathname: "/spaces" } }),
 }));
 
 import {
