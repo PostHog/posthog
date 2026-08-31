@@ -229,6 +229,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     SCATTER_PLOT = "ScatterPlot"
+    BOX_PLOT = "BoxPlot"
 
 
 class Scale(StrEnum):
