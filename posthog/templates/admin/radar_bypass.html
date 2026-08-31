@@ -1,9 +1,8 @@
 {% extends "admin/base_site.html" %}
 {% load i18n admin_urls static %}
-
 {% block extrastyle %}
-{{ block.super }}
-<style nonce="{{ request.csp_nonce }}">
+    {{ block.super }}
+    <style nonce="{{ request.csp_nonce }}">
     .form-row { margin-bottom: 15px; margin-top: 15px; }
     .help { font-size: 11px; color: #666; }
     .submit-row { margin-top: 20px; }
@@ -16,57 +15,52 @@
     .empty-state { color: #666; font-style: italic; padding: 12px 0; }
     .msg-success { background: #dfd; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; }
     .msg-error { background: #fdd; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; }
-</style>
+    </style>
 {% endblock %}
-
 {% block content %}
-
-<div id="messages"></div>
-
-<div class="email-list">
-    <fieldset class="module aligned">
-        <h2>Bypassed emails (<span id="email-count">{{ bypass_emails|length }}</span>)</h2>
-
-        <table id="email-table" {% if not bypass_emails %}style="display:none"{% endif %}>
-            <thead>
-                <tr>
-                    <th>Email</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="email-list-body">
-                {% for email in bypass_emails %}
-                <tr data-email="{{ email }}">
-                    <td>{{ email }}</td>
-                    <td>
-                        <button type="button" class="remove-btn">Remove</button>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        <p id="empty-state" class="empty-state" {% if bypass_emails %}style="display:none"{% endif %}>No emails are currently bypassed.</p>
-    </fieldset>
-</div>
-
-<form id="add-form" style="margin-top: 30px;">
-    {% csrf_token %}
-    <fieldset class="module aligned">
-        <h2>Add email</h2>
-
-        <div class="form-row">
-            <label for="id_email">Email:</label>
-            <input type="email" name="email" id="id_email" required />
-            <p class="help">Email address to bypass suspicious signup checks</p>
-        </div>
-    </fieldset>
-
-    <div class="submit-row">
-        <input type="submit" value="Add to bypass list" class="default" />
+    <div id="messages"></div>
+    <div class="email-list">
+        <fieldset class="module aligned">
+            <h2>Bypassed emails (<span id="email-count">{{ bypass_emails|length }}</span>)</h2>
+            <table id="email-table"
+                   {% if not bypass_emails %}style="display:none"{% endif %}>
+                <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="email-list-body">
+                    {% for email in bypass_emails %}
+                        <tr data-email="{{ email }}">
+                            <td>{{ email }}</td>
+                            <td>
+                                <button type="button" class="remove-btn">Remove</button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p id="empty-state"
+               class="empty-state"
+               {% if bypass_emails %}style="display:none"{% endif %}>No emails are currently bypassed.</p>
+        </fieldset>
     </div>
-</form>
-
-<script nonce="{{ request.csp_nonce }}">
+    <form id="add-form" style="margin-top: 30px;">
+        {% csrf_token %}
+        <fieldset class="module aligned">
+            <h2>Add email</h2>
+            <div class="form-row">
+                <label for="id_email">Email:</label>
+                <input type="email" name="email" id="id_email" required />
+                <p class="help">Email address to bypass suspicious signup checks</p>
+            </div>
+        </fieldset>
+        <div class="submit-row">
+            <input type="submit" value="Add to bypass list" class="default" />
+        </div>
+    </form>
+    <script nonce="{{ request.csp_nonce }}">
 const API_BASE = '/admin/api/radar-bypass/';
 
 function getCSRFToken() {
@@ -151,5 +145,5 @@ document.getElementById('email-list-body').addEventListener('click', function(e)
     const row = btn.closest('tr');
     if (row) removeEmail(row.dataset.email);
 });
-</script>
+    </script>
 {% endblock %}

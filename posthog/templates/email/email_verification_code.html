@@ -1,17 +1,15 @@
 {% extends "email/base.html" %}
-
 {% block section %}
-<p>Enter this code to verify your email address:</p>
-
-<div class="mb mt text-center">
-    <p style="font-size: 32px; font-weight: 700; letter-spacing: 8px; margin: 0;">{{code}}</p>
-</div>
-
-<p>This code expires in {{expiration_minutes}} minutes.</p>
-
-<hr />
-
-<p class="muted">
-    If you didn't {% if action == "email_change" %}request to change your email{% else %}create a PostHog account{% endif %}, you can ignore this email.
-</p>
-{% endblock %} {% block preheader %}{{preheader}}{% endblock %}{% block heading %}Verify your email address.{% endblock %}
+    <p>Enter this code to verify your email address:</p>
+    <div class="mb mt text-center">
+        <p style="font-size: 32px;
+                  font-weight: 700;
+                  letter-spacing: 8px;
+                  margin: 0">{{ code }}</p>
+    </div>
+    <p>This code expires in {{ expiration_minutes }} minutes.</p>
+    <hr />
+    <p class="muted">
+        If you didn't {% if action == "email_change" %}request to change your email{% else %}create a PostHog account{% endif %}, you can ignore this email.
+    </p>
+{% endblock %} {% block preheader %}{{ preheader }}{% endblock %}{% block heading %}Verify your email address.{% endblock %}
