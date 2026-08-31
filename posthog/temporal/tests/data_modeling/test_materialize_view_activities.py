@@ -37,6 +37,7 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
+    EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
     get_aws_storage_options,
     get_s3_client,
@@ -1693,6 +1694,45 @@ class _EmptyArrowClient:
                 return self.body
 
         yield _Response(body)
+
+
+class TestHogqlTableModifiers:
+    @pytest.mark.parametrize(
+        "query,team_modifiers,expected_sql",
+        [
+            ("SELECT $is_bounce FROM sessions LIMIT 1", {"bounceRateDurationSeconds": 123}, "123"),
+            (
+                "SELECT properties.plan FROM events LIMIT 1",
+                {"propertyGroupsMode": "optimized"},
+                "properties_group_custom",
+            ),
+        ],
+    )
+    async def test_compiles_the_view_with_the_team_default_modifiers(
+        self, ateam: Team, query: str, team_modifiers: dict[str, Any], expected_sql: str
+    ) -> None:
+        ateam.modifiers = team_modifiers
+        await database_sync_to_async(ateam.save)()
+        captured_sql: str | None = None
+
+        async def fake_astream_query_as_arrow(
+            _client: Any, query: str, *args: Any, **kwargs: Any
+        ) -> AsyncIterator[pa.RecordBatch]:
+            nonlocal captured_sql
+            captured_sql = query
+            return
+            yield  # type: ignore[unreachable]  # makes this an async generator that yields no batches
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow",
+                fake_astream_query_as_arrow,
+            ),
+            contextlib.suppress(EmptyHogQLResponseColumnsError),
+        ):
+            _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert captured_sql is not None and expected_sql in captured_sql
 
 
 class TestHogqlTableEmptyResults:
