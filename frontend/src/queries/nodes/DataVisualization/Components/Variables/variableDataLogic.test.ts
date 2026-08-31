@@ -21,8 +21,8 @@ describe('variableDataLogic', () => {
         logic.unmount()
     })
 
-    it('keeps the existing variables when a transient gateway failure interrupts the fetch', async () => {
-        // A 502/503/504 blip must degrade to the current list, not escape into error tracking.
+    it('keeps the existing variables when an empty-bodied transient gateway blip interrupts the fetch', async () => {
+        // An empty-bodied 502/503/504 must degrade to the current list, not escape into error tracking.
         jest.mocked(api.insightVariables.list).mockRejectedValue(new ApiError('Service unavailable', 503))
         logic.mount()
 
@@ -30,10 +30,16 @@ describe('variableDataLogic', () => {
         expect(logic.values.variables).toEqual([])
     })
 
-    it('fails the load when the fetch returns a real error', async () => {
-        // A plain 500 is a genuine backend defect, so the load must fail and reach error tracking
-        // rather than resolve as an empty success that hides it.
-        jest.mocked(api.insightVariables.list).mockRejectedValue(new ApiError('Server error', 500))
+    it.each([
+        // A plain 500 is a genuine backend defect that must reach error tracking.
+        ['a real backend error', new ApiError('Server error', 500)],
+        // A transient status that carries a message must surface it rather than degrade silently.
+        [
+            'a transient failure with a detail message',
+            new ApiError('Service unavailable', 503, undefined, { detail: 'Scheduled maintenance' }),
+        ],
+    ])('fails the load for %s rather than hiding it as an empty success', async (_, error) => {
+        jest.mocked(api.insightVariables.list).mockRejectedValue(error)
         logic.mount()
 
         await expectLogic(logic)
