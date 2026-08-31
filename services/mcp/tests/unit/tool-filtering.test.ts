@@ -1011,6 +1011,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
+                'self-optimising-workflows',
             ])
         )
         expect(flags).toHaveLength(35)
