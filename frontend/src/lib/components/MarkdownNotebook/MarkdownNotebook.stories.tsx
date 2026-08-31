@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
@@ -287,6 +289,26 @@ export const MermaidDiagram: Story = {
     // so the snapshot isn't captured mid-render.
     parameters: {
         testOptions: { waitForSelector: '[data-attr="mermaid-rendered"]' },
+    },
+}
+
+export const MermaidDiagramEditor: Story = {
+    args: {
+        value: mermaidNotebook,
+        mode: 'edit',
+    },
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="notebook-mermaid-editor"]' },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const diagram = canvasElement.querySelector<HTMLElement>('.MarkdownNotebook__mermaid-block')
+        if (!diagram) {
+            throw new Error('Mermaid diagram block not found')
+        }
+        await userEvent.hover(diagram)
+        await userEvent.click(await canvas.findByLabelText('Edit diagram'))
+        await screen.findByLabelText('Mermaid definition')
     },
 }
 

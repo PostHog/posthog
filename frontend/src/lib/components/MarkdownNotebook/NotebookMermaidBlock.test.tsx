@@ -1,8 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-import { NotebookCodeBlockNode } from './types'
+import { NotebookBlockNode, NotebookCodeBlockNode } from './types'
 
 jest.mock('kea', () => ({
     useValues: () => ({ isDarkModeOn: false }),
@@ -53,20 +53,64 @@ describe('NotebookMermaidBlock', () => {
         renderMock.mockResolvedValue({ svg: '<svg data-testid="rendered"><g/></svg>' })
         const setBlockRef = jest.fn()
 
-        render(<NotebookMermaidBlock node={codeNode('flowchart LR; A-->B', 'mermaid')} setBlockRef={setBlockRef} />)
+        render(
+            <NotebookMermaidBlock
+                node={codeNode('flowchart LR; A-->B', 'mermaid')}
+                mode="view"
+                setBlockRef={setBlockRef}
+                updateNode={jest.fn()}
+            />
+        )
 
         const container = await screen.findByTestId('mermaid-rendered')
         expect(container.innerHTML).toContain('rendered')
         expect(renderMock).toHaveBeenCalledWith(expect.any(String), 'flowchart LR; A-->B')
         expect(setBlockRef).toHaveBeenCalledWith(expect.any(HTMLElement))
+        expect(screen.queryByLabelText('Edit diagram')).not.toBeInTheDocument()
     })
 
     it('falls back to the plain source when the diagram fails to render', async () => {
         renderMock.mockRejectedValue(new Error('Parse error: bad syntax'))
 
-        render(<NotebookMermaidBlock node={codeNode('not-a-real-diagram', 'mermaid')} setBlockRef={jest.fn()} />)
+        render(
+            <NotebookMermaidBlock
+                node={codeNode('not-a-real-diagram', 'mermaid')}
+                mode="view"
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+            />
+        )
 
         const errorContainer = await screen.findByTestId('mermaid-error')
         expect(errorContainer).toHaveTextContent('not-a-real-diagram')
+    })
+
+    it('edits a diagram without exposing the notebook markdown source', async () => {
+        const node = codeNode('flowchart LR; A-->B', 'mermaid')
+        const updateNode = jest.fn()
+        renderMock.mockImplementation((_id: string, code: string) =>
+            code.endsWith('-->')
+                ? Promise.reject(new Error('Parse error: incomplete edge'))
+                : Promise.resolve({ svg: '<svg data-testid="rendered"><g/></svg>' })
+        )
+
+        render(<NotebookMermaidBlock node={node} mode="edit" setBlockRef={jest.fn()} updateNode={updateNode} />)
+
+        fireEvent.click(screen.getByLabelText('Edit diagram'))
+        const definition = screen.getByLabelText('Mermaid definition')
+        expect(definition).toHaveValue(node.text)
+
+        fireEvent.change(definition, { target: { value: 'flowchart LR; A-->' } })
+        expect(await screen.findByTestId('mermaid-error')).toHaveTextContent('incomplete edge')
+        expect(definition).toHaveValue('flowchart LR; A-->')
+
+        fireEvent.change(definition, { target: { value: 'flowchart LR; A-->C' } })
+        await waitFor(() => expect(renderMock).toHaveBeenCalledWith(expect.any(String), 'flowchart LR; A-->C'))
+        fireEvent.click(screen.getByText('Save diagram'))
+
+        expect(updateNode).toHaveBeenCalledWith(node.id, expect.any(Function))
+        const updater = updateNode.mock.calls[0][1] as (currentNode: NotebookBlockNode) => NotebookBlockNode | null
+        expect(updater(node)).toEqual({ ...node, text: 'flowchart LR; A-->C' })
+        await waitFor(() => expect(screen.queryByLabelText('Mermaid definition')).not.toBeInTheDocument())
     })
 })

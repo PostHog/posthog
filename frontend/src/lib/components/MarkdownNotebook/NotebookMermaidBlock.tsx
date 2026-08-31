@@ -1,8 +1,14 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useState } from 'react'
 
+import { IconPencil } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { PostHogErrorBoundary } from '@posthog/react'
+
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { NotebookCodeBlockNode } from './types'
+import { updateNotebookCodeBlockText } from './documentModel'
+import { NotebookBlockNode, NotebookCodeBlockNode, NotebookMode } from './types'
 
 // Loaded on demand so the mermaid library ships in its own chunk rather than the notebook bundle.
 const LazyMermaidDiagram = lazy(() => import('lib/lemon-ui/LemonMarkdown/MermaidDiagram'))
@@ -13,17 +19,58 @@ export function isMermaidCodeBlock(node: NotebookCodeBlockNode): boolean {
 
 export function NotebookMermaidBlock({
     node,
+    mode,
     setBlockRef,
+    updateNode,
 }: {
     node: NotebookCodeBlockNode
+    mode: NotebookMode
     setBlockRef: (element: HTMLElement | null) => void
+    updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
 }): JSX.Element {
-    return (
-        <div
-            className="MarkdownNotebook__mermaid-block"
-            ref={setBlockRef}
-            contentEditable={false}
-            data-markdown-notebook-node-id={node.id}
+    const [isEditorOpen, setIsEditorOpen] = useState(false)
+    const [draft, setDraft] = useState(node.text)
+    const previewCode = isEditorOpen ? draft : node.text
+
+    const openEditor = (): void => {
+        setDraft(node.text)
+        setIsEditorOpen(true)
+    }
+
+    const closeEditor = (): void => {
+        setIsEditorOpen(false)
+        setDraft(node.text)
+    }
+
+    const saveDiagram = (): void => {
+        if (draft !== node.text) {
+            updateNode(node.id, (currentNode) => {
+                if (currentNode.type !== 'code') {
+                    return currentNode
+                }
+                return updateNotebookCodeBlockText(currentNode, draft)
+            })
+        }
+        setIsEditorOpen(false)
+    }
+
+    const renderPreview = (code: string, naturalWidth: boolean): JSX.Element => (
+        <PostHogErrorBoundary
+            key={code}
+            additionalProperties={{
+                feature: 'markdown_notebook_mermaid',
+                markdown_notebook_node_id: node.id,
+            }}
+            fallback={() => (
+                <div className="text-danger" data-attr="mermaid-error-boundary">
+                    <div className="mb-1 text-xs">
+                        This diagram couldn't render. Check the Mermaid definition or reload the page.
+                    </div>
+                    <CodeSnippet language={Language.Text} compact wrap>
+                        {code}
+                    </CodeSnippet>
+                </div>
+            )}
         >
             <Suspense
                 fallback={
@@ -32,8 +79,83 @@ export function NotebookMermaidBlock({
                     </div>
                 }
             >
-                <LazyMermaidDiagram code={node.text} naturalWidth />
+                <LazyMermaidDiagram code={code} naturalWidth={naturalWidth} />
             </Suspense>
+        </PostHogErrorBoundary>
+    )
+
+    return (
+        <div
+            className="MarkdownNotebook__mermaid-block"
+            ref={setBlockRef}
+            contentEditable={false}
+            data-markdown-notebook-node-id={node.id}
+        >
+            <div className="MarkdownNotebook__mermaid-preview">{renderPreview(node.text, true)}</div>
+            {mode === 'edit' ? (
+                <div className="MarkdownNotebook__mermaid-actions">
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconPencil />}
+                        tooltip="Edit diagram"
+                        aria-label="Edit diagram"
+                        data-attr="notebook-mermaid-edit"
+                        onClick={openEditor}
+                    />
+                </div>
+            ) : null}
+            <LemonModal
+                isOpen={isEditorOpen}
+                onClose={closeEditor}
+                title="Edit Mermaid diagram"
+                description="Update the Mermaid definition and check the preview before saving."
+                width="60rem"
+                maxWidth="calc(100vw - 2rem)"
+                hasUnsavedInput={draft !== node.text}
+                data-attr="notebook-mermaid-editor"
+                footer={
+                    <>
+                        <LemonButton type="secondary" data-attr="notebook-mermaid-editor-cancel" onClick={closeEditor}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            data-attr="notebook-mermaid-editor-save"
+                            disabledReason={draft === node.text ? 'No changes to save' : undefined}
+                            onClick={saveDiagram}
+                        >
+                            Save diagram
+                        </LemonButton>
+                    </>
+                }
+            >
+                <div className="@container">
+                    <div className="grid grid-cols-1 @3xl:grid-cols-2 gap-4">
+                        <div className="flex min-w-0 flex-col gap-2">
+                            <LemonLabel htmlFor={`mermaid-definition-${node.id}`}>Definition</LemonLabel>
+                            <LemonTextArea
+                                id={`mermaid-definition-${node.id}`}
+                                value={draft}
+                                aria-label="Mermaid definition"
+                                data-attr="notebook-mermaid-definition"
+                                className="font-mono"
+                                minRows={16}
+                                maxRows={24}
+                                autoFocus
+                                stopPropagation
+                                onChange={setDraft}
+                                onPressCmdEnter={saveDiagram}
+                            />
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-2">
+                            <LemonLabel>Preview</LemonLabel>
+                            <div className="min-h-72 max-h-96 overflow-auto rounded border bg-surface-primary p-3">
+                                {renderPreview(previewCode, false)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </LemonModal>
         </div>
     )
 }
