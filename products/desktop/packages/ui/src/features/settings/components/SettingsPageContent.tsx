@@ -18,7 +18,6 @@ import { TerminalSettings } from "@posthog/ui/features/settings/sections/Termina
 import { WorkspacesSettings } from "@posthog/ui/features/settings/sections/WorkspacesSettings";
 import { WorktreesSettings } from "@posthog/ui/features/settings/sections/worktrees/WorktreesSettings";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
-import { CustomizeSidebarSettings } from "@posthog/ui/features/sidebar/components/CustomizeSidebarDialog";
 import { SkillsView } from "@posthog/ui/features/skills/SkillsView";
 import type { ComponentType, ReactNode } from "react";
 
@@ -74,7 +73,6 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
     "Personalization",
     PersonalizationSettings,
   ),
-  sidebar: defineSettingsPage("Sidebar", CustomizeSidebarSettings),
   terminal: defineSettingsPage("Terminal", TerminalSettings),
   harness: defineSettingsPage("Harness", HarnessSettings),
   shortcuts: defineSettingsPage("Shortcuts", ShortcutsSettings),
@@ -108,10 +106,10 @@ function SettingsPageHeader({
   return (
     <div
       className={`flex items-center gap-2 ${
-        bordered ? "shrink-0 border-gray-5 border-b px-6 py-4" : ""
+        bordered ? "h-14 shrink-0 border-border border-b px-6" : ""
       }`}
     >
-      {icon && <span className="text-gray-10">{icon}</span>}
+      {icon && <span className="text-muted-foreground">{icon}</span>}
       <span className="font-medium text-lg leading-6.5">{title}</span>
     </div>
   );

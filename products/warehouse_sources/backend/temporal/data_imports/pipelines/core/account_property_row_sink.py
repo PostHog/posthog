@@ -11,6 +11,7 @@ from pyarrow.parquet import ParquetFile, write_table
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.utils import aretry_on_db_connection_drop
 
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
@@ -83,10 +84,16 @@ class AccountPropertyRowSink:
 
     async def _get_projection(self) -> list[AccountPropertySourceProjection] | None:
         """One projection per enabled account source on the binding (key + mapped columns), or None
-        when nothing needs staging. Resolved once per run."""
+        when nothing needs staging. Resolved once per run.
+
+        The resolver reads the app DB (team scoping, enabled profile sources), so a long-lived
+        worker's pooled connection can have gone stale (pooler recycle, failover, deploy) since it
+        was last used. Retry once on a fresh connection rather than let that escape as
+        error-tracking noise, or as a silently skipped account-property sync for the run.
+        """
         if not self._projection_resolved:
-            self._projection = await database_sync_to_async_pool(account_property_projection_for)(
-                self.team_id, self.binding
+            self._projection = await aretry_on_db_connection_drop(
+                lambda: database_sync_to_async_pool(account_property_projection_for)(self.team_id, self.binding)
             )
             self._projection_resolved = True
         return self._projection

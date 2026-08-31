@@ -7,6 +7,8 @@ export enum PosthogJwtAudience {
     WORKFLOWS_CANCEL_INVOCATIONS = 'posthog:workflows:cancel_invocations',
     WORKFLOWS_CANCEL_BATCH = 'posthog:workflows:cancel_batch',
     TASKS_CREATE = 'posthog:tasks:create',
+    // Must match PosthogJwtAudience.CONVERSATIONS_TICKETS in posthog/jwt.py exactly.
+    CONVERSATIONS_TICKETS = 'posthog:conversations:tickets',
 }
 
 export class JWT {

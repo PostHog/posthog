@@ -29,7 +29,7 @@ from products.signals.backend.task_run_artefacts import (
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Task/TaskRun ORM models needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task, TaskRun  # tach-ignore
+from products.tasks.backend.models import Task, TaskRun
 
 
 class TestTaskRunArtefacts(BaseTest):

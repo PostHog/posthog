@@ -2,6 +2,7 @@ import { useService } from "@posthog/di/react";
 import {
   closeTab as closeTabLocal,
   closeTabs as closeTabsLocal,
+  DEFAULT_TAB_HREF,
   decideTabNavigation,
   openTab as openTabLocal,
   primaryWindow,
@@ -23,12 +24,17 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import {
+  activityReportIdFromHref,
+  useActivitySelection,
+} from "@posthog/ui/features/canvas/stores/activityDetailStore";
+import {
   applyTabViewState,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
@@ -45,7 +51,7 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { shouldHandleBrowserTabSwitch } from "./browserTabShortcuts";
 import {
@@ -63,6 +69,7 @@ import { TabStrip, type TabView } from "./TabStrip";
 import { TaskTabDot } from "./TaskTabMarks";
 import {
   isTabAppView,
+  resolveTabAppViewDisplay,
   TAB_APP_VIEW_META,
   type TabAppView,
 } from "./tabAppViews";
@@ -80,7 +87,6 @@ import { useOpenBrowserTab } from "./useOpenBrowserTab";
  */
 const canvasInfo = new Map<string, { name: string; templateId: string }>();
 const taskInfo = new Map<string, string>();
-const BLANK_TAB_HREF = "/activity";
 
 /** Bounded insert (most-recent kept) so the caches don't grow unbounded over a
  * long session. */
@@ -120,7 +126,7 @@ type TabRef = {
   appView: string | null;
 };
 
-export function BrowserTabStrip() {
+function BrowserTabStripImpl() {
   const spacesLayout = useChannelsLayout();
   const snapshot = useTabsSnapshot();
   const navigate = useNavigate();
@@ -165,6 +171,11 @@ export function BrowserTabStrip() {
   const routeAppView: TabAppView | null = isTabAppView(view.type)
     ? view.type
     : null;
+  const activitySelection = useActivitySelection();
+  const activeActivityReportId =
+    routeAppView === "activity" && activitySelection?.kind === "report"
+      ? activitySelection.reportId
+      : null;
 
   const { channels, isLoading: channelsLoading } = useChannels();
   // The scoped space is null until the channel list has loaded and the route
@@ -240,6 +251,9 @@ export function BrowserTabStrip() {
     ...taskDetailQuery(activeSession.taskId ?? ""),
     enabled: !!activeSession.taskId,
   });
+  const { data: activeReportRecord } = useInboxReportById(
+    activeActivityReportId,
+  );
   // Remember names so a background tab from another channel keeps its label
   // after its channel's list unloads. Written in an effect (not during render)
   // to keep render pure; the tabs memo reads the live lists first anyway.
@@ -273,13 +287,19 @@ export function BrowserTabStrip() {
       if (activeRecord?.id === params.dashboardId) return activeRecord.name;
       return dashboards.find((d) => d.id === params.dashboardId)?.name ?? null;
     }
+    if (activeActivityReportId) {
+      if (activeReportRecord?.id !== activeActivityReportId) return null;
+      return activeReportRecord.title?.trim() || "Untitled report";
+    }
     return null;
   }, [
     activeSession.taskId,
     params.dashboardId,
+    activeActivityReportId,
     activeTaskRecord,
     allTasks,
     activeRecord,
+    activeReportRecord,
     dashboards,
   ]);
 
@@ -291,12 +311,16 @@ export function BrowserTabStrip() {
       const channel = channelName(currentChannelId);
       return channelSectionFor(routeChannelSection)?.label ?? channel;
     }
+    // A selected Activity report owns the tab label. While its query resolves,
+    // keep the tab's stored title instead of replacing it with "Activity".
+    if (activeActivityReportId) return null;
     if (routeAppView) return TAB_APP_VIEW_META[routeAppView].label;
     return null;
   }, [
     activeTitle,
     params.channelId,
     activeSession.channelId,
+    activeActivityReportId,
     channelName,
     routeChannelSection,
     routeAppView,
@@ -357,16 +381,22 @@ export function BrowserTabStrip() {
       href: locationHref,
       ...(railPane === "spaces" ? { listOpen, spaceId: stampedSpaceId } : {}),
     };
+    const previousLastByPane = mirrorActive?.viewState?.lastByPane ?? {};
     const viewState: TabViewState = {
       // Keep the stored name when nothing has resolved yet, so a loading frame
       // does not blank a background tab's label.
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
       spaceId: stampedSpaceId,
-      lastByPane: {
-        ...(mirrorActive?.viewState?.lastByPane ?? {}),
-        [railPane]: visit,
-      },
+      // Settings is a full-window overlay that classifies as the spaces pane, so
+      // recording its href here would overwrite the tab's real last spaces
+      // location and a later Spaces rail click would reopen Settings. Keep the
+      // existing map on the settings route, as the strip did before settings
+      // stayed mounted.
+      lastByPane:
+        routeAppView === "settings"
+          ? previousLastByPane
+          : { ...previousLastByPane, [railPane]: visit },
     };
     const decision = decideTabNavigation({
       // The SETTLED tag, not the in-flight one. Pairing the in-flight tag with
@@ -554,6 +584,29 @@ export function BrowserTabStrip() {
             pinned,
           };
         }
+        // A top-level app page (Inbox, Agents, Skills, …).
+        // Resolve this before channel state: when navigation crosses from a
+        // space to Activity, persisted channel context must not turn the new
+        // top-level tab into a space tab.
+        if (appView && isTabAppView(appView)) {
+          const activityReportId = isActive
+            ? activeActivityReportId
+            : activityReportIdFromHref(t.href);
+          const activityReport = activityReportId
+            ? {
+                title: isActive
+                  ? (activeTitle ?? t.viewState?.title)
+                  : t.viewState?.title,
+              }
+            : null;
+          const display = resolveTabAppViewDisplay(appView, activityReport);
+          return {
+            id: t.id,
+            ...display,
+            channelName: null,
+            pinned,
+          };
+        }
         // A channel tab: a sub-section (Recents/CONTEXT.md/…) or the channel home.
         // The section drives the label; the channel name carries the space
         // context. Home has no section, so it labels by the channel name.
@@ -573,16 +626,6 @@ export function BrowserTabStrip() {
             channelName: channel,
             // No section meta → the channel's index page.
             isChannelHome: !meta,
-            pinned,
-          };
-        }
-        // A top-level app page (Inbox, Agents, Skills, …).
-        if (appView && isTabAppView(appView)) {
-          return {
-            id: t.id,
-            label: TAB_APP_VIEW_META[appView].label,
-            icon: TAB_APP_VIEW_META[appView].icon,
-            channelName: null,
             pinned,
           };
         }
@@ -608,6 +651,8 @@ export function BrowserTabStrip() {
     params.dashboardId,
     activeSession.taskId,
     activeSession.channelId,
+    activeActivityReportId,
+    activeTitle,
     routeChannelSection,
     routeAppView,
     spacesLayout,
@@ -713,7 +758,7 @@ export function BrowserTabStrip() {
           }
         }
       } else {
-        navigate({ to: BLANK_TAB_HREF, state });
+        navigate({ to: DEFAULT_TAB_HREF, state });
       }
     },
     [channelReportsEnabled, navigate, router.history],
@@ -749,9 +794,17 @@ export function BrowserTabStrip() {
     useDraftStore
       .getState()
       .actions.setDraft(getTaskInputSessionId(tabId), null);
-    const next = applyLocalTransform((s) => closeTabLocal(s, tabId).snapshot);
+    const newTabId = crypto.randomUUID();
+    const next = applyLocalTransform(
+      (s) =>
+        closeTabLocal(s, tabId, {
+          href: DEFAULT_TAB_HREF,
+          makeId: () => newTabId,
+          now: Date.now,
+        }).snapshot,
+    );
     applyCloseResult(next);
-    void persistWrite(() => client.close(tabId));
+    void persistWrite(() => client.close(tabId, newTabId));
   };
 
   // Unpinning re-homes the tab at the front of the unpinned block. Apply the
@@ -775,12 +828,22 @@ export function BrowserTabStrip() {
     for (const tabId of tabIds) {
       draftActions.setDraft(getTaskInputSessionId(tabId), null);
     }
+    const newTabId = crypto.randomUUID();
     const next = applyLocalTransform((s) =>
-      closeTabsLocal(s, tabIds, anchorTabId),
+      closeTabsLocal(
+        s,
+        tabIds,
+        {
+          href: DEFAULT_TAB_HREF,
+          makeId: () => newTabId,
+          now: Date.now,
+        },
+        anchorTabId,
+      ),
     );
     applyCloseResult(next);
     void persistWrite(() =>
-      client.closeMany({ tabIds, focusTabId: anchorTabId }),
+      client.closeMany({ tabIds, newTabId, focusTabId: anchorTabId }),
     );
   };
 
@@ -817,10 +880,10 @@ export function BrowserTabStrip() {
 
   const landOnDefault = (tabId?: string): void => {
     const state = tabId ? (prev: object) => ({ ...prev, tabId }) : undefined;
-    navigate({ to: BLANK_TAB_HREF, state });
+    navigate({ to: DEFAULT_TAB_HREF, state });
   };
 
-  const handleNewTab = (): void => openBrowserTab(BLANK_TAB_HREF);
+  const handleNewTab = (): void => openBrowserTab(DEFAULT_TAB_HREF);
 
   // Cmd/Ctrl+T opens a new browser tab. Bound here (not globally) so it only
   // fires where the strip is mounted; the new-task shortcut owns Cmd/Ctrl+N.
@@ -887,3 +950,6 @@ export function BrowserTabStrip() {
     />
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const BrowserTabStrip = memo(BrowserTabStripImpl);

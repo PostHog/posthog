@@ -702,6 +702,11 @@ class TestAWSIntegration:
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
         self.integration_kind = aws_integration_kind
+        # Redshift integrations also carry the database user to obtain temporary credentials for.
+        if aws_integration_kind == Integration.IntegrationKind.AWS_REDSHIFT:
+            self.extra_config = {"user": "awsuser"}
+        else:
+            self.extra_config = {}
 
     @patch("posthog.models.integration.aws.validate_aws_credentials", return_value="123456789012")
     def test_create_with_valid_config(self, mock_validate, client: HttpClient):
@@ -715,6 +720,7 @@ class TestAWSIntegration:
                     "name": "prod-aws",
                     "aws_access_key_id": "AKIAEXAMPLE",
                     "aws_secret_access_key": "secret",
+                    **self.extra_config,
                 },
             },
             content_type="application/json",
@@ -727,7 +733,7 @@ class TestAWSIntegration:
         assert integration.kind == self.integration_kind
         assert integration.team == self.team
         assert integration.integration_id == "prod-aws"
-        assert integration.config == {"name": "prod-aws", "aws_account_id": "123456789012"}
+        assert integration.config == {"name": "prod-aws", "aws_account_id": "123456789012", **self.extra_config}
         assert integration.sensitive_config == {
             "aws_access_key_id": "AKIAEXAMPLE",
             "aws_secret_access_key": "secret",
@@ -767,7 +773,12 @@ class TestAWSIntegration:
         client.force_login(self.user)
         payload = {
             "kind": self.integration_kind,
-            "config": {"name": "prod-aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"},
+            "config": {
+                "name": "prod-aws",
+                "aws_access_key_id": "AKIAEXAMPLE",
+                "aws_secret_access_key": "secret",
+                **self.extra_config,
+            },
         }
 
         first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
@@ -837,8 +848,14 @@ class TestAWSRoleBasedIntegration:
         )
 
         self.integration_kind = aws_integration_kind
+        # Redshift integrations also carry the database user to obtain temporary credentials for.
+        if aws_integration_kind == Integration.IntegrationKind.AWS_REDSHIFT:
+            self.extra_config = {"user": "awsuser"}
+        else:
+            self.extra_config = {}
 
-    def test_create_with_valid_config(self, client: HttpClient):
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_with_valid_config(self, mock_validate, client: HttpClient):
         client.force_login(self.user)
 
         role = "arn:aws:iam::123456789012:role/my-role"
@@ -849,6 +866,7 @@ class TestAWSRoleBasedIntegration:
                 "config": {
                     "name": "prod-aws",
                     "aws_role_arn": role,
+                    **self.extra_config,
                 },
             },
             content_type="application/json",
@@ -861,10 +879,35 @@ class TestAWSRoleBasedIntegration:
         assert integration.kind == self.integration_kind
         assert integration.team == self.team
         assert integration.integration_id == "prod-aws"
-        assert integration.config == {"name": "prod-aws", "aws_role_arn": role}
+        assert integration.config == {"name": "prod-aws", "aws_role_arn": role, **self.extra_config}
         assert integration.sensitive_config == {}
 
-    def test_create_rejects_duplicate_role_in_different_org(self, client: HttpClient):
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_rejects_invalid_role_arn(self, mock_validate, client: HttpClient):
+        from posthog.models.integration import IntegrationError
+
+        mock_validate.side_effect = IntegrationError("AWS role ARN is not valid")
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": self.integration_kind,
+                "config": {
+                    "name": "prod-aws",
+                    "aws_role_arn": "arn:aws:iam::123456789012:role/not-assumable",
+                    **self.extra_config,
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "AWS role ARN is not valid" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind=self.integration_kind).exists()
+
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_rejects_duplicate_role_in_different_org(self, mock_validate, client: HttpClient):
         another_org = Organization.objects.create(name="Test Org 2")
         another_team = Team.objects.create(organization=another_org, name="Test Team")
         another_user = User.objects.create_and_join(
@@ -873,7 +916,11 @@ class TestAWSRoleBasedIntegration:
         client.force_login(another_user)
         payload = {
             "kind": self.integration_kind,
-            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+            "config": {
+                "name": "prod-aws",
+                "aws_role_arn": "arn:aws:iam::123456789012:role/my-role",
+                **self.extra_config,
+            },
         }
 
         first = client.post(
@@ -886,11 +933,16 @@ class TestAWSRoleBasedIntegration:
         assert second.status_code == status.HTTP_400_BAD_REQUEST
         assert "Cannot create AWS integration: Invalid role" in second.json()["detail"]
 
-    def test_create_rejects_duplicate_name(self, client: HttpClient):
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_rejects_duplicate_name(self, mock_validate, client: HttpClient):
         client.force_login(self.user)
         payload = {
             "kind": self.integration_kind,
-            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+            "config": {
+                "name": "prod-aws",
+                "aws_role_arn": "arn:aws:iam::123456789012:role/my-role",
+                **self.extra_config,
+            },
         }
 
         first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
@@ -6382,7 +6434,7 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
 class TestIntegrationMembershipPermissions(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # A plain project member: allowed to add integrations, but not edit or remove them.
+        # A plain project member can add integrations and manage only Google accounts they connected.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -6407,6 +6459,79 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
+
+    def test_member_can_delete_own_google_calendar_integration(self) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-1",
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not Integration.objects.filter(id=integration.id).exists()
+
+    def test_member_cannot_delete_another_members_google_calendar_integration(self) -> None:
+        creator = User.objects.create_and_join(self.organization, "calendar-owner@example.com", "test")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-2",
+            created_by=creator,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert Integration.objects.filter(id=integration.id).exists()
+
+    @override_settings(
+        GOOGLE_CALENDAR_APP_CLIENT_ID="google-calendar-client-id",
+        GOOGLE_CALENDAR_APP_CLIENT_SECRET="google-calendar-client-secret",
+    )
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_member_can_reconnect_own_google_calendar_integration(self, mock_oauth_response: MagicMock) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-3",
+            created_by=self.user,
+        )
+        mock_oauth_response.return_value = integration
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": Integration.IntegrationKind.GOOGLE_CALENDAR, "config": {"state": "state", "code": "code"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["id"] == integration.id
+
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_member_cannot_reconnect_another_members_google_calendar_integration(
+        self, mock_oauth_response: MagicMock
+    ) -> None:
+        creator = User.objects.create_and_join(self.organization, "other-calendar-owner@example.com", "test")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-4",
+            created_by=creator,
+        )
+        mock_oauth_response.return_value = integration
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": Integration.IntegrationKind.GOOGLE_CALENDAR, "config": {"state": "state", "code": "code"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        integration.refresh_from_db()
+        assert integration.created_by_id == creator.id
 
     @parameterized.expand(["required", "disabled"])
     def test_member_cannot_set_push_identity_verification(self, mode):

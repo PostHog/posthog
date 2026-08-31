@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -233,6 +234,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                 </>
             ),
         },
+        getOtelSessionIdStep(ctx, { languages: ['Python', 'Node'] }),
         {
             title: 'Other instrumentations, direct OTLP, and troubleshooting',
             badge: 'optional',
