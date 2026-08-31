@@ -14,11 +14,9 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const AnnotationCreateSchema = AnnotationsCreateBody.omit({
-    creation_type: true,
-    dashboard_item: true,
-    dashboard_id: true,
-    deleted: true,
+const AnnotationCreateSchema = AnnotationsCreateBody.omit({ creation_type: true, deleted: true }).extend({
+    dashboard_id: z.preprocess(castStringToInt, AnnotationsCreateBody.shape['dashboard_id']).optional(),
+    dashboard_item: z.preprocess(castStringToInt, AnnotationsCreateBody.shape['dashboard_item']).optional(),
 })
 
 const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Annotation> => ({
@@ -32,6 +30,12 @@ const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Ann
         }
         if (params.date_marker !== undefined) {
             body['date_marker'] = params.date_marker
+        }
+        if (params.dashboard_item !== undefined) {
+            body['dashboard_item'] = params.dashboard_item
+        }
+        if (params.dashboard_id !== undefined) {
+            body['dashboard_id'] = params.dashboard_id
         }
         if (params.scope !== undefined) {
             body['scope'] = params.scope
@@ -126,10 +130,12 @@ const annotationsList = (): ToolBase<
     },
 })
 
-const AnnotationsPartialUpdateSchema = AnnotationsPartialUpdateParams.omit({ project_id: true }).extend(
-    AnnotationsPartialUpdateBody.omit({ creation_type: true, dashboard_item: true, dashboard_id: true, deleted: true })
-        .shape
-)
+const AnnotationsPartialUpdateSchema = AnnotationsPartialUpdateParams.omit({ project_id: true })
+    .extend(AnnotationsPartialUpdateBody.omit({ creation_type: true, deleted: true }).shape)
+    .extend({
+        dashboard_id: z.preprocess(castStringToInt, AnnotationsPartialUpdateBody.shape['dashboard_id']).optional(),
+        dashboard_item: z.preprocess(castStringToInt, AnnotationsPartialUpdateBody.shape['dashboard_item']).optional(),
+    })
 
 const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSchema, Schemas.Annotation> => ({
     name: 'annotations-partial-update',
@@ -142,6 +148,12 @@ const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSch
         }
         if (params.date_marker !== undefined) {
             body['date_marker'] = params.date_marker
+        }
+        if (params.dashboard_item !== undefined) {
+            body['dashboard_item'] = params.dashboard_item
+        }
+        if (params.dashboard_id !== undefined) {
+            body['dashboard_id'] = params.dashboard_id
         }
         if (params.scope !== undefined) {
             body['scope'] = params.scope
