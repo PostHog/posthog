@@ -3,12 +3,12 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
-export const HogFlowsListParams = () => zod.object({
+export const HogFlowsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const HogFlowsListParams = () => zod.object({
         ),
 })
 
-export const HogFlowsListQueryParams = () => zod.object({
+export const HogFlowsListQueryParams = /* @__PURE__ */ zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
     id: zod.string().optional(),
@@ -46,7 +46,7 @@ export const HogFlowsListQueryParams = () => zod.object({
     updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
-export const HogFlowsCreateParams = () => zod.object({
+export const HogFlowsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -75,7 +75,7 @@ export const hogFlowsCreateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
 
-export const HogFlowsCreateBody = () => zod
+export const HogFlowsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
@@ -458,7 +458,7 @@ export const HogFlowsCreateBody = () => zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-export const HogFlowsRetrieveParams = () => zod.object({
+export const HogFlowsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -467,7 +467,7 @@ export const HogFlowsRetrieveParams = () => zod.object({
         ),
 })
 
-export const HogFlowsPartialUpdateParams = () => zod.object({
+export const HogFlowsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -489,7 +489,7 @@ export const hogFlowsPartialUpdateBodyConversionOneWindowRegExp = new RegExp(
 )
 export const hogFlowsPartialUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
 
-export const HogFlowsPartialUpdateBody = () => zod
+export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().optional().describe('Optional description.'),
@@ -638,7 +638,7 @@ export const HogFlowsPartialUpdateBody = () => zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-export const HogFlowsActionsEmailPartialUpdateParams = () => zod.object({
+export const HogFlowsActionsEmailPartialUpdateParams = /* @__PURE__ */ zod.object({
     action_id: zod.string().describe('Id of the function_email step to edit.'),
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -648,7 +648,7 @@ export const HogFlowsActionsEmailPartialUpdateParams = () => zod.object({
         ),
 })
 
-export const HogFlowsActionsEmailPartialUpdateBody = () => zod.object({
+export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object({
     base_updated_at: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -722,7 +722,7 @@ export const HogFlowsActionsEmailPartialUpdateBody = () => zod.object({
         ),
 })
 
-export const HogFlowsBatchJobsListParams = () => zod.object({
+export const HogFlowsBatchJobsListParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -731,7 +731,7 @@ export const HogFlowsBatchJobsListParams = () => zod.object({
         ),
 })
 
-export const HogFlowsDiscardDraftCreateParams = () => zod.object({
+export const HogFlowsDiscardDraftCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -740,7 +740,7 @@ export const HogFlowsDiscardDraftCreateParams = () => zod.object({
         ),
 })
 
-export const HogFlowsGraphPartialUpdateParams = () => zod.object({
+export const HogFlowsGraphPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -749,7 +749,7 @@ export const HogFlowsGraphPartialUpdateParams = () => zod.object({
         ),
 })
 
-export const HogFlowsGraphPartialUpdateBody = () => zod.object({
+export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
     base_updated_at: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -840,7 +840,7 @@ export const HogFlowsGraphPartialUpdateBody = () => zod.object({
         ),
 })
 
-export const HogFlowsInvocationResultsRetrieveParams = () => zod.object({
+export const HogFlowsInvocationResultsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -856,7 +856,7 @@ export const hogFlowsInvocationResultsRetrieveQueryErrorMessageContainsMax = 200
 export const hogFlowsInvocationResultsRetrieveQueryLimitDefault = 50
 export const hogFlowsInvocationResultsRetrieveQueryLimitMax = 500
 
-export const HogFlowsInvocationResultsRetrieveQueryParams = () => zod.object({
+export const HogFlowsInvocationResultsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     after: zod
         .string()
         .min(1)
@@ -895,7 +895,7 @@ export const HogFlowsInvocationResultsRetrieveQueryParams = () => zod.object({
         .describe("Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'."),
 })
 
-export const HogFlowsInvocationResultRetrieveParams = () => zod.object({
+export const HogFlowsInvocationResultRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     invocation_id: zod.string(),
     project_id: zod
@@ -905,7 +905,7 @@ export const HogFlowsInvocationResultRetrieveParams = () => zod.object({
         ),
 })
 
-export const HogFlowsInvocationsCreateParams = () => zod.object({
+export const HogFlowsInvocationsCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -917,7 +917,7 @@ export const HogFlowsInvocationsCreateParams = () => zod.object({
 export const hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 export const hogFlowsInvocationsCreateBodyUseDraftDefault = false
 
-export const HogFlowsInvocationsCreateBody = () => zod.object({
+export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     globals: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -942,7 +942,7 @@ export const HogFlowsInvocationsCreateBody = () => zod.object({
         ),
 })
 
-export const HogFlowsLogsRetrieveParams = () => zod.object({
+export const HogFlowsLogsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -954,7 +954,7 @@ export const HogFlowsLogsRetrieveParams = () => zod.object({
 export const hogFlowsLogsRetrieveQueryLimitDefault = 50
 export const hogFlowsLogsRetrieveQueryLimitMax = 500
 
-export const HogFlowsLogsRetrieveQueryParams = () => zod.object({
+export const HogFlowsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     after: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -982,7 +982,7 @@ export const HogFlowsLogsRetrieveQueryParams = () => zod.object({
     search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
 })
 
-export const HogFlowsMetricsRetrieveParams = () => zod.object({
+export const HogFlowsMetricsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -996,7 +996,7 @@ export const hogFlowsMetricsRetrieveQueryAfterDefault = `-7d`
 export const hogFlowsMetricsRetrieveQueryBreakdownByDefault = `kind`
 export const hogFlowsMetricsRetrieveQueryIntervalDefault = `day`
 
-export const HogFlowsMetricsRetrieveQueryParams = () => zod.object({
+export const HogFlowsMetricsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     after: zod
         .string()
         .min(1)
@@ -1022,7 +1022,81 @@ export const HogFlowsMetricsRetrieveQueryParams = () => zod.object({
     name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
 })
 
-export const HogFlowsPublishCreateParams = () => zod.object({
+/**
+ * Agent-authored changes to this workflow, awaiting a human's decision.
+ *
+ * Creating one stages nothing: a proposal only reaches the workflow's draft once a human
+ * approves it, and only reaches the live config once someone publishes that draft.
+ */
+export const HogFlowsProposalsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const HogFlowsProposalsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    status: zod
+        .enum(['applied', 'approved', 'rejected', 'suggested'])
+        .optional()
+        .describe('Only return proposals in this status (suggested, approved, rejected, applied).'),
+})
+
+/**
+ * Agent-authored changes to this workflow, awaiting a human's decision.
+ *
+ * Creating one stages nothing: a proposal only reaches the workflow's draft once a human
+ * approves it, and only reaches the live config once someone publishes that draft.
+ */
+export const HogFlowsProposalsCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const hogFlowsProposalsCreateBodyTitleMax = 200
+
+export const hogFlowsProposalsCreateBodySourceIdMax = 200
+
+export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(hogFlowsProposalsCreateBodyTitleMax).describe('Short summary of the proposed change.'),
+    rationale: zod.string().describe('Why this change is worth making, in prose a human reads.'),
+    content: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are.'
+        ),
+    evidence: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
+    base_version: zod
+        .number()
+        .optional()
+        .describe('Workflow version this was authored against. Defaults to the current live version.'),
+    source_type: zod
+        .enum(['scout', 'responder', 'human', 'stub'])
+        .describe('\* `scout` - Scout\n\* `responder` - Responder\n\* `human` - Human\n\* `stub` - Stub generator')
+        .describe(
+            'What kind of producer authored this proposal.\n\n\* `scout` - Scout\n\* `responder` - Responder\n\* `human` - Human\n\* `stub` - Stub generator'
+        ),
+    source_id: zod
+        .string()
+        .max(hogFlowsProposalsCreateBodySourceIdMax)
+        .nullish()
+        .describe(
+            'Stable id of the producing agent run or finding. Posting the same one twice returns the existing proposal instead of creating a duplicate.'
+        ),
+})
+
+export const HogFlowsPublishCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1033,7 +1107,7 @@ export const HogFlowsPublishCreateParams = () => zod.object({
 
 export const hogFlowsPublishCreateBodyConfirmDefault = false
 
-export const HogFlowsPublishCreateBody = () => zod.object({
+export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
     confirm: zod
         .boolean()
         .default(hogFlowsPublishCreateBodyConfirmDefault)
@@ -1048,7 +1122,7 @@ export const HogFlowsPublishCreateBody = () => zod.object({
         ),
 })
 
-export const HogFlowsRevisionsListParams = () => zod.object({
+export const HogFlowsRevisionsListParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1057,12 +1131,12 @@ export const HogFlowsRevisionsListParams = () => zod.object({
         ),
 })
 
-export const HogFlowsRevisionsListQueryParams = () => zod.object({
+export const HogFlowsRevisionsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const HogFlowsRevisionsRetrieveParams = () => zod.object({
+export const HogFlowsRevisionsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1072,7 +1146,7 @@ export const HogFlowsRevisionsRetrieveParams = () => zod.object({
     version: zod.number().describe('Workflow version to fetch.'),
 })
 
-export const HogFlowsRevisionsRestoreCreateParams = () => zod.object({
+export const HogFlowsRevisionsRestoreCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1084,7 +1158,7 @@ export const HogFlowsRevisionsRestoreCreateParams = () => zod.object({
 
 export const hogFlowsRevisionsRestoreCreateBodyOverwriteDefault = false
 
-export const HogFlowsRevisionsRestoreCreateBody = () => zod.object({
+export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
     overwrite: zod
         .boolean()
         .default(hogFlowsRevisionsRestoreCreateBodyOverwriteDefault)
@@ -1099,7 +1173,7 @@ export const HogFlowsRevisionsRestoreCreateBody = () => zod.object({
         ),
 })
 
-export const HogFlowsSchedulesPartialUpdateParams = () => zod.object({
+export const HogFlowsSchedulesPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1111,7 +1185,7 @@ export const HogFlowsSchedulesPartialUpdateParams = () => zod.object({
 
 export const hogFlowsSchedulesPartialUpdateBodyTimezoneMax = 64
 
-export const HogFlowsSchedulesPartialUpdateBody = () => zod.object({
+export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     rrule: zod
         .string()
         .optional()
@@ -1130,7 +1204,7 @@ export const HogFlowsSchedulesPartialUpdateBody = () => zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
-export const HogFlowsMetricsGlobalRetrieveParams = () => zod.object({
+export const HogFlowsMetricsGlobalRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1140,7 +1214,7 @@ export const HogFlowsMetricsGlobalRetrieveParams = () => zod.object({
 
 export const hogFlowsMetricsGlobalRetrieveQueryAfterDefault = `-7d`
 
-export const HogFlowsMetricsGlobalRetrieveQueryParams = () => zod.object({
+export const HogFlowsMetricsGlobalRetrieveQueryParams = /* @__PURE__ */ zod.object({
     after: zod
         .string()
         .min(1)
