@@ -18,6 +18,8 @@ import {
     getCompletedKey,
     getAgentActiveKey,
     getHeartbeatKey,
+    getFirstCommandKey,
+    getFirstActivityKey,
 } from '@/lib/redis-stream.js'
 import {
     TaskRunStreamError,
@@ -468,6 +470,8 @@ describe('redis-stream', () => {
             expect(getCompletedKey(streamKey)).toBe('task-run-stream:abc-123:completed')
             expect(getAgentActiveKey(streamKey)).toBe('task-run-stream:abc-123:ingest-agent-active')
             expect(getHeartbeatKey(streamKey)).toBe('task-run-stream:abc-123:ingest-heartbeat')
+            expect(getFirstCommandKey(streamKey)).toBe('task-run-stream:abc-123:ingest-first-agent-command')
+            expect(getFirstActivityKey(streamKey)).toBe('task-run-stream:abc-123:ingest-first-agent-activity')
         })
     })
 
@@ -873,6 +877,39 @@ describe('redis-stream', () => {
         })
     })
 
+    describe.each([
+        {
+            name: 'command',
+            claim: (stream: TaskRunRedisStream) => stream.claimFirstAgentCommand(),
+            release: (stream: TaskRunRedisStream) => stream.releaseFirstAgentCommand(),
+            key: getFirstCommandKey,
+        },
+        {
+            name: 'activity',
+            claim: (stream: TaskRunRedisStream) => stream.claimFirstAgentActivity(),
+            release: (stream: TaskRunRedisStream) => stream.releaseFirstAgentActivity(),
+            key: getFirstActivityKey,
+        },
+    ])('first agent $name claim', ({ claim, release, key }) => {
+        it('claims once and allows retry after release', async () => {
+            const { stream, redis, streamKey } = newStream()
+
+            const first = await claim(stream)
+            const second = await claim(stream)
+
+            expect(first).toBe(true)
+            expect(second).toBe(false)
+            const exp = redis.getExpiryMs(key(streamKey))
+            expect(exp).not.toBeNull()
+            expect(exp!).toBeGreaterThan(Date.now() + 50_000)
+            expect(exp!).toBeLessThan(Date.now() + 70_000)
+
+            await release(stream)
+
+            expect(await claim(stream)).toBe(true)
+        })
+    })
+
     // -----------------------------------------------------------------------
     // resumePointTrimmed + detectResumeGap
     // -----------------------------------------------------------------------
@@ -1225,12 +1262,14 @@ describe('redis-stream', () => {
     // -----------------------------------------------------------------------
 
     describe('deleteStream', () => {
-        it('returns true and removes all five keys', async () => {
+        it('returns true and removes all seven keys', async () => {
             const { stream, redis, streamKey } = newStream()
 
             await stream.writeEventWithSequence({ type: 'a' }, 1)
             await stream.setAgentActive(true)
             await stream.claimAgentActiveHeartbeat(30)
+            await stream.claimFirstAgentCommand()
+            await stream.claimFirstAgentActivity()
 
             const deleted = await stream.deleteStream()
 
@@ -1240,6 +1279,8 @@ describe('redis-stream', () => {
             expect(redis.getStringValue(getCompletedKey(streamKey))).toBeNull()
             expect(redis.getStringValue(getAgentActiveKey(streamKey))).toBeNull()
             expect(redis.getStringValue(getHeartbeatKey(streamKey))).toBeNull()
+            expect(redis.getStringValue(getFirstCommandKey(streamKey))).toBeNull()
+            expect(redis.getStringValue(getFirstActivityKey(streamKey))).toBeNull()
         })
 
         it('returns false (no error thrown) when stream does not exist', async () => {
