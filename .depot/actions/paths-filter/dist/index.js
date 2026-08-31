@@ -42189,6 +42189,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Filter = void 0;
+exports.firedKeys = firedKeys;
 const jsyaml = __importStar(__nccwpck_require__(4281));
 const picomatch_1 = __importDefault(__nccwpck_require__(4006));
 // Minimatch options used in all matchers
@@ -42202,6 +42203,11 @@ function isNegatedPattern(pattern) {
 }
 function positivePattern(pattern) {
     return isNegatedPattern(pattern) ? pattern.slice(1) : pattern;
+}
+// A key gates a job on whether any file matched it, so its answer is `length > 0` and
+// nothing finer. Both the action's outputs and the shadow comparison read it through here.
+function firedKeys(results) {
+    return new Set(Object.keys(results).filter(key => results[key].length > 0));
 }
 class Filter {
     // Creates instance of Filter and load rules from YAML if it's provided
@@ -42708,10 +42714,13 @@ async function run() {
             return;
         }
         const filter = new filter_1.Filter(filtersYaml);
-        const files = await getChangedFiles(filter, token, base, ref, initialFetchDepth);
+        const { files, api } = await getChangedFiles(token, base, ref, initialFetchDepth);
         core.info(`Detected ${files.length} changed files`);
         const results = filter.match(files);
         exportResults(results, listFiles);
+        if (api) {
+            await shadow.report({ filter, apiFiles: files, apiResults: results, ...api });
+        }
     }
     catch (error) {
         core.setFailed(getErrorMessage(error));
@@ -42729,7 +42738,7 @@ function getConfigFileContent(configPath) {
     }
     return fs.readFileSync(configPath, { encoding: 'utf8' });
 }
-async function getChangedFiles(filter, token, base, ref, initialFetchDepth) {
+async function getChangedFiles(token, base, ref, initialFetchDepth) {
     var _a, _b;
     // if base is 'HEAD' only local uncommitted changes will be detected
     // This is the simplest case as we don't need to fetch more commits or evaluate current/before refs
@@ -42737,7 +42746,7 @@ async function getChangedFiles(filter, token, base, ref, initialFetchDepth) {
         if (ref) {
             core.warning(`'ref' input parameter is ignored when 'base' is set to HEAD`);
         }
-        return await git.getChangesOnHead();
+        return { files: await git.getChangesOnHead() };
     }
     switch (github.context.eventName) {
         // To keep backward compatibility, commits in GitHub pull request event
@@ -42754,9 +42763,8 @@ async function getChangedFiles(filter, token, base, ref, initialFetchDepth) {
             }
             const pr = github.context.payload.pull_request;
             if (token) {
-                const { files: apiFiles, rows } = await getChangedFilesFromApi(token, pr);
-                await shadow.report(filter, apiFiles, rows, pr);
-                return apiFiles;
+                const { files, apiRows, apiTruncated } = await getChangedFilesFromApi(token, pr);
+                return { files, api: { apiRows, apiTruncated, pr } };
             }
             if (github.context.eventName === 'pull_request_target') {
                 // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
@@ -42768,10 +42776,10 @@ async function getChangedFiles(filter, token, base, ref, initialFetchDepth) {
             const baseSha = (_a = github.context.payload.pull_request) === null || _a === void 0 ? void 0 : _a.base.sha;
             const defaultBranch = (_b = github.context.payload.repository) === null || _b === void 0 ? void 0 : _b.default_branch;
             const currentRef = await git.getCurrentRef();
-            return await git.getChanges(base || baseSha || defaultBranch, currentRef);
+            return { files: await git.getChanges(base || baseSha || defaultBranch, currentRef) };
         }
     }
-    return getChangedFilesFromGit(base, ref, initialFetchDepth);
+    return { files: await getChangedFilesFromGit(base, ref, initialFetchDepth) };
 }
 async function getChangedFilesFromGit(base, head, initialFetchDepth) {
     var _a;
@@ -42820,17 +42828,17 @@ async function getChangedFilesFromGit(base, head, initialFetchDepth) {
     core.info(`Changes will be detected between ${base} and ${head}`);
     return await git.getChangesSinceMergeBase(base, head, initialFetchDepth);
 }
+// The API truncates at this many rows and says nothing when it does.
+const API_FILE_CAP = 3000;
 // Uses github REST api to get list of files changed in PR
-// `rows` counts what the API returned rather than what `files` holds, because a renamed
-// row expands into two entries below. The API caps the response at 3,000 rows and says
-// nothing when it does, so the row count is the only tell that the list is partial.
+// Truncation is judged on API rows, not on `files`, which expands a rename into two.
 async function getChangedFilesFromApi(token, pullRequest) {
     core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`);
     try {
         const client = github.getOctokit(token);
         const per_page = 100;
         const files = [];
-        let rows = 0;
+        let apiRows = 0;
         core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`);
         for await (const response of client.paginate.iterator(client.rest.pulls.listFiles.endpoint.merge({
             owner: github.context.repo.owner,
@@ -42843,7 +42851,7 @@ async function getChangedFilesFromApi(token, pullRequest) {
             }
             core.info(`Received ${response.data.length} items`);
             for (const row of response.data) {
-                rows++;
+                apiRows++;
                 core.info(`[${row.status}] ${row.filename}`);
                 // There's no obvious use-case for detection of renames
                 // Therefore we treat it as if rename detection in git diff was turned off.
@@ -42869,7 +42877,7 @@ async function getChangedFilesFromApi(token, pullRequest) {
                 }
             }
         }
-        return { files, rows };
+        return { files, apiRows, apiTruncated: apiRows >= API_FILE_CAP };
     }
     finally {
         core.endGroup();
@@ -42877,12 +42885,11 @@ async function getChangedFilesFromApi(token, pullRequest) {
 }
 function exportResults(results, format) {
     core.info('Results:');
-    const changes = [];
+    const fired = (0, filter_1.firedKeys)(results);
     for (const [key, files] of Object.entries(results)) {
-        const value = files.length > 0;
+        const value = fired.has(key);
         core.startGroup(`Filter ${key} = ${value}`);
-        if (files.length > 0) {
-            changes.push(key);
+        if (value) {
             core.info('Matching files:');
             for (const file of files) {
                 core.info(`${file.filename} [${file.status}]`);
@@ -42900,7 +42907,7 @@ function exportResults(results, format) {
         core.endGroup();
     }
     if (results['changes'] === undefined) {
-        const changesJson = JSON.stringify(changes);
+        const changesJson = JSON.stringify([...fired]);
         core.info(`Changes output set to ${changesJson}`);
         core.setOutput('changes', changesJson);
     }
@@ -42981,36 +42988,24 @@ const child_process_1 = __nccwpck_require__(5317);
 const os = __importStar(__nccwpck_require__(857));
 const path = __importStar(__nccwpck_require__(6928));
 const core = __importStar(__nccwpck_require__(7484));
-const file_1 = __nccwpck_require__(3765);
-// Compares the API's changed-file list against the same list derived locally from
-// the pull request's merge commit, and reports disagreement without acting on it.
-// The API result stays authoritative, so a wrong local answer can only produce a
-// log line. Removing the API call later is only safe once this has run quiet
-// across the shapes no offline sample can reach: very large diffs, and ones GitHub
-// has not finished computing a merge ref for.
-//
-// Detecting changes from `base.sha..HEAD` instead reports every commit the branch
-// picked up when the base was merged into it as the pull request's own work, which
-// is wrong by thousands of files on a branch that has taken master in. The merge
-// commit's first parent is the base GitHub actually merged against, so
-// `HEAD^1..HEAD` is the pull request's own changes and matches the API.
+const filter_1 = __nccwpck_require__(9037);
+const git_1 = __nccwpck_require__(1243);
+// Compares the API's changed-file list against the same list derived from the pull
+// request's merge commit, and reports disagreement without acting on it. The API
+// result stays authoritative, so a wrong local answer can only produce a log line.
 const MERGE_REF_FETCH_DEPTH = 2;
 const POSTHOG_HOST = 'https://us.i.posthog.com';
 const EVENT_NAME = 'paths_filter_shadow_compared';
 // A change-detection job is on the critical path of every workflow, so the comparison
-// and the capture that follows it share one wall-clock budget, and give up rather than
-// holding the job to its timeout-minutes. The git-level low-speed settings cover a
-// stalled transfer; the budget covers everything else.
+// and its capture share one wall-clock budget rather than holding the job to its
+// timeout-minutes.
 const BUDGET_MS = 20000;
 const CAPTURE_FLOOR_MS = 500;
 const LIST_CAP = 50;
-// A queue branch carries the cumulative batch diff, so the path list can be far larger
-// than a human pull request's. execFile's 1 MB default would fail those as a diff error,
-// which drops the population the comparison most needs to measure.
+// A queue branch carries the cumulative batch diff, which execFile's 1 MB default would
+// fail as a diff error.
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
 const DETAIL_CAP = 200;
-// The API caps pulls/{n}/files at this many entries and says nothing when it truncates.
-const API_FILE_CAP = 3000;
 class Unavailable extends Error {
     constructor(reason, detail) {
         super(`${reason}: ${detail}`);
@@ -43018,20 +43013,15 @@ class Unavailable extends Error {
         this.detail = detail;
     }
 }
-// Every git call that reads or writes history names the scratch repository. `--depth`
-// and `--filter` rewrite `.git/shallow` and the promisor config of whatever repository
-// they run in, and steps later in the same job read history from the workspace checkout:
-// ci-dagster and ci-e2e-playwright resolve `git merge-base HEAD^2 origin/<base>` after
-// this action returns, and an empty merge base there silently drops their schema cache.
+// `--depth` and `--filter` rewrite `.git/shallow` and the promisor config of whatever
+// repository they run in, so every call names the scratch repository. ci-dagster and
+// ci-e2e-playwright read history from the workspace checkout after this action returns.
 async function git(gitDir, args, signal) {
     return run(['--git-dir', gitDir, ...args], signal);
 }
-// The signal is what makes the wall-clock budget real. `@actions/exec` gives no handle
-// on the child process, so a fetch the budget gave up on keeps running and holds the
-// action's process open until it finishes, past the budget it was supposed to obey.
-//
-// stdout is returned raw. A caller that reads a path list must not trim it, because a
-// tracked path can begin with a space, and that path sorts first in the -z output.
+// execFile rather than `@actions/exec`, which gives no handle on the child process, so a
+// fetch the budget gave up on would hold the action open until it finished. stdout is
+// returned raw because a tracked path can begin with a space.
 async function run(args, signal) {
     return new Promise(resolve => {
         (0, child_process_1.execFile)('git', args, { signal, maxBuffer: MAX_GIT_OUTPUT_BYTES }, (error, stdout, stderr) => {
@@ -43045,6 +43035,9 @@ function firstLine(stderr) {
 function messageOf(error) {
     return error instanceof Error ? error.message : String(error);
 }
+function missing(from, against) {
+    return [...from].filter(key => !against.has(key)).sort();
+}
 async function scratchRepo(signal) {
     const gitDir = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'paths-filter-shadow.git');
     const init = await run(['init', '--bare', '--quiet', gitDir], signal);
@@ -43053,9 +43046,8 @@ async function scratchRepo(signal) {
     }
     return gitDir;
 }
-// The workspace remote carries no credentials of its own: actions/checkout keeps the
-// token in an http.extraheader the scratch repository does not inherit. A private
-// remote therefore reports unavailable rather than comparing against a partial fetch.
+// actions/checkout keeps the token in an http.extraheader the scratch repository does not
+// inherit, so a private remote reports unavailable rather than comparing a partial fetch.
 function originUrl() {
     const server = process.env.GITHUB_SERVER_URL;
     const repo = process.env.GITHUB_REPOSITORY;
@@ -43063,32 +43055,6 @@ function originUrl() {
         throw new Unavailable('no-origin-url', 'GITHUB_SERVER_URL or GITHUB_REPOSITORY is unset');
     }
     return `${server}/${repo}`;
-}
-// The merge ref is not guaranteed to be present or current: GitHub recomputes it
-// asynchronously after a push. Requiring the second parent to equal the head SHA
-// rejects a stale ref rather than reading it as this pull request's changes.
-// git reports a type change as T, which is a content change like any other to a filter.
-// R and C are unreachable under --no-renames and are mapped so a future caller without
-// that flag still gets a status rather than the fallback.
-const STATUS_OF = {
-    A: file_1.ChangeStatus.Added,
-    C: file_1.ChangeStatus.Copied,
-    D: file_1.ChangeStatus.Deleted,
-    M: file_1.ChangeStatus.Modified,
-    R: file_1.ChangeStatus.Renamed,
-    T: file_1.ChangeStatus.Modified,
-    U: file_1.ChangeStatus.Unmerged
-};
-// -z --name-status emits a status field and a path field per entry, each NUL-terminated.
-// A status carries a similarity score for R and C, which --no-renames rules out, so the
-// first character is the whole status here.
-function parseNameStatus(out) {
-    const fields = out.split('\0').filter(Boolean);
-    const files = [];
-    for (let i = 0; i + 1 < fields.length; i += 2) {
-        files.push({ filename: fields[i + 1], status: STATUS_OF[fields[i][0]] || file_1.ChangeStatus.Modified });
-    }
-    return files;
 }
 async function localChangedFiles(pr, signal) {
     const gitDir = await scratchRepo(signal);
@@ -43111,24 +43077,21 @@ async function localChangedFiles(pr, signal) {
     if (head.code !== 0) {
         throw new Unavailable('no-second-parent', firstLine(head.err));
     }
+    // GitHub recomputes the merge ref asynchronously after a push, so a ref whose second
+    // parent is not the head SHA describes an earlier push.
     const headSha = head.out.trim();
     if (headSha !== pr.head.sha) {
         throw new Unavailable('stale-merge-ref', `^2=${headSha.slice(0, 8)}, head=${pr.head.sha.slice(0, 8)}`);
     }
-    // --no-renames so a rename arrives as a delete plus an add, which is the shape
-    // the API path builds by hand from `previous_filename`. -z because git quotes a
-    // path holding a newline or a non-ASCII byte in the default format. --name-status
-    // because a filter rule can scope itself to a change status, so a comparison that
-    // guessed one would answer a different question than the filter asks.
+    // The same flags the action's own git path uses, so the comparison measures what
+    // dropping the API call would select. --no-renames matches the add-plus-delete shape
+    // the API path builds from `previous_filename`.
     const diff = await git(gitDir, ['diff', '--no-renames', '--name-status', '-z', 'FETCH_HEAD^1', 'FETCH_HEAD'], signal);
     if (diff.code !== 0) {
         throw new Unavailable('diff-failed', firstLine(diff.err));
     }
-    return parseNameStatus(diff.out);
+    return (0, git_1.parseGitDiffOutput)(diff.out);
 }
-// A queue branch can differ by thousands of paths, which is neither readable in a log
-// line nor worth carrying as an event property. The count answers how far apart the two
-// answers are, and the sample answers what kind of path is involved.
 function difference(from, against) {
     const sample = [];
     let count = 0;
@@ -43143,20 +43106,12 @@ function difference(from, against) {
     }
     return { count, sample };
 }
-// A filter key gates a job on whether any changed file matched it, so the key's answer
-// is `length > 0` and nothing finer. `exportResults` reads it the same way.
-function firedKeys(filter, files) {
-    return new Set(Object.entries(filter.match(files))
-        .filter(([, matched]) => matched.length > 0)
-        .map(([key]) => key));
-}
-function compare(filter, apiFiles, gitFiles) {
-    const api = new Set(apiFiles.map(f => f.filename));
+function compare(input, api, gitFiles) {
     const local = new Set(gitFiles.map(f => f.filename));
     const onlyInApi = difference(api, local);
     const onlyInGit = difference(local, api);
-    const apiKeys = firedKeys(filter, apiFiles);
-    const gitKeys = firedKeys(filter, gitFiles);
+    const apiKeys = (0, filter_1.firedKeys)(input.apiResults);
+    const gitKeys = (0, filter_1.firedKeys)(input.filter.match(gitFiles));
     return {
         verdict: onlyInApi.count === 0 && onlyInGit.count === 0 ? 'match' : 'mismatch',
         reason: null,
@@ -43165,8 +43120,8 @@ function compare(filter, apiFiles, gitFiles) {
         gitCount: local.size,
         onlyInApi,
         onlyInGit,
-        keysLost: [...apiKeys].filter(k => !gitKeys.has(k)).sort(),
-        keysGained: [...gitKeys].filter(k => !apiKeys.has(k)).sort()
+        keysLost: missing(apiKeys, gitKeys),
+        keysGained: missing(gitKeys, apiKeys)
     };
 }
 async function budgeted(work, ms) {
@@ -43180,17 +43135,18 @@ async function budgeted(work, ms) {
     });
     return Promise.race([work(controller.signal), expiry]).finally(() => clearTimeout(timer));
 }
-async function compareWithMergeCommit(filter, apiFiles, pr) {
+async function compareWithMergeCommit(input) {
+    const api = new Set(input.apiFiles.map(f => f.filename));
     try {
-        const gitFiles = await budgeted(async (signal) => localChangedFiles(pr, signal), BUDGET_MS);
-        return compare(filter, apiFiles, gitFiles);
+        const gitFiles = await budgeted(async (signal) => localChangedFiles(input.pr, signal), BUDGET_MS);
+        return compare(input, api, gitFiles);
     }
     catch (error) {
         return {
             verdict: 'unavailable',
             reason: error instanceof Unavailable ? error.reason : 'unknown',
             detail: error instanceof Unavailable ? error.detail : messageOf(error),
-            apiCount: new Set(apiFiles.map(f => f.filename)).size,
+            apiCount: api.size,
             gitCount: null,
             onlyInApi: { count: 0, sample: [] },
             onlyInGit: { count: 0, sample: [] },
@@ -43199,11 +43155,10 @@ async function compareWithMergeCommit(filter, apiFiles, pr) {
         };
     }
 }
-// Without this the only record of a divergence is a log line in one job of one run,
-// which is unreadable at the volume that makes the comparison worth running.
-async function capture(apiKey, result, pr, apiRows, durationMs) {
+async function capture(apiKey, input, result, durationMs) {
     var _a;
     const repo = process.env.GITHUB_REPOSITORY || null;
+    const pr = input.pr;
     const properties = {
         repo,
         verdict: result.verdict,
@@ -43218,21 +43173,15 @@ async function capture(apiKey, result, pr, apiRows, durationMs) {
         selection_changed: result.keysLost.length > 0 || result.keysGained.length > 0,
         keys_lost: result.keysLost,
         keys_gained: result.keysGained,
-        // pulls/{n}/files truncates silently at the cap, and the cap counts API rows, so
-        // the tell is how many rows came back. `api_count` cannot stand in: the API path
-        // expands each renamed row into an add plus a delete.
-        api_rows: apiRows,
-        api_truncated: apiRows >= API_FILE_CAP,
-        // Kept beside `api_rows` rather than used as the tell, because the payload's count
-        // is computed when the event fires and reads stale on a pull request whose base
-        // moved. The two disagreeing is itself worth seeing.
+        // `pr_changed_files` reads stale on a pull request whose base moved, so it is
+        // recorded beside the API's own row count rather than used as the truncation tell.
+        api_rows: input.apiRows,
+        api_truncated: input.apiTruncated,
         pr_changed_files: pr.changed_files,
         pr_number: pr.number,
         head_sha: pr.head.sha,
         head_ref: pr.head.ref,
         base_ref: pr.base.ref,
-        // Queue branches carry the cumulative batch diff and page far more than a human
-        // pull request, so they are the population worth reading separately.
         branch_class: pr.head.ref.startsWith('trunk-merge/') ? 'trunk-merge' : 'pull-request',
         is_fork: ((_a = pr.head.repo) === null || _a === void 0 ? void 0 : _a.full_name) !== repo,
         duration_ms: durationMs,
@@ -43250,7 +43199,6 @@ async function capture(apiKey, result, pr, apiRows, durationMs) {
             distinct_id: repo || 'paths-filter-shadow',
             properties
         }),
-        // Whatever the comparison did not spend, so the step's ceiling stays the budget.
         signal: AbortSignal.timeout(Math.max(CAPTURE_FLOOR_MS, BUDGET_MS - durationMs))
     });
     if (!res.ok) {
@@ -43268,14 +43216,10 @@ function summarize(result) {
     }
     return `match (${result.apiCount} files)`;
 }
-// Never throws: the filter's real answer is already computed by the time this runs,
-// so nothing here is worth failing a CI job over.
-//
-// The token gates the comparison itself, not just the capture. Every workflow that
-// detects changes runs this action, so a comparison whose result cannot be recorded
-// is a merge-ref fetch on the critical path of a gate job in exchange for a log line
-// nobody reads. Fork pull requests get no secrets, so they take this path too.
-async function report(filter, apiFiles, apiRows, pr) {
+// Never throws: the filter's real answer is already computed by the time this runs. The
+// token gates the comparison itself, so a run that cannot record its result does not pay
+// for a merge-ref fetch. Fork pull requests get no secrets and take that path too.
+async function report(input) {
     const apiKey = process.env.PATHS_FILTER_SHADOW_POSTHOG_TOKEN;
     if (!apiKey) {
         return;
@@ -43283,12 +43227,12 @@ async function report(filter, apiFiles, apiRows, pr) {
     try {
         core.startGroup('Shadow: merge-commit change detection');
         const startedAt = Date.now();
-        const result = await compareWithMergeCommit(filter, apiFiles, pr);
+        const result = await compareWithMergeCommit(input);
         const durationMs = Date.now() - startedAt;
-        // core.info even for a mismatch: a warning becomes an annotation on the run summary
-        // and the checks page, which reads as a problem with the pull request.
+        // core.info even for a mismatch, because a warning becomes an annotation on the
+        // checks page and reads as a problem with the pull request.
         core.info(`shadow: ${summarize(result)} in ${durationMs}ms`);
-        await capture(apiKey, result, pr, apiRows, durationMs).catch(error => {
+        await capture(apiKey, input, result, durationMs).catch(error => {
             core.info(`shadow: capture skipped (${messageOf(error)})`);
         });
     }
