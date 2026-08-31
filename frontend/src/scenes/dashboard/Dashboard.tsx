@@ -54,7 +54,9 @@ export const parseDashboardId = (id: string | undefined): number => {
     if (!id || !/^\d+$/.test(id)) {
         return NaN
     }
-    return Number(id)
+    // Reject "0" and all-zero variants: id 0 is the reserved internal sentinel, never a real dashboard.
+    const dashboardId = Number(id)
+    return dashboardId > 0 ? dashboardId : NaN
 }
 
 // Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept

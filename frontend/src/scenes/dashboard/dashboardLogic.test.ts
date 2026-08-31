@@ -344,7 +344,7 @@ describe('dashboardLogic', () => {
                 .toMatchValues({ error404: false, hasInvalidDashboardId: false })
         })
 
-        it.each(['12abc', '12.5', '+12', '-12'])('rejects malformed route id %s', (id) => {
+        it.each(['12abc', '12.5', '+12', '-12', '0', '00', '000'])('rejects invalid route id %s', (id) => {
             expect(parseDashboardId(id)).toBeNaN()
         })
 
