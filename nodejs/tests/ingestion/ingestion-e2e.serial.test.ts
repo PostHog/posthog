@@ -49,6 +49,9 @@ describe.each([
         GROUPS_PREFETCH_ENABLED: false,
         GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
+        TEAMS_PREFETCH_ENABLED: false,
+        EVENT_SCHEMAS_PREFETCH_ENABLED: false,
+        HOG_FUNCTIONS_PREFETCH_ENABLED: false,
     },
     {
         PERSONS_PREFETCH_ENABLED: true,
@@ -57,6 +60,9 @@ describe.each([
         GROUPS_PREFETCH_ENABLED: true,
         GROUP_BATCH_WRITING_USE_BATCH_CREATES: true,
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
+        TEAMS_PREFETCH_ENABLED: true,
+        EVENT_SCHEMAS_PREFETCH_ENABLED: true,
+        HOG_FUNCTIONS_PREFETCH_ENABLED: true,
     },
 ])('Event Pipeline E2E tests (fold+groupBatchCreates=$PERSON_MERGE_FOLD_ENABLED)', (pipelineConfig) => {
     const testWithTeamIngester = createTestWithTeamIngester(pipelineConfig, (infra, kafkaProducer) => {

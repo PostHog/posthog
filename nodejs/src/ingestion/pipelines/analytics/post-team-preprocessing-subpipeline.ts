@@ -53,7 +53,8 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
-    teamCachesPrefetchEnabled: boolean
+    eventSchemasPrefetchEnabled: boolean
+    hogFunctionsPrefetchEnabled: boolean
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer
 }
@@ -80,7 +81,8 @@ export function createPostTeamPreprocessingSubpipeline<
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
-        teamCachesPrefetchEnabled,
+        eventSchemasPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         groupTypeManager,
         hogTransformer,
     } = config
@@ -93,7 +95,7 @@ export function createPostTeamPreprocessingSubpipeline<
             .pipeChunk(
                 prefetchEventSchemasStep(
                     eventSchemaEnforcementManager,
-                    teamCachesPrefetchEnabled && eventSchemaEnforcementEnabled
+                    eventSchemasPrefetchEnabled && eventSchemaEnforcementEnabled
                 )
             )
             // These validation steps are synchronous, so we can process events sequentially.
@@ -134,6 +136,6 @@ export function createPostTeamPreprocessingSubpipeline<
             // Warm the transformation hog-function cache last, after the drop steps above, so
             // only teams with surviving events are loaded. The transformer runs much later in
             // the event subpipeline, so the load still lands well ahead of its reads.
-            .pipeChunk(prefetchHogFunctionsStep(hogTransformer, teamCachesPrefetchEnabled))
+            .pipeChunk(prefetchHogFunctionsStep(hogTransformer, hogFunctionsPrefetchEnabled))
     )
 }

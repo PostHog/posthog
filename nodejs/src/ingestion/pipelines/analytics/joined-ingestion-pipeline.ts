@@ -62,8 +62,9 @@ export interface JoinedIngestionPipelineConfig {
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
-    /** Enables the batched warm-up of the team, event-schema, and hog-function caches per chunk. */
-    teamCachesPrefetchEnabled: boolean
+    teamsPrefetchEnabled: boolean
+    eventSchemasPrefetchEnabled: boolean
+    hogFunctionsPrefetchEnabled: boolean
     outputs: IngestionOutputs<
         | EventOutput
         | FlagEvaluationsOutput
@@ -132,7 +133,9 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
-        teamCachesPrefetchEnabled,
+        teamsPrefetchEnabled,
+        eventSchemasPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
@@ -171,7 +174,8 @@ export function createJoinedIngestionPipeline<
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
-        teamCachesPrefetchEnabled,
+        eventSchemasPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         groupTypeManager,
         hogTransformer,
     }
@@ -228,7 +232,7 @@ export function createJoinedIngestionPipeline<
             // Warm the team cache for the chunk's tokens in one batched load while message
             // bodies parse, so the per-event lookups in resolveTeam hit cache or coalesce
             // onto the in-flight load instead of paying a serial load per token.
-            .pipeChunk(prefetchTeamsStep(teamManager, teamCachesPrefetchEnabled))
+            .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
             .parseMessage()
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
