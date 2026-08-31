@@ -173,7 +173,7 @@ def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[AP
         if hasattr(field, "_access_control_resource") and hasattr(field, "_access_control_level"):
             field_access_map[field.name] = (field._access_control_resource, field._access_control_level)
 
-    return field_access_map
+    return field_access_map  # ty: ignore[invalid-return-type]
 
 
 def resource_to_display_name(resource: APIScopeObject) -> str:
