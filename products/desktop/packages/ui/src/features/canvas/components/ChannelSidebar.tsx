@@ -332,7 +332,14 @@ function listStateOf({
  */
 export function ChannelSidebar({ channelId }: { channelId: string }) {
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // Only paths inside this space matter here. Collapsing the rest to "" keeps
+  // every row still while the user is elsewhere (settings, another space).
+  const pathname = useRouterState({
+    select: (s) =>
+      s.location.pathname.startsWith(`/spaces/${channelId}`)
+        ? s.location.pathname
+        : "",
+  });
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
 
   const { items, actions, me, isLoading, channelMissing } =

@@ -64,6 +64,8 @@ server, so never rely on them in customer-facing queries or docs without checkin
 `$mcp_session_id` (transport-level), `$mcp_region`, `$mcp_mode`, `$mcp_consumer`,
 `$mcp_version`, `$mcp_client_user_agent` (no longer dogfood-only — the SDKs emit it too since
 TS 0.11.0 / Python 7.42.0), `$mcp_transport`, `$mcp_auth_method`,
+`$mcp_scope_preset` (which kind of caller minted the token, worked out from its scope set:
+`scout`, `research`, `implementation`, `sandbox` for any other server-minted run, or `user` for a person's own token; `research` and `implementation` need the scratchpad scopes and do not occur yet),
 `$mcp_organization_id`, `$mcp_project_id`, `$mcp_project_uuid`, `$mcp_project_name`,
 `$ai_product` (`mcp`), and the non-`$`-prefixed `mcp_runtime` (`hono`) and
 `mcp_vendor_client` — the last of which is the **top-priority harness signal**, so it

@@ -2745,6 +2745,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     */
+    export type ActiveDreamRunRunStatusEnum = typeof ActiveDreamRunRunStatusEnum[keyof typeof ActiveDreamRunRunStatusEnum];
+
+
+    export const ActiveDreamRunRunStatusEnum = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+    } as const;
+
+    /**
+     * A dreaming task that has not reached a terminal state yet.
+     */
+    export interface ActiveDreamRun {
+      /** The current task-run state for the active dream.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress */
+      run_status: ActiveDreamRunRunStatusEnum;
+      /** When the active dream task was created. */
+      started_at: string;
+    }
+
+    /**
      * * `true` - true
      * * `false` - false
      * * `STALE` - STALE
@@ -16846,9 +16874,9 @@ export namespace Schemas {
       table_id?: string;
       /** Warehouse view (saved query) id to certify. */
       saved_query_id?: string;
-      /** Table name; 409 with candidates if ambiguous. */
+      /** Queryable HogQL table name; 409 with candidates if ambiguous. */
       table_name?: string;
-      /** View name; 409 with candidates if ambiguous. */
+      /** Queryable HogQL view name; 409 with candidates if ambiguous. */
       view_name?: string;
       /** Why this mark exists. */
       notes?: string;
@@ -20945,7 +20973,7 @@ export namespace Schemas {
       readonly saved_query: string | null;
       /** Whether the marked target is a 'table' or a 'view'. */
       readonly target_type: string;
-      /** Name of the marked table or view. */
+      /** Queryable HogQL name of the marked table or view. */
       readonly target_name: string;
       /** proposed, certified (prefer this source), or deprecated (avoid this source). */
       readonly status: string;
@@ -22863,6 +22891,7 @@ export namespace Schemas {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
@@ -24191,6 +24220,7 @@ export namespace Schemas {
       Gladly: 'Gladly',
       Qualtrics: 'Qualtrics',
       AzureDevOps: 'AzureDevOps',
+      RoktAds: 'RoktAds',
       Rollbar: 'Rollbar',
       Opsgenie: 'Opsgenie',
       IncidentIo: 'IncidentIo',
@@ -25533,6 +25563,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -27570,6 +27601,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -28866,38 +28898,38 @@ export namespace Schemas {
       Selected: 'selected',
     } as const;
 
-    export interface MergeToDeployBucket {
+    export interface LeadTimeBucket {
       /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
       bucket_start: string;
-      /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). */
+      /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). The same population backs every lead-time series, so the stages compare bucket by bucket. */
       deployed_pr_count: number;
       /**
-         * Fastest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+         * Fastest duration for this stage in this bucket, in seconds. Null when nothing deployed.
          * @nullable
          */
       min_seconds: number | null;
       /**
-         * 25th percentile merge-to-deploy seconds. Null when nothing deployed.
+         * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p25_seconds: number | null;
       /**
-         * Median merge-to-deploy seconds. Null when nothing deployed.
+         * Median of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * Mean merge-to-deploy seconds. Null when nothing deployed.
+         * Mean of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       mean_seconds: number | null;
       /**
-         * 75th percentile merge-to-deploy seconds. Null when nothing deployed.
+         * 75th percentile of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p75_seconds: number | null;
       /**
-         * Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+         * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
          * @nullable
          */
       max_seconds: number | null;
@@ -28907,7 +28939,11 @@ export namespace Schemas {
       /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
       deployment_frequency_series: DeploymentFrequencyBucket[];
       /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
-      merge_to_deploy_series: MergeToDeployBucket[];
+      merge_to_deploy_series: LeadTimeBucket[];
+      /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
+      open_to_merge_series: LeadTimeBucket[];
+      /** Open-to-deploy distribution over the same deployed PRs and buckets: the full open to first-successful-deploy span the two stages above compose into. Empty in the same cases as merge_to_deploy_series. */
+      open_to_deploy_series: LeadTimeBucket[];
       /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
       deploy_data_available: boolean;
       /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
@@ -28982,7 +29018,7 @@ export namespace Schemas {
          * @nullable
          */
       latest_deploy_status_at: string | null;
-      /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
+      /** Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'. */
       series_granularity: string;
     }
 
@@ -29146,6 +29182,79 @@ export namespace Schemas {
     export interface DraftStatusResponse {
       updated_at: string;
       has_draft: boolean;
+    }
+
+    /**
+     * * `added` - added
+     * * `modified` - modified
+     * * `deleted` - deleted
+     */
+    export type DreamFileDiffStatusEnum = typeof DreamFileDiffStatusEnum[keyof typeof DreamFileDiffStatusEnum];
+
+
+    export const DreamFileDiffStatusEnum = {
+      Added: 'added',
+      Modified: 'modified',
+      Deleted: 'deleted',
+    } as const;
+
+    /**
+     * One file a dream run changed, with its unified patch.
+     */
+    export interface DreamFileDiff {
+      /** Repo-relative path of the changed page. */
+      path: string;
+      /** How the run changed the page.
+       *
+       * * `added` - added
+       * * `modified` - modified
+       * * `deleted` - deleted */
+      status: DreamFileDiffStatusEnum;
+      /** Unified git patch for this file. */
+      patch: string;
+      /** Whether the patch was cut off for size. */
+      truncated: boolean;
+    }
+
+    /**
+     * One dreaming run: the merge commit it landed as, plus what it changed.
+     */
+    export interface DreamRun {
+      /** Merge commit sha the run landed as; pass back as `sha` on the detail read. */
+      sha: string;
+      /** The run's date, `YYYY-MM-DD`. */
+      date: string;
+      /** When the run landed. */
+      committed_at: string;
+      /** The run summary the dreaming agent wrote. */
+      summary: string;
+      /** Pages the run created. */
+      pages_added: number;
+      /** Pages the run edited. */
+      pages_modified: number;
+      /** Pages the run removed. */
+      pages_deleted: number;
+    }
+
+    /**
+     * Response shape for one dream run: the run plus the diff it landed.
+     */
+    export interface DreamRunDetail {
+      run: DreamRun;
+      /** Per-file patches, in diff order. */
+      files: DreamFileDiff[];
+    }
+
+    /**
+     * Response shape for the wiki's dream run listing.
+     */
+    export interface DreamRunList {
+      /** Commit sha of the wiki's current head. */
+      head_sha: string;
+      /** The organization's active dreaming task, or null when no dream is running. */
+      active_run: ActiveDreamRun | null;
+      /** Every landed dream run, newest first. */
+      dreams: DreamRun[];
     }
 
     /**
@@ -35936,6 +36045,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -37298,6 +37408,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -44691,20 +44802,54 @@ export namespace Schemas {
       results: MCPToolQualityRowItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Number of tools matching the date, category, and search filters. */
+      totalCount: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export type MCPToolQualitySortColumn = typeof MCPToolQualitySortColumn[keyof typeof MCPToolQualitySortColumn];
+
+
+    export const MCPToolQualitySortColumn = {
+      TotalCalls: 'total_calls',
+      ErrorRatePct: 'error_rate_pct',
+      P50DurationMs: 'p50_duration_ms',
+      P95DurationMs: 'p95_duration_ms',
+      P99DurationMs: 'p99_duration_ms',
+      Users: 'users',
+      Sessions: 'sessions',
+      LastSeen: 'last_seen',
+    } as const;
+
+    export type MCPToolQualitySortDirection = typeof MCPToolQualitySortDirection[keyof typeof MCPToolQualitySortDirection];
+
+
+    export const MCPToolQualitySortDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
     export interface MCPToolQualityRowsQuery {
       /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
       categories?: string[] | null;
       dateRange?: DateRange | null;
       kind?: 'MCPToolQualityRowsQuery';
+      /** Page size. The server defaults to 50 and caps this at 100. */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Number of matching tools to skip. */
+      offset?: number | null;
       response?: MCPToolQualityRowsQueryResponse | null;
+      /** Case-insensitive substring search on the effective tool name. */
+      search?: string | null;
+      /** Aggregate column used to order tools. Defaults to total_calls. */
+      sortColumn?: MCPToolQualitySortColumn | null;
+      /** Sort direction. Defaults to DESC. */
+      sortDirection?: MCPToolQualitySortDirection | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -45711,15 +45856,18 @@ export namespace Schemas {
       client_secret?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.
        *
        * * `personal` - personal
        * * `shared` - shared */
       scope?: MCPInstallationScopeEnum;
       /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
       team_enabled?: boolean;
-      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
-      agent_ids?: string[];
+      /** How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      agent_scope?: MCPAgentGrantScopeEnum;
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
     }
@@ -45729,15 +45877,18 @@ export namespace Schemas {
       api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.
        *
        * * `personal` - personal
        * * `shared` - shared */
       scope?: MCPInstallationScopeEnum;
       /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
       team_enabled?: boolean;
-      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
-      agent_ids?: string[];
+      /** How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      agent_scope?: MCPAgentGrantScopeEnum;
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
     }
@@ -46619,7 +46770,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
+         * What this skill does and when to use it.
          * @maxLength 4096
          */
       description: string;
@@ -46701,8 +46852,8 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
-         * @maxLength 4096
+         * What this skill does and when to use it. Max 1024 characters.
+         * @maxLength 1024
          */
       description: string;
       /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
@@ -46847,7 +46998,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
+         * What this skill does and when to use it.
          * @maxLength 4096
          */
       description: string;
@@ -58490,39 +58641,10 @@ export namespace Schemas {
       results: User[];
     }
 
-    /**
-     * * `default` - Default
-     * * `onboarding` - Onboarding
-     * * `product_intent` - Product Intent
-     * * `used_by_colleagues` - Used by Colleagues
-     * * `used_similar_products` - Used Similar Products
-     * * `used_on_separate_team` - Used on Separate Team
-     * * `new_product` - New Product
-     * * `sales_led` - Sales Led
-     * * `onboarding_delegated` - Onboarding Delegated
-     */
-    export type UserProductListReasonEnum = typeof UserProductListReasonEnum[keyof typeof UserProductListReasonEnum];
-
-
-    export const UserProductListReasonEnum = {
-      Default: 'default',
-      Onboarding: 'onboarding',
-      ProductIntent: 'product_intent',
-      UsedByColleagues: 'used_by_colleagues',
-      UsedSimilarProducts: 'used_similar_products',
-      UsedOnSeparateTeam: 'used_on_separate_team',
-      NewProduct: 'new_product',
-      SalesLed: 'sales_led',
-      OnboardingDelegated: 'onboarding_delegated',
-    } as const;
-
     export interface UserProductList {
       readonly id: string;
       readonly product_path: string;
       enabled?: boolean;
-      readonly reason: UserProductListReasonEnum | null;
-      /** @nullable */
-      readonly reason_text: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -62893,7 +63015,7 @@ export namespace Schemas {
       edits?: LLMSkillEditOperation[];
       /**
          * Updated description for the new version.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description?: string;
       /**
@@ -67325,9 +67447,6 @@ export namespace Schemas {
       readonly id?: string;
       readonly product_path?: string;
       enabled?: boolean;
-      readonly reason?: UserProductListReasonEnum | null;
-      /** @nullable */
-      readonly reason_text?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
@@ -73029,6 +73148,8 @@ export namespace Schemas {
       results: MCPToolQualityRowItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Number of tools matching the date, category, and search filters. */
+      totalCount: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
@@ -75468,7 +75589,7 @@ export namespace Schemas {
       name: string;
       /**
          * Short description of the signal or behavior this scout investigates.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description: string;
       /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
@@ -75800,9 +75921,9 @@ export namespace Schemas {
     export interface ScoutNote {
       /** Note UUID. Pass to `scout-notes-delete` to retire the note. */
       id: string;
-      /** Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet. */
+      /** Who the note is addressed to: a scout skill (`signals-scout-*`), a pipeline audience (`pipeline:*`, e.g. `pipeline:report-research`), or blank for a general note every scout sees. */
       skill_name: string;
-      /** The note's prose, read verbatim by scout runs. */
+      /** The note's prose, read verbatim by the run that picks it up. */
       content: string;
       /**
          * ISO-8601 creation timestamp.
@@ -75828,12 +75949,12 @@ export namespace Schemas {
      */
     export interface ScoutNoteCreateRequest {
       /**
-         * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim.
+         * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; the run reads it verbatim.
          * @maxLength 10000
          */
       content: string;
       /**
-         * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.
+         * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.
          * @maxLength 200
          */
       skill_name?: string;
@@ -75900,12 +76021,12 @@ export namespace Schemas {
          */
       expires_at?: string | null;
       /**
-         * Run that wrote this entry, or null if human-authored.
+         * Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.
          * @nullable
          */
       created_by_run_id: string | null;
       /**
-         * Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.
+         * Who created this entry: the canonical skill name of the scout that wrote it (e.g. `signals-scout-apm`), or the report-pipeline stage that did (`pipeline:report-research`, `pipeline:implementation`). Null if human-authored.
          * @nullable
          */
       created_by_skill?: string | null;
@@ -76619,7 +76740,7 @@ export namespace Schemas {
       name: string;
       /**
          * Short description of the signal or behavior this scout investigates.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description: string;
       /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
@@ -77332,6 +77453,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -78702,6 +78824,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -80062,6 +80185,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -85141,6 +85265,61 @@ export namespace Schemas {
       summary: unknown;
     }
 
+    export interface TrunkQuarantineTeamDebt {
+      /** Owning team slug, or 'unowned'. */
+      owner_team: string;
+      /** Tests this team owns that Trunk currently quarantines. */
+      test_count: number;
+      /** Of those, tests quarantined longer than ttl_days. */
+      overdue_count: number;
+      /** Age in days of the team's oldest standing quarantine. */
+      oldest_age_days: number;
+    }
+
+    export interface TrunkQuarantinedTest {
+      /** Test runner: 'pytest' or 'jest'. */
+      runner: string;
+      /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
+      nodeid: string;
+      /** Repo-relative path of the test file, as Trunk reports it. */
+      file: string;
+      /** Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' when no in-retention span carries one. */
+      owner_team: string;
+      /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
+      status: string;
+      /** How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'. */
+      quarantine_setting: string;
+      /** When Trunk quarantined the test. */
+      quarantined_at: string;
+      /** Whole days since the quarantine started. */
+      age_days: number;
+      /** True once age_days exceeds ttl_days: the quarantine has outlived the TTL. */
+      overdue: boolean;
+      /**
+         * The Trunk app's page for this test; null when the connected source has no organization slug or the row carries no test case id.
+         * @nullable
+         */
+      trunk_url: string | null;
+    }
+
+    export interface TrunkQuarantineDebt {
+      /** Per-team rollup, most indebted first: overdue count, then test count, then oldest age. */
+      teams: TrunkQuarantineTeamDebt[];
+      /** Every currently quarantined test, oldest first. */
+      tests: TrunkQuarantinedTest[];
+      /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
+      available: boolean;
+      /** Days a quarantine may stand before it counts as overdue. */
+      ttl_days: number;
+      /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */
+      repository: string;
+      /**
+         * The Trunk app's flaky-tests page for this repository; null when the connected source has no organization slug.
+         * @nullable
+         */
+      trunk_url: string | null;
+    }
+
     export interface UnquarantineQuery {
       /**
          * Snapshot identifier to unquarantine
@@ -85847,7 +86026,7 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Primary key of the team's GitHub integration to clone with when a repository is selected.
+         * Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it.
          * @nullable
          */
       github_integration?: number | null;
@@ -91952,6 +92131,17 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsTrunkQuarantineParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
      * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
@@ -97033,7 +97223,11 @@ export namespace Schemas {
      */
     channel_id?: string;
     /**
-     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     * Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.
+     */
+    count_only?: boolean;
+    /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean;
     /**
@@ -97136,7 +97330,7 @@ export namespace Schemas {
      */
     include_expired?: boolean;
     /**
-     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.
+     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the target's own notes only.
      */
     include_general?: boolean;
     /**
@@ -97146,7 +97340,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.
+     * Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a scout skill (`signals-scout-*`) or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.
      * @minLength 1
      */
     skill_name?: string;
@@ -97479,6 +97673,10 @@ export namespace Schemas {
     export type SurveysListParams = {
     archived?: boolean;
     /**
+     * Filter surveys by the ID of the user who created them.
+     */
+    created_by?: number;
+    /**
      * Multiple values may be separated by commas.
      */
     ids?: string[];
@@ -97495,6 +97693,14 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * Filter surveys by their current status.
+     *
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `complete` - Complete
+     */
+    status?: SurveysListStatus;
+    /**
      * * `popover` - popover
      * * `widget` - widget
      * * `external_survey` - external survey
@@ -97502,6 +97708,15 @@ export namespace Schemas {
      */
     type?: SurveysListType;
     };
+
+    export type SurveysListStatus = typeof SurveysListStatus[keyof typeof SurveysListStatus];
+
+
+    export const SurveysListStatus = {
+      Complete: 'complete',
+      Draft: 'draft',
+      Running: 'running',
+    } as const;
 
     export type SurveysListType = typeof SurveysListType[keyof typeof SurveysListType];
 

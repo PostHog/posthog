@@ -157,13 +157,31 @@ const TOOL_CALL_LIST = {
 
 // Tool quality tab — one row per tool: tool, total_calls, errors, error_rate_pct,
 // p50, p95, p99, users, sessions, first_seen, last_seen.
-const TOOL_QUALITY_ROWS = [
+type ToolQualityStoryRow = [string, number, number, number, number, number, number, number, number, string, string]
+
+const TOOL_QUALITY_ROWS: ToolQualityStoryRow[] = [
     ['execute-sql', 1480, 144, 9.7, 820, 3525, 9800, 210, 540, '2026-05-08T09:00:00Z', '2026-06-07T10:04:00Z'],
     ['read-data-schema', 760, 3, 0.4, 180, 1298, 2600, 160, 410, '2026-05-08T08:00:00Z', '2026-06-07T10:00:00Z'],
     ['query-trends', 540, 5, 1.0, 410, 2122, 4100, 120, 300, '2026-05-09T11:00:00Z', '2026-06-07T09:45:00Z'],
     ['insight-create', 410, 8, 2.0, 260, 727, 1500, 95, 210, '2026-05-10T14:00:00Z', '2026-06-06T18:00:00Z'],
     ['dashboard-create', 260, 2, 0.8, 300, 940, 1800, 70, 150, '2026-05-11T10:00:00Z', '2026-06-06T16:00:00Z'],
     ['cohort-create', 95, 6, 6.3, 480, 1620, 3100, 40, 80, '2026-05-12T13:00:00Z', '2026-06-05T12:00:00Z'],
+    ...Array.from(
+        { length: 54 },
+        (_, index): ToolQualityStoryRow => [
+            `workflow-action-${String(index + 1).padStart(2, '0')}`,
+            90 - index,
+            index % 7 === 0 ? 1 : 0,
+            index % 7 === 0 ? 1.5 : 0,
+            120 + index * 5,
+            480 + index * 10,
+            900 + index * 20,
+            30 + index,
+            40 + index,
+            '2026-05-12T13:00:00Z',
+            '2026-06-05T12:00:00Z',
+        ]
+    ),
 ]
 
 // Tool quality daily stats (selected/aggregate): day, calls, errors, p50, p95, p99.
@@ -595,22 +613,44 @@ const meta: Meta = {
                     }
                     // Tool quality tab runners return typed item rows — match on kind, not a SQL string.
                     if (body?.query?.kind === 'MCPToolQualityRowsQuery') {
+                        const rows = TOOL_QUALITY_ROWS.map((r) => ({
+                            tool: r[0],
+                            total_calls: r[1],
+                            errors: r[2],
+                            error_rate_pct: r[3],
+                            p50_duration_ms: r[4],
+                            p95_duration_ms: r[5],
+                            p99_duration_ms: r[6],
+                            users: r[7],
+                            sessions: r[8],
+                            first_seen: r[9],
+                            last_seen: r[10],
+                        }))
+                        const search = String(body.query.search ?? '')
+                            .trim()
+                            .toLowerCase()
+                        const filteredRows = search
+                            ? rows.filter((row) => row.tool.toLowerCase().includes(search))
+                            : rows
+                        const sortColumn = String(body.query.sortColumn ?? 'total_calls')
+                        const sortDirection = body.query.sortDirection === 'ASC' ? 1 : -1
+                        filteredRows.sort((left, right) => {
+                            const leftValue = left[sortColumn as keyof typeof left]
+                            const rightValue = right[sortColumn as keyof typeof right]
+                            const comparison =
+                                typeof leftValue === 'number' && typeof rightValue === 'number'
+                                    ? leftValue - rightValue
+                                    : String(leftValue).localeCompare(String(rightValue))
+                            return comparison === 0 ? left.tool.localeCompare(right.tool) : comparison * sortDirection
+                        })
+                        const limit = Number(body.query.limit ?? 50)
+                        const offset = Number(body.query.offset ?? 0)
+                        const page = filteredRows.slice(offset, offset + limit)
                         return [
                             200,
                             {
-                                results: TOOL_QUALITY_ROWS.map((r) => ({
-                                    tool: r[0],
-                                    total_calls: r[1],
-                                    errors: r[2],
-                                    error_rate_pct: r[3],
-                                    p50_duration_ms: r[4],
-                                    p95_duration_ms: r[5],
-                                    p99_duration_ms: r[6],
-                                    users: r[7],
-                                    sessions: r[8],
-                                    first_seen: r[9],
-                                    last_seen: r[10],
-                                })),
+                                results: page,
+                                totalCount: filteredRows.length,
                             },
                         ]
                     }
@@ -730,5 +770,6 @@ export const ToolQuality: Story = {
 export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
     },
 }
