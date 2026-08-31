@@ -572,7 +572,9 @@ build:
             - build:openapi-cli-agent-scopes
             - build:openapi-scene-tool-context
             - build:openapi-exec-docs
-        description: Generate OpenAPI schema and TypeScript types from the backend
+        description: 'Generate OpenAPI schema and TypeScript types from the backend.
+            Needs the dev stack running (Postgres and ClickHouse): Django starts
+            before the schema is generated. Start it with hogli up -d'
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (C++)
