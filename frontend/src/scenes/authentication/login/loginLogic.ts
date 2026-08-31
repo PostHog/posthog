@@ -642,17 +642,21 @@ export const loginLogic = kea<loginLogicType>([
         // users. This is the single point every terminal login error passes through.
         setGeneralError: ({ code }) => {
             const { precheckResponse, availableLoginMethods, codeVerificationRequired, preflight } = values
-            // Trust the precheck's account facts only when it completed for the email now in the form.
-            // A failed or stale precheck reports permissive defaults, which would mislabel the failure.
-            const precheckTrusted =
-                precheckResponse.status === 'completed' &&
-                !precheckResponse.precheckFailed &&
-                precheckResponse.email === values.login.email
+            // The precheck describes this attempt only when it completed for the email now in the form.
+            // A pending result (no precheck ran, e.g. a server-redirect error on page load) or one left
+            // over from a different email must not be reported as this attempt's precheck state.
+            const precheckIsCurrent =
+                precheckResponse.status === 'completed' && precheckResponse.email === values.login.email
+            // Trust the account facts only when the precheck also succeeded — a failed precheck reports
+            // permissive defaults, which would mislabel the failure.
+            const precheckTrusted = precheckIsCurrent && !precheckResponse.precheckFailed
             posthog.capture('login failed', {
                 error_code: code || 'unknown',
                 region: preflight?.region,
                 code_verification_pending: codeVerificationRequired,
-                precheck_failed: precheckResponse.precheckFailed ?? false,
+                // undefined (omitted) when no current precheck exists, so "precheck succeeded" stays
+                // distinct from "no precheck ran" instead of both reading as false.
+                precheck_failed: precheckIsCurrent ? (precheckResponse.precheckFailed ?? false) : undefined,
                 sso_enforcement: precheckTrusted ? (precheckResponse.sso_enforcement ?? null) : undefined,
                 login_methods_available: precheckTrusted ? availableLoginMethods : undefined,
             })
