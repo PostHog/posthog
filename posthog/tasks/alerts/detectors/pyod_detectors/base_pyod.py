@@ -54,8 +54,12 @@ class BasePyODDetector(BaseDetector):
             return DetectionResult(is_anomaly=False)
 
         # PyOD scores by isolation only, so read the deviation's side from the
-        # test point relative to the training mean to honor the direction.
-        is_anomaly = prob > threshold and self._direction_allows(float(last_point[0, 0]), float(np.mean(train_data)))
+        # test point relative to the training mean to honor the direction. Use
+        # the value column (0) only - lag feature columns would skew the mean
+        # away from the quantity the test point is compared against.
+        is_anomaly = prob > threshold and self._direction_allows(
+            float(last_point[0, 0]), float(np.mean(train_data[:, 0]))
+        )
 
         return DetectionResult(
             is_anomaly=is_anomaly,
@@ -102,7 +106,8 @@ class BasePyODDetector(BaseDetector):
 
             scores.append(prob)
 
-            if prob > threshold and self._direction_allows(float(test_point[0, 0]), float(np.mean(train_data))):
+            # Baseline is the value column only, so lag features do not skew it.
+            if prob > threshold and self._direction_allows(float(test_point[0, 0]), float(np.mean(train_data[:, 0]))):
                 triggered.append(i)
 
         return DetectionResult(
