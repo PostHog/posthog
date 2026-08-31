@@ -3196,6 +3196,10 @@ snapshots:
         hash: v1.k794b7964.dea67e50d4956ed1865124e7dba12c5deeb0703b19cac0513c82facb069e6a60.gkkPUZ2bAqgN4OxaM6W5sfI8m4O2uxsHh7xqL1PLsg4
     layout-navigation-eventingestionrestrictiondetails--whole-project--light:
         hash: v1.k794b7964.56e91dee845e8cae758c631b29733ddb23d0bd46c4669cd904032f3f668c8dd9.lrp6-51HhFOiy6Rqy1o5KlQamvWmozjUVC8EQnCPhrU
+    layout-navigation-sidebar--density-comparison--dark:
+        hash: v1.k794b7964.0900d9026ecffa9c2ff0989ee4618cdddfbb184c1ae480b110fc618105865445.KjYyXIZzyGNorxnj3Xo_ymFB0DMbOVFMRj_IPeTgAhI
+    layout-navigation-sidebar--density-comparison--light:
+        hash: v1.k794b7964.1caaa1ff521dfe6a6435dbaa817e05cd8263abd3a5b619d572dcb2c372cece1a.MlYgyHdxlI7nKwGkZHh7jiaPWO3aop7aEJzzWmjW5Rs
     layout-project-tree--all-products--dark:
         hash: v1.k794b7964.f5ecd6decc0aa7b7e9641cc874f81b12d2f73973fc7a991367907c8bf9e6a3cf.GmiqvAu4XbxVgya6Rn15ChvXn-l9XU6ttxGUqmPoi4o
     layout-project-tree--all-products--light:
