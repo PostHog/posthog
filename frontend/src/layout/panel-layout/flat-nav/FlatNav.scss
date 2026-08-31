@@ -5,3 +5,8 @@
         font-size: 0.75rem;
     }
 }
+
+.FlatNav .show-scrollbar-on-hover::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
