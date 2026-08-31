@@ -39,8 +39,11 @@ class EnsembleDetector(BaseDetector):
         if self.operator == "and":
             is_anomaly = all(r.is_anomaly for r in results)
             score = min((r.score for r in results if r.score is not None), default=None)
-            # AND: use intersection of triggered indices
-            triggered_sets = [set(r.triggered_indices) for r in results if r.triggered_indices]
+            # AND: intersect every child set, including the empty ones. A child
+            # that fired nothing (e.g. its direction suppressed the point) must
+            # remove the index, so triggered stays empty when is_anomaly is
+            # False. This matches detect_batch().
+            triggered_sets = [set(r.triggered_indices) for r in results]
             triggered = sorted(set.intersection(*triggered_sets)) if triggered_sets else []
         else:
             is_anomaly = any(r.is_anomaly for r in results)

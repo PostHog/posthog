@@ -743,6 +743,24 @@ class TestDetectorDirection:
         assert batch.triggered_indices == []
         assert batch.all_scores[-1] == 1.0
 
+    def test_and_ensemble_with_one_suppressed_child_reports_no_triggers(self) -> None:
+        # AND ensemble: one "both" child fires the upside spike, the other
+        # inherits "down" and stays silent. is_anomaly must be False, and the
+        # triggered list must be empty too - otherwise a suppressed point is
+        # stored and painted on the chart as a phantom anomaly.
+        config = {
+            "type": "ensemble",
+            "operator": "and",
+            "direction": "down",
+            "detectors": [
+                {"type": "zscore", "threshold": 0.9, "window": 10, "direction": "both"},
+                {"type": "mad", "threshold": 0.9, "window": 10},
+            ],
+        }
+        result = EnsembleDetector(config).detect(DIRECTION_UP_SPIKE)
+        assert result.is_anomaly is False
+        assert result.triggered_indices == []
+
     def test_invalid_direction_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid direction"):
             ZScoreDetector({"threshold": 0.9, "direction": "sideways"})
