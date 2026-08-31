@@ -509,6 +509,63 @@ describe('workflowLogic auto-save', () => {
 
             expect({ rejected, banner: logic.values.externallyEdited }).toEqual({ rejected: 0, banner: false })
         })
+
+        it('keeps the form submitting until the queued manual save lands', async () => {
+            logic.actions.setWorkflowValue('name', 'Renamed by me')
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+            await firstPatchSeen
+
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            // The save button reads this. While it stays true the button cannot fire a second save.
+            expect(logic.values.isWorkflowSubmitting).toBe(true)
+
+            releaseFirstPatch?.()
+            await new Promise((resolve) => setTimeout(resolve, 200))
+
+            expect(logic.values.isWorkflowSubmitting).toBe(false)
+        })
+    })
+
+    describe('draft actions on an active workflow', () => {
+        const staged = makeWorkflow({
+            status: 'active',
+            draft: { name: 'Autosave test', actions: [], edges: [] },
+            draft_updated_at: '2026-05-01T00:01:00.000Z',
+        } as Partial<HogFlow>)
+
+        beforeEach(async () => {
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/': staged },
+                patch: { '/api/environments/:team_id/hog_flows/:id/': () => [200, staged] },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        it('keeps the draft actions mounted and blocks publish while edits are unsaved', () => {
+            logic.actions.setWorkflowValue('name', 'Still typing')
+
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+            // Hiding these on a dirty form moved a different action under the pointer every time
+            // auto-save landed.
+            expect(logic.values.showDraftActions).toBe(true)
+            // Publish promotes the staged draft, not what is on screen.
+            expect(logic.values.publishDisabledReason).toBe('Save your changes first')
+        })
+
+        it('allows publish once auto-save clears the unsaved edits', async () => {
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowValue('name', 'Edited')
+            await jest.advanceTimersByTimeAsync(3500)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(logic.values.publishDisabledReason).toBeUndefined()
+        })
     })
 
     describe('navigation guard', () => {

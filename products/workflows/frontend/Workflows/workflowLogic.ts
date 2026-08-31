@@ -230,6 +230,7 @@ export interface workflowLogicValues {
           }
         | false
         | null
+    publishDisabledReason: string | undefined
     saveAttemptedActionIds: string[] | null
     saveBaseUpdatedAt: string | null
     scheduleConfigSources: {
@@ -240,6 +241,7 @@ export interface workflowLogicValues {
     scheduleState: ScheduleState
     scheduleTimezone: string
     schedules: HogFlowSchedule[]
+    showDraftActions: boolean
     showWorkflowErrors: boolean
     triggerAction: TriggerAction | null
     workflow: HogFlow
@@ -2933,6 +2935,11 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         ) => HogFlow
         hasStagedDraft: (originalWorkflow: HogFlow | null) => boolean
+        showDraftActions: (hasStagedDraft: boolean, originalWorkflow: HogFlow | null) => boolean
+        publishDisabledReason: (
+            hasUnsavedChanges: boolean,
+            draftActionPending: 'discard' | 'publish' | null
+        ) => string | undefined
     }
 }
 
@@ -3188,7 +3195,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, cache }) => ({
         workflow: {
             defaults: NEW_WORKFLOW,
             errors: ({ name, actions, status }) => {
@@ -3209,6 +3216,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
 
                 actions.saveWorkflow(values)
+                // Hold the form in its submitting state until the save lands, so the save button
+                // keeps a loading state and cannot fire a second save. The loader assigns
+                // `saveChain` while it handles the action above, so this reads the current save.
+                await cache.saveChain
             },
         },
     })),
@@ -3685,6 +3696,27 @@ export const workflowLogic = kea<workflowLogicType>([
         hasStagedDraft: [
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.draft,
+        ],
+
+        // A staged draft outlives the edits made after it, so the draft actions stay mounted while
+        // the form is dirty. Gating them on a clean form made them appear and disappear on every
+        // auto-save cycle.
+        showDraftActions: [
+            (s) => [s.hasStagedDraft, s.originalWorkflow],
+            (hasStagedDraft: boolean, originalWorkflow: HogFlow | null): boolean =>
+                hasStagedDraft && !!originalWorkflow?.id,
+        ],
+
+        publishDisabledReason: [
+            (s) => [s.hasUnsavedChanges, s.draftActionPending],
+            (hasUnsavedChanges: boolean, draftActionPending: 'publish' | 'discard' | null): string | undefined => {
+                if (draftActionPending === 'discard') {
+                    return 'Discarding is in progress'
+                }
+                // Publish promotes the staged draft, so edits still sitting in the form would not
+                // go out. Auto-save clears this a few seconds after the user stops typing.
+                return hasUnsavedChanges ? 'Save your changes first' : undefined
+            },
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
