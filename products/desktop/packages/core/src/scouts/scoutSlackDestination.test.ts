@@ -13,11 +13,15 @@ import {
 } from "./scoutSlackDestination";
 
 describe("scoutSlackDestination", () => {
-  it("builds and parses a member target round trip", () => {
-    const target = buildMemberTargetValue("U123", "Ada");
-    expect(target).toBe("U123|@Ada");
-    expect(parseMemberIdFromTargetValue(target)).toBe("U123");
-    expect(parseMemberNameFromTargetValue(target)).toBe("Ada");
+  it.each([
+    ["Ada", "U123|@Ada"],
+    // Slack display names are free text, so a name can contain its own `|`.
+    ["Ops | EMEA", "U123|@Ops | EMEA"],
+  ])("builds and parses the %j member target round trip", (name, target) => {
+    const built = buildMemberTargetValue("U123", name);
+    expect(built).toBe(target);
+    expect(parseMemberIdFromTargetValue(built)).toBe("U123");
+    expect(parseMemberNameFromTargetValue(built)).toBe(name);
   });
 
   it("does not double the leading @ on a display name", () => {

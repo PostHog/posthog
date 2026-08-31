@@ -29,7 +29,10 @@ export function parseMemberNameFromTargetValue(
   value: string | null | undefined,
 ): string | null {
   if (!value) return null;
-  const display = value.split("|")[1]?.trim();
+  // Split once: a display name can itself contain `|` (Slack names are free text).
+  const separator = value.indexOf("|");
+  if (separator === -1) return null;
+  const display = value.slice(separator + 1).trim();
   if (!display) return null;
   return display.startsWith("@") ? display.slice(1) : display;
 }
