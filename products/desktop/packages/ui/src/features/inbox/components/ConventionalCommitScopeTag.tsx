@@ -9,18 +9,15 @@ import type { ReactNode } from "react";
 interface ConventionalCommitScopeTagProps {
   type: string;
   scope: string | null;
-  size?: "compact" | "hero";
 }
 
 export function ConventionalCommitScopeTag({
   type,
   scope,
-  size = "compact",
 }: ConventionalCommitScopeTagProps): ReactNode {
   const meta = getConventionalCommitTypeMeta(type);
   const IconComponent = meta.icon;
   const label = formatConventionalCommitTag(type, scope);
-  const hero = size === "hero";
 
   // `align-middle` keeps the tag centered on the title's first line when it
   // renders as an inline prefix inside the title text; `font-normal` stops it
@@ -30,14 +27,12 @@ export function ConventionalCommitScopeTag({
       variant="default"
       className={cn(
         "shrink-0 border border-(--gray-4) bg-(--gray-2) align-middle font-mono font-normal text-gray-11 leading-none",
-        hero
-          ? "mr-3 h-8 gap-1.5 px-2.5 py-0 text-[15px]"
-          : "mr-1.5 h-5 gap-0.5 px-1.5 py-0 text-[11px]",
+        "mr-1.5 h-5 gap-0.5 px-1.5 py-0 text-[11px]",
       )}
       title={label}
     >
       <IconComponent
-        size={hero ? 15 : 10}
+        size={10}
         weight="bold"
         className={meta.softIconClass}
         aria-hidden
