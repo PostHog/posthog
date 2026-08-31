@@ -63,6 +63,26 @@ export function buildFunnelEventsFromPathNode(pathItemCard: PathNodeData): Actio
     return events
 }
 
+export function buildPaths(results: PathsLink[]): Paths {
+    // A stale result array from the previous query type can pair with a paths query for one
+    // render, so drop any row that is not a real paths link before building nodes.
+    const links = results.filter((path) => typeof path?.source === 'string' && typeof path?.target === 'string')
+    const nodes: Record<string, PathsNode> = {}
+    for (const path of links) {
+        if (!nodes[path.source]) {
+            nodes[path.source] = { name: path.source }
+        }
+        if (!nodes[path.target]) {
+            nodes[path.target] = { name: path.target }
+        }
+    }
+
+    return {
+        nodes: Object.values(nodes),
+        links,
+    }
+}
+
 export const DEFAULT_STEP_LIMIT = 5
 
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
@@ -170,25 +190,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 return isPathsQuery(insightQuery) ? (insightData?.result ?? []) : []
             },
         ],
-        paths: [
-            (s) => [s.results],
-            (results: PathsLink[]): Paths => {
-                const nodes: Record<string, PathsNode> = {}
-                for (const path of results) {
-                    if (!nodes[path.source]) {
-                        nodes[path.source] = { name: path.source }
-                    }
-                    if (!nodes[path.target]) {
-                        nodes[path.target] = { name: path.target }
-                    }
-                }
-
-                return {
-                    nodes: Object.values(nodes),
-                    links: results,
-                }
-            },
-        ],
+        paths: [(s) => [s.results], (results: PathsLink[]): Paths => buildPaths(results)],
         taxonomicGroupTypes: [
             (s) => [s.pathsFilter],
             (pathsFilter: null | import('~/queries/schema/schema-general').PathsFilter) => {
