@@ -55,6 +55,8 @@ import {
   pickPhotoFromLibrary,
 } from "@/features/tasks/composer/attachments/pickers";
 import type { PendingAttachment } from "@/features/tasks/composer/attachments/types";
+import { CloudTargetControl } from "@/features/tasks/composer/CloudTargetControl";
+import { cloudTargetIds } from "@/features/tasks/composer/cloudTargets";
 import { DotBackground } from "@/features/tasks/composer/DotBackground";
 import {
   type ContextWindow,
@@ -64,6 +66,7 @@ import {
   getModelConfigOption,
 } from "@/features/tasks/composer/options";
 import { RepositoryPickerInline } from "@/features/tasks/composer/RepositoryPickerInline";
+import { useCloudTargetSelection } from "@/features/tasks/composer/useCloudTargetSelection";
 import { useCloudTaskConfigOptions } from "@/features/tasks/hooks/useCloudTaskConfigOptions";
 import { useUserIntegrations } from "@/features/tasks/hooks/useUserIntegrations";
 import { useWarmTask } from "@/features/tasks/hooks/useWarmTask";
@@ -209,6 +212,13 @@ export default function NewTaskScreen() {
   const [fastMode, setFastMode] = useState<boolean>(
     () => usePreferencesStore.getState().lastUsedFastMode,
   );
+  const {
+    cloudTarget,
+    setCloudTarget,
+    options: cloudTargetOptions,
+    favoriteKey: cloudTargetFavoriteKey,
+    toggleFavorite: toggleCloudTargetFavorite,
+  } = useCloudTargetSelection();
 
   useEffect(() => {
     if (!hasLiveConfig) return;
@@ -382,6 +392,7 @@ export default function NewTaskScreen() {
           contextWindow,
           fastMode,
         }),
+        ...cloudTargetIds(cloudTarget),
         autoPublish: usePreferencesStore.getState().autoPublishCloudRuns,
         rtkEnabled: usePreferencesStore.getState().rtkEnabledCloud,
         ...(signalReport
@@ -410,6 +421,7 @@ export default function NewTaskScreen() {
     reasoning,
     contextWindow,
     fastMode,
+    cloudTarget,
     router,
     selection,
     signalReport,
@@ -614,6 +626,15 @@ export default function NewTaskScreen() {
                         paddingRight: 16,
                       }}
                     >
+                      {cloudTargetOptions.length > 1 ? (
+                        <CloudTargetControl
+                          cloudTarget={cloudTarget}
+                          onCloudTargetChange={setCloudTarget}
+                          options={cloudTargetOptions}
+                          favoriteKey={cloudTargetFavoriteKey}
+                          onToggleFavorite={toggleCloudTargetFavorite}
+                        />
+                      ) : null}
                       <AgentConfigControls
                         adapter={adapter}
                         mode={mode}

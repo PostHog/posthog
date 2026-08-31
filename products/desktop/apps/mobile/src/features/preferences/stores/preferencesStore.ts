@@ -95,6 +95,9 @@ interface PreferencesState {
 
   rtkEnabledCloud: boolean;
   setRtkEnabledCloud: (enabled: boolean) => void;
+
+  favoriteCloudTargetKey: string | null;
+  setFavoriteCloudTargetKey: (key: string | null) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -155,6 +158,9 @@ export const usePreferencesStore = create<PreferencesState>()(
 
       rtkEnabledCloud: true,
       setRtkEnabledCloud: (enabled) => set({ rtkEnabledCloud: enabled }),
+
+      favoriteCloudTargetKey: null,
+      setFavoriteCloudTargetKey: (key) => set({ favoriteCloudTargetKey: key }),
     }),
     {
       name: "posthog-preferences",
@@ -191,6 +197,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         lastUsedFastMode: state.lastUsedFastMode,
         autoPublishCloudRuns: state.autoPublishCloudRuns,
         rtkEnabledCloud: state.rtkEnabledCloud,
+        favoriteCloudTargetKey: state.favoriteCloudTargetKey,
       }),
     },
   ),

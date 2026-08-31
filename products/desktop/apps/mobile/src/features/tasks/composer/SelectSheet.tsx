@@ -1,5 +1,5 @@
 import { Text } from "@components/text";
-import { Check } from "phosphor-react-native";
+import { Check, Star } from "phosphor-react-native";
 import type { ReactNode } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { SheetContainer } from "@/components/SheetContainer";
@@ -20,6 +20,10 @@ interface SelectSheetProps<T extends string> {
   value: T;
   onChange: (value: T) => void;
   onClose: () => void;
+  /** When set, each row shows a star. The value matching `favoriteValue` is
+   *  filled; tapping any star calls `onToggleFavorite` and does not select. */
+  favoriteValue?: T | null;
+  onToggleFavorite?: (value: T) => void;
 }
 
 export function SelectSheet<T extends string>({
@@ -29,8 +33,11 @@ export function SelectSheet<T extends string>({
   value,
   onChange,
   onClose,
+  favoriteValue,
+  onToggleFavorite,
 }: SelectSheetProps<T>) {
   const themeColors = useThemeColors();
+  const showFavorites = !!onToggleFavorite;
 
   return (
     <SheetContainer open={open} onClose={onClose}>
@@ -41,6 +48,7 @@ export function SelectSheet<T extends string>({
       <ScrollView className="max-h-96">
         {options.map((option) => {
           const selected = option.value === value;
+          const isFavorite = showFavorites && option.value === favoriteValue;
           return (
             <Pressable
               key={option.value}
@@ -71,6 +79,28 @@ export function SelectSheet<T extends string>({
               </View>
               {selected ? (
                 <Check size={16} color={themeColors.accent[9]} weight="bold" />
+              ) : null}
+              {showFavorites ? (
+                <Pressable
+                  hitSlop={10}
+                  onPress={() => onToggleFavorite?.(option.value)}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isFavorite
+                      ? `Stop using ${option.label} by default`
+                      : `Use ${option.label} by default`
+                  }
+                  accessibilityState={{ selected: isFavorite }}
+                  className="active:opacity-60"
+                >
+                  <Star
+                    size={16}
+                    color={
+                      isFavorite ? themeColors.gray[12] : themeColors.gray[10]
+                    }
+                    weight={isFavorite ? "fill" : "regular"}
+                  />
+                </Pressable>
               ) : null}
             </Pressable>
           );
