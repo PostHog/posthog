@@ -33,7 +33,10 @@ class PostHogConfig(AppConfig):
             apply_orjson_jsonfield()
 
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
-        from posthog.models.organization_caching import (
+
+        # This import must remain deferred: importing any ``posthog.models`` submodule at module
+        # scope triggers the models package before Django's app registry has been populated.
+        from posthog.models.organization_caching import (  # noqa: PLC0415
             connect_signal_handlers as connect_organization_cache_signal_handlers,
         )
         from posthog.storage.gateway_credential_signal_handlers import (
