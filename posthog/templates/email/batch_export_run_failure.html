@@ -1,4 +1,5 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% extends "email/base.html" %}
+
 {% block preheader %}Failing batch exports are automatically paused{% endblock %}
 {% block heading %}PostHog batch export {{ name }} has failed{% endblock %}
 {% block section %}

@@ -69,6 +69,7 @@ Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the
 - **`featureFlag`**: set it when the scene is already flag-gated (so the scene's own gate keeps handling flag-off) or to roll the empty state out gradually.
 - **Hedgehog**: a `pngHoggie(...)`-wrapped module — import only inside the product chunk (eager-graph guard: `frontend/bin/check-eager-graph.mjs`). Never hardcode image URLs (e.g. Cloudinary) — `@posthog/brand` assets only.
 - **`text` is keyed by mode**: provide the `needs-setup` base; add a `waiting-for-data` entry only if your product has that middle state (missing fields fall back to the base). Sentence case, benefit-first, no AI tells (see "User-facing copy" in `CLAUDE.md`).
+- **Key `primaryAction` by mode when it only fits one**: a one-click opt-in ("Enable session recording") is done once the status is `waiting-for-data`, and clicking it again re-sends the same team update. Pass `primaryAction: { 'needs-setup': { ... } }` and the button, along with the `hint` that introduces it, leaves the waiting screen. A single flat action still covers both modes - keep that when it reads correctly either way (support's "Open support settings").
 - **Product header**: the gate keeps the product header (name, description, icon) above the empty state automatically, sourced from the scene's `SceneConfig` in your product manifest — make sure your manifest's scene entry has `name`, `description`, and `iconType` set.
 
 ### 3. Build the signature preview
