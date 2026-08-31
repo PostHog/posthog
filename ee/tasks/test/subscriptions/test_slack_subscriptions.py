@@ -33,12 +33,12 @@ from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_ME
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
-def _make_slack_api_error(error_code: str, **extra_data) -> SlackApiError:
+def _make_slack_api_error(error_code: str, *, api_url: str = "", **extra_data) -> SlackApiError:
     data = {"ok": False, "error": error_code, **extra_data}
     return SlackApiError(
         "Error",
         AsyncSlackResponse(
-            client=None, http_verb="POST", api_url="", req_args={}, data=data, headers={}, status_code=200
+            client=None, http_verb="POST", api_url=api_url, req_args={}, data=data, headers={}, status_code=200
         ),
     )
 
@@ -653,6 +653,54 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         mock_async.files_upload_v2.assert_awaited_once()
         mock_sleep.assert_not_awaited()
         assert result.main_message_sent is False
+
+    @parameterized.expand(
+        [
+            ("ratelimited",),
+            ("service_unavailable",),
+        ]
+    )
+    def test_deliver_slack_gallery_retries_transient_pre_upload_errors(
+        self, MockSlackIntegration: MagicMock, slack_error_code: str
+    ) -> None:
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        slack_error = _make_slack_api_error(
+            slack_error_code,
+            api_url="https://slack.com/api/files.getUploadURLExternal",
+        )
+        mock_async.files_upload_v2 = AsyncMock(side_effect=[slack_error, {"ok": True, "files": [{"id": "F1"}]}])
+        gallery = SlackGallery(
+            channel="C1",
+            initial_comment="hi",
+            file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
+        )
+
+        with patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
+
+        assert mock_async.files_upload_v2.await_count == 2
+        mock_sleep.assert_awaited_once_with(1)
+        assert result.is_complete_success
+
+    def test_deliver_slack_gallery_does_not_retry_ambiguous_completion_error(
+        self, MockSlackIntegration: MagicMock
+    ) -> None:
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        slack_error = _make_slack_api_error(
+            "internal_error",
+            api_url="https://slack.com/api/files.completeUploadExternal",
+        )
+        mock_async.files_upload_v2 = AsyncMock(side_effect=[slack_error, {"ok": True, "files": [{"id": "F1"}]}])
+        gallery = SlackGallery(
+            channel="C1",
+            initial_comment="hi",
+            file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
+        )
+
+        result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
+
+        mock_async.files_upload_v2.assert_awaited_once()
+        assert result.is_complete_failure
 
     def test_deliver_slack_gallery_empty_uploads_sends_plain_message(self, MockSlackIntegration: MagicMock) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)

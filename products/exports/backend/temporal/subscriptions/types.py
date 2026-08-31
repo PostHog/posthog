@@ -169,6 +169,7 @@ class CreateExportAssetsResult:
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
+    is_slack_gallery: bool = False
     available_insight_count: int = 0
     selected_insight_count: int = 0
     status: str = ExportAssetPreparationStatus.READY

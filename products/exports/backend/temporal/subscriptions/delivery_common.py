@@ -17,9 +17,10 @@ from products.exports.backend.temporal.subscriptions.types import (
     RecipientResult,
 )
 
-from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
+from ee.tasks.subscriptions import SLACK_GALLERY_CONFIG_ERRORS, SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
+    SLACK_FILE_UPLOAD_UNAVAILABLE_DISABLE_REASON,
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
     DisableReason,
     disable_invalid_subscription,
@@ -215,6 +216,10 @@ async def deliver_slack(
             return await auto_disable_and_return(
                 subscription, SLACK_PERMISSION_REVOKED_DISABLE_REASON, recipient_results
             )
+        if slack_error_code in SLACK_GALLERY_CONFIG_ERRORS:
+            return await auto_disable_and_return(
+                subscription, SLACK_FILE_UPLOAD_UNAVAILABLE_DISABLE_REASON, recipient_results
+            )
         raise  # Transient Slack errors — let Temporal retry
 
     if result.is_complete_success:
@@ -255,15 +260,18 @@ async def deliver_slack(
         )
     elif result.is_complete_failure:
         failure_message = result.failure_message or "Slack could not confirm whether the gallery was delivered."
+        failure_type = result.failure_type or "slack_delivery_unconfirmed"
         await LOGGER.aerror(
-            "deliver_subscription.slack_delivery_unconfirmed",
+            "deliver_subscription.slack_delivery_failed",
             subscription_id=subscription.id,
+            failure_type=failure_type,
         )
+        _capture_delivery_failed_event(subscription, Exception(failure_message))
         recipient_results.append(
             RecipientResult(
                 recipient=subscription.target_value,
                 status="failed",
-                error={"message": failure_message, "type": "slack_delivery_unconfirmed"},
+                error={"message": failure_message, "type": failure_type},
                 human_readable_error=failure_message,
             )
         )

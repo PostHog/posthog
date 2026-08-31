@@ -7,6 +7,7 @@ from django.conf import settings
 import aiohttp
 import structlog
 from slack_sdk.errors import SlackApiError
+from slack_sdk.web.async_client import AsyncWebClient
 
 from posthog.dataclasses import frozen
 from posthog.helpers.slack_subscription_explore import build_explore_hint, build_explore_hint_text
@@ -18,7 +19,7 @@ from posthog.utils import absolute_uri
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionResource
 
-from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS
+from ee.tasks.subscriptions import SLACK_GALLERY_CONFIG_ERRORS, SLACK_USER_CONFIG_ERRORS
 from ee.tasks.subscriptions.subscription_utils import (
     ASSET_GENERATION_FAILED_MESSAGE,
     UTM_TAGS_BASE,
@@ -78,6 +79,7 @@ class SlackDeliveryResult:
     failed_thread_message_indices: list[int]
     omitted_attachment_count: int = 0
     failure_message: str | None = None
+    failure_type: str | None = None
 
     @property
     def is_partial_failure(self) -> bool:
@@ -515,14 +517,10 @@ async def deliver_slack_gallery(
             )
 
         try:
-            await async_client.files_upload_v2(
-                channel=gallery.channel,
-                initial_comment=gallery.initial_comment,
-                file_uploads=gallery.file_uploads,
-            )
+            await _upload_slack_gallery_with_retry(async_client, subscription, gallery)
         except SlackApiError as error:
             slack_error_code = error.response.get("error", "")
-            if slack_error_code in SLACK_USER_CONFIG_ERRORS:
+            if slack_error_code in SLACK_USER_CONFIG_ERRORS or slack_error_code in SLACK_GALLERY_CONFIG_ERRORS:
                 raise
             logger.error(
                 "deliver_slack_gallery.delivery_unconfirmed",
@@ -536,6 +534,7 @@ async def deliver_slack_gallery(
                 total_thread_messages=0,
                 failed_thread_message_indices=[],
                 failure_message="Slack could not deliver the gallery. Check the channel before retrying.",
+                failure_type="slack_delivery_failed",
             )
         except (TimeoutError, aiohttp.ClientError):
             logger.error(
@@ -549,6 +548,7 @@ async def deliver_slack_gallery(
                 total_thread_messages=0,
                 failed_thread_message_indices=[],
                 failure_message="Slack could not confirm whether the gallery was delivered. Check the channel before retrying.",
+                failure_type="slack_delivery_unconfirmed",
             )
 
     logger.info(
@@ -562,6 +562,39 @@ async def deliver_slack_gallery(
         failed_thread_message_indices=[],
         omitted_attachment_count=gallery.omitted_attachment_count,
     )
+
+
+async def _upload_slack_gallery_with_retry(
+    async_client: AsyncWebClient,
+    subscription: Subscription,
+    gallery: SlackGallery,
+    max_retries: int = 3,
+) -> None:
+    for attempt in range(max_retries):
+        try:
+            await async_client.files_upload_v2(
+                channel=gallery.channel,
+                initial_comment=gallery.initial_comment,
+                file_uploads=gallery.file_uploads,
+            )
+            return
+        except SlackApiError as error:
+            slack_error_code = error.response.get("error", "")
+            is_retryable_pre_upload_error = (
+                slack_error_code in _RETRYABLE_SLACK_ERRORS
+                and error.response.api_url.endswith("/files.getUploadURLExternal")
+            )
+            if not is_retryable_pre_upload_error or attempt >= max_retries - 1:
+                raise
+            logger.warning(
+                "deliver_slack_gallery.pre_upload_error_retrying",
+                subscription_id=subscription.id,
+                channel=gallery.channel,
+                slack_error=slack_error_code,
+                attempt=attempt + 1,
+                max_retries=max_retries,
+            )
+            await asyncio.sleep(2**attempt)
 
 
 async def send_slack_message_with_integration_async(

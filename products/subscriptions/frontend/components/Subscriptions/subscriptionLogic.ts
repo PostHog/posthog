@@ -572,7 +572,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 const payload = {
                     ...subscription,
                     bysetpos: subscription.frequency === 'monthly' ? subscription.bysetpos : null,
-                    delivery_config: subscription.delivery_config,
+                    delivery_config: isAi || subscription.target_type !== 'slack' ? {} : subscription.delivery_config,
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
                     // AI subscriptions have no dashboard, so a carried-over insight selection would

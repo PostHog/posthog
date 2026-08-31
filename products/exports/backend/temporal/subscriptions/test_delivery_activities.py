@@ -4,12 +4,15 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
+from slack_sdk.errors import SlackApiError
+from slack_sdk.web.async_slack_response import AsyncSlackResponse
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.email import EmailDeliveryError
 from posthog.models.integration import Integration
-from posthog.slo.types import SloArea, SloConfig, SloOperation
+from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportAssetResult
 
@@ -31,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     GenerateAIReportResult,
+    RecipientResult,
     SnapshotInsightsResult,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
@@ -62,16 +66,60 @@ async def test_deliver_slack_records_unconfirmed_gallery_without_retry(team, use
             total_thread_messages=0,
             failed_thread_message_indices=[],
             failure_message="Slack could not confirm whether the gallery was delivered.",
+            failure_type="slack_delivery_unconfirmed",
         )
     )
 
-    result = await deliver_slack(subscription, [], send)
+    with patch(
+        "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+    ) as capture_failed:
+        result = await deliver_slack(subscription, [], send)
 
     send.assert_awaited_once_with(integration)
+    capture_failed.assert_called_once()
     assert result.recipient_results[0].status == "failed"
     assert result.recipient_results[0].error == {
         "message": "Slack could not confirm whether the gallery was delivered.",
         "type": "slack_delivery_unconfirmed",
+    }
+
+
+@pytest.mark.parametrize(
+    "slack_error_code",
+    ["file_uploads_disabled", "file_type_not_allowed", "storage_limit_reached", "ekm_access_denied"],
+)
+async def test_deliver_slack_auto_disables_permanent_gallery_errors(team, user, slack_error_code) -> None:
+    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        created_by=user,
+        target_type="slack",
+        target_value="C123|#general",
+        integration=integration,
+    )
+    response = AsyncSlackResponse(
+        client=None,
+        http_verb="POST",
+        api_url="https://slack.com/api/files.completeUploadExternal",
+        req_args={},
+        data={"ok": False, "error": slack_error_code},
+        headers={},
+        status_code=200,
+    )
+    send = AsyncMock(side_effect=SlackApiError("Error", response))
+
+    with (
+        patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"),
+        patch("ee.tasks.subscriptions.auto_disable.create_subscription_auto_disabled_notification"),
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+    ):
+        result = await deliver_slack(subscription, [], send)
+
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
+    assert result.recipient_results[0].error == {
+        "message": "Slack file uploads are unavailable for this workspace",
+        "type": "slack_file_upload_unavailable",
     }
 
 
@@ -138,11 +186,15 @@ async def test_deliver_subscription_wraps_email_delivery_error(team, user, activ
 # Driving through the workflow (not just the patched() helper) pins both the selection and
 # that the chosen activity is what execute_activity receives.
 @pytest.mark.parametrize("patch_active", [True, False], ids=["patched_v2", "pre_patch_v1"])
-async def test_process_subscription_picks_delivery_activity_from_patch(patch_active) -> None:
+@pytest.mark.parametrize("is_slack_gallery,expected_max_attempts", [(False, 5), (True, 1)])
+async def test_process_subscription_picks_delivery_activity_from_patch(
+    patch_active, is_slack_gallery, expected_max_attempts
+) -> None:
     picked = None
+    delivery_retry_policy: RetryPolicy | None = None
 
     async def fake_execute_activity(activity, inputs, **_kwargs):
-        nonlocal picked
+        nonlocal delivery_retry_policy, picked
         if activity is create_delivery_record:
             return uuid.uuid4()
         if activity is validate_subscription_for_delivery:
@@ -152,6 +204,7 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
                 exported_asset_ids=[1],
                 total_insight_count=3,
                 target_type="email",
+                is_slack_gallery=is_slack_gallery,
                 available_insight_count=5,
                 selected_insight_count=4,
             )
@@ -161,7 +214,20 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
             return SnapshotInsightsResult()
         if activity in (deliver_subscription, deliver_subscription_v2):
             picked = activity
-            return DeliverSubscriptionResult()
+            delivery_retry_policy = _kwargs["retry_policy"]
+            return DeliverSubscriptionResult(
+                recipient_results=(
+                    [
+                        RecipientResult(
+                            recipient="C123|#general",
+                            status="failed",
+                            error={"message": "Slack did not confirm delivery", "type": "slack_delivery_unconfirmed"},
+                        )
+                    ]
+                    if is_slack_gallery
+                    else []
+                )
+            )
         if activity is update_delivery_record:
             return None
         raise AssertionError(f"unexpected activity {activity}")
@@ -189,10 +255,15 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
         await ProcessSubscriptionWorkflow().run(inputs)
 
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
+    assert delivery_retry_policy is not None
+    assert delivery_retry_policy.maximum_attempts == expected_max_attempts
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["target_type"] == "email"
     assert inputs.slo.completion_properties["selected_insight_count"] == 4
     assert inputs.slo.completion_properties["available_insight_count"] == 5
+    if is_slack_gallery:
+        assert inputs.slo.outcome == SloOutcome.FAILURE
+        assert inputs.slo.completion_properties["error_type"] == "slack_delivery_unconfirmed"
 
 
 @pytest.mark.parametrize("patch_active", [True, False], ids=["patched_v2", "pre_patch_v1"])
