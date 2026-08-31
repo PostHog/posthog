@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 
 import { AccessControlLevel } from '~/types'
 
-import { DashboardsTable } from './DashboardsTable'
+import { DashboardsTable, folderCompareFunction } from './DashboardsTable'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: jest.fn() }))
 // BulkUpdateTagsButton pulls its own logic/deps that are irrelevant to the move affordances under test.
@@ -102,6 +102,22 @@ describe('DashboardsTable move to folder', () => {
         renderTable([1, 2], [1, 2], [])
         fireEvent.click(screen.getByText('Move to folder'))
         expect(moveDashboardsToFolder).not.toHaveBeenCalled()
+    })
+
+    describe('folder column sorting', () => {
+        const dash = (folder: string | null | undefined): any => ({ folder })
+
+        it('groups every unfiled dashboard together, whatever its raw folder value', () => {
+            // null, undefined, and the default unfiled path all read as '—', so they must sort as one group.
+            expect(folderCompareFunction(dash(null), dash(undefined))).toBe(0)
+            expect(folderCompareFunction(dash('Unfiled/Dashboards'), dash(null))).toBe(0)
+        })
+
+        it('orders named folders alphabetically and treats the project root as "Project root"', () => {
+            expect(folderCompareFunction(dash('Analytics'), dash('Marketing'))).toBeLessThan(0)
+            // Empty string is the project root, so it sorts by its label, not before named folders.
+            expect(folderCompareFunction(dash(''), dash('Analytics'))).toBeGreaterThan(0)
+        })
     })
 
     it('filters dashboards by a clicked tag', () => {
