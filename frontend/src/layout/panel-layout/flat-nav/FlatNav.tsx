@@ -166,8 +166,7 @@ export function FlatNav(): JSX.Element {
 
                 <ScrollableShadows
                     className="flex-1"
-                    // pr-1 not pr-2: the styled scrollbar already reserves an 8px gutter on the right
-                    innerClassName="overflow-y-auto overflow-x-hidden pl-2 pr-1 pt-1 focus-visible:outline-accent -outline-offset-2"
+                    innerClassName="overflow-y-auto overflow-x-hidden pl-2 pr-0.5 pt-1 focus-visible:outline-accent -outline-offset-2"
                     direction="vertical"
                     styledScrollbars
                 >
