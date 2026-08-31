@@ -1,31 +1,43 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { TestAccountFilterSwitch, getUnusedTestAccountFilterReason } from './TestAccountFiltersSwitch'
 
 describe('TestAccountFilterSwitch', () => {
-    describe('gear icon links to internal test filtering settings', () => {
+    describe('render branches', () => {
         beforeEach(() => {
             initKeaTests()
             featureFlagLogic.mount()
+            teamLogic.mount()
         })
 
         afterEach(() => {
             cleanup()
         })
 
-        it('navigates to the customization settings, scrolled to internal-user-filtering', () => {
+        it('links to settings instead of a dead switch when no filters are configured', () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, test_account_filters: [] })
             render(<TestAccountFilterSwitch checked={false} onChange={jest.fn()} />)
 
-            // The LemonSwitch itself has role="switch"; the gear is rendered as a link.
+            expect(screen.queryByRole('switch')).not.toBeInTheDocument()
             // The router prepends a `/project/<id>` prefix to the href, so match the suffix.
-            const gear = screen.getByRole('link')
-            expect(gear.getAttribute('href')).toMatch(/\/settings\/environment-customization#internal-user-filtering$/)
+            const link = screen.getByRole('link')
+            expect(link.getAttribute('href')).toMatch(/\/settings\/environment-customization#internal-user-filtering$/)
+        })
+
+        it('shows a switch reflecting the real checked value when filters exist', () => {
+            teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+            render(<TestAccountFilterSwitch checked={true} onChange={jest.fn()} />)
+
+            expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
         })
     })
 
