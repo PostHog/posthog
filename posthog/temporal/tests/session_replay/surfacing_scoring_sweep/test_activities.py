@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 import pytest
@@ -192,6 +193,38 @@ class TestScoreChunkActivity:
 
         assert result.scored == 1
         publish_mock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_scores_when_worker_logging_is_at_info(
+        self, surfacing_booster_path: object, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # The production worker logs at INFO. A stdlib Temporal logger rejects
+        # structured keyword fields, but only fires the failing call when the
+        # level lets it through, so the default (WARNING) test level hides the
+        # crash. Pin INFO so a structured field routed through activity.logger
+        # fails here instead of on every hourly run.
+        caplog.set_level(logging.INFO, logger="temporalio.activity")
+        spec = ChunkSpec(chunk_id=0, of_chunks=1, chunk_size=10, lookback_days=7)
+        df = pd.DataFrame(
+            {
+                "team_id": [1],
+                "session_id": ["sess-1"],
+                "distinct_id": ["user-1"],
+                "min_first_timestamp": pd.to_datetime(["2026-05-07 10:00:00+00:00"]),
+                "event_rate": [0.2],
+            }
+        )
+
+        with (
+            mock.patch(f"{ACTIVITIES_MODULE}._fetch_features_dataframe", return_value=df),
+            mock.patch(f"{ACTIVITIES_MODULE}.get_feature_names", return_value=("event_rate",)),
+            mock.patch(f"{ACTIVITIES_MODULE}.validate_features"),
+            mock.patch(f"{ACTIVITIES_MODULE}.predict", return_value=np.array([0.42], dtype=np.float32)),
+            mock.patch(f"{ACTIVITIES_MODULE}._publish_scores", return_value=1),
+        ):
+            result = await ActivityEnvironment().run(score_chunk_activity, spec)
+
+        assert result.scored == 1
 
     @pytest.mark.asyncio
     async def test_out_of_contract_row_is_dropped_not_chunk_blocking(self, surfacing_booster_path: object) -> None:
