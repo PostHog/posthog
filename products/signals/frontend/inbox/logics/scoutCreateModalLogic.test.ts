@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
@@ -379,6 +379,23 @@ describe('scoutCreateModalLogic', () => {
         reopened.mount()
         expect(reopened.values.scoutCreateForm.body).toBe('Watch checkout latency and report spikes.')
         reopened.unmount()
+    })
+
+    it('does not restore a persisted draft after switching to another project', async () => {
+        const logicKey = scoutCreateModalLogicKey(undefined)
+        const first = scoutCreateModalLogic({ logicKey, onClose })
+        first.mount()
+        first.actions.setScoutCreateFormValue('body', 'Watch checkout latency and report spikes.')
+        await expectLogic(first).toFinishAllListeners()
+        first.unmount()
+
+        // Switching project reloads the app under a different team. localStorage is not cleared here,
+        // unlike in beforeEach, so the first project's draft is still stored. The draft is scoped to
+        // the project it was written in, so it must not restore under another project.
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: MOCK_TEAM_ID + 1 })
+        logic = scoutCreateModalLogic({ logicKey, onClose })
+        logic.mount()
+        expect(logic.values.scoutCreateForm.body).toBe('')
     })
 
     it.each([

@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { hashCodeForString } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -267,10 +268,11 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     reducers(({ props: logicProps }) => ({
         // A caller that passes explicit server ids opts out of the "all servers" default. Persisted
         // alongside the draft so a restored draft keeps the user's server selection, rather than the
-        // "all servers" default re-applying on the next open.
+        // "all servers" default re-applying on the next open. Scoped to the user and project so the
+        // marker cannot suppress another project's default selection.
         mcpServersDefaulted: [
             logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
-            { persist: true },
+            buildUserScopedPersistenceConfig(),
             {
                 markMcpServersDefaulted: () => true,
             },
@@ -344,11 +346,13 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     })),
     // Persist the draft so it survives navigating away or reloading. kea-localstorage keys it by the
     // logic path plus the logic key, so each opening context keeps its own draft (see
-    // `scoutCreateModalLogicKey`). The default and handlers already come from the form above; this
-    // only attaches the persistence option to that same reducer.
-    reducers({
-        scoutCreateForm: [DEFAULT_SCOUT_CREATE_FORM_VALUES, { persist: true }, {}],
-    }),
+    // `scoutCreateModalLogicKey`). Scope the key to the user and project so a draft from one project
+    // cannot restore in another and submit that project's server or integration ids to the wrong one.
+    // The default and handlers already come from the form above; this only attaches the persistence
+    // option to that same reducer.
+    reducers(() => ({
+        scoutCreateForm: [DEFAULT_SCOUT_CREATE_FORM_VALUES, buildUserScopedPersistenceConfig(), {}],
+    })),
     // The team's servers load asynchronously, so the default is applied once they arrive
     // rather than in the form defaults. Applying it once keeps a later reload from
     // re-selecting servers the user switched off.
