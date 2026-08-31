@@ -31,7 +31,7 @@ def create_account(*, team_id: int, name: str = "Acme Corp", **kwargs: Any) -> A
 def create_custom_property_value(
     *, team_id: int, account: Account, definition: CustomPropertyDefinition, **kwargs: Any
 ) -> CustomPropertyValue:
-    return CustomPropertyValue.objects.unscoped().create(
+    return CustomPropertyValue.objects.for_team(team_id).create(
         team_id=team_id, account=account, definition=definition, **kwargs
     )
 
@@ -39,7 +39,7 @@ def create_custom_property_value(
 def create_account_relationship_definition(
     *, team_id: int, name: str = "CSM", **kwargs: Any
 ) -> AccountRelationshipDefinition:
-    return AccountRelationshipDefinition.objects.unscoped().create(team_id=team_id, name=name, **kwargs)
+    return AccountRelationshipDefinition.objects.for_team(team_id).create(team_id=team_id, name=name, **kwargs)
 
 
 def create_account_relationship(
@@ -50,19 +50,19 @@ def create_account_relationship(
     user: User | None = None,
     **kwargs: Any,
 ) -> AccountRelationship:
-    return AccountRelationship.objects.unscoped().create(
+    return AccountRelationship.objects.for_team(team_id).create(
         team_id=team_id, account=account, definition=definition, user=user, **kwargs
     )
 
 
 def create_feature_request(*, team_id: int, title: str = "Export reports", **kwargs: Any) -> FeatureRequest:
-    return FeatureRequest.objects.unscoped().create(team_id=team_id, title=title, **kwargs)
+    return FeatureRequest.objects.for_team(team_id).create(team_id=team_id, title=title, **kwargs)
 
 
 def create_feature_request_account_link(
     *, team_id: int, feature_request: FeatureRequest, account: Account, **kwargs: Any
 ) -> FeatureRequestAccountLink:
-    return FeatureRequestAccountLink.objects.unscoped().create(
+    return FeatureRequestAccountLink.objects.for_team(team_id).create(
         team_id=team_id, feature_request=feature_request, account=account, **kwargs
     )
 
@@ -70,13 +70,13 @@ def create_feature_request_account_link(
 def create_feature_request_product_area(
     *, team_id: int, name: str = "Reporting", **kwargs: Any
 ) -> FeatureRequestProductArea:
-    return FeatureRequestProductArea.objects.unscoped().create(team_id=team_id, name=name, **kwargs)
+    return FeatureRequestProductArea.objects.for_team(team_id).create(team_id=team_id, name=name, **kwargs)
 
 
 def create_feature_request_product_area_link(
     *, team_id: int, feature_request: FeatureRequest, product_area: FeatureRequestProductArea, **kwargs: Any
 ) -> FeatureRequestProductAreaLink:
-    return FeatureRequestProductAreaLink.objects.unscoped().create(
+    return FeatureRequestProductAreaLink.objects.for_team(team_id).create(
         team_id=team_id, feature_request=feature_request, product_area=product_area, **kwargs
     )
 
@@ -84,7 +84,7 @@ def create_feature_request_product_area_link(
 def create_feature_request_evidence(
     *, team_id: int, account_link: FeatureRequestAccountLink, source: str = "conversation", **kwargs: Any
 ) -> FeatureRequestEvidence:
-    return FeatureRequestEvidence.objects.unscoped().create(
+    return FeatureRequestEvidence.objects.for_team(team_id).create(
         team_id=team_id, account_link=account_link, source=source, **kwargs
     )
 
@@ -92,13 +92,13 @@ def create_feature_request_evidence(
 def create_feature_request_history(
     *, team_id: int, feature_request: FeatureRequest, changed_at: datetime, changes: list | None = None, **kwargs: Any
 ) -> FeatureRequestHistory:
-    return FeatureRequestHistory.objects.unscoped().create(
+    return FeatureRequestHistory.objects.for_team(team_id).create(
         team_id=team_id, feature_request=feature_request, changed_at=changed_at, changes=changes or [], **kwargs
     )
 
 
 def create_meeting(*, team_id: int, account: Account, ical_uid: str, start_time: datetime, **kwargs: Any) -> Meeting:
-    return Meeting.objects.unscoped().create(
+    return Meeting.objects.for_team(team_id).create(
         team_id=team_id, account=account, ical_uid=ical_uid, start_time=start_time, **kwargs
     )
 
@@ -114,7 +114,7 @@ def create_account_channel_summary(
     content: str,
     **kwargs: Any,
 ) -> AccountChannelSummary:
-    return AccountChannelSummary.objects.unscoped().create(
+    return AccountChannelSummary.objects.for_team(team_id).create(
         team_id=team_id,
         account=account,
         slack_channel_id=slack_channel_id,
