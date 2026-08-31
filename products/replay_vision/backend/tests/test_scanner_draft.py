@@ -590,7 +590,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
 class TestV2Query:
     def test_pages_become_one_multi_value_property(self):
         # Separate properties would AND and match almost nothing: measured 68 sessions where the
-        # one-property shape matched 44,523.
+        # one-property shape matched 44,523. A page with no id is a plain regex of itself.
         query = _v2_query(["/billing", "/checkout", "/payment"], [])
 
         assert query is not None
@@ -599,7 +599,7 @@ class TestV2Query:
             "type": "recording",
             "key": "visited_page",
             "value": ["/billing", "/checkout", "/payment"],
-            "operator": "icontains",
+            "operator": "regex",
         }
         assert "events" not in query
 
@@ -624,25 +624,52 @@ class TestV2Query:
     def test_no_pages_and_no_events_is_no_query(self):
         assert _v2_query([], []) is None
 
-    def test_collapsed_id_pages_filter_by_their_prefix(self):
-        # The grounding list says "/invoice/:id" but real URLs hold real IDs, so the literal value
-        # would match zero sessions. The prefix still matches every such URL.
+    def test_a_collapsed_id_becomes_a_wildcard(self):
+        # The grounding list says "/invoice/:id" but real URLs hold real IDs. The regex wildcards the
+        # id so it matches "/invoice/<any>" without matching a bare "/invoices-archive".
         query = _v2_query(["/invoice/:id", "/billing"], [])
 
         assert query is not None
-        assert query["properties"][0]["value"] == ["/invoice/", "/billing"]
+        assert query["properties"][0]["value"] == ["/invoice/[^/]+", "/billing"]
 
     @pytest.mark.parametrize("pathname", ["/", "/:id", "/a/:id/b"])
     def test_a_page_that_cannot_narrow_is_dropped(self, pathname):
-        # "/a/:id/b" prefixes to "/a/", two non-slash chars: icontains on it matches nearly every
+        # "/a/:id/b" has two one-character static segments: any pattern from it matches nearly every
         # URL, so it reads as a narrowing filter while narrowing nothing.
         assert _v2_query([pathname], []) is None
 
-    def test_prefix_collisions_are_deduped(self):
+    def test_an_id_prefixed_route_keeps_the_whole_path(self):
+        # When the id sits before the distinctive segment, the whole-path regex keeps
+        # "/replay-vision/scanners" instead of collapsing to the "/project/" prefix in front.
+        query = _v2_query(["/project/:id/replay-vision/scanners"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+/replay\\-vision/scanners"]
+
+    def test_a_route_with_ids_on_both_sides_wildcards_each(self):
+        # "/project/:id/replay-home/:id" is ambiguous for a substring rule, but the full-path regex
+        # keeps "replay-home" between two wildcards, so it stays specific to that page.
+        query = _v2_query(["/project/:id/replay-home/:id"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+/replay\\-home/[^/]+"]
+
+    def test_a_generic_looking_path_is_still_kept(self):
+        # "/project/:id" reads like a routing container in PostHog, but a scanner watches the
+        # customer's product, where "/project/<id>" may be a real page. So keep it as a wildcarded
+        # regex rather than assuming any team's URL shape.
+        query = _v2_query(["/project/:id"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+"]
+
+    def test_paths_that_differ_only_after_the_id_stay_distinct(self):
+        # The whole path is matched, so "/invoice/:id" and "/invoice/:id/edit" produce different
+        # regexes rather than collapsing to a shared prefix.
         query = _v2_query(["/invoice/:id", "/invoice/:id/edit"], [])
 
         assert query is not None
-        assert query["properties"][0]["value"] == ["/invoice/"]
+        assert query["properties"][0]["value"] == ["/invoice/[^/]+", "/invoice/[^/]+/edit"]
 
 
 class TestFinalizeV2:

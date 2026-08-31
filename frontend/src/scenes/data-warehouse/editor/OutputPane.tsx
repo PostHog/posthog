@@ -46,6 +46,7 @@ import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
+import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
 import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
 import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
@@ -925,6 +926,7 @@ function InternalDataTableVisualization(
         responseLoading,
         xData,
         yData,
+        columns,
         chartSettings,
         dashboardId,
         dataVisualizationProps,
@@ -1001,6 +1003,18 @@ function InternalDataTableVisualization(
                 yData={yData}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        const rows = ('results' in response ? response.results : 'result' in response ? response.result : []) ?? []
+        component = (
+            <SqlBoxPlot
+                rows={Array.isArray(rows) ? rows : []}
+                columns={columns}
+                chartSettings={chartSettings}
+                analyticsKey={dataVisualizationProps.key}
+                presetChartHeight={presetChartHeight}
+                className="p-2"
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
