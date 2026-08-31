@@ -1,5 +1,6 @@
 import { JSONContent } from '@tiptap/core'
 import { Image } from '@tiptap/extension-image'
+import { isAllowedUri, LinkOptions } from '@tiptap/extension-link'
 
 import {
     MARKDOWN_BASE_EDITABLE_EXTENSIONS,
@@ -83,14 +84,15 @@ function unwrapDestination(destination: string): string {
     return destination.startsWith('<') && destination.endsWith('>') ? destination.slice(1, -1) : destination
 }
 
-const HAS_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i
-const SAFE_SCHEME_RE = /^(https?|mailto):/i
+// Promotion writes the matched destination straight onto the href, so it has to apply the protocol
+// allowlist itself. Reuse the link mark's own check, reading the protocols off the configured
+// extension, so the promotion gate and the render gate cannot drift apart.
+const linkOptions = MARKDOWN_BASE_EDITABLE_EXTENSIONS.find((extension) => extension.name === 'link')?.options as
+    | Pick<LinkOptions, 'protocols'>
+    | undefined
 
-// Promotion writes the matched destination straight onto the href, so it must do its own scheme
-// check. The renderer blanks an unsafe href, but a card should not carry one that far. A
-// destination with no scheme is a relative path and stays allowed.
-function hasSafeScheme(href: string): boolean {
-    return !HAS_SCHEME_RE.test(href) || SAFE_SCHEME_RE.test(href)
+function hasRenderableScheme(href: string): boolean {
+    return !!isAllowedUri(href, linkOptions?.protocols)
 }
 
 function isCodeMarked(node: JSONContent): boolean {
@@ -120,7 +122,7 @@ function promoteCodeSpanLinks(converter: TiptapMarkdownConverter, doc: JSONConte
                 : BARE_URL_RE.test(node.text)
                   ? [node.text, node.text]
                   : []
-            if (href && hasSafeScheme(href)) {
+            if (href && hasRenderableScheme(href)) {
                 const linkMark = linkMarkForHref(converter, href)
                 if (linkMark) {
                     // Keep the href we matched, not the parser's round-tripped copy. A bare URL that

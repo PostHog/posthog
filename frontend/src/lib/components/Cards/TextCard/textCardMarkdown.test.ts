@@ -247,8 +247,10 @@ describe('textCardMarkdown', () => {
         expect(textCardConverter.docToMarkdown(doc)).toBe('[`https://label.example`](https://target.example)')
     })
 
-    // Promotion writes the matched destination onto the href itself, so it cannot rely on the
-    // renderer to blank an unsafe scheme. Such a code span stays plain text with only a `code` mark.
+    // Promotion writes the matched destination onto the href itself, so it applies the link mark's
+    // own protocol allowlist. A scheme the mark would refuse stays plain text with only a `code`
+    // mark; anything the mark renders is promoted. A second, narrower list here would silently
+    // refuse destinations the editor accepts everywhere else.
     it.each([
         ['javascript', "`[click me](javascript:document.location='https://evil.example')`"],
         ['data', '`[click me](data:text/html,hi)`'],
@@ -260,11 +262,15 @@ describe('textCardMarkdown', () => {
         expect(textNode?.marks?.map((m) => m.type)).toEqual(['code'])
     })
 
-    it('promotes a code span link with a relative destination', () => {
-        const doc = textCardConverter.markdownToDoc('`[insights](/project/2/insights)`')
+    it.each([
+        ['a relative path', '`[insights](/project/2/insights)`', '/project/2/insights'],
+        ['mailto', '`[email us](mailto:hey@example.com)`', 'mailto:hey@example.com'],
+        ['tel', '`[call us](tel:+15551234567)`', 'tel:+15551234567'],
+    ])('promotes a code span link with %s', (_, markdown, expectedHref) => {
+        const doc = textCardConverter.markdownToDoc(markdown)
         const textNode = doc.content?.[0]?.content?.[0]
 
-        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('/project/2/insights')
+        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe(expectedHref)
     })
 
     it('leaves an ordinary code span untouched', () => {
