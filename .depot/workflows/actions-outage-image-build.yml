@@ -1,0 +1,107 @@
+# Image build for when GitHub Actions cannot run.
+#
+# Actions is the only path that builds and pushes a deployable image, so an
+# outage leaves us able to diagnose a production bug but not to ship the fix.
+# Depot CI runs on its own control plane and starts from `depot ci dispatch`,
+# which needs no GitHub event. Git operations must still be up, because the
+# checkout below clones from GitHub.
+#
+# `.depot/` otherwise holds shadows of canonical workflows, kept in sync by a
+# drift check. This file has no canonical twin and mirrors nothing.
+#
+# It pushes to posthog-cloud-prs. The posthog-cloud publish role is trusted only
+# for refs/heads/master, and a fix shipped this way is never on master.
+#
+# Two prerequisites, neither of which exists yet:
+#   1. The posthog-cloud-prs role trusts token.actions.githubusercontent.com
+#      alone, so Depot cannot assume it. It needs a trust statement for
+#      identity.depot.dev.
+#   2. AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE is a GitHub variable. Depot CI reads
+#      its own store, so register it there:
+#      depot ci vars add AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE=<arn> --repo PostHog/posthog
+#
+# Runbook: https://runbooks.posthog.com/services/dev-tooling/runbooks/github-outage
+
+name: Actions outage image build
+
+on:
+    workflow_dispatch:
+
+jobs:
+    build:
+        name: Build and push to ECR
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 45
+        permissions:
+            id-token: write
+            contents: read
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Depot CI does not document whether it populates github.sha on a
+            # dispatched run, so read the commit from the tree instead.
+            - name: Resolve commit
+              id: commit
+              run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Build and push
+              id: build
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: .
+                  buildx-fallback: false
+                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs:${{ steps.commit.outputs.sha }}
+                  platforms: linux/amd64,linux/arm64
+                  build-args: COMMIT_HASH=${{ steps.commit.outputs.sha }}
+                  push: true
+
+            # The branch built here never ran CI, because a dead Actions is the premise.
+            # Boot every entrypoint so a fatal import error stops the deploy instead of
+            # crash-looping in production. Web alone is not enough: temporal and celery
+            # import product code that django.setup() skips. STATIC_COLLECTION lets
+            # Django boot without live services or a real SECRET_KEY.
+            - name: Verify image boots
+              env:
+                  IMAGE: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs@${{ steps.build.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  docker pull "$IMAGE"
+                  docker run --rm \
+                      -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 \
+                      -e STATIC_COLLECTION=1 \
+                      -e DATABASE_URL=postgres:/// \
+                      -e REDIS_URL=redis:/// \
+                      -e INTERNAL_API_SECRET=ci-boot-test-dummy-secret \
+                      "$IMAGE" sh -ec '
+                          python -c "import posthog.asgi; import posthog.management.commands.start_temporal_worker; from posthog.celery import app; app.loader.import_default_modules()"
+                          python manage.py check
+                      '
+
+            - name: Report image reference
+              env:
+                  REGISTRY: ${{ steps.aws-ecr.outputs.registry }}
+                  DIGEST: ${{ steps.build.outputs.digest }}
+              run: |
+                  {
+                      echo "## Image ready"
+                      echo ""
+                      echo "\`$REGISTRY/posthog-cloud-prs@$DIGEST\`"
+                      echo ""
+                      echo "Pin this digest in ArgoCD. The repository expires tags after 14 days,"
+                      echo "so a pin left in place past that stops resolving."
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
