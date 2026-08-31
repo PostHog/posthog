@@ -22,7 +22,8 @@ import { useReportImpressions } from './useReportImpressions'
 const EMPTY_SECTION_COPY: Record<InboxReportSectionKey, string> = {
     'needs-decision': 'No reports are waiting for a pull request.',
     monitoring: 'No pull requests open yet. Start one from a report above.',
-    resolved: 'Nothing resolved or archived yet.',
+    resolved: 'Nothing resolved yet.',
+    dismissed: 'Nothing dismissed yet.',
     'not-actionable': 'Nothing has been judged not actionable.',
 }
 
