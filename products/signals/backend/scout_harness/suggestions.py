@@ -156,8 +156,8 @@ class SuggestionSettings:
     """The fleet-wide knobs, read from the `signals-scout-suggestions` flag payload every tick."""
 
     enabled: bool = False
-    # The planner includes every tier <= this (see `_candidate_teams_by_tier`). 1 = engaged
-    # self-driving projects only; 4 = every AI-approved team.
+    # The planner includes every tier <= this (see `_candidate_teams_by_tier`). 0 = the
+    # `team_allowlist` only; 1 = engaged self-driving projects; 4 = every AI-approved team.
     eligibility_tier: int = 1
     engagement_window_days: int = 30
     refresh_days: int = 7
@@ -189,7 +189,7 @@ def parse_suggestion_settings(payload: dict[str, Any] | None) -> SuggestionSetti
         return SuggestionSettings()
     return SuggestionSettings(
         enabled=payload.get("enabled") is True,
-        eligibility_tier=_int_in(payload, "eligibility_tier", 1, low=1, high=4),
+        eligibility_tier=_int_in(payload, "eligibility_tier", 1, low=0, high=4),
         engagement_window_days=_int_in(payload, "engagement_window_days", 30, low=1, high=365),
         refresh_days=_int_in(payload, "refresh_days", 7, low=1, high=90),
         max_children_per_tick=_int_in(payload, "max_children_per_tick", 10, low=0, high=500),
@@ -284,6 +284,10 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
     """Map team_id -> tier for every team in a tier <= `settings.eligibility_tier`, plus the
     engagement map used as the sort tie-break. The tier predicates run as subqueries so only the
     matching ids cross the wire, never the whole approved-team set."""
+    if settings.eligibility_tier < 1:
+        # Allowlist-only mode: the caller injects the allowlist at tier 0, so there is
+        # nothing to compute here.
+        return {}, {}
     cutoff = now - timedelta(days=settings.engagement_window_days)
 
     approved_root_teams = Team.objects.filter(_root_team_q(), organization__is_ai_data_processing_approved=True)

@@ -65,6 +65,8 @@ class TestSuggestionSettings(SimpleTestCase):
             ("absent", None, False, 1, 10),
             ("enabled_string_is_off", {"enabled": "true", "eligibility_tier": 3}, False, 3, 10),
             ("tier_clamped", {"enabled": True, "eligibility_tier": 99, "max_children_per_tick": -5}, True, 4, 0),
+            ("tier_zero_is_allowlist_only", {"enabled": True, "eligibility_tier": 0}, True, 0, 10),
+            ("tier_below_zero_clamps_to_zero", {"enabled": True, "eligibility_tier": -3}, True, 0, 10),
             ("bool_is_not_int", {"enabled": True, "max_children_per_tick": True}, True, 1, 10),
         ]
     )
@@ -291,6 +293,18 @@ class TestPlanSuggestionRuns(BaseTest):
             self.now,
         )
         self.assertEqual([run.team_id for run in planned], [outsider.id, self.team.id, recovered.id])
+
+        # Tier 0 drops every fleet tier: only the allowlist is planned.
+        allowlist_only = plan_suggestion_runs(
+            SuggestionSettings(
+                enabled=True,
+                eligibility_tier=0,
+                max_children_per_tick=3,
+                team_allowlist=frozenset({outsider_env.id}),
+            ),
+            self.now,
+        )
+        self.assertEqual([(run.team_id, run.tier) for run in allowlist_only], [(outsider.id, 0)])
 
     def test_breaker_backs_a_failing_project_off_past_its_refresh_window(self):
         # Both are long past the 24h cooldown and past a plain 7-day refresh, so only the
