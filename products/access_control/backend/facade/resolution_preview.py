@@ -75,6 +75,20 @@ class _Subject:
     member_user_id: Optional[int]
 
 
+@frozen
+class _Subjects:
+    subjects: list[_Subject]
+    role_names: dict[str, str]
+    member_names: dict[str, str]
+
+
+@frozen
+class _LoadedObject:
+    instance: Model
+    name: Optional[str]
+    short_id: Optional[str]
+
+
 def _deciding_subject_name(
     subject: SubjectAccessControl,
     access: ResolvedAccess,
@@ -132,9 +146,7 @@ def _subject_key(row: AccessControl) -> tuple:
     return ("default",)
 
 
-def _build_subjects(
-    team: Team, user_access_control: UserAccessControl, rows: list[AccessControl]
-) -> tuple[list[_Subject], dict[str, str], dict[str, str]]:
+def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: list[AccessControl]) -> _Subjects:
     """One subject per distinct rule target in `rows`, plus the everyone-default, and the
     role and member display names keyed by id.
 
@@ -143,7 +155,7 @@ def _build_subjects(
     """
     acting_membership = user_access_control._organization_membership
     if acting_membership is None:
-        return [], {}, {}
+        return _Subjects(subjects=[], role_names={}, member_names={})
 
     member_ids = {row.organization_member_id for row in rows if row.organization_member_id is not None}
     role_ids = {row.role_id for row in rows if row.role_id is not None}
@@ -202,17 +214,17 @@ def _build_subjects(
 
     role_names = {str(role.id): role.name for role in roles}
     member_names = {subject.ref.id or "": subject.ref.name for subject in subjects if subject.ref.type == "member"}
-    return subjects, role_names, member_names
+    return _Subjects(subjects=subjects, role_names=role_names, member_names=member_names)
 
 
-def _load_objects(
-    team: Team, resource: str, object_ids: list[str]
-) -> dict[str, tuple[Model, Optional[str], Optional[str]]]:
-    """Map {object_id -> (instance, display name, short id)} for one resource. Empty when the
-    resource has no display model, which also means resolution has no model class to work with."""
+def _load_objects(team: Team, resource: str, object_ids: list[str]) -> dict[str, _LoadedObject]:
+    """Map {object_id -> loaded object} for one resource. Empty when the resource has no
+    display model, which also means resolution has no model class to work with."""
     if resource == "project":
         # Project rules point at the team itself
-        return {str(team.pk): (team, team.name, None)} if str(team.pk) in object_ids else {}
+        if str(team.pk) not in object_ids:
+            return {}
+        return {str(team.pk): _LoadedObject(instance=team, name=team.name, short_id=None)}
 
     display = display_model(resource)
     if display is None:
@@ -223,12 +235,14 @@ def _load_objects(
     except Exception as e:
         capture_exception(e, {"resource": resource})
         return {}
-    result: dict[str, tuple[Model, Optional[str], Optional[str]]] = {}
+    result: dict[str, _LoadedObject] = {}
     for obj in instances:
         object_id = str(obj.pk)
         name = names.get(object_id)
         short_id = getattr(obj, "short_id", None)
-        result[object_id] = (obj, name.name if name else None, str(short_id) if short_id else None)
+        result[object_id] = _LoadedObject(
+            instance=obj, name=name.name if name else None, short_id=str(short_id) if short_id else None
+        )
     return result
 
 
@@ -241,7 +255,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
     if not rows:
         return []
 
-    subjects, role_names, member_names = _build_subjects(team, user_access_control, rows)
+    subject_index = _build_subjects(team, user_access_control, rows)
     changes: list[ResolutionChange] = []
 
     def compare(
@@ -269,10 +283,16 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 object_name=object_name,
                 object_short_id=object_short_id,
                 current=replace(
-                    current, subject_name=_deciding_subject_name(subject.access, current, role_names, member_names)
+                    current,
+                    subject_name=_deciding_subject_name(
+                        subject.access, current, subject_index.role_names, subject_index.member_names
+                    ),
                 ),
                 proposed=replace(
-                    proposed, subject_name=_deciding_subject_name(subject.access, proposed, role_names, member_names)
+                    proposed,
+                    subject_name=_deciding_subject_name(
+                        subject.access, proposed, subject_index.role_names, subject_index.member_names
+                    ),
                 ),
                 direction=direction,
             )
@@ -287,7 +307,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
             resource_rows.setdefault(row.resource, []).append(row)
     for resource, pool in resource_rows.items():
         relevant = {_subject_key(row) for row in pool}
-        for subject in subjects:
+        for subject in subject_index.subjects:
             if subject.ref.type == "default" or (subject.ref.type, subject.ref.id) not in relevant:
                 continue
             compare(
@@ -333,7 +353,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 for row in rows_by_resource.get(cast(str, parent), [])
                 if _subject_key(row) != ("default",)
             }
-        for subject in subjects:
+        for subject in subject_index.subjects:
             key = ("default",) if subject.ref.type == "default" else (subject.ref.type, subject.ref.id)
             # The everyone subject is always compared: the object default vs resource level
             # case names no subject
@@ -344,7 +364,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 loaded = objects.get(object_id)
                 if loaded is None:
                     continue
-                obj, object_name, object_short_id = loaded
+                obj = loaded.instance
                 if subject.member_user_id is not None and getattr(obj, "created_by_id", None) == subject.member_user_id:
                     # Creators keep the highest level under both ladders
                     continue
@@ -355,8 +375,8 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                     _enforced_object_access(subject.access, obj, cast(APIScopeObject, resource)),
                     subject.access.resolve_most_specific_object_access(obj),
                     object_id=object_id,
-                    object_name=object_name,
-                    object_short_id=object_short_id,
+                    object_name=loaded.name,
+                    object_short_id=loaded.short_id,
                 )
 
     return changes
