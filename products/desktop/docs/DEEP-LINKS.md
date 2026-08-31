@@ -145,8 +145,8 @@ desktop app. Gated on the `project-bluebird` flag. Unlike the links above,
 users don't share this scheme link directly — the "Copy link" affordance on a
 canvas copies an **https** link (`<instance>/code/canvas/<channelId>/<dashboardId>`)
 that resolves to a web interstitial in PostHog Cloud, which fires this scheme
-(or offers the desktop-app download). That way the link works for anyone,
-whether or not they have the app.
+(or offers the desktop-app download). The bridge page closes after five seconds.
+That way the link works for anyone, whether or not they have the app.
 
 | Segment | Required | Description |
 |---|---|---|
