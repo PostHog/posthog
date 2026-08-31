@@ -1482,6 +1482,11 @@ function ChatThreadRenderer({
     () => ({
       workerFactory: () => diffWorkerFactory(),
       totalASTLRUCacheSize: 200,
+      // Each pooled highlighter worker is a full V8 isolate with shiki
+      // grammars loaded (~40MB RSS); the library default of 8 costs hundreds
+      // of MB for parallelism thread diffs don't need. Matches
+      // ConversationView and ReviewShell.
+      poolSize: 2,
     }),
     [diffWorkerFactory],
   );

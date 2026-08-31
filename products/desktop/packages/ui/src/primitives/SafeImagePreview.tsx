@@ -9,7 +9,7 @@ import {
   MAX_IMAGE_BASE64_LENGTH,
 } from "@posthog/shared";
 import { Flex, Text } from "@radix-ui/themes";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
 
 const MIN_SCALE = 0.1;
@@ -171,13 +171,21 @@ export function SafeImagePreview({
     base64.length <= MAX_IMAGE_BASE64_LENGTH &&
     isAllowedImageMimeType(mimeType);
 
-  if (!isPayloadValid || hasError) {
+  // Memoized because the data URL can be megabytes of string: an unmemoized
+  // build allocates it again on every re-render of the row, only for React to
+  // discard it as an unchanged prop.
+  const src = useMemo(
+    () => (isPayloadValid ? buildImageDataUrl(mimeType, base64) : null),
+    [isPayloadValid, mimeType, base64],
+  );
+
+  if (!src || hasError) {
     return <>{fallback ?? <DefaultFallback />}</>;
   }
 
   return (
     <ZoomableImage
-      src={buildImageDataUrl(mimeType, base64)}
+      src={src}
       alt={alt ?? "image preview"}
       className={className}
       style={style}
