@@ -67,6 +67,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "LlmsTxtBot/1.0 (+https://github.com/tristansinclair/llms-txt-tristan-sinclair)",
         "every-api/0.1 (+https://github.com/MEMEO-PRO/every-api; docs corpus for AI coding agents)",
         "Mozilla/5.0 (compatible; RightAIChoiceBot/1.0; +https://rightaichoice.com)",
+        # Self-declared crawlers observed in production `$http_log` traffic (second batch)
+        "Mozilla/5.0 (compatible; ExaSearchBot/1.0; +https://exa.ai)",
+        "CodeMMPretrainCrawler/1.0 (pretraining corpus)",
+        "gtmify-docs-mirror/1.0",
     ],
     "ai_search": [
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
@@ -199,6 +203,15 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; PolycoreSupabaseDetector/1.0; +https://www.polycore.ai/)",
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
+        # Self-declared crawlers observed in production `$http_log` traffic (second batch)
+        "TruthlokaBot/1.0",
+        "KinyaBot/1.0",
+        "ProspectingCrawler/1.0",
+        "enrich_domain/1.0",
+        "MERCATOR-EntityEvidence/1.0",
+        "StackbriefBot/1.0",
+        "EvidensoBronzeBot/1.0",
+        "Stack200/1.0",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -246,6 +259,9 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "PagePilot-SiteAudit/1.0 (+https://pagepilot-ai-24.polsia.app)",
         "double-ats-customer-discoverer/0.1 (+https://double.fyi; respectful crawler)",
         "BenchRankBot/1.0 (+https://benchrank.app/bot)",
+        # Self-declared crawlers observed in production `$http_log` traffic (second batch)
+        "UXMachineBot/1.0",
+        "PriceTapeBot/1.0",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",
@@ -332,6 +348,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "CurbCutScanner/0.2-spike (+https://github.com/devinxu0916/CurbCut) accessibility-audit-research",
         "VantageBot/0.1 (+https://github.com/morsela/webapp-monitor)",
         "NimbusBlocklistSync/1.0 (+https://nimbus.com)",
+        # Self-declared crawlers observed in production `$http_log` traffic (second batch)
+        "UptimeGladiator/1.0",
+        "statussite.com checker/1.0 (+https://statussite.com)",
+        "AgentReadinessScanner/1.0",
     ],
     "http_client": [
         "Chrome Privacy Preserving Prefetch Proxy",
@@ -369,6 +389,9 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 zgrab/0.x",
         # Self-declared crawlers observed in production `$http_log` traffic
         "Mozilla/5.0 (compatible; MrAnandPortfolio/1.0; +https://mranand.com)",
+        # Self-declared favicon fetchers observed in production `$http_log` traffic (second batch)
+        "Cravatar-Favicon-Worker/1.0",
+        "FaviconAPI/1.0",
     ],
     "headless_browser": [
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36",

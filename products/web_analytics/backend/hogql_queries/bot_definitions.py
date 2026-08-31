@@ -978,4 +978,31 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "MrAnandPortfolio": BotDefinition(
         "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
     ),
+    # Self-declared crawlers observed in production `$http_log` traffic (second batch).
+    # Each key anchors on the operator's exact declared token, never a generic word.
+    # AI / agent crawlers
+    "ExaSearchBot": BotDefinition("Exa Search", "ai_crawler", "AI Agent", "Exa", documentation_url="https://exa.ai"),
+    "CodeMMPretrainCrawler": BotDefinition("CodeMM Pretrain Crawler", "ai_crawler", "AI Agent", "Unknown"),
+    "gtmify-docs-mirror": BotDefinition("gtmify docs mirror", "ai_crawler", "AI Agent", "gtmify"),
+    # Search / index crawlers
+    "TruthlokaBot": BotDefinition("Truthloka", "search_crawler", "Bot", "Truthloka"),
+    "KinyaBot": BotDefinition("KinyaBot", "search_crawler", "Bot", "KinyaBot"),
+    "ProspectingCrawler": BotDefinition("ProspectingCrawler", "search_crawler", "Bot", "Unknown"),
+    "enrich_domain": BotDefinition("enrich_domain", "search_crawler", "Bot", "Unknown"),
+    "MERCATOR-EntityEvidence": BotDefinition("Mercator Entity Evidence", "search_crawler", "Bot", "Mercator"),
+    "StackbriefBot": BotDefinition("Stackbrief", "search_crawler", "Bot", "Stackbrief"),
+    "EvidensoBronzeBot": BotDefinition("Evidenso", "search_crawler", "Bot", "Evidenso"),
+    "Stack200": BotDefinition("Stack200", "search_crawler", "Bot", "Stack200"),
+    # SEO / marketing crawlers
+    "UXMachineBot": BotDefinition("UX Machine", "seo_crawler", "Bot", "UX Machine"),
+    "PriceTapeBot": BotDefinition("PriceTape", "seo_crawler", "Bot", "PriceTape"),
+    # Uptime / monitors / scanners
+    "UptimeGladiator": BotDefinition("UptimeGladiator", "monitoring", "Bot", "UptimeGladiator"),
+    r"statussite\.com checker": BotDefinition(
+        "statussite.com checker", "monitoring", "Bot", "statussite.com", documentation_url="https://statussite.com"
+    ),
+    "AgentReadinessScanner": BotDefinition("Agent Readiness Scanner", "monitoring", "Bot", "Unknown"),
+    # HTTP clients (favicon fetchers)
+    "Cravatar-Favicon-Worker": BotDefinition("Cravatar Favicon Worker", "http_client", "Bot", "Cravatar"),
+    "FaviconAPI": BotDefinition("FaviconAPI", "http_client", "Bot", "FaviconAPI"),
 }
