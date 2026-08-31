@@ -262,6 +262,12 @@ describe('email tracking code', () => {
             expect(decoded.startsWith('v2:fn-1:')).toBe(true)
             expect(signer.parse(code)?.workflowVersion).toBe(3)
         })
+
+        it('leaves the version empty for a send that has none, so hog functions are unchanged', () => {
+            const code = signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3 })
+
+            expect(signer.parse(code)?.workflowVersion).toBeUndefined()
+        })
     })
 
     describe('signed tracking codes', () => {
