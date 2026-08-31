@@ -17,7 +17,7 @@ export type WidgetOverviewDemoState = {
 export const errorTrackingSampleIssues = [
     {
         id: 'issue-1',
-        name: 'TypeError: Cannot read properties of undefined',
+        name: 'Sample issue: profile settings failed to load',
         description: 'User profile settings fail to load when the session cache is empty.',
         function: 'loadProfile',
         source: 'https://app.example.test/static/js/settings.js',
@@ -43,7 +43,7 @@ export const errorTrackingSampleIssues = [
     },
     {
         id: 'issue-2',
-        name: 'NetworkError: Failed to fetch',
+        name: 'Sample issue: checkout request failed',
         description: 'Checkout requests fail when the payment API is unavailable.',
         function: 'fetch',
         source: 'https://app.example.test/static/js/api.js',

@@ -40,6 +40,7 @@ import {
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
+import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -712,8 +713,20 @@ export interface dashboardLogicActions {
     setAccessDeniedToDashboard: () => {
         value: true
     }
+    updateEarlyAccessFeatureEnrollment: (
+        flagKey: string,
+        enabled: boolean,
+        stage?: string
+    ) => {
+        enabled: boolean
+        flagKey: string
+        stage: string | undefined
+    } // featurePreviewsLogic
     setAddWidgetModalOpen: (open: boolean) => {
         open: boolean
+    }
+    enableWidgetsAndOpenAddModal: () => {
+        value: true
     }
     setAutoRefresh: (
         enabled: boolean,
@@ -1200,6 +1213,20 @@ export type dashboardLogicType = MakeLogicType<
 
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
+
+    props({} as DashboardLogicProps),
+
+    // key() must run before connect() adds any connected actions — kea rejects a key added
+    // after actions exist.
+    key((props) => {
+        // `typeof NaN === 'number'` — check finiteness explicitly so a NaN id surfaces loudly
+        // instead of mounting a stuck-NotFound logic instance.
+        if (typeof props.id !== 'number' || !Number.isFinite(props.id)) {
+            throw Error(`dashboardLogic key() received non-finite id: ${String(props.id)}`)
+        }
+        return props.id
+    }),
+
     connect(() => ({
         values: [
             teamLogic,
@@ -1213,19 +1240,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataRetentionBannerLogic,
             ['warningEligible', 'retentionMonths', 'retentionPeriodLabel'],
         ],
+        actions: [featurePreviewsLogic, ['updateEarlyAccessFeatureEnrollment']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic, addInsightToDashboardLogic],
     })),
-
-    props({} as DashboardLogicProps),
-
-    key((props) => {
-        // `typeof NaN === 'number'` — check finiteness explicitly so a NaN id surfaces loudly
-        // instead of mounting a stuck-NotFound logic instance.
-        if (typeof props.id !== 'number' || !Number.isFinite(props.id)) {
-            throw Error(`dashboardLogic key() received non-finite id: ${String(props.id)}`)
-        }
-        return props.id
-    }),
 
     actions(() => ({
         /**
@@ -1283,6 +1300,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             widgets: { widgetType: string; config: Record<string, unknown> }[]
         }) => payload,
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
+        enableWidgetsAndOpenAddModal: true,
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
@@ -3262,6 +3280,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (open) {
                 actions.clearAddWidgetSelectedTypes()
             }
+        },
+        enableWidgetsAndOpenAddModal: () => {
+            // Enroll in the beta in place, then open the picker. posthog-js applies the flag
+            // client-side right away, so the modal renders without leaving the dashboard.
+            actions.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.DASHBOARD_WIDGETS, true, 'beta')
+            actions.setAddWidgetModalOpen(true)
         },
         togglePinned: () => {
             if (values.dashboard) {

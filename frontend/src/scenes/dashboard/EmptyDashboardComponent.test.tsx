@@ -8,11 +8,10 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, AppContext, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardLogic } from './dashboardLogic'
@@ -63,7 +62,12 @@ describe('EmptyDashboardComponent', () => {
 
     afterEach(() => {
         cleanup()
+        delete window.POSTHOG_APP_CONTEXT
     })
+
+    function setDeployment(preflight: { cloud?: boolean; is_debug?: boolean }): void {
+        window.POSTHOG_APP_CONTEXT = { preflight } as unknown as AppContext
+    }
 
     function renderEmptyState(opts: { widgetsEnabled?: boolean; canEdit?: boolean } = {}): {
         logic: ReturnType<typeof dashboardLogic.build>
@@ -130,14 +134,37 @@ describe('EmptyDashboardComponent', () => {
         logic.unmount()
     })
 
-    it('routes Widget preview to feature previews when flag is disabled', async () => {
+    it('opens the add widget modal in place instead of routing to settings when the beta is off', async () => {
+        // Enrolling in place only works where client flag values are honored (cloud/dev).
+        setDeployment({ cloud: true })
         const pushSpy = jest.spyOn(router.actions, 'push')
         const { logic } = renderEmptyState()
 
         await openAddFirstChartDropdown()
         await userEvent.click(screen.getByText('Widget'))
 
-        expect(pushSpy).toHaveBeenCalledWith(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
+        // The old flow stranded the user on the feature previews page with no route back.
+        expect(pushSpy).not.toHaveBeenCalled()
+        expect(logic.values.addWidgetModalOpen).toBe(true)
+
+        pushSpy.mockRestore()
+        logic.unmount()
+    })
+
+    it('disables the Widget beta action on self-hosted instances where client enrollment has no effect', async () => {
+        setDeployment({ cloud: false, is_debug: false })
+        const pushSpy = jest.spyOn(router.actions, 'push')
+        const { logic } = renderEmptyState()
+
+        await openAddFirstChartDropdown()
+
+        // Client enrollment can't flip the flag here, so the picker would never mount. The action
+        // is disabled instead of silently doing nothing.
+        expect(document.querySelector('[data-attr="dashboard-add-widget-preview"]')).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+        expect(pushSpy).not.toHaveBeenCalled()
         expect(logic.values.addWidgetModalOpen).toBe(false)
 
         pushSpy.mockRestore()

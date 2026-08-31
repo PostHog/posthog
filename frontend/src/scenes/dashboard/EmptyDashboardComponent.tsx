@@ -43,6 +43,7 @@ function DashboardEmptyActions({
     dashboardWidgetsEnabled,
     onAddInsight,
     onAddWidget,
+    onEnableWidgets,
     push,
     onOpenAiWithPrompt,
     promptExperience,
@@ -53,6 +54,7 @@ function DashboardEmptyActions({
     dashboardWidgetsEnabled: boolean
     onAddInsight: () => void
     onAddWidget: () => void
+    onEnableWidgets: () => void
     push: (path: string) => void
     onOpenAiWithPrompt: (prompt: string) => void
     promptExperience: string | boolean | undefined
@@ -104,6 +106,7 @@ function DashboardEmptyActions({
                                                 onAddInsight: handleAddInsight,
                                                 push,
                                                 setAddWidgetModalOpen: onAddWidget,
+                                                enableWidgetsAndOpenAddModal: onEnableWidgets,
                                             })}
                                         />
                                     ),
@@ -132,7 +135,7 @@ function DashboardEmptyActions({
 function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { setAddWidgetModalOpen } = useActions(dashboardLogic)
+    const { setAddWidgetModalOpen, enableWidgetsAndOpenAddModal } = useActions(dashboardLogic)
     const { push } = useActions(router)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
@@ -175,6 +178,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
                     dashboardWidgetsEnabled={dashboardWidgetsEnabled}
                     onAddInsight={showAddInsightToDashboardModal}
                     onAddWidget={() => setAddWidgetModalOpen(true)}
+                    onEnableWidgets={enableWidgetsAndOpenAddModal}
                     push={push}
                     onOpenAiWithPrompt={onOpenAiWithPrompt}
                     promptExperience={promptExperience}
