@@ -3,8 +3,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-// The palette pulls half the app in; everything irrelevant to the create
-// command is stubbed to its empty state.
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => null,
@@ -76,8 +74,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   }),
   useFeedQueryPlan: () => ({ plan: undefined, isLoading: false }),
 }));
-// The real modal wants the whole query stack, and what matters here is only
-// whether the palette opened it.
 vi.mock("@posthog/ui/features/canvas/components/CreateChannelModal", () => ({
   CreateChannelModal: ({ open }: { open: boolean }) =>
     open ? <div>create space modal</div> : null,
@@ -86,9 +82,6 @@ vi.mock("@posthog/ui/features/canvas/components/CreateChannelModal", () => ({
 import { CommandMenu } from "./CommandMenu";
 
 describe("CommandMenu space creation", () => {
-  // The dialog arrives through a lazy import, so a wrong default mapping or a
-  // missing Suspense boundary leaves the palette offering a row that opens
-  // nothing, and neither shows up in a typecheck.
   it("opens the create modal from the New space command", async () => {
     const user = userEvent.setup();
     render(

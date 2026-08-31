@@ -131,8 +131,7 @@ interface CommandMenuProps {
   onOpenChange: (open: boolean) => void;
 }
 
-// The create dialog reaches the task-creation stack, which the palette itself
-// has no use for. Loading it on demand keeps that off the mod+K path.
+// Static-importing this pulls the task-creation stack onto the mod+K path.
 const CreateChannelModalLazy = lazy(() =>
   import("@posthog/ui/features/canvas/components/CreateChannelModal").then(
     (module) => ({ default: module.CreateChannelModal }),
@@ -253,8 +252,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   );
   const [query, setQuery] = useState("");
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
-  // Latched separately from `createChannelOpen` so the dialog stays mounted
-  // through its closing animation.
   const [createChannelUsed, setCreateChannelUsed] = useState(false);
   const [recentCommands, setRecentCommands] = useState<Command[]>([]);
   const [remoteQuery, setRemoteQuery] = useState("");
@@ -490,8 +487,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           openTaskInput();
         },
       },
-      // The plus button in the spaces sidebar is the only other way in, and it
-      // takes a hunt to find.
       ...(bluebirdEnabled
         ? [
             {

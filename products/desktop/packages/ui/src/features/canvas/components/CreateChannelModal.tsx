@@ -100,7 +100,6 @@ interface CreateChannelModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingContext?: { channelId: string; channelName: string };
-  /** Where the modal was opened from, for the create events it reports. */
   surface?: ChannelsSurface;
 }
 
