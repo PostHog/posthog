@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    getContext,
+    kea,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
@@ -703,3 +715,30 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         actions.loadEvaluationDirectories()
     }),
 ])
+
+/**
+ * Resolves once this logic's evaluations have settled — loaded or failed — never while the
+ * fetch is still in flight. Callers that derive detector polarity (`detectorEvaluationIds`)
+ * from `evaluations` must await this before reading it: `evaluations` starts as `[]`, so a
+ * read before the fetch settles silently treats every evaluation, detectors included, as
+ * non-detector. Resolves immediately when already settled, so the common (already-loaded)
+ * path adds no latency. `evaluationsLoading` goes false on both `loadEvaluationsSuccess` and
+ * `loadEvaluationsFailure`, so a failed fetch still unblocks callers — with
+ * detectorEvaluationIds staying [], i.e. today's non-detector-aware verdicts — rather than
+ * waiting forever on a request that will never resolve. Requires `llmEvaluationsLogic` to
+ * already be mounted (e.g. via the caller's own `connect()`), which also guarantees
+ * `loadEvaluations` has already been dispatched by the time this runs.
+ */
+export async function waitForEvaluationsSettled(): Promise<void> {
+    if (!llmEvaluationsLogic.values.evaluationsLoading) {
+        return
+    }
+    await new Promise<void>((resolve) => {
+        const unsubscribe = getContext().store.subscribe(() => {
+            if (!llmEvaluationsLogic.values.evaluationsLoading) {
+                unsubscribe()
+                resolve()
+            }
+        })
+    })
+}

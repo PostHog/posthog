@@ -16,7 +16,7 @@ import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } f
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { ApplyUrlStatePayload } from '../aiObservabilitySharedLogic'
-import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
+import { llmEvaluationsLogic, waitForEvaluationsSettled } from '../evaluations/llmEvaluationsLogic'
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { ClusterScatterSeries } from './clusterScatter'
 import {
@@ -670,6 +670,14 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             actions.setTraceSummariesLoading(true)
 
             try {
+                // Only evaluation-level clustering derives a verdict, so only that level
+                // needs to wait for llmEvaluationsLogic's evaluations to settle first —
+                // otherwise a clustering response that resolves first would read
+                // detectorEvaluationIds as [] and bake a wrong verdict into a cached summary
+                // that never gets refetched (loadTraceSummaries only fetches missing ids).
+                if (clusteringLevel === 'evaluation') {
+                    await waitForEvaluationsSettled()
+                }
                 const summaries = await loadTraceSummaries(
                     traceIds,
                     values.traceSummaries,

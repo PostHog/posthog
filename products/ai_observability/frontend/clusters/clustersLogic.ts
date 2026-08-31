@@ -16,7 +16,7 @@ import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } f
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { ApplyUrlStatePayload } from '../aiObservabilitySharedLogic'
-import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
+import { llmEvaluationsLogic, waitForEvaluationsSettled } from '../evaluations/llmEvaluationsLogic'
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { ClusterScatterSeries } from './clusterScatter'
 import {
@@ -920,6 +920,11 @@ export const clustersLogic = kea<clustersLogicType>([
                 return
             }
             try {
+                // detectorEvaluationIds reads as [] until llmEvaluationsLogic's own fetch
+                // settles. Wait for it here so a clustering response that resolves first
+                // can't bake a wrong (non-detector) verdict into a cached summary that never
+                // gets refetched — loadTraceSummaries only fetches ids missing from the cache.
+                await waitForEvaluationsSettled()
                 const attrs = await loadEvaluationItemAttributes(
                     allItemIds,
                     run.windowStart,
@@ -949,6 +954,11 @@ export const clustersLogic = kea<clustersLogicType>([
             actions.setTraceSummariesLoading(true)
 
             try {
+                // Same rationale as loadEvaluationAttributesForRun: only evaluation-level
+                // clustering derives a verdict, so only that level needs to wait.
+                if (values.clusteringLevel === 'evaluation') {
+                    await waitForEvaluationsSettled()
+                }
                 const summaries = await loadTraceSummaries(
                     allItemIds,
                     values.traceSummaries,
@@ -980,6 +990,10 @@ export const clustersLogic = kea<clustersLogicType>([
                     actions.setTraceSummariesLoading(true)
 
                     try {
+                        // Same rationale as loadEvaluationAttributesForRun.
+                        if (values.clusteringLevel === 'evaluation') {
+                            await waitForEvaluationsSettled()
+                        }
                         const summaries = await loadTraceSummaries(
                             itemIds,
                             values.traceSummaries,
