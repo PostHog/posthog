@@ -153,12 +153,18 @@ describe("ReportVerdictBanner", () => {
 
   it("starts a discussion with optional direction and hides the actions after creation", async () => {
     const user = userEvent.setup();
-    render(<ReportVerdictBanner report={report} initialEngagementOnly />);
+    render(
+      <ReportVerdictBanner
+        report={report}
+        initialEngagementOnly
+        askHotkey="a"
+      />,
+    );
 
     const askButton = screen.getByText("Ask about it");
     expect(askButton.closest(".select-none")).not.toBeNull();
 
-    await user.click(askButton);
+    await user.keyboard("a");
     await user.type(
       screen.getByLabelText("Optional question for the agent"),
       "Focus on whether this affects new projects",

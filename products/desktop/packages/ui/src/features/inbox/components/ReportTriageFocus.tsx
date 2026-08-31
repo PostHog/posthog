@@ -313,6 +313,7 @@ export function ReportTriageFocus({
           <ReportVerdictBanner
             report={report}
             actionHotkey={dismissOpen ? undefined : "f"}
+            askHotkey={dismissOpen ? undefined : "a"}
             // The triage card hosts no dock: engaging opens the report page,
             // where the dock (already flagged open) shows the conversation.
             onEngaged={() => {
@@ -331,10 +332,13 @@ export function ReportTriageFocus({
             <KeyCap>f</KeyCap> fix
           </span>
           <span className="flex items-center gap-1">
+            <KeyCap>a</KeyCap> ask
+          </span>
+          <span className="flex items-center gap-1">
             <KeyCap>d</KeyCap> defer
           </span>
           <span className="flex items-center gap-1">
-            <KeyCap>e</KeyCap> dismiss
+            <KeyCap>e</KeyCap> archive
           </span>
           <span className="flex items-center gap-1">
             <KeyCap>↵</KeyCap> open

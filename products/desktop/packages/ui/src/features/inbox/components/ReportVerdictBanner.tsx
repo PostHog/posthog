@@ -73,6 +73,8 @@ interface ReportVerdictBannerProps {
   variant?: ReportVerdictBannerVariant;
   /** Key that fires the primary action (triage mode passes "f"). */
   actionHotkey?: string;
+  /** Key that opens the question field (triage mode passes "a"). */
+  askHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
   /**
@@ -91,6 +93,7 @@ export function ReportVerdictBanner({
   report,
   variant = "full",
   actionHotkey,
+  askHotkey,
   initialEngagementOnly = false,
   onEngaged,
 }: ReportVerdictBannerProps) {
@@ -272,12 +275,14 @@ export function ReportVerdictBanner({
     report.status === "deleted";
   const showActions = !isTerminalReport;
 
-  // One key fires the primary action (triage mode passes "f"): open the PR
-  // when one exists, otherwise start the fix with no extra direction.
+  // Keyboard actions use the same guards as their buttons so shortcuts cannot
+  // bypass loading, disabled, or duplicate-work states.
   useEffect(() => {
-    if (!actionHotkey) return;
+    if (!actionHotkey && !askHotkey) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== actionHotkey) return;
+      const matchesAction = event.key === actionHotkey;
+      const matchesAsk = event.key === askHotkey;
+      if (!matchesAction && !matchesAsk) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
       if (
@@ -287,9 +292,22 @@ export function ReportVerdictBanner({
       ) {
         return;
       }
-      // An open dialog owns the keyboard: its buttons aren't typing targets,
-      // but f must not start a PR underneath the archive dialog.
+      // An open dialog owns the keyboard because its buttons are not typing
+      // targets and actions must not open underneath it.
       if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
+        return;
+      }
+      if (matchesAsk) {
+        if (
+          isCreatingPr ||
+          isDiscussing ||
+          awaitingChannel ||
+          reportTasksLoading
+        ) {
+          return;
+        }
+        event.preventDefault();
+        setAskOpen(true);
         return;
       }
       if (report.status !== "ready" || isCreatingPr) return;
@@ -305,8 +323,12 @@ export function ReportVerdictBanner({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     actionHotkey,
+    askHotkey,
     report.status,
     isCreatingPr,
+    isDiscussing,
+    awaitingChannel,
+    reportTasksLoading,
     externalPrUrl,
     hasExistingPr,
     canCreatePr,
