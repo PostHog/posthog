@@ -1,16 +1,36 @@
 # Capture outputs refactor — implementation plan
 
-Working contract for implementation agents. This doc is the first commit of the draft PR; each `Step N` below becomes one commit in this combined PR and later graduates to its own standalone PR.
+Working contract for implementation agents. Steps 1–8 have shipped; each
+remaining step is one commit in its own PR.
+
+**Retirement.** This doc dies with `F3`. Whatever is still load-bearing then —
+the vocabulary rules, the ordering-vs-person-processing contract, the
+repartitioning design note — graduates into module docs or
+`v1/sinks/DESIGN.md` first, and the deferred work moves to issues. A plan must
+not outlive the work it schedules, and after F3 it schedules nothing.
 
 ## Motivation
 
-Three drivers, in order:
+**One driver: ship the emergency Kafka fallback safely.**
 
-1. **Safe automatic failover**: Kafka-primary / S3-secondary failover as an output policy over any two targets, driven by a health breaker.
-2. **Cluster migrations without code changes**: split (AI → WarpStream) and dual-write become configuration of an output's targets, as in the Node.js `IngestionOutputs` module — capture and Node converge on the same model.
-3. **Payload format evolution**: a protobuf cutover becomes an output-level config change behind the serialization seam, rolled out with content-header coexistence like the replay lz4 envelope.
+If MSK degrades, capture-analytics must be able to produce to an alternative
+cluster — brokers, TLS, and that cluster's own topic names — on an environment
+variable, with the configuration verified before any traffic moves. Running
+capture against a half-wired cluster is the risk this plan exists to remove.
 
-None of these fit the current shape: routing policy, serialization choice, and multi-target behavior are all tangled into the sink layer, so every one of them requires new sink composites with information smuggled through serialized records.
+The switch is boot-time and total: `config_resolution::resolve` is the only way
+to obtain a `Config`, so an armed deployment cannot hold a producer pointed at
+the primary. Primary and backup are therefore never live at once, which is what
+keeps the remaining work small — the fallback needs no policy tree, no
+per-target topic table, and none of the deferred steps below.
+
+Steps 1–8 landed the structure this rests on: routing is a pure function, the
+lane decision is pipeline-layer code, sinks are backend mechanism over prepared
+payloads, and the outputs layer owns multi-target policy behind one produce
+surface. That is enough. The three drivers this plan originally served —
+breaker-driven failover, cluster migration by split/dual-write, and a protobuf
+cutover behind the serialization seam — are real but not urgent, and are
+recorded under **Deferred work** rather than sequenced.
 
 ## Target architecture
 
@@ -130,15 +150,83 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 - **Parity proof.** All endpoint/integration suites green; grep proves `Event` call-site-free before the deletion half.
 - **Size.** M/L. May split into per-call-site commits if the diff grows.
 
-### Stage D — completeness, dark failover, convergence
+### Stage D — the fallback ships
 
-#### Step 9 · Mode-scoped registry completeness
+The remaining committed work. Each step is small, ships green, and reverts by
+plain revert. Everything after this stage is deferred, not scheduled.
 
-- **Goal.** `TopicTable::check_complete` scopes its demand per `CaptureMode`: an Events/Ai pod demands the analytics family, a Recordings pod main/replay-overflow/dlq only.
-- **Arming precondition.** `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` stays off in every deployment until this step lands and the chart env is audited for explicitly-blank topic values.
-  The mode-blind check demands every registered topic on every pod, so a recordings or import deployment that sets an analytics topic to `""` would crashloop the fleet at boot, not degrade.
+#### Step F1 · Fallback topics are configuration
+
+- **Goal.** The emergency switch carries the backup cluster's own topic names,
+  not just its brokers. Separate `CAPTURE_ANALYTICS_KAFKA_EMERGENCY_BACKUP_TOPIC_*`
+  variables, applied by `EmergencyKafkaFallback::apply` alongside hosts and TLS,
+  required while armed and ignored otherwise — the same contract the hosts
+  variable already has.
+- **Why it needs nothing else.** The switch rewrites `Config` at boot, so the
+  resolved config names exactly one cluster. `TopicTable::from(&config)` reads
+  the backup names with no per-target plumbing, no `Output::failover`, and no
+  prep hoist.
+- **Cross-repo.** Removes the reason `posthog-cloud-infra#10065` must mirror
+  MSK-era topic names on warpstream-ingestion, and with it the terraform
+  imports that mirroring forces. Also closes the AI-lane gap: the Bento MSK
+  bridges never see `ingestion-ai-msk-*` on WarpStream, so an armed deployment
+  can name `ingestion-ai-main-*` directly.
+- **Size.** S.
+
+#### Step F2 · Mode-scoped output config
+
+- **Goal.** `TopicTable::check_complete` demands only the destinations the
+  deployment's `CaptureMode` can reach: an Events/Ai pod the analytics family
+  plus the armed fallback set, a Recordings pod main/replay-overflow/dlq. This
+  is what makes `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` armable at all —
+  today it demands all ten destinations on every pod, so no deployment can turn
+  it on.
+- **Arming precondition.** The flag stays off in every deployment until this
+  step lands *and* the chart env is audited for explicitly-blank topic values.
+  The mode-blind check demands every registered topic on every pod, so a
+  recordings or import deployment that sets an analytics topic to `""` would
+  crashloop the fleet at boot rather than degrade.
 - **Parity proof.** Per-mode refusal + anti-over-demand tests.
 - **Size.** M.
+
+#### Step F3 · Boot topic verification
+
+- **Goal.** Probe the *resolved* cluster's metadata for every topic the mode can
+  reach and refuse to start on a missing one, so arming the switch against a
+  half-provisioned backup fails at boot rather than at first produce.
+- **Why it is separate from F2.** `check_complete` is config-only and
+  deliberately never touches a broker — it answers "is this wired?", instantly.
+  F3 answers "does this exist on the cluster we are about to produce to?", which
+  is the question that matters when the cluster changes underneath you.
+- **Default off**, armed per deployment: on brokers with topic auto-creation the
+  metadata probe can create the topic it is checking, which makes a pass
+  meaningless.
+- **Size.** M.
+
+#### Prerequisite · topics must be wired explicitly
+
+Every topic field carries an `#[envconfig(default = ...)]`, so a missing or
+misspelled variable resolves to a compiled-in name instead of failing. F2 cannot
+see that, and F3 only catches it when the defaulted name is absent from the
+cluster. The charts side must set every topic a mode reaches before either check
+is armed.
+
+The live example: `KAFKA_REPLAY_OVERFLOW_TOPIC` appears in **no file** in the
+charts repo, while `(Pipeline::Replay, Lane::Overflow) → Destination::SessionReplayOverflow`
+is a reachable route with a passing test — so replay overflow resolves to the
+compiled-in `session_recording_snapshot_item_overflow` while prod-us replay wires
+`ingestion-sessionreplay-overflow-64` under `KAFKA_OVERFLOW_TOPIC`. Confirm
+where that traffic actually lands before arming anything.
+
+## Deferred work
+
+Not scheduled. The structure to build on landed in steps 1–8; these are the
+drivers that no longer justify sequencing ahead of the fallback. Revive a step
+by moving it back into a stage above, with its parity proof intact.
+
+### Stage D (deferred) — dark failover, convergence
+
+Step 9 is not here: it was promoted to **F2** above, which the fallback needs.
 
 #### Step 10 · Breaker failover mode (dark)
 
@@ -186,7 +274,7 @@ Goal: v1 endpoints publish through `dyn Outputs` like every other ingress, so fa
 2. **Named surfaces.** `CAPTURE_V1_SINKS` names become named `Arc<dyn Outputs>` rows (each a `KafkaOutputs` built from that sink's config); the v1 `Router`/`Sink`/`Event` traits and `serialize_batch` dissolve.
 3. **Response granularity.** `Outputs::publish` already returns per-event `SinkResult`s; `merge_sink_results` consumes them unchanged.
 4. **Parity oracle.** The v1 pipeline tests and the real-Kafka `v1_sink_integration` suite must pass against the converged path — payload bytes, headers, topics, keys. Documented v1-vs-v0 header deltas (overflow/person-processing decoupling) must be preserved in the mapping, not silently erased. The legacy serializer/header builder survive only as a frozen `cfg(test)` oracle (`legacy_serialize`/`legacy_headers`) the parity suite compares against.
-5. **Plan retirement.** The 20c commit deletes this document — the plan must not outlive its last step.
+5. **Plan retirement.** Superseded: the doc now retires with `F3`, see the header.
    Anything still load-bearing then (the repartitioning design note, the ordering-vs-person-processing contract) graduates into module docs or `v1/sinks/DESIGN.md` first.
 
 **Hazard.** The `Destination::Overflow` → metadata mapping must preserve the split between the two intents that ride together on this lane: whether person processing is disabled (a customer-visible instruction, the `force_disable_person_processing` header) and whether the partition key is dropped (a load decision, `OrderingGuarantee`). Both paths now state the same rule, so the mapping has one contract to satisfy rather than two dialects to reconcile:
@@ -274,20 +362,22 @@ When all steps land, the five strata hold:
 | 7 · Outputs layer with policies; composites retired | done | `feat(capture): outputs layer owns the failover policy` |
 | 8a · Call sites on the table | done | `refactor(capture): call sites publish through outputs` |
 | 8b · `Event` retired | done | `refactor(capture): retire v0 Event trait` |
-| 9 · Mode-scoped completeness | pending | `refactor(capture): mode-scoped output registry completeness` |
-| 10 · Breaker mode (dark) | pending | `feat(capture): breaker-driven failover mode (dark)` |
-| 11 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
-| 12 · Prep hoist; `PublishEvents` retired | pending | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
-| 13 · Typed addresses; AI pipeline | pending | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
-| 14 · Sinks realize namespaces | pending | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
-| 15 · Per-mode output registries | pending | `feat(capture): per-mode output registries; handlers bound by publish capabilities` |
-| 16 · AI ingress family | pending | `feat(capture): ai ingress is its own router family with its own capability` |
-| 17 · Topic tables injected into sinks | pending | `refactor(capture): topic tables are sink-side data, injected at construction` |
-| 18 · Per-pipeline output overrides; boot topic verification | pending | `feat(capture): per-pipeline output overrides and boot topic verification` |
-| 19a · Naming and import hygiene | pending | `refactor(capture): replace remaining nested paths with imports` + `refactor(capture): name the session replay pipeline consistently` |
-| 19b · Outputs as an open trait; sinks pure transport | pending | `refactor(capture): outputs own namespace realization; Outputs becomes an open trait` |
-| 19c · Dynamic outputs prototype | pending | `feat(capture): prototype dynamic outputs with incremental switchover (test-only)` |
-| 19d · Per-event publish results | pending | `refactor(capture): Outputs::publish reports per-event results` |
-| 20a · v1 boundary mapping + parity oracle | pending | `feat(capture): v1 boundary mapping onto the shared produce interchange` |
-| 20b · v1 publishes through shared outputs | pending | `feat(capture): v1 endpoints publish through the shared outputs machinery` |
-| 20c · Legacy v1 sink stack deleted; this plan retired | pending | `refactor(capture): delete the legacy v1 sink stack` |
+| F1 · Fallback topics are configuration | pending | `feat(capture): emergency fallback carries its own topic names` |
+| F2 · Mode-scoped output config | pending | `refactor(capture): mode-scoped topic table completeness` |
+| F3 · Boot topic verification | pending | `feat(capture): verify reachable topics against the cluster at boot` |
+| 10 · Breaker mode (dark) | deferred | `feat(capture): breaker-driven failover mode (dark)` |
+| 11 · v1 convergence | deferred | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
+| 12 · Prep hoist; `PublishEvents` retired | deferred | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
+| 13 · Typed addresses; AI pipeline | deferred | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
+| 14 · Sinks realize namespaces | deferred | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
+| 15 · Per-mode output registries | deferred | `feat(capture): per-mode output registries; handlers bound by publish capabilities` |
+| 16 · AI ingress family | deferred | `feat(capture): ai ingress is its own router family with its own capability` |
+| 17 · Topic tables injected into sinks | deferred | `refactor(capture): topic tables are sink-side data, injected at construction` |
+| 18 · Per-pipeline output overrides; boot topic verification | deferred | `feat(capture): per-pipeline output overrides and boot topic verification` |
+| 19a · Naming and import hygiene | deferred | `refactor(capture): replace remaining nested paths with imports` + `refactor(capture): name the session replay pipeline consistently` |
+| 19b · Outputs as an open trait; sinks pure transport | deferred | `refactor(capture): outputs own namespace realization; Outputs becomes an open trait` |
+| 19c · Dynamic outputs prototype | deferred | `feat(capture): prototype dynamic outputs with incremental switchover (test-only)` |
+| 19d · Per-event publish results | deferred | `refactor(capture): Outputs::publish reports per-event results` |
+| 20a · v1 boundary mapping + parity oracle | deferred | `feat(capture): v1 boundary mapping onto the shared produce interchange` |
+| 20b · v1 publishes through shared outputs | deferred | `feat(capture): v1 endpoints publish through the shared outputs machinery` |
+| 20c · Legacy v1 sink stack deleted; this plan retired | deferred | `refactor(capture): delete the legacy v1 sink stack` |
