@@ -2298,7 +2298,9 @@ export interface queryDatabaseLogicMeta {
             featureFlags: FeatureFlagsSet,
             expandedSearchFolders: string[],
             materializingViewIds: string[],
-            propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
+            propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
+            databaseFieldsComplete: boolean,
+            tableFieldsStatus: TableFieldsStatus
         ) => TreeDataItem[]
         treeDataContext: (
             allPosthogTables: DatabaseSchemaTable[],
@@ -3058,6 +3060,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.expandedSearchFolders,
                 s.materializingViewIds,
                 s.propertyDefinitionLists,
+                s.databaseFieldsComplete,
+                s.tableFieldsStatus,
             ],
             (
                 searchTreeSourceContext: SearchTreeSourceContext,
@@ -3066,7 +3070,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 featureFlags: FeatureFlagsSet,
                 expandedSearchFolders: string[],
                 materializingViewIds: string[],
-                propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
+                propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
+                databaseFieldsComplete: boolean,
+                tableFieldsStatus: TableFieldsStatus
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -3103,10 +3109,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const expandedLazyNodeIds = new Set(expandedSearchFolders.filter(isLazyNodeId))
                 const sourcesChildren: TreeDataItem[] = []
                 const expandedIds: string[] = []
+                const hydration: TableFieldsHydration = { databaseFieldsComplete, tableFieldsStatus }
                 const tableNodeOptions: FieldTraversalOptions = {
                     expandedLazyNodeIds,
                     propertyDefinitionLists,
                     loadPropertyDefinitions: actions.loadPropertyDefinitions,
+                    hydration,
                 }
 
                 // Add PostHog tables

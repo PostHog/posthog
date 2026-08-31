@@ -558,6 +558,29 @@ describe('queryDatabaseLogic', () => {
             const errorNode = findTableNode()?.children?.[0]
             expect(errorNode?.record?.type).toEqual('fields-load-error')
         })
+
+        it('shows the load error in search results instead of a false empty folder', async () => {
+            const findInTree = (nodes: any[] | undefined, id: string): any => {
+                for (const node of nodes ?? []) {
+                    if (node.id === id) {
+                        return node
+                    }
+                    const found = findInTree(node.children, id)
+                    if (found) {
+                        return found
+                    }
+                }
+                return undefined
+            }
+
+            logic.actions.setSearchTerm('events')
+            await expectLogic(dbLogic).toFinishAllListeners()
+            dbLogic.actions.hydrateTableFieldsStart(['events'])
+            dbLogic.actions.hydrateTableFieldsFailure(['events'])
+
+            const searchTableNode = findInTree(logic.values.searchTreeData, 'search-table-events')
+            expect(searchTableNode?.children?.[0]?.record?.type).toEqual('fields-load-error')
+        })
     })
 
     describe('direct connection state', () => {
