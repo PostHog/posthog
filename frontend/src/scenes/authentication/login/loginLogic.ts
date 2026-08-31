@@ -12,6 +12,7 @@ import { ApiError } from 'lib/api-error'
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isChromiumBrowser, isWebKitBrowser } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
@@ -642,6 +643,23 @@ export const loginLogic = kea<loginLogicType>([
             actions.resetCodeVerification()
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
+            const { precheckResponse } = values
+            // Chromium uses conditional UI from the email field. Other non-WebKit browsers,
+            // including Firefox, keep the precheck-triggered modal passkey prompt.
+            if (
+                precheckResponse.webauthn_credentials &&
+                precheckResponse.webauthn_credentials.length > 0 &&
+                !precheckResponse.sso_enforcement &&
+                !isWebKitBrowser() &&
+                !isChromiumBrowser()
+            ) {
+                breakpoint()
+                const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
+                breakpoint()
+                passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
+                return
+            }
+
             // A passwordless account with exactly one way in: send them straight to it, the same way
             // an SSO-enforced domain does. Only ever on an explicit blur/Enter (`autoAttempt`), never
             // on autofill or a `?email=` deep link, so a mistyped address can't bounce the user out

@@ -1,15 +1,25 @@
+import { startAuthentication } from '@simplewebauthn/browser'
 import { router } from 'kea-router'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
+import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { initKea } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('posthog-js')
+jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
+
+const CHROMIUM_VENDOR = 'Google Inc.'
+const FIREFOX_VENDOR = ''
+
+function setVendor(vendor: string): void {
+    Object.defineProperty(window.navigator, 'vendor', { value: vendor, configurable: true })
+}
 
 describe('loginLogic', () => {
     describe('redirect vulnerability', () => {
@@ -95,6 +105,68 @@ describe('loginLogic', () => {
                 expect(removeProjectIdIfPresent(newPath)).toEqual(result)
             })
         }
+    })
+
+    describe('passkey auto-trigger after precheck', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        let beginHandler: jest.Mock
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            ;(startAuthentication as jest.Mock).mockRejectedValue(
+                Object.assign(new Error('cancelled'), { name: 'AbortError' })
+            )
+            beginHandler = jest.fn(() => [
+                200,
+                {
+                    challenge: 'abc',
+                    timeout: 60000,
+                    rpId: 'localhost',
+                    allowCredentials: [],
+                    userVerification: 'preferred',
+                },
+            ])
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [
+                        200,
+                        { saml_available: false, webauthn_credentials: [{ id: 'cred-1', type: 'public-key' }] },
+                    ],
+                    '/api/webauthn/login/begin/': beginHandler,
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+            passkeyLogic().mount()
+        })
+
+        afterEach(() => {
+            passkeyLogic().unmount()
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it.each([
+            [FIREFOX_VENDOR, true],
+            [CHROMIUM_VENDOR, false],
+        ])('auto-prompts for a passkey in Firefox but not Chromium', async (vendor, shouldPrompt) => {
+            setVendor(vendor)
+            logic.actions.precheck({ email: 'user@example.com' })
+
+            if (shouldPrompt) {
+                await expectLogic(passkeyLogic)
+                    .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthentication'])
+                    .toFinishAllListeners()
+            } else {
+                await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+            }
+
+            expect(beginHandler).toHaveBeenCalledTimes(shouldPrompt ? 1 : 0)
+        })
     })
 
     describe('code-based verification', () => {

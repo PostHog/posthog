@@ -69,6 +69,10 @@ export function isWebKitBrowser(): boolean {
     return navigator.vendor === 'Apple Computer, Inc.' || /iPad|iPhone|iPod/.test(navigator.userAgent)
 }
 
+export function isChromiumBrowser(): boolean {
+    return navigator.vendor === 'Google Inc.' || /Chrome|Chromium/.test(navigator.userAgent)
+}
+
 export function platformCommandControlKey(modifier: string): string {
     return `${isMac() ? '⌘' : 'Ctrl + '}${modifier}`
 }
