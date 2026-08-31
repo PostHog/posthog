@@ -361,7 +361,7 @@ def _resolve(team: Team, pk: str) -> tuple[str, Any] | None:
     return _resolve(team, str(migrated)) if migrated else None
 
 
-def _resolve_all(team: Team, pk: str) -> list[tuple[str, Any]]:
+def resolve_entities(team: Team, pk: str) -> list[tuple[str, Any]]:
     """Every entity an id stands for.
 
     A legacy alert overriding `selection.scanner_ids` migrated into one alert per scanner, so its
@@ -381,26 +381,23 @@ def _resolve_all(team: Team, pk: str) -> list[tuple[str, Any]]:
     return [single] if single else []
 
 
-def scanner_ids_for(team: Team, pk: str) -> list[str]:
-    """Every scanner an id acts on, so the viewset can object-check all of them.
+def scanner_ids_for_entities(entries: list[tuple[str, Any]]) -> list[str]:
+    """Every scanner the given entities live on, so all of them can be object-checked.
 
-    A legacy alert that fanned out across scanners resolves to one successor per scanner, and a
-    write reaches all of them, so authorizing only the first would let an editor of one scanner
-    mutate an alert on a scanner they cannot access.
+    Takes resolved entities rather than an id: authorizing a second resolution of the same id
+    would leave room for the check and the write to disagree, which is how a fanned-out alert
+    once had only its first successor checked.
     """
     ids: list[str] = []
-    for kind, entity in _resolve_all(team, pk):
+    for kind, entity in entries:
         scanner_id = str(entity.scanner_id) if kind == "alert" else entity.source_id
         if scanner_id and scanner_id not in ids:
             ids.append(scanner_id)
     return ids
 
 
-def retrieve_action(team: Team, pk: str, *, can_edit: bool = True) -> dict[str, Any]:
-    resolved = _resolve(team, pk)
-    if resolved is None:
-        raise NotFound()
-    kind, entity = resolved
+def render_entity(entry: tuple[str, Any], *, can_edit: bool = True) -> dict[str, Any]:
+    kind, entity = entry
     if kind == "alert":
         return render_alert_as_action(entity, can_edit=can_edit)
     return render_scout_as_action(entity, can_edit=can_edit)
@@ -569,13 +566,13 @@ def _create_scout(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any
         source_product=SCOUT_SOURCE_PRODUCT,
         source_id=str(scanner_id),
     )
-    return retrieve_action(team, str(result.config.id))
-
-
-def update_action(team: Team, pk: str, data: dict[str, Any], user: User) -> dict[str, Any]:
-    entries = _resolve_all(team, pk)
-    if not entries:
+    created = resolve_entities(team, str(result.config.id))
+    if not created:
         raise NotFound()
+    return render_entity(created[0])
+
+
+def update_action(team: Team, entries: list[tuple[str, Any]], data: dict[str, Any], user: User) -> dict[str, Any]:
     rendered = [_update_one(team, kind, entity, data, user) for kind, entity in entries]
     return rendered[0]
 
@@ -644,13 +641,13 @@ def _update_one(team: Team, kind: str, entity: Any, data: dict[str, Any], user: 
         output_destinations=destinations,
     ):
         raise NotFound()
-    return retrieve_action(team, entity.config_id)
-
-
-def destroy_action(team: Team, pk: str) -> None:
-    entries = _resolve_all(team, pk)
-    if not entries:
+    refreshed = resolve_entities(team, entity.config_id)
+    if not refreshed:
         raise NotFound()
+    return render_entity(refreshed[0])
+
+
+def destroy_action(team: Team, entries: list[tuple[str, Any]]) -> None:
     for kind, entity in entries:
         _destroy_one(team, kind, entity)
 

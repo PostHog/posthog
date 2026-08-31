@@ -675,6 +675,10 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "session_recording", required_level="viewer"
         ):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
+        if self._serves_new_systems():
+            # One gate for every shim-served action: scouts canonicalize to the parent team, so a
+            # key scoped only to a child environment must not reach them through this surface.
+            self._require_canonical_team_access()
 
     def _accessible_scanner_ids(self) -> list[str]:
         scanners = self.user_access_control.filter_queryset_by_access_level(
@@ -682,23 +686,15 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return [str(scanner_id) for scanner_id in scanners.values_list("id", flat=True)]
 
-    def _authorized_scanner(self, pk: str) -> ReplayScanner:
-        """The scanner behind a shim-served id, object-checked the way the legacy path checked it.
+    def _shim_entities(self) -> list[tuple[str, Any]]:
+        """The entities this request operates on, resolved and authorized exactly once.
 
-        The flag branches return before `safely_get_object` runs, so the object-level check that
-        `vision_action` inherits from `replay_scanner` has to happen here explicitly. Every scanner
-        the id acts on is checked, not just the first: one legacy alert can have fanned out across
-        several scanners, and a write reaches all of them.
+        `get_object()` runs the resolution through `safely_get_object` below, so every shim-served
+        write acts on the objects that were checked. Resolving separately for the check and for
+        the write is what once left a fanned-out alert's later successors unchecked.
         """
-        scanner_ids = vision_actions_shim.scanner_ids_for(self.team, str(pk))
-        if not scanner_ids:
-            raise NotFound()
-        scanners = list(ReplayScanner.objects.filter(team_id=self.team_id, id__in=scanner_ids))
-        if len(scanners) != len(scanner_ids):
-            raise NotFound()
-        for scanner in scanners:
-            _check_action_scanner_access(self, scanner, None)
-        return scanners[0]
+        self.get_object()
+        return self._resolved_entries
 
     def _can_edit_scanner(self, scanner: ReplayScanner) -> bool:
         return self.user_access_control.check_access_level_for_object(scanner, required_level="editor")
@@ -744,7 +740,6 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():
             return super().list(request, *args, **kwargs)
-        self._require_canonical_team_access()
         scanner_ids = self._accessible_scanner_ids()
         requested = request.query_params.get("scanner")
         if requested:
@@ -760,16 +755,14 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():
             return super().retrieve(request, *args, **kwargs)
-        self._require_canonical_team_access()
-        scanner = self._authorized_scanner(self.kwargs["pk"])
+        entries = self._shim_entities()
         return Response(
-            vision_actions_shim.retrieve_action(self.team, self.kwargs["pk"], can_edit=self._can_edit_scanner(scanner))
+            vision_actions_shim.render_entity(entries[0], can_edit=self._can_edit_scanner(self._resolved_scanner))
         )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():
             return super().create(request, *args, **kwargs)
-        self._require_canonical_team_access()
         validated = self._validated_legacy_payload(request, partial=False)
         # Same object-level check `perform_create` makes, against the scanner the payload names and
         # every scanner its selection reads from.
@@ -779,24 +772,34 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():
             return super().partial_update(request, *args, **kwargs)
-        self._require_canonical_team_access()
-        self._authorized_scanner(self.kwargs["pk"])
+        entries = self._shim_entities()
         validated = self._validated_legacy_payload(request, partial=True)
         if "scanner" in validated:
             _check_action_scanner_access(self, validated["scanner"], validated.get("selection"))
-        return Response(
-            vision_actions_shim.update_action(self.team, self.kwargs["pk"], validated, cast(User, request.user))
-        )
+        return Response(vision_actions_shim.update_action(self.team, entries, validated, cast(User, request.user)))
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():
             return super().destroy(request, *args, **kwargs)
-        self._require_canonical_team_access()
-        self._authorized_scanner(self.kwargs["pk"])
-        vision_actions_shim.destroy_action(self.team, self.kwargs["pk"])
+        vision_actions_shim.destroy_action(self.team, self._shim_entities())
         return Response(status=204)
 
-    def safely_get_object(self, queryset: QuerySet[VisionAction]) -> VisionAction:
+    def safely_get_object(self, queryset: QuerySet[VisionAction]) -> Any:
+        if self._serves_new_systems():
+            entries = vision_actions_shim.resolve_entities(self.team, str(self.kwargs["pk"]))
+            if not entries:
+                raise NotFound()
+            scanner_ids = vision_actions_shim.scanner_ids_for_entities(entries)
+            scanners = list(ReplayScanner.objects.filter(team_id=self.team_id, id__in=scanner_ids))
+            if len(scanners) != len(scanner_ids):
+                raise NotFound()
+            for scanner in scanners:
+                _check_action_scanner_access(self, scanner, None)
+            self._resolved_entries = entries
+            self._resolved_scanner = scanners[0]
+            # The scanner is what access is inherited from, so it is also the right object for the
+            # base `get_object` to run `check_object_permissions` against.
+            return scanners[0]
         action = get_object_or_404(queryset, pk=self.kwargs["pk"])
         # Per-scanner object-level grants are stored against `replay_scanner` + the scanner's id, not
         # `vision_action` + the action's id — the generic check_object_permissions() call the base
