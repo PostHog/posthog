@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
@@ -20,7 +21,7 @@ from drf_spectacular.utils import (
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -29,8 +30,15 @@ from posthog.schema import RecordingsQuery
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, set_tags_on_object
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.event_usage import report_user_action
-from posthog.exceptions import QuotaLimitExceeded
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+    QuotaLimitExceeded,
+)
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -89,6 +97,7 @@ from products.replay_vision.backend.queries import (
     MIN_SAMPLING_RATE,
     PREVIEW_ESTIMATE_BUDGET,
     SAVE_ESTIMATE_BUDGET,
+    ScannerVolumeEstimate,
     estimate_scanner_session_volume,
     project_monthly_observations,
     refresh_scanner_estimate,
@@ -156,6 +165,53 @@ _MAX_QUERY_BYTES = 50_000
 _MAX_TAGS = 32
 
 logger = structlog.get_logger(__name__)
+
+
+# The cost preview shares the dedicated `replay_vision` pool with background scanning, so under load its
+# estimate query loses the race. `estimate_scanner_session_volume` already downgrades to a cheaper sampled
+# plan, but two paths escape it: an OR-operand estimate has no sampled plan, and the sampled plan can
+# itself lose the pool race. Retry a fast-failing capacity error once, then map to an actionable 503 so
+# the cost card never shows a raw 500.
+ESTIMATE_MAX_ATTEMPTS = 2
+ESTIMATE_RETRY_BACKOFF_SECONDS = 0.5
+# A pending-state cancellation (394) is opt-in here for the same reason it is in the volume estimate's
+# fallback: under pool pressure it is the retryable capacity case. CH_TRANSIENT_ERRORS already carries
+# ClickHouseAtCapacity and ClickHouseClusterMemoryLimitExceeded.
+_RETRYABLE_ESTIMATE_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded, CHQueryErrorQueryWasCancelled)
+# A timeout, a too-slow rejection, or a per-query memory limit already spent real budget and would not
+# finish on a re-run, so map straight to the message. Listed after the retryable set so a transient
+# cluster-memory failure (a ClickHouseQueryMemoryLimitExceeded subclass) still retries.
+_BUDGET_SPENT_ESTIMATE_ERRORS = (
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+)
+
+
+class ScannerEstimateUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "scanner_estimate_unavailable"
+    default_detail = "We couldn't work out the cost right now because scanning is busy. Wait a moment, then retry."
+
+
+def estimate_scanner_session_volume_or_retry(**kwargs: Any) -> ScannerVolumeEstimate:
+    """`estimate_scanner_session_volume`, but recover a saturated pool instead of leaking a raw 500.
+
+    Retry a fast-failing capacity error once with a short backoff. Map a budget-spent error and an
+    exhausted retry to an actionable 503.
+    """
+    last_error: BaseException | None = None
+    for attempt in range(ESTIMATE_MAX_ATTEMPTS):
+        if attempt:
+            time.sleep(ESTIMATE_RETRY_BACKOFF_SECONDS * attempt)
+        try:
+            return estimate_scanner_session_volume(**kwargs)
+        except _RETRYABLE_ESTIMATE_ERRORS as error:
+            last_error = error
+            logger.warning("replay_vision.scanner_estimate_retry", attempt=attempt, error=str(error))
+        except _BUDGET_SPENT_ESTIMATE_ERRORS as error:
+            raise ScannerEstimateUnavailable() from error
+    raise ScannerEstimateUnavailable() from last_error
 
 
 # Query keys that narrow which sessions a scanner matches. Date keys are schedule-controlled
@@ -2077,7 +2133,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = apply_experiment_targeting(RecordingsQuery.model_validate(query_dict), targeting)
 
-        estimate = estimate_scanner_session_volume(
+        estimate = estimate_scanner_session_volume_or_retry(
             team=self.team,
             query=recordings_query,
             # The exposure filter's access check runs as the requesting user, so a preview can't

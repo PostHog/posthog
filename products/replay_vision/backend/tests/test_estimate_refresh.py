@@ -15,7 +15,9 @@ from posthog.schema import FilterLogicalOperator, RecordingsQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import CHQueryErrorQueryWasCancelled
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
@@ -123,9 +125,15 @@ _EVENT_FILTERED_AND_QUERY = RecordingsQuery(
         ([MagicMock(results=[[5, None]])], 5, False, [15]),
         ([ClickHouseQueryTimeOut(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
         ([ClickHouseQueryMemoryLimitExceeded(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
+        # A saturated pool rejects the exact attempt at capacity, kills it while still queued (394),
+        # or trips the concurrency limiter. Each means the exact plan did not run, so the sampled plan
+        # must still run instead of the error escaping as a 500.
+        ([ClickHouseAtCapacity(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
+        ([ConcurrencyLimitExceeded(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
+        ([CHQueryErrorQueryWasCancelled("cancelled"), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
     ],
 )
-def test_estimate_falls_back_to_sampling_only_when_the_exact_count_times_out(
+def test_estimate_falls_back_to_sampling_when_the_exact_count_cannot_run(
     execute_outcomes: list[Any], expected_matched: int, expected_sampled: bool, expected_budgets: list[int]
 ) -> None:
     scanner = _make_scanner()
