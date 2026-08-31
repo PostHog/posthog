@@ -11,6 +11,7 @@ import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFi
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -103,9 +104,17 @@ const DataWarehouseLoadingState = (): JSX.Element => {
 }
 
 const DataWarehouseEmptyState = ({ isLoading = false }: { isLoading?: boolean }): JSX.Element => {
+    const { currentLocation } = useValues(router)
+    const { sceneConfig } = useValues(sceneLogic)
+
     if (isLoading) {
         return <DataWarehouseLoadingState />
     }
+
+    // Carry the current page so the source wizard can send the user back here after they add a
+    // source, instead of stranding them on the wizard with no way to return.
+    const returnUrl = `${currentLocation.pathname}${currentLocation.search}${currentLocation.hash}`
+    const returnLabel = sceneConfig?.name ?? 'the previous page'
 
     return (
         <EmptyState
@@ -113,7 +122,7 @@ const DataWarehouseEmptyState = ({ isLoading = false }: { isLoading?: boolean })
             groupType={TaxonomicFilterGroupType.DataWarehouse}
             description="Use data warehouse sources to import data from your external data into PostHog."
             action={{
-                to: urls.dataWarehouseSourceNew(),
+                to: urls.dataWarehouseSourceNew(undefined, returnUrl, returnLabel),
                 text: 'New source',
             }}
             docsUrl="https://posthog.com/docs/data-warehouse"

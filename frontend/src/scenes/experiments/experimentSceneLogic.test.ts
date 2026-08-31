@@ -139,6 +139,24 @@ describe('experimentSceneLogic', () => {
         logic.unmount()
     })
 
+    it('does not push back to the experiment when setSceneState fires after leaving the scene', async () => {
+        // A pending save resolves and dispatches setSceneState while the user is already on another
+        // page (for example the data warehouse source wizard). The URL must stay where they went.
+        router.actions.push(urls.experiment(123))
+        const logic = experimentSceneLogic({ experimentId: 123 as any, formMode: FORM_MODES.update })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(urls.dataWarehouseSourceNew())
+        const afterLeaving = router.values.location.pathname
+
+        await expectLogic(logic, () => logic.actions.setSceneState(123 as any, FORM_MODES.update))
+
+        expect(router.values.location.pathname).toEqual(afterLeaving)
+
+        logic.unmount()
+    })
+
     it('reports a tab view only when the active tab actually changes', async () => {
         // LemonTabs fires onChange on every tab click, including clicks on the already-active
         // tab, so a same-tab dispatch must not count as another view.

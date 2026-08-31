@@ -101,12 +101,15 @@ export function NewSourceScene(): JSX.Element {
     const sceneRootLogic = newSourceSceneLogic()
     const { availableSources, availableSourcesLoading } = useValues(sceneRootLogic)
 
-    if (availableSourcesLoading) {
-        return <LemonSkeleton />
-    }
-
-    if (availableSources === null) {
-        return <AvailableSourcesError />
+    // Keep the scene title and layout while sources load or fail, so the page reads as itself
+    // rather than a blank screen.
+    if (availableSourcesLoading || availableSources === null) {
+        return (
+            <SceneContent>
+                <SceneTitleSection name="New data warehouse source" resourceType={{ type: 'data_pipeline' }} />
+                {availableSourcesLoading ? <LemonSkeleton className="h-64 w-full" /> : <AvailableSourcesError />}
+            </SceneContent>
+        )
     }
 
     return <MountedNewSourceScene availableSources={availableSources} />

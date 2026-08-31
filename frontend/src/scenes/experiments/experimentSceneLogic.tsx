@@ -19,6 +19,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -453,6 +454,15 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
         }):
             | [string, Record<string, any> | string | undefined, Record<string, any> | string | undefined]
             | undefined => {
+            // A pending save (updateExperiment/createExperiment success) dispatches setSceneState to
+            // sync the URL back to the experiment. If the user has since left the experiment scene —
+            // for example after clicking "New source" in the taxonomic filter — syncing would push
+            // them off the page they navigated to, so only sync while an experiments route still shows.
+            const currentPathname = removeProjectIdIfPresent(router.values.currentLocation.pathname)
+            if (!currentPathname.startsWith('/experiments/')) {
+                return undefined
+            }
+
             const id = experimentId ?? 'new'
             const effectiveFormMode =
                 id === 'new' && formMode === FORM_MODES.create
