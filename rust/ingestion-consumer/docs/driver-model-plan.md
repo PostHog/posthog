@@ -68,12 +68,12 @@ A change that adds metrics lists their names.
 | 4 | 2 frontier commits | Verify | Run the ledger in shadow mode |
 | 5 | 2 frontier commits | Switchover | Commit from the ledger frontier |
 | 6 | 2 frontier commits | Cleanup | Delete the old commit computation |
-| 7 | 3 per-key order | Prepare | Demux polls into groups |
-| 8 | 3 per-key order | Prepare | Encapsulate the worker batcher |
-| 9 | 3 per-key order | Prepare | Extract the scheduler seam |
-| 10 | 3 per-key order | Implement | Build the key-table scheduler |
-| 11 | 3 per-key order | Switchover | Switch to the key-table scheduler |
-| 12 | 3 per-key order | Cleanup | Delete the old scheduler |
+| 7 | 3 one request per key | Prepare | Demux polls into groups |
+| 8 | 3 one request per key | Prepare | Encapsulate the worker batcher |
+| 9 | 3 one request per key | Prepare | Extract the scheduler seam |
+| 10 | 3 one request per key | Implement | Build the key-table scheduler |
+| 11 | 3 one request per key | Switchover | Switch to the key-table scheduler |
+| 12 | 3 one request per key | Cleanup | Delete the old scheduler |
 | 13 | 4 target-sized requests | Implement | Add the packer |
 | 14 | 4 target-sized requests | Switchover | Set the packing targets |
 | 15 | 5 partial redelivery | Implement | Add partial settlement and the request time budget |
@@ -214,9 +214,9 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 - Modify `Config`: remove the ledger mode.
 - Remove `ingestion_consumer_ledger_mismatch_total`. The comparison it counts is gone; the commit sentinel remains the invariant check.
 
-## Cycle 3: one rule preserves per-key order
+## Cycle 3: at most one request per key is in flight
 
-Outcome: at most one outstanding request per key is the only ordering mechanism. Pins, the stash, and the flush paths are gone.
+Outcome: the scheduler sends at most one request per key at a time, and that alone preserves per-key order. Pins, the stash, and the flush paths are gone.
 
 **Verify:** the deterministic seam tests in change 10 script arrivals, settlements, and failures.
 A production shadow is impossible here: the scheduler's decisions change which sends exist, so state diverges immediately.
@@ -317,7 +317,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 
 **Task:** Select the key-table scheduler with config. Canary one lane, then roll out.
 
-**Goal:** One ordering rule replaces pins, the stash, and the flush paths.
+**Goal:** At most one in-flight request per key replaces pins, the stash, and the flush paths.
 
 - The switch changes the ordering rule and nothing else. Placement, transport, and completion accounting do not change in this PR.
 - At most one outstanding request per key preserves per-key order. Nothing else does, and nothing else must.
