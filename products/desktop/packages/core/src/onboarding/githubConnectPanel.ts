@@ -1,6 +1,7 @@
 import type { OnboardingGithubConnectFlow } from "@posthog/shared/analytics-events";
 import {
   GITHUB_CONNECT_TIMEOUT_MESSAGE,
+  GITHUB_INSTALL_PENDING_MESSAGE,
   isGithubConnectPendingApproval,
 } from "../integrations/connectErrors";
 import { POSTHOG_GITHUB_APP_URL } from "../integrations/githubApp";
@@ -10,17 +11,20 @@ export interface GithubPanelMessageOptions {
   connectErrorMessage: string;
   timedOut: boolean;
   isConnecting: boolean;
+  /** GitHub is waiting on an org owner to approve the install. */
+  isPending?: boolean;
 }
 
+/** Null when the connect flow has nothing to report, so the line stays out. */
 export function getGithubPanelMessage(
   options: GithubPanelMessageOptions,
-): string {
+): string | null {
   if (options.hasConnectError) return options.connectErrorMessage;
+  if (options.isPending) return GITHUB_INSTALL_PENDING_MESSAGE;
   if (options.timedOut) {
     return GITHUB_CONNECT_TIMEOUT_MESSAGE;
   }
-  if (options.isConnecting) return "Waiting for GitHub...";
-  return "Unlocks cloud runs, branch pushes, and PR review on this account.";
+  return null;
 }
 
 export function resolveSelectedProjectId(
@@ -137,7 +141,7 @@ export function deriveConnectButtonState(inputs: {
     ? "Retry connection"
     : isRetry
       ? "Try again"
-      : "Connect GitHub";
+      : "Sign in with GitHub";
   return { isRetry, shouldReset: inputs.hasConnectError, label };
 }
 

@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getFlutterSteps as getFlutterStepsPA } from '../product-analytics/flutter'
+import { getFlutterInstallSteps } from '../product-analytics/flutter'
 import { StepDefinition } from '../steps'
 
 export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only
-    const installationSteps = getFlutterStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -39,7 +36,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getFlutterInstallSteps(ctx), ...experimentSteps]
 }
 
 export const FlutterInstallation = createInstallation(getFlutterSteps)

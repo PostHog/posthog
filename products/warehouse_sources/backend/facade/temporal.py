@@ -34,6 +34,17 @@ from products.warehouse_sources.backend.temporal.data_imports.person_property_tr
     trigger_saved_query_materialization,
     trigger_schema_sync,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_paths import (
+    completion_prefix as account_property_completion_prefix,
+    job_staged_prefix as account_property_job_staged_prefix,
+    snapshot_prefix as account_property_snapshot_prefix,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_row_sink import (
+    AccountPropertyRowSink,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
+    job_staged_prefix as person_property_job_staged_prefix,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
     PersonPropertyRowSink,
 )
@@ -55,7 +66,12 @@ __all__ = [
     "PERSON_PROPERTY_SYNC_WORKFLOWS",
     "WORKFLOWS",
     "ExternalDataSchemaSyncPausedError",
+    "AccountPropertyRowSink",
+    "account_property_completion_prefix",
+    "account_property_job_staged_prefix",
+    "account_property_snapshot_prefix",
     "PersonPropertyRowSink",
+    "person_property_job_staged_prefix",
     "SavedQueryNotFoundError",
     "SavedQueryNotOnV2ScheduleError",
     "WarehouseBindingMissingError",

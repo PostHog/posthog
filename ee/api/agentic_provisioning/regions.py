@@ -25,5 +25,5 @@ def region_to_host(region: str) -> str:
     elif region_lower == "us":
         return "https://us.posthog.com"
     elif region_lower == "dev":
-        return "https://app.dev.posthog.com"
+        return "https://app.dev.posthog.dev"
     return settings.SITE_URL

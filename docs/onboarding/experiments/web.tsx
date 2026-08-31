@@ -1,13 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getWebSteps as getWebStepsPA } from '../product-analytics/web'
+import { getWebInstallSteps } from '../product-analytics/web'
 import { StepDefinition } from '../steps'
 
 export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    const installationSteps = getWebStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     const experimentSteps: StepDefinition[] = [
         {
@@ -37,7 +35,7 @@ export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getWebInstallSteps(ctx), ...experimentSteps]
 }
 
 export const WebInstallation = createInstallation(getWebSteps)

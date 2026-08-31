@@ -189,8 +189,11 @@ tools:
             idempotent: true
         title: Update a data quality check on a table
         description: >
-            Change a check's presentation (name, description, severity, enabled, tags). The assertion itself —
-            check_type, column_name, config — is immutable; create a new check and delete this one instead.
+            Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it
+            asserts (check_type, column_name, config). The table it audits is fixed. The check keeps its id, run
+            history, latest status, and latest run time. A definition or name another active check already holds comes
+            back as a field error, with nothing written. Deleted checks release their definition, so it can be authored
+            again as a new check.
         feature_flag: data-quality-checks
     data-quality-check-update-on-view:
         operation: warehouse_saved_queries_checks_partial_update
@@ -204,9 +207,27 @@ tools:
             idempotent: true
         title: Update a data quality check on a view
         description: >
-            Change a check's presentation (name, description, severity, enabled, tags). The assertion itself —
-            check_type, column_name, config — is immutable; create a new check and delete this one instead.
+            Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it
+            asserts (check_type, column_name, config). The view it audits is fixed. The check keeps its id, run history,
+            latest status, and latest run time. A definition or name another active check already holds comes back as a
+            field error, with nothing written. Deleted checks release their definition, so it can be authored again as a
+            new check.
         feature_flag: data-quality-checks
+    data-quality-checks-health-list:
+        operation: data_quality_checks_health_list
+        enabled: false
+    data-quality-checks-list:
+        operation: data_quality_checks_list
+        enabled: false
+    data-quality-runs-create:
+        operation: data_quality_runs_create
+        enabled: false
+    data-quality-runs-list:
+        operation: data_quality_runs_list
+        enabled: false
+    data-quality-runs-retrieve:
+        operation: data_quality_runs_retrieve
+        enabled: false
     warehouse-saved-queries-check-suite-runs-check-runs-list:
         operation: warehouse_saved_queries_check_suite_runs_check_runs_list
         enabled: false

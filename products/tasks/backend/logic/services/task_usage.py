@@ -158,6 +158,11 @@ def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
 
     rate_cards = validate_compute_rate_cards(COMPUTE_RATE_CARDS)
     calculated_at = timezone.now()
+    pricing_start = rate_cards[0].effective_at
+    # Rates are published ahead of the date they take effect, so until then nothing is priced.
+    if calculated_at <= pricing_start:
+        return Decimal(0)
+
     sessions = (
         SandboxSession.objects.for_team(team_id)
         .filter(
@@ -178,7 +183,7 @@ def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
         (
             calculate_sandbox_compute_cost(
                 session,
-                rate_cards[0].effective_at,
+                pricing_start,
                 calculated_at,
                 calculated_at=calculated_at,
                 rate_cards=rate_cards,

@@ -3,6 +3,7 @@ import type {
   Adapter,
   AgentRuntime,
   CloudMcpServerRelayDesignation,
+  CodexModelAccess,
   McpServerConnection,
   TaskCreationInput,
   WorkspaceMode,
@@ -21,6 +22,7 @@ export interface PrepareTaskInputOptions {
   reuseExistingWorktree?: boolean;
   executionMode?: ExecutionMode;
   adapter?: Adapter;
+  codexModelAccess?: CodexModelAccess;
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;
@@ -32,6 +34,7 @@ export interface PrepareTaskInputOptions {
   signalReportId?: string;
   additionalDirectories?: string[];
   channelContext?: string;
+  channelContextPath?: string;
   channelName?: string;
   channelId?: string;
   channelContextId?: string;
@@ -66,6 +69,7 @@ export function prepareTaskInput(
     reuseExistingWorktree: options.reuseExistingWorktree,
     executionMode: options.executionMode,
     adapter: options.adapter,
+    codexModelAccess: options.codexModelAccess,
     runtime: options.runtime ?? "acp",
     model: options.model,
     reasoningLevel: options.reasoningLevel,
@@ -83,6 +87,7 @@ export function prepareTaskInput(
     signalReportId: options.signalReportId,
     additionalDirectories: isCloud ? undefined : options.additionalDirectories,
     channelContext: options.channelContext,
+    channelContextPath: options.channelContextPath,
     channelName: options.channelName,
     channelId: options.channelId,
     channelContextId: options.channelContextId,

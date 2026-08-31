@@ -57,6 +57,9 @@ class DemoFreeChannel:
     signup_rate: float = 0.03
     purchase_rate: float = 0.008
     utm_source_variants: dict[str, float] = field(default_factory=dict)
+    # Same unprefixed name the SDK writes, as on DemoCampaign. Emitted per person, so a
+    # channel can carry a click id without carrying any UTM at all.
+    click_id_property: str | None = None
     extra_properties: dict[str, str] = field(default_factory=dict)
     scenario: str = ""
 
@@ -676,6 +679,36 @@ FREE_CHANNELS: tuple[DemoFreeChannel, ...] = (
         purchase_rate=0.015,
         extra_properties={"gad_source": "1"},
         scenario="Paid traffic carrying gad_source and no utm_medium",
+    ),
+    # The three gate cases below carry no utm_source, so each one isolates a single
+    # branch of the touchpoint rule. Without them the rule's negative half is
+    # untestable against demo data: every tagged pageview names a source.
+    DemoFreeChannel(
+        key="google_clickid_only",
+        daily_sessions=11,
+        referring_domain="google.com",
+        click_id_property="gclid",
+        signup_rate=0.06,
+        purchase_rate=0.014,
+        scenario="Paid click with the UTMs stripped: a gclid is the only evidence",
+    ),
+    DemoFreeChannel(
+        key="meta_fbclid_only",
+        daily_sessions=16,
+        referring_domain="facebook.com",
+        click_id_property="fbclid",
+        signup_rate=0.03,
+        purchase_rate=0.006,
+        scenario="fbclid rides on organic Facebook links too, so it must not qualify alone",
+    ),
+    DemoFreeChannel(
+        key="campaign_only_orphan",
+        daily_sessions=9,
+        referring_domain="",
+        utm_campaign="orphan_campaign",
+        signup_rate=0.03,
+        purchase_rate=0.006,
+        scenario="utm_campaign with nothing naming the source: stays excluded",
     ),
 )
 

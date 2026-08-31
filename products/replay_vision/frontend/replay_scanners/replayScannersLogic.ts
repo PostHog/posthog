@@ -24,6 +24,7 @@ import { tagsModel } from '~/models/tagsModel'
 import {
     visionScannersCreatorsRetrieve,
     visionScannersDestroy,
+    visionScannersDuplicateCreate,
     visionScannersList,
     visionScannersPartialUpdate,
     visionScannersStatsRetrieve,
@@ -156,6 +157,7 @@ export interface replayScannersLogicValues {
     creators: UserBasicApi[]
     creatorsLoading: boolean
     deletingIds: string[]
+    duplicatingIds: string[]
     enabledFilter: EnabledFilter[]
     filters: ScannersFilters
     hasActiveFilters: boolean
@@ -186,6 +188,9 @@ export interface replayScannersLogicActions {
         id: string
     }
     deleteScannerSuccess: (id: string) => {
+        id: string
+    }
+    duplicateScanner: (id: string) => {
         id: string
     }
     loadCreators: () => {
@@ -260,6 +265,13 @@ export interface replayScannersLogicActions {
         deleting: boolean
         id: string
     }
+    setScannerDuplicating: (
+        id: string,
+        duplicating: boolean
+    ) => {
+        duplicating: boolean
+        id: string
+    }
     setScannersFilters: (
         filters: Partial<ScannersFilters>,
         replace?: boolean
@@ -271,6 +283,9 @@ export interface replayScannersLogicActions {
         id: string
     }
     toggleScannerEnabledDone: (id: string) => {
+        id: string
+    }
+    toggleScannerEnabledStarted: (id: string) => {
         id: string
     }
 }
@@ -334,7 +349,10 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
         setScannerDeleting: (id: string, deleting: boolean) => ({ id, deleting }),
+        duplicateScanner: (id: string) => ({ id }),
+        setScannerDuplicating: (id: string, duplicating: boolean) => ({ id, duplicating }),
         toggleScannerEnabled: (id: string) => ({ id }),
+        toggleScannerEnabledStarted: (id: string) => ({ id }),
         toggleScannerEnabledDone: (id: string) => ({ id }),
         revertScannerEnabled: (id: string) => ({ id }),
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -386,7 +404,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             {
                 loadScannersSuccess: (_, { scanners }) => scanners,
                 deleteScannerSuccess: (state, { id }) => state.filter((l) => l.id !== id),
-                toggleScannerEnabled: (state, { id }) =>
+                toggleScannerEnabledStarted: (state, { id }) =>
                     state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
                 revertScannerEnabled: (state, { id }) =>
                     state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
@@ -422,7 +440,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         togglingIds: [
             [] as string[],
             {
-                toggleScannerEnabled: (state, { id }) => [...state, id],
+                toggleScannerEnabledStarted: (state, { id }) => [...state, id],
                 toggleScannerEnabledDone: (state, { id }) => state.filter((i) => i !== id),
                 revertScannerEnabled: (state, { id }) => state.filter((i) => i !== id),
             },
@@ -432,6 +450,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             {
                 setScannerDeleting: (state, { id, deleting }) =>
                     deleting ? [...state, id] : state.filter((i) => i !== id),
+            },
+        ],
+        duplicatingIds: [
+            [] as string[],
+            {
+                setScannerDuplicating: (state, { id, duplicating }) =>
+                    duplicating ? [...state, id] : state.filter((i) => i !== id),
             },
         ],
         scannersLoading: [
@@ -530,6 +555,26 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
         },
 
+        duplicateScanner: async ({ id }) => {
+            const teamId = teamLogic.values.currentTeamId
+            // The in-flight guard keeps a double-click from creating two copies.
+            if (!teamId || values.duplicatingIds.includes(id)) {
+                return
+            }
+            actions.setScannerDuplicating(id, true)
+            try {
+                // The server copies the stored config (including fields the list response redacts),
+                // picks a free copy name, and leaves the copy disabled for review in the editor.
+                const response = await visionScannersDuplicateCreate(String(teamId), id)
+                lemonToast.success('Scanner duplicated')
+                router.actions.push(urls.replayVisionScannerConfigure(response.id))
+            } catch (error: any) {
+                lemonToast.error(`Failed to duplicate scanner${error?.detail ? `: ${error.detail}` : ''}`)
+            } finally {
+                actions.setScannerDuplicating(id, false)
+            }
+        },
+
         // Refetch after any mutation so the page + creator dropdown + team-wide stats + quota meter stay accurate.
         deleteScannerSuccess: () => {
             actions.loadScanners()
@@ -543,25 +588,27 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         },
 
         toggleScannerEnabled: async ({ id }) => {
-            // The reducer has already flipped `enabled` optimistically, so this reflects the new target state.
+            // Mirrors the deleteScanner guard: a second dispatch while the PATCH is in flight
+            // would double-flip the row and double-apply the quota delta.
+            if (values.togglingIds.includes(id)) {
+                return
+            }
             const scanner = values.scanners.find((l) => l.id === id)
-            if (!scanner) {
-                return
-            }
             const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                actions.revertScannerEnabled(id)
+            if (!scanner || !teamId) {
                 return
             }
+            const enabled = !scanner.enabled
+            actions.toggleScannerEnabledStarted(id)
             // The stored estimate is kept ≤24h fresh even while disabled, so the projection shift is known up front.
             const estimate = scanner.estimated_monthly_credits ?? 0
-            const delta = scanner.enabled ? estimate : -estimate
+            const delta = enabled ? estimate : -estimate
             visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
-                await visionScannersPartialUpdate(String(teamId), id, { enabled: scanner.enabled })
+                await visionScannersPartialUpdate(String(teamId), id, { enabled })
                 actions.toggleScannerEnabledDone(id)
             } catch (error: any) {
-                const verb = scanner.enabled ? 'enable' : 'disable'
+                const verb = enabled ? 'enable' : 'disable'
                 lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
                 visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                 actions.revertScannerEnabled(id)

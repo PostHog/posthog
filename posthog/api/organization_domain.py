@@ -12,13 +12,12 @@ from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models import OrganizationDomain, User
-from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.identity_provider_config import ConfigScope
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
@@ -26,12 +25,6 @@ from ee.api.scim.utils import get_scim_base_url, mask_email, mask_string
 from ee.models.scim_request_log import SCIMRequestLog
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
-
-
-class _OrgScopedIdentityProviderConfigField(OrgScopedPrimaryKeyRelatedField):
-    # IdentityProviderConfig has a direct `organization` FK (not via team), so scope on it
-    # directly. Scoping prevents linking a domain to (or probing) another org's config.
-    scope_field = "organization"
 
 
 def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, properties: dict | None = None) -> None:
@@ -60,13 +53,9 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         "sso_enforcement": "sso_enforcement",
     }
 
-    scim_base_url = serializers.SerializerMethodField()
-    identity_provider_config = _OrgScopedIdentityProviderConfigField(
-        queryset=IdentityProviderConfig.objects.all(),
-        required=False,
-        allow_null=True,
-        help_text="Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.",
-    )
+    scim_base_url = (
+        serializers.SerializerMethodField()
+    )  # TODO: remove this from the org domain api and have the frontend use the idp config api to get the scim base url
 
     class Meta:
         model = OrganizationDomain
@@ -78,20 +67,13 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "verification_challenge",
             "jit_provisioning_enabled",
             "sso_enforcement",
-            "has_saml",
-            "has_scim",
             "scim_base_url",
-            "has_id_jag",
-            "identity_provider_config",
         )
         extra_kwargs = {
             "verified_at": {"read_only": True},
             "verification_challenge": {"read_only": True},
             "is_verified": {"read_only": True},
-            "has_saml": {"read_only": True},
-            "has_scim": {"read_only": True},
             "scim_base_url": {"read_only": True},
-            "has_id_jag": {"read_only": True},
         }
 
     def get_fields(self):
@@ -143,10 +125,10 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def get_scim_base_url(self, obj: OrganizationDomain) -> str | None:
-        config = obj.identity_provider_config
-        if config is None or not config.has_scim or not config.scim_slug:
+        configs = list(obj.identity_provider_configs_for_scope(ConfigScope.SCIM).filter(scim_enabled=True)[:2])
+        if len(configs) != 1 or not configs[0].has_scim or not configs[0].scim_slug:
             return None
-        return get_scim_base_url(config)
+        return get_scim_base_url(configs[0])
 
 
 class SCIMRequestLogSerializer(serializers.ModelSerializer):
@@ -209,8 +191,7 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
-    # Every serialized domain reads its linked config (SAML/SCIM/ID-JAG state, SCIM base URL).
-    queryset = OrganizationDomain.objects.select_related("identity_provider_config").order_by("domain").all()
+    queryset = OrganizationDomain.objects.order_by("domain").all()
 
     @action(methods=["POST"], detail=True)
     def verify(self, request: request.Request, **kw) -> response.Response:
@@ -277,17 +258,18 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     code="would_block_self",
                 )
 
+        identity_provider_configs = list(instance.identity_provider_configs)
         _capture_domain_event(
             request,
             instance,
             "deleted",
             properties={
                 "is_verified": instance.is_verified,
-                "had_saml": instance.has_saml,
+                "had_saml": any(config.has_saml for config in identity_provider_configs),
                 "had_jit_provisioning": instance.jit_provisioning_enabled,
                 "had_sso_enforcement": bool(instance.sso_enforcement),
-                "had_scim": instance.has_scim,
-                "had_id_jag": instance.has_id_jag,
+                "had_scim": any(config.has_scim for config in identity_provider_configs),
+                "had_id_jag": any(config.has_id_jag for config in identity_provider_configs),
             },
         )
 
@@ -307,9 +289,7 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         # config. Match the domain too: rows logged before the move carry only that until the
         # `backfill_scim_request_log_config` command reaches them, and a domain that was later
         # unlinked from its config keeps nothing else to find its history by.
-        scope = Q(organization_domain=domain)
-        if domain.identity_provider_config_id is not None:
-            scope |= Q(identity_provider_config_id=domain.identity_provider_config_id)
+        scope = Q(organization_domain=domain) | Q(identity_provider_config__in=domain.identity_provider_configs)
         queryset = SCIMRequestLog.objects.filter(scope)
         queryset = SCIMRequestLogFilter(request.query_params, queryset=queryset).qs
 

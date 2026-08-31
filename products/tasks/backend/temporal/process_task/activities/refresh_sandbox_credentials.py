@@ -7,7 +7,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
 from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxNotFoundError, SandboxNotRunningError
-from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task, TaskRun
 from products.tasks.backend.temporal.metrics import increment_credential_refresh
 from products.tasks.backend.temporal.observability import log_activity_execution, track_event
@@ -121,7 +121,7 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         credentials = [c for c in build_sandbox_credentials(ctx) if c.kind not in input.exclude_kinds]
 
         try:
-            sandbox = Sandbox.get_by_id(input.sandbox_id)
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         except SandboxNotFoundError:
             # Reaped by Modal — gone for good, signal the loop to stop.
             for credential in credentials:

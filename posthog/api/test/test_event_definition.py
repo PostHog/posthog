@@ -67,6 +67,27 @@ class TestEventDefinitionAPI(APIBaseTest):
             )
             assert abs((dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds()) < 1
 
+    def test_list_event_definitions_scopes_by_project_across_environments(self):
+        # Rows written before the project backfill have project_id NULL and scope by team_id; rows written
+        # since carry project_id. Both must be visible from any environment of the project, and a sibling
+        # project's rows must not. Guards the scope predicate against a rewrite to only one of the columns.
+        other_env = Team.objects.create(
+            organization=self.organization, project_id=self.demo_team.project_id, name="staging env"
+        )
+        other_project_team = create_team(organization=self.organization)
+        EventDefinition.objects.create(team=other_env, project_id=self.demo_team.project_id, name="from_other_env")
+        EventDefinition.objects.create(
+            team=other_project_team, project_id=other_project_team.project_id, name="from_other_project"
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/")
+
+        assert response.status_code == status.HTTP_200_OK
+        result_names = {r["name"] for r in response.json()["results"]}
+        assert "from_other_env" in result_names
+        assert "from_other_project" not in result_names
+        assert {d["name"] for d in self.EXPECTED_EVENT_DEFINITIONS} <= result_names
+
     def test_list_event_definitions_with_excluded_properties(self):
         response = self.client.get(
             '/api/projects/@current/event_definitions/?excluded_properties=["installed_app", "purchase"]'
@@ -355,6 +376,27 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert activity_log.detail is not None
         detail = cast(dict[str, Any], activity_log.detail)
         assert detail["name"] == "my_custom_event"
+
+    @patch("posthog.api.event_definition.EE_AVAILABLE", False)
+    def test_create_event_definition_rejects_enterprise_metadata_without_ee(self):
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "event_with_unsupported_metadata",
+                "description": "This cannot be stored without EE.",
+                "verified": True,
+                "hidden": False,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is not supported by this deployment.",
+            "attr": "description",
+        }
+        assert not EventDefinition.objects.filter(name="event_with_unsupported_metadata", team=self.demo_team).exists()
 
     def test_create_event_definition_duplicate_name(self):
         """Test that creating an event with a duplicate name fails"""

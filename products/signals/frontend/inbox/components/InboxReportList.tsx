@@ -4,8 +4,8 @@ import { ComponentType, JSX, useCallback, useEffect, useRef } from 'react'
 import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
-import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
-import { InboxFlatListTabKey, SignalReport } from '../types'
+import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
+import { INBOX_LEGACY_TAB_SECTION, InboxFlatListTabKey, InboxReportSectionKey, SignalReport } from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
 import { InboxBulkSelectionBar } from './shell/InboxBulkSelectionBar'
@@ -13,7 +13,7 @@ import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
 
 export interface InboxReportCardProps {
     report: SignalReport
-    tabKey: InboxFlatListTabKey
+    sectionKey: InboxReportSectionKey
     onArchive: (reason: DismissalReasonValue, note: string) => void
     /** Restore a suppressed report back to the inbox. Only wired on the Archived tab. */
     onRestore?: () => void
@@ -21,23 +21,30 @@ export interface InboxReportCardProps {
     attached?: boolean
 }
 
-interface InboxReportListProps extends ReportListLogicProps {
+interface InboxReportListProps {
+    tabKey: InboxFlatListTabKey
     Card: ComponentType<InboxReportCardProps>
     emptyState:
         | { content: JSX.Element }
         | { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
 }
 
+/** The keyed list instance behind a legacy tab: the redesign's section with the same server filter. */
+function sectionLogicProps(tabKey: InboxFlatListTabKey): ReportListLogicProps {
+    const sectionKey = INBOX_LEGACY_TAB_SECTION[tabKey]
+    return { sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] }
+}
+
 /**
- * Shared body for the three flat report-list tabs (Pull requests / Reports /
- * Not actionable). Each is the same primitive – only the `listParams` filter and
+ * Shared body for the flat report-list tabs shown with the redesign flag off (Pull requests /
+ * Reports / Not actionable / Archive). Each is the same primitive – only the server filter and
  * the empty-state copy differ. Binds the keyed `reportListLogic`, loads the first
  * page lazily on mount, shows a skeleton while a known-non-empty tab loads, and
  * appends pages via an IntersectionObserver sentinel.
  */
 export function InboxReportList(props: InboxReportListProps): JSX.Element {
     return (
-        <BindLogic logic={reportListLogic} props={{ tabKey: props.tabKey, listParams: props.listParams }}>
+        <BindLogic logic={reportListLogic} props={sectionLogicProps(props.tabKey)}>
             <InboxReportListInner {...props} />
         </BindLogic>
     )
@@ -58,10 +65,10 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     // active tab's `total_count` alone says nothing about a user who lands on Pull requests and has
     // 200 reports waiting. These share the tab bar's keyed instances, so no extra requests.
     const { count: pullsTabCount, countLoading: pullsTabCountLoading } = useValues(
-        reportListLogic({ tabKey: 'pulls', listParams: INBOX_FLAT_TAB_LIST_PARAMS.pulls })
+        reportListLogic(sectionLogicProps('pulls'))
     )
     const { count: reportsTabCount, countLoading: reportsTabCountLoading } = useValues(
-        reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports })
+        reportListLogic(sectionLogicProps('reports'))
     )
     // A badge count is settled once its request is no longer in flight: loaded, refreshed, or failed
     // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
@@ -209,7 +216,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                             <Card
                                 key={report.id}
                                 report={report}
-                                tabKey={tabKey}
+                                sectionKey={INBOX_LEGACY_TAB_SECTION[tabKey]}
                                 onArchive={(reason, note) => archiveReport(report.id, reason, note)}
                                 onRestore={() => restoreReport(report.id)}
                             />

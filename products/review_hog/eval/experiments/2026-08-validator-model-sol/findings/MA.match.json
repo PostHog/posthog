@@ -1,0 +1,97 @@
+{
+    "MA1": {
+        "cluster": 29,
+        "confidence": "high",
+        "reason": "Identical to LA4 (cluster 29, Y8/U14): _inbox_rereview_carve_out runs its repo-config, Tasks-DB, and resolver lookups before the head-changing skip path retracts the prior approval and re-raises into the 3-retry budget, so an exhausted retry leaves the old-head approval standing; runner-up cluster 40 (resolver has no try/except guard) is one contributing cause, not the blocked-retraction consequence MA1 claims."
+    },
+    "MA2": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New: no cluster claims that the ReviewUserSettings endpoint authorizes against the URL team while storing and reading under the canonical parent team, so child-only access reaches parent Stamphog connection state and approval behavior. Runner-up cluster 26 is the missing stamphog_connected precondition on PATCH and cluster 17 is the facade trusting acting_user_id, neither an environment-boundary authorization claim; it shares only the child-environment premise of LA23 (refuted as unreachable), not LA23's facade id-comparison claim."
+    },
+    "MA3": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Identical to LA3 (cluster 35, KA7/KB2/KC5 precedent): _format_self_driving hard-codes the draft sentence, so synchronize/reopen reviews after the PR is ready feed the model a false trusted draft state; runner-up cluster 5 (trusted provenance rendered solely off the flag) is the broader framing, not the stale-draft claim."
+    },
+    "MA4": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to LA5 (cluster 58 stated at the facade publish site, KC4 precedent): the single .delay() after commit is the only record of a pending initial review, the receiver logs the broker failure, and no durable row or sweeper reconciles it; runner-up cluster 54 shares facade/api.py:149 but claims the exception escapes into the save path, whereas MA4 says the caller swallows it."
+    },
+    "MA5": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Same claim as LA17/MA11 (cluster 57, KC7 precedent covers both legs) stated at the webhook-leg call site tasks.py:201-207: the resolver selects one acting reviewer before reading the toggle, so an opted-in secondary assigned reviewer is ignored and the carve-out reports a full opt-out; runner-up cluster 11 (resolver identity drift between legs) is a different claim."
+    },
+    "MA6": {
+        "cluster": 2,
+        "confidence": "medium",
+        "reason": "Same claim as LA10 (cluster 2 in AGENTS.md form, KB5 precedent) plus LA11's shape: the documented 'only verified TaskRun links set self_driving_review' invariant is not enforced because the initial path trusts caller-writable output.pr_url without reloading the run or checking task repository, native head, or bot author. The webhook-path sentence and the 'make find_signal_implementation_run use the same attested binding' ask are LA15's claim (carried alone by MA9), so medium; runner-up cluster 48 is the provenance key name in AGENTS.md, not the false linkage assertion."
+    },
+    "MA7": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to LA11/LA13 (cluster 2, KA10/KB6/KC6 precedent): the receiver forwards user-writable TaskRun.output.pr_url after only a task-shape and toggle check, and process_inbox_pr_review stamps inbox_review with no proof the run produced the PR, no bot-author check, and no fork check, so an unrelated PR gets the relaxed gates and a real approval; runner-up cluster 6 is the downstream engine relaxation keyed on the flag, not the missing server-side linkage."
+    },
+    "MA8": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to LA13 (cluster 2, KB6/KC6 precedent): process_inbox_pr_review checks only an enabled repo config and an open PR, never task_run_id, task repository, expected bot author, or repo-native head, before stamping inbox_review from a caller-controlled URL; the 'resolve the acting reviewer and current toggle in the task' sentence belongs to runner-up cluster 31 (queue-time toggle trust), which MA18 carries separately."
+    },
+    "MA9": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as LA15 (adjudicated real and distinct from clusters 2/73/75): find_signal_implementation_run treats a find_task_run match on caller-writable output.pr_url and branch, plus caller-settable signal_report/internal, as proof the run produced the PR, so a team member can attach an arbitrary bot PR to a signal task and inherit the webhook carve-out. Runner-up cluster 73 covers only accidental branch-fallback mis-binding and cluster 75 only the any-bot identity floor, neither of which MA9 claims."
+    },
+    "MA10": {
+        "cluster": 2,
+        "confidence": "medium",
+        "reason": "Engine-located restatement of cluster 2 (KA10/KB6/KC6): the harm path is the initial Inbox path stamping the flag without task-repository, bot-identity, or fork checks, and every remedy MA10 asks for is server-side verification before self_driving_review is written, plus a cluster-3 `is True` aside. Runner-up cluster 6 loses because MA10 never asks the engine to couple its relaxation to pr.author_is_bot, which is cluster 6's defining fix and the reason near-identical LA19 (which did propose that guard) went to 6."
+    },
+    "MA11": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to LA17 (cluster 57, KA4/KB8/KC7 precedent): the receiver selects one acting reviewer before reading stamphog_review_inbox_prs and applies only that user's toggle on both trigger paths, contradicting the 'any opted-in assigned reviewer' contract; runner-up cluster 11 (resolver identity drift) is a different claim."
+    },
+    "MA12": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Identical to LA16 (cluster 39, KA5/KB1/KC2 precedent): find_task_run selects one candidate across all teams and the facade's post-hoc team/signal_report/internal recheck returns None instead of the requested team's valid run, so another team's or a manual task's newer row suppresses the re-review (the W8/T8 shadowing mode); runner-up cluster 73 is the opposite direction (branch fallback mis-binds an unrelated run) and cluster 23 the performance angle."
+    },
+    "MA13": {
+        "cluster": 29,
+        "confidence": "medium",
+        "reason": "Same claim as LA4/MA1 (cluster 29) with the resolver named as the failing dependency: resolve_stamphog_acting_reviewer raises into the carve-out ahead of the skip path's retraction, the task retries only three times, and a longer error leaves the old-head approval active, which is exactly the blocked-retraction mechanism LA4's verdict confirmed. Runner-up cluster 40 (resolver has no try/except guard) loses because its claim is the missing guard itself, judged deliberate retry-don't-drop design (N22), whereas MA13 claims the stale-approval consequence; medium because MA13's suggested swallow-and-return-None is cluster 40's remedy."
+    },
+    "MA14": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to LA1 (cluster 58, KA13/KB3/KC3 precedent): the receiver's on_commit callback catches every Celery publish error and only logs it, no durable state records the missed dispatch, and the opened webhook skips bot drafts, so a broker outage drops the initial review; runner-up cluster 54 is the unguarded .delay raising into the caller, which MA14 does not claim."
+    },
+    "MA15": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to KB4 and the second half of LA6 (cluster 58's retry-exhaustion angle, M6/L9): a Temporal start failure raises into the task after the ReviewRun commits, three 5s retries exhaust, and the row stays QUEUED with no periodic reconciler; runner-up cluster 32 names the stranded-QUEUED symptom but via the disproven on_commit-after-return mechanism, whereas MA15 states the correct semantics (raises into the task and triggers a retry)."
+    },
+    "MA16": {
+        "cluster": 1,
+        "confidence": "high",
+        "reason": "Identical to LA18 (cluster 1) stated at the receiver (KB7 precedent, member W11): the `task.internal` return precedes the dispatch while Signals auto-start creates implementation tasks with internal=True, and the facade repeats the rejection at api.py:508, so neither leg ever fires for production self-driving PRs; runner-up cluster 22 (identification relies on deprecated signal_report without origin_product corroboration) shares the suggested discriminator but claims a deprecation risk, not a dead leg."
+    },
+    "MA17": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as LA23 (new claim, refuted because nothing populates Team.parent_team_id in production): Stamphog passes the canonical parent team id while runs and artefacts sit under a child environment, so the facade's raw team comparison and the resolver's artefact lookup both miss and a push dismisses the approval without a replacement. Runner-up cluster 39 shares the facade comparison lines but claims cross-tenant shadowing from an unscoped lookup, not a canonical-versus-raw id mismatch within one project."
+    },
+    "MA18": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Identical to LA20 (cluster 31, KA1/KB10 precedent): the receiver snapshots the toggle at queue time and process_inbox_pr_review trusts the passed user id without re-resolving the acting reviewer or current setting, so a delayed or retried task can post an approval after the opt-out; runner-up cluster 57 (single acting reviewer) is a different gate defect."
+    },
+    "MA19": {
+        "cluster": 21,
+        "confidence": "high",
+        "reason": "Identical to cluster 21 (KA11 precedent): find_signal_implementation_run checks only signal_report and internal and still returns FAILED or CANCELLED runs, so a later push receives the carve-out after the automation is abandoned, unlike the receiver which skips those states; runner-up cluster 39 (team-scoped candidate query) is only the aside in MA19's suggestion."
+    }
+}

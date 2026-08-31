@@ -41,11 +41,10 @@ const conversationItems = [
 function renderTimeline(
   canOpenInPlace?: boolean,
   items: ConversationItem[] = conversationItems,
-  timelineTask: Task = task,
 ) {
   return render(
     <ActivityTimeline
-      task={timelineTask}
+      task={task}
       timeline={[]}
       messages={[]}
       // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the rows under test
@@ -60,18 +59,6 @@ beforeEach(() => {
 });
 
 describe("ActivityTimeline", () => {
-  it("attributes an internal Signals task to its report", () => {
-    renderTimeline(false, [], {
-      ...task,
-      created_by: undefined,
-      origin_product: "signal_report",
-    });
-
-    expect(
-      screen.getByText("PostHog started this task from a Signals report"),
-    ).toBeInTheDocument();
-  });
-
   it("names each message row by its own content, not a shared template", () => {
     renderTimeline(true);
 
@@ -338,6 +325,48 @@ describe("ActivityTimeline events and comments", () => {
     });
 
     expect(screen.getByText("resolved a thread on")).toBeInTheDocument();
+  });
+
+  it("collapses a stretch of pushes to one branch into one row", () => {
+    renderRows({
+      messages: [1, 2, 3].map((index) =>
+        threadMessage(
+          `m${index}`,
+          "commits_pushed",
+          {
+            run_id: "run-1",
+            branch: "shy/activity",
+            repository: "PostHog/posthog",
+            commits: [{ sha: `sha${index}`, subject: `work ${index}` }],
+            total: 1,
+          },
+          `2026-07-17T09:2${index}:00Z`,
+        ),
+      ),
+    });
+
+    expect(screen.getByText(/3 commits pushed/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 commit pushed/)).toBeNull();
+    expect(screen.getByText(/to shy\/activity/)).toBeInTheDocument();
+  });
+
+  it("tells grouped pull requests apart by number, not by url", () => {
+    // Every row said "Pull request opened · https://github.com/…", which truncates to the
+    // same string, so four different pull requests read as one repeated four times.
+    renderRows({
+      messages: [11, 12].map((number) =>
+        threadMessage(`m${number}`, "pr_created", {
+          pr_url: `https://github.com/PostHog/posthog/pull/${number}`,
+        }),
+      ),
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /2 pull requests opened/ }),
+    );
+
+    expect(screen.getByText("PostHog/posthog#11")).toBeInTheDocument();
+    expect(screen.getByText("PostHog/posthog#12")).toBeInTheDocument();
   });
 });
 

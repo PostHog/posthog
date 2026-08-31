@@ -1,4 +1,18 @@
+const SERVER_MINT_ONLY_SCOPE_OBJECTS = new Set([
+    'internal_run',
+    'loop_context_internal',
+    'mcp_builtin_agent',
+    'signal_scout_internal',
+    'signal_scout_report',
+    'signal_scratchpad_internal',
+])
+
 export const hasScope = (scopes: string[], requiredScope: string): boolean => {
+    const scopeObject = requiredScope.split(':', 1)[0]
+    if (scopeObject && SERVER_MINT_ONLY_SCOPE_OBJECTS.has(scopeObject)) {
+        return scopes.includes(requiredScope)
+    }
+
     if (scopes.includes('*')) {
         return true
     }

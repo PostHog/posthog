@@ -2,6 +2,7 @@ export type SettingsCategory =
   | "general"
   | "notifications"
   | "plan-usage"
+  | "cost-management"
   | "workspaces"
   | "worktrees"
   | "environments"
@@ -10,7 +11,6 @@ export type SettingsCategory =
   | "skills"
   | "mcp-servers"
   | "personalization"
-  | "sidebar"
   | "terminal"
   | "harness"
   | "shortcuts"
@@ -25,6 +25,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "general",
   "notifications",
   "plan-usage",
+  "cost-management",
   "workspaces",
   "worktrees",
   "environments",
@@ -33,7 +34,6 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "skills",
   "mcp-servers",
   "personalization",
-  "sidebar",
   "terminal",
   "harness",
   "shortcuts",
@@ -56,6 +56,7 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   general: "General",
   notifications: "Notifications",
   "plan-usage": "Plan & usage",
+  "cost-management": "Cost management",
   workspaces: "Workspaces",
   worktrees: "Worktrees",
   environments: "Environments",
@@ -64,7 +65,6 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   skills: "Skills",
   "mcp-servers": "MCP servers",
   personalization: "Personalization",
-  sidebar: "Sidebar",
   terminal: "Terminal",
   harness: "Harness",
   shortcuts: "Shortcuts",

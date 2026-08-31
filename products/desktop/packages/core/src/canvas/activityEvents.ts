@@ -303,10 +303,24 @@ export function parseActivityEvent(message: {
   }
 }
 
-/** "owner/repo#12" when the event knows both, else the bare url. */
+const GITHUB_PR_URL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
+
+/** "owner/repo#12" when the event knows both, else read off the url, else the bare url. */
 export function prLabel(payload: PrPayload): string {
-  if (payload.repository && payload.prNumber !== null) {
-    return `${payload.repository}#${payload.prNumber}`;
-  }
+  const repository = prRepository(payload);
+  const number = payload.prNumber ?? prNumberFromUrl(payload.prUrl);
+  if (repository && number !== null) return `${repository}#${number}`;
   return payload.prUrl;
+}
+
+/** The repository the event names, or the one its url points at. */
+export function prRepository(payload: PrPayload): string | null {
+  if (payload.repository) return payload.repository;
+  const match = GITHUB_PR_URL.exec(payload.prUrl);
+  return match ? `${match[1]}/${match[2]}` : null;
+}
+
+function prNumberFromUrl(url: string): number | null {
+  const match = GITHUB_PR_URL.exec(url);
+  return match ? Number(match[3]) : null;
 }

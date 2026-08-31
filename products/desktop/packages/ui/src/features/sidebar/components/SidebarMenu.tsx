@@ -8,7 +8,7 @@ import {
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import { resolveBulkTaskContextMenuIntent } from "@posthog/core/tasks/contextMenuActions";
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import type { Task } from "@posthog/shared/types";
+import type { Task, UserBasic } from "@posthog/shared/types";
 import {
   archiveTasksImperative,
   useArchiveCacheKeys,
@@ -22,6 +22,7 @@ import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExte
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
+import { withSidebarPeekHeld } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { useBulkArchiveConfirm } from "@posthog/ui/features/sidebar/useBulkArchiveConfirm";
@@ -52,6 +53,15 @@ import { SidebarItem } from "./SidebarItem";
 import { TaskListView } from "./TaskListView";
 
 const log = logger.scope("sidebar-menu");
+
+function creatorName(createdBy: UserBasic | null | undefined): string | null {
+  if (!createdBy) return null;
+  const name = [createdBy.first_name, createdBy.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return name || createdBy.email || null;
+}
 
 function SidebarMenuComponent() {
   const hostClient = useHostTRPCClient();
@@ -87,6 +97,14 @@ function SidebarMenuComponent() {
     () => new Map<string, Task>(allTasks.map((task) => [task.id, task])),
     [allTasks],
   );
+  const creatorNameByTaskId = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const task of allTasks) {
+      const name = creatorName(task.created_by);
+      if (name) names.set(task.id, name);
+    }
+    return names;
+  }, [allTasks]);
 
   const commandCenterCells = useCommandCenterStore((s) => s.cells);
 
@@ -223,8 +241,8 @@ function SidebarMenuComponent() {
       e.stopPropagation();
       const allPinned = bulkActions.pinDirection === "unpin";
       try {
-        const result =
-          await hostClient.contextMenu.showBulkTaskContextMenu.mutate({
+        const result = await withSidebarPeekHeld(() =>
+          hostClient.contextMenu.showBulkTaskContextMenu.mutate({
             taskCount: bulkActions.selectedCount,
             allPinned,
             runningCount: bulkActions.runningCount,
@@ -237,7 +255,8 @@ function SidebarMenuComponent() {
                 starred,
               }),
             ),
-          });
+          }),
+        );
         if (!result.action) return;
 
         const intent = resolveBulkTaskContextMenuIntent(result.action, {
@@ -273,11 +292,12 @@ function SidebarMenuComponent() {
       const folder = findGroupFolder(folders, groupId);
       if (!folder) return;
       try {
-        const result =
-          await hostClient.contextMenu.showFolderContextMenu.mutate({
+        const result = await withSidebarPeekHeld(() =>
+          hostClient.contextMenu.showFolderContextMenu.mutate({
             folderName: folder.name,
             folderPath: folder.path,
-          });
+          }),
+        );
         if (result.action?.type === "remove") {
           await removeFolder(folder.id);
         } else if (result.action?.type === "external-app") {
@@ -337,32 +357,34 @@ function SidebarMenuComponent() {
         currentUser.data?.id != null &&
         taskMap.get(taskId)?.created_by?.id === currentUser.data.id;
 
-      showContextMenu(task, e, {
-        worktreePath: workspace?.worktreePath ?? undefined,
-        folderPath: workspace?.folderPath ?? undefined,
-        isPinned,
-        isSuspended: taskData?.isSuspended,
-        canStop:
-          taskData?.taskRunEnvironment === "cloud" &&
-          isTaskActivelyRunning(taskData),
-        runId,
-        isInCommandCenter,
-        hasEmptyCommandCenterCell: true,
-        canHandoff,
-        onHandoff: () => setHandoffTaskId(task.id),
-        onTogglePin: () => handleTaskTogglePin(taskId),
-        onStop: (stopTaskId, taskTitle, stopRunId) =>
-          setStopConfirm({
-            taskId: stopTaskId,
-            taskTitle,
-            runId: stopRunId,
-          }),
-        onArchive: handleTaskArchive,
-        onArchivePrior: handleArchivePrior,
-        onAddToCommandCenter: () => {
-          placeTaskInCommandCenter(taskId, task.title);
-        },
-      });
+      void withSidebarPeekHeld(() =>
+        showContextMenu(task, e, {
+          worktreePath: workspace?.worktreePath ?? undefined,
+          folderPath: workspace?.folderPath ?? undefined,
+          isPinned,
+          isSuspended: taskData?.isSuspended,
+          canStop:
+            taskData?.taskRunEnvironment === "cloud" &&
+            isTaskActivelyRunning(taskData),
+          runId,
+          isInCommandCenter,
+          hasEmptyCommandCenterCell: true,
+          canHandoff,
+          onHandoff: () => setHandoffTaskId(task.id),
+          onTogglePin: () => handleTaskTogglePin(taskId),
+          onStop: (stopTaskId, taskTitle, stopRunId) =>
+            setStopConfirm({
+              taskId: stopTaskId,
+              taskTitle,
+              runId: stopRunId,
+            }),
+          onArchive: handleTaskArchive,
+          onArchivePrior: handleArchivePrior,
+          onAddToCommandCenter: () => {
+            placeTaskInCommandCenter(taskId, task.title);
+          },
+        }),
+      );
     }
   };
 
@@ -543,6 +565,7 @@ function SidebarMenuComponent() {
               onTaskEditSubmit={handleTaskEditSubmit}
               onTaskEditCancel={handleTaskEditCancel}
               onGroupContextMenu={handleGroupContextMenu}
+              creatorNameByTaskId={creatorNameByTaskId}
               hasMore={sidebarData.hasMore}
             />
           )}

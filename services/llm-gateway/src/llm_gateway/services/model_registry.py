@@ -8,6 +8,7 @@ from llm_gateway.baseten import (
     BASETEN_DEEPSEEK_PUBLIC_MODEL,
     BASETEN_EXCLUSIVE_COST_MODELS,
     BASETEN_EXCLUSIVE_MODELS,
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL,
     BASETEN_GLM53_PUBLIC_MODEL,
     is_baseten_configured,
 )
@@ -34,6 +35,7 @@ _BASETEN_CONTEXT_WINDOWS: Final[dict[str, int]] = {
     BASETEN_DEEPSEEK_PUBLIC_MODEL: 1_048_000,
     # Placeholder pending confirmation against the Baseten deployment.
     BASETEN_GLM53_PUBLIC_MODEL: 200_000,
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL: 1_000_000,
 }
 
 

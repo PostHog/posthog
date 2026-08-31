@@ -15,7 +15,7 @@ export const insertHogFlow = async (postgres: PostgresRouter, hogFlow: HogFlow):
         description: '',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        created_by_id: 1001,
+        created_by_id: null,
     })
     return res
 }

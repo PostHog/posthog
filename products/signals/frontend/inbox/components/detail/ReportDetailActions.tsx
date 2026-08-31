@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconArchive, IconPullRequest, IconReceipt, IconUndo } from '@posthog/icons'
+import { IconArchive, IconReceipt, IconUndo } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -10,10 +10,8 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
-import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
-import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
+import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
 import { useReportRefund } from '../cards/useReportRefund'
@@ -38,7 +36,7 @@ export interface ReportDetailAction {
  * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
  * the server-side autostart rules: only when ready & actionable, or blocked on user input.
  */
-function canCreateImplementationPr(report: SignalReport): boolean {
+export function canCreateImplementationPr(report: SignalReport): boolean {
     if (report.implementation_pr_url) {
         return false
     }
@@ -55,24 +53,18 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions as data: Archive/Restore, Refund, and Create PR. Discuss is rendered
- * separately as a standalone dropdown button (`DiscussReportButton`) since it opens a question
- * popover rather than firing on click; rating a report lives at the end of the body
- * (`ReportFeedbackFooter`). Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses the
- * shared `useReportArchive` dialog flow. Callers render these inline or inside a menu.
+ * Detail-pane actions as data: Archive/Restore and Refund. Create PR and Discuss are each rendered
+ * separately as a standalone dropdown button (`CreatePrButton`, `DiscussReportButton`) since they
+ * open a note popover rather than firing on click; rating a report lives at the end of the body
+ * (`ReportFeedbackFooter`). Archiving reuses the shared `useReportArchive` dialog flow. Callers
+ * render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
-    const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
-    // Already mounted by `ReportDetail` with these same props, so this reads the loaded value
-    // rather than starting a second fetch.
-    const { hasLiveImplementationTask } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
-    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
 
-    const showCreatePr = canCreateImplementationPr(report)
     const isArchived = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal – nothing to archive, restore, or kick off.
     const isResolved = report.status === SignalReportStatus.RESOLVED
@@ -122,11 +114,11 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const onRestoreClick = async (): Promise<void> => {
-        // Prefer the mounted Archived list logic so it optimistically drops the row and fixes its
-        // count + tab badge synchronously (it also fires the API call + toast). Navigate straight back.
+        // Prefer the mounted Resolved list logic so it optimistically drops the row and fixes its
+        // count + view badge synchronously (it also fires the API call + toast). Navigate straight back.
         const archivedList = reportListLogic.findMounted({
-            tabKey: 'archived',
-            listParams: INBOX_FLAT_TAB_LIST_PARAMS.archived,
+            sectionKey: 'resolved',
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS.resolved,
         })
         if (archivedList) {
             // The list logic fires the `restore` analytics; just drive navigation here.
@@ -134,7 +126,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             router.actions.push(urls.inbox(activeTab))
             return
         }
-        // Fallback for a deep-linked detail with no mounted Archived list (e.g. cold load).
+        // Fallback for a deep-linked detail with no mounted Resolved list (e.g. cold load).
         setIsRestoring(true)
         try {
             await api.signalReports.setState(report.id, { state: 'potential' })
@@ -187,25 +179,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         },
         ...(canRefund ? [refund] : []),
     ]
-
-    if (showCreatePr) {
-        actions.push({
-            key: 'create-pr',
-            label: 'Create PR',
-            icon: <IconPullRequest />,
-            loading: isCreatingPr,
-            tooltip: 'Have Self-driving open a pull request for this report',
-            disabledReason:
-                aiConsentDisabledReason ??
-                (hasLiveImplementationTask
-                    ? 'A PR task already exists for this report. Open it in the task log to continue.'
-                    : undefined),
-            onClick: () => {
-                captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
-                createPrFromReport(report)
-            },
-        })
-    }
 
     return actions
 }

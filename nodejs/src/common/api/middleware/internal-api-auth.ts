@@ -30,9 +30,9 @@ const PUBLIC_PATH_PREFIXES = ['/public/', '/_health', '/_ready', '/_metrics', '/
 const SCOPED_AUTH_PATH_PATTERNS = [
     // CdpApi.postHogFlowRescheduleParked, verified against WORKFLOWS_RESCHEDULE_JWT_SECRET.
     /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/reschedule_parked$/,
-    // CdpApi.postHogFlowCancelInvocations, verified against the same key, audience-pinned.
+    // CdpApi.postHogFlowCancelInvocations, verified against WORKFLOWS_CANCEL_JWT_SECRET, audience-pinned.
     /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/invocations\/cancel$/,
-    // CdpApi.postHogFlowCancelBatchJob, verified against the same key, audience-pinned.
+    // CdpApi.postHogFlowCancelBatchJob, verified against WORKFLOWS_CANCEL_JWT_SECRET, audience-pinned.
     /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/batch_jobs\/[^/]+\/cancel$/,
 ]
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hogli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Developer CLI framework with YAML-based command definitions"
 readme = "README.md"
 license = "MIT"
@@ -52,5 +52,5 @@ packages = ["src/hogli"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "scripts"]
 addopts = "-p no:warnings -p no:django"

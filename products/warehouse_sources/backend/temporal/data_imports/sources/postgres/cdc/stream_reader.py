@@ -217,14 +217,17 @@ class PgCDCStreamReader:
                 self._last_rows_consumed = 0
                 logger.warning("slot_read_busy_retry", slot_name=self._params.slot_name, attempt=attempt + 1)
                 time.sleep(0.5 * 2**attempt)
-            except psycopg.OperationalError as e:
+            except (psycopg.OperationalError, psycopg.errors.InternalError_) as e:
                 # A transient drop on the peek fetch (pooler/firewall idle cull, failover, network
-                # blip — e.g. "consuming input failed: SSL SYSCALL error: EOF detected") is the same
-                # class connect()/confirm_position() already absorb in-process. Reconnect and
-                # re-peek: the peek is non-consuming, so re-reading from the slot's last confirmed
-                # position is safe. Only retry before the first row lands — once events have been
-                # yielded the caller has buffered them, so a re-peek would duplicate; let it surface
-                # and Temporal replays the whole run from the last confirmed LSN.
+                # blip — e.g. "consuming input failed: SSL SYSCALL error: EOF detected", or Neon's
+                # walsender losing its connection to a safekeeper) is the same class
+                # connect()/confirm_position() already absorb in-process — InternalError_ is the
+                # generic XX000 class those pooler/Neon-internal drops arrive as (see
+                # _is_connection_dropped_error). Reconnect and re-peek: the peek is non-consuming, so
+                # re-reading from the slot's last confirmed position is safe. Only retry before the
+                # first row lands — once events have been yielded the caller has buffered them, so a
+                # re-peek would duplicate; let it surface and Temporal replays the whole run from the
+                # last confirmed LSN.
                 if slot_acquired or not _is_connection_dropped_error(e) or attempt == _SLOT_READ_MAX_ATTEMPTS - 1:
                     raise
                 _safe_close_connection(conn)

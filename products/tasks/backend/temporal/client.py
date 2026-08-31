@@ -653,7 +653,6 @@ def execute_posthog_code_agent_relay_workflow(
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             task_queue=settings.TASKS_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=3),
         )
     )
     return relay_id

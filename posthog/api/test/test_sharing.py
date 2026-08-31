@@ -31,6 +31,7 @@ from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -40,8 +41,6 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def mock_exporter_template(test_func):
@@ -1589,7 +1588,7 @@ class TestSharedAdhocQueryExport(APIBaseTest):
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
             created_by=self.user,
-            export_context={"source": self._SOURCE_QUERY},
+            export_context={"source": self._SOURCE_QUERY, "title": "Weekly signups"},
         )
 
     @patch("posthog.api.sharing.process_query_dict")
@@ -1605,6 +1604,7 @@ class TestSharedAdhocQueryExport(APIBaseTest):
         exported_data = json.loads(mock_render_template.call_args[1]["context"]["exported_data"])
         assert exported_data["query"] == self._SOURCE_QUERY
         assert exported_data["query_results"] == {"results": [{"count": 42}], "cache_key": "abc"}
+        assert exported_data["query_title"] == "Weekly signups"
         # The read must be attributed to the export owner so warehouse access control resolves.
         assert mock_process_query.call_args[1]["user"] == self.user
 
@@ -2015,7 +2015,6 @@ class TestSharingPublishGate(APIBaseTest):
         )
 
     def _deny_warehouse(self) -> None:
-
         AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
     def _enable_sharing(self, kind: str):
@@ -2066,7 +2065,6 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.json()["enabled"] is True
 
     def test_system_table_denial_blocks_publishing(self):
-
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
             "kind": "DataTableNode",
@@ -2114,7 +2112,6 @@ class TestSharingPublishGate(APIBaseTest):
 
     @parameterized.expand([("non_materialized",), ("materialized",)])
     def test_granted_view_over_denied_table_gates_unless_materialized(self, case: str):
-
         inner = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="restricted_inner",

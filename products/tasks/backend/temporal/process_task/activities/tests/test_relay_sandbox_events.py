@@ -31,6 +31,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _mark_sandbox_error_best_effort,
     _persist_final_message,
     _relay_loop,
+    _sanitize_httpx_error,
     _should_signal_workflow_heartbeat,
     relay_sandbox_events,
 )
@@ -190,6 +191,28 @@ class TestIsKeepaliveEvent:
     )
     def test_is_keepalive_event(self, _name: str, event_data: dict, expected: bool) -> None:
         assert _is_keepalive_event(event_data) == expected
+
+
+class TestSanitizeHttpxError:
+    def test_redacts_query_string_carrying_the_transport_token(self) -> None:
+        request = httpx.Request("GET", "https://hogland.example/events?token=super-secret-bearer")
+        response = httpx.Response(503, request=request)
+        error = httpx.HTTPStatusError("boom", request=request, response=response)
+
+        sanitized = _sanitize_httpx_error(error)
+
+        assert "super-secret-bearer" not in sanitized
+        assert "hogland.example/events" in sanitized
+        assert "503" in sanitized
+
+    def test_leaves_url_without_a_query_string_untouched(self) -> None:
+        request = httpx.Request("GET", "https://hogland.example/events")
+        response = httpx.Response(500, request=request)
+        error = httpx.HTTPStatusError("boom", request=request, response=response)
+
+        sanitized = _sanitize_httpx_error(error)
+
+        assert sanitized == "Server error '500' for url 'https://hogland.example/events'"
 
 
 class TestAgentActiveReactivation:
@@ -1016,7 +1039,9 @@ class TestPersistFinalMessage:
 
         organization = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=organization, name="Test Team")
-        task = Task.objects.create(team=team, title="t", description="d")
+        task = Task.objects.create(
+            team=team, title="t", description="d", origin_product=Task.OriginProduct.USER_CREATED
+        )
         return task.create_run(mode="background", **kwargs)
 
     def test_merges_final_message_into_existing_output(self) -> None:

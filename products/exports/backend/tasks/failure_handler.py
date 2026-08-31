@@ -68,11 +68,14 @@ RASTERIZATION_CODE_TO_FAILURE_TYPE: dict[str, str] = {
     # these as "system" would put them in front of whoever watches infra alerts.
     "NO_SNAPSHOTS": FAILURE_TYPE_USER,
     "INVALID_INPUT": FAILURE_TYPE_USER,
+    "RECORDING_TOO_LARGE": FAILURE_TYPE_USER,
     # Reaching the recording's data failed, which nobody exporting it can do anything about.
     "DATA_LOAD_FAILED": FAILURE_TYPE_SYSTEM,
     "S3_UPLOAD_UNDECODABLE_RESPONSE": FAILURE_TYPE_SYSTEM,
+    "S3_UPLOAD_FAILED": FAILURE_TYPE_SYSTEM,
     "INIT_FAILED": FAILURE_TYPE_SYSTEM,
     "BLOCK_LISTING_FAILED": FAILURE_TYPE_SYSTEM,
+    "TARGET_CLOSED": FAILURE_TYPE_SYSTEM,
     # The render activity died without producing a code at all: heartbeat or start-to-close timeout
     # from a lost or wedged worker. Not the renderer's own TIMEOUT, but still a render that ran out
     # of time. Resolved in the workflow's _record_failure, not a rasterizer code.
@@ -91,10 +94,13 @@ _RASTERIZATION_MESSAGES: dict[str, str] = {
     "BEGINFRAME_DEADLOCK": "The render stopped responding. Try exporting a shorter part of the recording.",
     "NO_SNAPSHOTS": "This recording has no playable data, so there is nothing to export.",
     "INVALID_INPUT": "This export request was not valid. Contact support if it keeps happening.",
+    "RECORDING_TOO_LARGE": "This recording is too large to render as a video.",
     "DATA_LOAD_FAILED": "We could not load this recording's data. Try the export again in a few minutes.",
     "S3_UPLOAD_UNDECODABLE_RESPONSE": "The finished video could not be saved. Try the export again.",
+    "S3_UPLOAD_FAILED": "The finished video could not be saved. Try the export again.",
     "INIT_FAILED": "The video renderer could not start. Try the export again.",
     "BLOCK_LISTING_FAILED": "We could not read this recording. Try the export again in a few minutes.",
+    "TARGET_CLOSED": "The video renderer stopped before it finished. Try the export again.",
     "ACTIVITY_TIMEOUT": "This recording took too long to render. Try exporting a shorter part of it.",
 }
 

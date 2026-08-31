@@ -22,6 +22,31 @@ class SupportChannel:
 
 
 @dataclass(frozen=True)
+class ConversationMessageSender:
+    name: str
+    email: str | None
+    person_id: str | None
+    distinct_id: str | None
+
+
+@dataclass(frozen=True)
+class ConversationMessageSummary:
+    sender: ConversationMessageSender
+    sent_at: datetime
+    direction: str
+
+
+@dataclass(frozen=True)
+class SupportTicketMessage:
+    id: str
+    content: str
+    author_name: str
+    direction: str
+    is_private: bool
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class TicketSummary:
     """A support ticket, reduced to what an account's tickets list renders."""
 
@@ -30,7 +55,11 @@ class TicketSummary:
     status: str
     last_message_at: datetime | None
     last_message_text: str | None
+    last_message: ConversationMessageSummary | None
     deep_link: str
+    created_at: datetime
+    started_by: str
+    distinct_id: str
 
 
 @dataclass(frozen=True)
@@ -51,6 +80,7 @@ class EmailThreadParticipantSummary:
     email: str
     display_name: str
     kind: str
+    person_id: str | None
 
 
 @dataclass(frozen=True)
@@ -59,7 +89,9 @@ class AccountEmailThreadSummary:
     subject: str
     preview: str
     first_message_at: datetime | None
+    first_message: ConversationMessageSummary | None
     last_message_at: datetime | None
+    last_message: ConversationMessageSummary | None
     message_count: int
     participants: list[EmailThreadParticipantSummary]
 
