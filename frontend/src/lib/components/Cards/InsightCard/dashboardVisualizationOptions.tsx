@@ -16,8 +16,6 @@ export function sqlQueryForVisualizationPicker(query: Node | null, canPersist: b
     return canPersist && query && isDataVisualizationNode(query) ? query : null
 }
 
-// The chart type section of a dashboard card's "Display options" menu, so switching how a SQL insight
-// is drawn no longer means a round trip through the insight editor.
 export function useDashboardVisualizationOptions({
     query,
     insightData,

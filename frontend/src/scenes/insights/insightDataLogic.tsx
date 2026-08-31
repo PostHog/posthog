@@ -30,7 +30,11 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { columnsFromResponseFields, getAutoVisualizationType } from '~/queries/nodes/DataVisualization/columnUtils'
+import {
+    columnsFromResponse,
+    getAutoVisualizationType,
+    rowCountFromResponse,
+} from '~/queries/nodes/DataVisualization/columnUtils'
 import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
 import { applyVisualizationType } from '~/queries/nodes/DataVisualization/visualizationTypeSetup'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -141,7 +145,6 @@ export interface insightDataLogicValues {
     query: Node | null
     queryChanged: boolean
     queryFromUrl: boolean
-    savingDisplayOptions: boolean
     savingVisualizationType: boolean
     showDebugPanel: boolean
     showQueryEditor: boolean
@@ -393,9 +396,6 @@ export interface insightDataLogicActions {
     persistDisplayOptions: (query: Node) => {
         query: Node<Record<string, any>>
     }
-    persistDisplayOptionsSettled: () => {
-        value: true
-    }
     persistVisualizationType: (display: ChartDisplayType) => {
         display: ChartDisplayType
     }
@@ -520,19 +520,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         toggleDebugPanel: true,
         cancelChanges: true,
         persistDisplayOptions: (query: Node) => ({ query }),
-        persistDisplayOptionsSettled: true,
         persistVisualizationType: (display: ChartDisplayType) => ({ display }),
         persistVisualizationTypeSettled: true,
     }),
 
     reducers({
-        savingDisplayOptions: [
-            false,
-            {
-                persistDisplayOptions: () => true,
-                persistDisplayOptionsSettled: () => false,
-            },
-        ],
         savingVisualizationType: [
             false,
             {
@@ -765,7 +757,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // (a display toggle or removing a filter) would PATCH the insight before the user
             // clicks Save. Edits there must persist only through an explicit save.
             if (isInsightSceneInstance(props)) {
-                actions.persistDisplayOptionsSettled()
                 return
             }
             // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
@@ -773,7 +764,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             await breakpoint(700)
             const insightId = values.insight.id
             if (!insightId) {
-                actions.persistDisplayOptionsSettled()
                 return
             }
             // Only persist when the query actually differs from what's saved. The setQuery →
@@ -781,7 +771,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // re-syncs (tile re-renders, results refreshes) that carry an unchanged query;
             // persisting those produces spurious saves and activity-log churn.
             if (objectsEqual(query, values.savedInsight.query)) {
-                actions.persistDisplayOptionsSettled()
                 return
             }
             try {
@@ -789,28 +778,22 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 // Drop the response if a newer save started while this request was in flight.
                 await breakpoint(0)
                 actions.renameInsightSuccess(updatedItem)
-                actions.persistDisplayOptionsSettled()
                 lemonToast.success('Insight updated')
             } catch (e) {
                 // A breakpoint means a newer save superseded this one, and that save owns the state.
                 if (!isBreakpoint(e as Error)) {
-                    actions.persistDisplayOptionsSettled()
                     lemonToast.error('Failed to update insight')
                 }
             }
         },
 
-        // Re-read the insight before applying the transition. A dashboard tile can carry filters or
-        // stale chart settings that must not overwrite the saved insight.
-        // A dashboard tile is served a query with the dashboard's filters already applied by
-        // InsightSerializer, so writing that back would save one dashboard's date range and
-        // properties onto the insight for everyone looking at it.
+        // Dashboard filters are applied to the tile query, so load the clean saved query before
+        // persisting. The basic response does not depend on a separate clean result cache.
         persistVisualizationType: async ({ display }, breakpoint) => {
             if (isInsightSceneInstance(props)) {
                 actions.persistVisualizationTypeSettled()
                 return
             }
-            await breakpoint(700)
             const insightId = values.insight.id
             const shortId = values.insight.short_id
             if (!insightId || !shortId) {
@@ -818,22 +801,30 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return
             }
             try {
-                const saved = await insightsApi.getByShortId(shortId)
+                const saved = await insightsApi.getByShortId(shortId, true)
                 const savedQuery = saved?.query
-                if (!savedQuery || !isDataVisualizationNode(savedQuery) || !isHogQLQuery(savedQuery.source)) {
+                const loadedQuery = values.query
+                if (
+                    !savedQuery ||
+                    !isDataVisualizationNode(savedQuery) ||
+                    !isHogQLQuery(savedQuery.source) ||
+                    !isDataVisualizationNode(loadedQuery) ||
+                    !isHogQLQuery(loadedQuery.source) ||
+                    savedQuery.source.query !== loadedQuery.source.query ||
+                    !objectsEqual(savedQuery.source.variables, loadedQuery.source.variables)
+                ) {
                     actions.persistVisualizationTypeSettled()
                     lemonToast.error("Couldn't update chart type. Refresh the dashboard and try again.")
                     return
                 }
 
-                const columns = columnsFromResponseFields(saved.columns ?? [], saved.types ?? [])
-                const rowCount = Array.isArray(saved.result) ? saved.result.length : 0
+                const columns = columnsFromResponse(values.insightData)
+                const rowCount = rowCountFromResponse(values.insightData)
                 const autoVisualizationType = getAutoVisualizationType(columns, rowCount)
                 if (
                     columns.length === 0 ||
                     sqlVisualizationDisabledReason(display, savedQuery, columns, rowCount, autoVisualizationType)
                 ) {
-                    actions.renameInsightSuccess(saved)
                     actions.persistVisualizationTypeSettled()
                     lemonToast.error("Couldn't update chart type. Refresh the dashboard and try again.")
                     return
@@ -841,7 +832,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
                 const nextQuery: DataVisualizationNode = applyVisualizationType(savedQuery, display, columns, rowCount)
                 if (objectsEqual(nextQuery, savedQuery)) {
-                    actions.renameInsightSuccess(saved)
                     actions.persistVisualizationTypeSettled()
                     return
                 }

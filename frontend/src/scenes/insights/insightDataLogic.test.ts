@@ -603,7 +603,7 @@ describe('insightDataLogic', () => {
         const Insight43 = '43' as InsightShortId
         const cachedQuery = {
             kind: NodeKind.DataVisualizationNode,
-            source: { kind: NodeKind.HogQLQuery, query: 'select old_day, old_total from events' },
+            source: { kind: NodeKind.HogQLQuery, query: 'select day, total from events' },
             display: ChartDisplayType.ActionsTable,
         } as DataVisualizationNode
         const latestQuery = {
@@ -619,29 +619,17 @@ describe('insightDataLogic', () => {
 
         let logic: ReturnType<typeof insightDataLogic.build>
         let patchBodies: Record<string, any>[]
+        let savedQuery: Node
 
         beforeEach(() => {
             patchBodies = []
+            savedQuery = latestQuery
             useMocks({
                 get: {
-                    '/api/environments/:team_id/insights/': {
-                        results: [
-                            {
-                                id: insightId,
-                                short_id: Insight43,
-                                query: latestQuery,
-                                columns: ['day', 'total'],
-                                types: [
-                                    ['day', 'DateTime'],
-                                    ['total', 'UInt64'],
-                                ],
-                                result: [
-                                    ['2026-08-27', 12],
-                                    ['2026-08-28', 15],
-                                ],
-                            },
-                        ],
-                    },
+                    '/api/environments/:team_id/insights/': () => [
+                        200,
+                        { results: [{ id: insightId, short_id: Insight43, query: savedQuery }] },
+                    ],
                 },
                 patch: {
                     '/api/environments/:team_id/insights/:id': async ({ request }) => {
@@ -660,9 +648,20 @@ describe('insightDataLogic', () => {
             insightLogic(props).mount()
             logic = insightDataLogic(props)
             logic.mount()
+            logic.actions.setInsightData({
+                columns: ['day', 'total'],
+                types: [
+                    ['day', 'DateTime'],
+                    ['total', 'UInt64'],
+                ],
+                results: [
+                    ['2026-08-27', 12],
+                    ['2026-08-28', 15],
+                ],
+            })
         })
 
-        it('derives the picked chart from the latest clean insight', async () => {
+        it('derives the picked chart from the latest clean query and loaded tile schema', async () => {
             await expectLogic(logic, () => {
                 logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
             })
@@ -682,21 +681,10 @@ describe('insightDataLogic', () => {
         })
 
         it('does not save when the latest SQL result no longer supports the picked chart', async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/insights/': {
-                        results: [
-                            {
-                                id: insightId,
-                                short_id: Insight43,
-                                query: latestQuery,
-                                columns: ['country'],
-                                types: [['country', 'String']],
-                                result: [['NL']],
-                            },
-                        ],
-                    },
-                },
+            logic.actions.setInsightData({
+                columns: ['country'],
+                types: [['country', 'String']],
+                results: [['NL']],
             })
 
             await expectLogic(logic, () => {
@@ -707,20 +695,22 @@ describe('insightDataLogic', () => {
             expect(logic.values.savingVisualizationType).toBe(false)
         })
 
+        it('does not combine a changed saved query with the loaded tile schema', async () => {
+            savedQuery = {
+                ...latestQuery,
+                source: { kind: NodeKind.HogQLQuery, query: 'select country from events' },
+            } as DataVisualizationNode
+
+            await expectLogic(logic, () => {
+                logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
+            }).toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(0)
+            expect(logic.values.savingVisualizationType).toBe(false)
+        })
+
         it('does not overwrite an insight that changed away from SQL', async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/insights/': {
-                        results: [
-                            {
-                                id: insightId,
-                                short_id: Insight43,
-                                query: { ...latestQuery, source: { kind: NodeKind.EventsQuery } },
-                            },
-                        ],
-                    },
-                },
-            })
+            savedQuery = { kind: NodeKind.EventsQuery }
 
             await expectLogic(logic, () => {
                 logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)

@@ -21,7 +21,6 @@ export interface SqlVisualizationPickerProps {
     rowCount?: number
     /** Distinguishes a tile still computing from one that genuinely returned nothing. */
     loading?: boolean
-    /** True while a pick is being saved. */
     saving?: boolean
     disabledReason?: string | null
     persistVisualizationType: (display: ChartDisplayType) => void
