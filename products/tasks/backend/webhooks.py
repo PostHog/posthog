@@ -76,11 +76,21 @@ def find_task_run(
     candidates = TaskRun.objects.filter(team_id__in=team_ids) if team_ids else TaskRun.objects.all()
 
     if pr_url:
+        # Match every URL a run claims this PR by: the agent server records the PR it opens
+        # in output.pr_url / output.pr_urls, while state.verified_pr_urls holds only URLs an
+        # earlier webhook already bound through the internal-branch backstop. Matching on the
+        # verified set alone misses a run whose PR was recorded solely by the agent (no earlier
+        # webhook bound it), so its report would never resolve on merge or archive on close.
+        #
         # A resumed wizard run inherits its predecessor's head branch, so a terminal
         # original and its live resume can both claim the same PR URL. Scope to the
         # webhook's repo and prefer non-terminal runs so merge handling lands on the
         # run that can still act on it.
-        runs = candidates.filter(state__verified_pr_urls__contains=[pr_url])
+        runs = candidates.filter(
+            Q(state__verified_pr_urls__contains=[pr_url])
+            | Q(output__pr_url=pr_url)
+            | Q(output__pr_urls__contains=[pr_url])
+        )
         if repository:
             runs = runs.filter(_run_repository_filter(repository))
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith

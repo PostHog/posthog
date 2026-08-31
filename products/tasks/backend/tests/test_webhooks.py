@@ -1184,6 +1184,29 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, SignalReport.Status.READY)
 
+    @parameterized.expand(
+        [
+            ("primary_pr_url", {"pr_url": "https://github.com/posthog/posthog/pull/42"}),
+            ("pr_urls_list", {"pr_urls": ["https://github.com/posthog/posthog/pull/42"]}),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_close_archives_report_when_pr_url_only_in_output(self, _name, output, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        # The agent server records the opened PR in output; state.verified_pr_urls is only ever
+        # filled by an earlier webhook delivery. A run the webhook never bound before must still
+        # match on close, otherwise its report is never archived and lingers in the inbox.
+        self.task_run.state = {}
+        self.task_run.output = output
+        self.task_run.save(update_fields=["state", "output"])
+
+        response = self._post_pr_webhook(action="closed", merged=False)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.SUPPRESSED)
+
 
 class TestExternalPRWebhook(TestCase):
     """PRs with no matching TaskRun are emitted as external PR events."""
