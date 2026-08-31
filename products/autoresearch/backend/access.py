@@ -29,8 +29,10 @@ def has_autoresearch_access(
         return False
 
     # In local dev the analytics SDK is disabled; fall back to a direct ORM check.
+    # DEBUG only: a production instance that disables the SDK (OPT_OUT_CAPTURE) must
+    # fail closed rather than grant access on any active flag row.
     # Don't apply this in TEST mode, because tests mock feature_enabled directly.
-    if (getattr(posthoganalytics, "disabled", False) or settings.DEBUG) and not getattr(settings, "TEST", False):
+    if settings.DEBUG and not getattr(settings, "TEST", False):
         return _local_flag_enabled(team_id=team_id)
 
     groups: dict[str, str] = {}
