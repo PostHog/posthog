@@ -27056,6 +27056,45 @@ export namespace Schemas {
     }
 
     /**
+     * * `open_to_gate` - OPEN_TO_GATE
+     * * `gate_to_merge` - GATE_TO_MERGE
+     */
+    export type DeliveryStageTimingStageEnum = typeof DeliveryStageTimingStageEnum[keyof typeof DeliveryStageTimingStageEnum];
+
+
+    export const DeliveryStageTimingStageEnum = {
+      OpenToGate: 'open_to_gate',
+      GateToMerge: 'gate_to_merge',
+    } as const;
+
+    export interface DeliveryStageTiming {
+      /** Which leg this is: 'open_to_gate' (created_at to the PR's first merge-queue gate run starting) or 'gate_to_merge' (that gate run to merged_at). The post-merge leg is the DORA endpoint's median_merge_to_deploy_seconds.
+       *
+       * * `open_to_gate` - OPEN_TO_GATE
+       * * `gate_to_merge` - GATE_TO_MERGE */
+      stage: DeliveryStageTimingStageEnum;
+      /**
+         * Median seconds for this leg. Null when no PR in the window has both of its bounds observed.
+         * @nullable
+         */
+      median_seconds: number | null;
+      /**
+         * 90th-percentile seconds for this leg. Null when not observed.
+         * @nullable
+         */
+      p90_seconds: number | null;
+      /** PRs behind this leg's figures: those with an observed gate run. A PR that skipped the merge queue has no gate legs, so read a median against this count, not merged_pr_count. */
+      pr_count: number;
+    }
+
+    export interface DeliveryPipeline {
+      /** The legs, ordered open to merge. A leg with nothing observed still appears, with a zero pr_count and null timings. The leg medians do not sum to a cycle-time median: a median of sums is not a sum of medians. */
+      stages: DeliveryStageTiming[];
+      /** PRs merged in the window with bots and drafts excluded. A narrower population than RepoOverview.merged_pr_count, which counts all authors. */
+      merged_pr_count: number;
+    }
+
+    /**
      * * `pending` - Pending
      * * `generated` - Generated
      * * `delivered` - Delivered
@@ -73743,6 +73782,8 @@ export namespace Schemas {
       success_rate_series: PassRateBucket[];
       /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
+      /** Where a change's wall-clock time goes on the way to production, over PRs merged in the window with bots and drafts excluded. */
+      delivery_pipeline: DeliveryPipeline;
       /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
       ready_to_merge_series: ReadyToMergeBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
