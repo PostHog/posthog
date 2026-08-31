@@ -41,8 +41,10 @@ from posthog.tasks.email import (
     send_matview_failure_immediate_email,
     send_member_join,
     send_new_ticket_notification,
+    send_organization_deleted_email,
     send_password_reset,
     send_posthog_ai_access_request,
+    send_project_deleted_email,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
     send_wizard_pr_ready_email,
@@ -401,6 +403,34 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].html_body
         assert "Set your password" in mocked_email_messages[0].html_body
         assert "via" not in mocked_email_messages[0].html_body
+
+    @freeze_time("2022-01-02 00:00:00")
+    def test_send_project_deleted_email_states_erasure_window(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        _org, user = create_org_team_and_user("2022-01-01 00:00:00", "deleter@posthog.com")
+
+        send_project_deleted_email(user_id=user.id, project_name="My project")
+
+        assert len(mocked_email_messages) == 1
+        html = mocked_email_messages[0].html_body
+        # Event data is erased by a weekly batch job, so the email must give the upper-bound date
+        # and must not claim the data is already gone.
+        assert "January 09, 2022" in html
+        assert "started deleting its data" in html
+        assert mocked_email_messages[0].subject == "Your project 'My project' is being deleted"
+
+    @freeze_time("2022-01-02 00:00:00")
+    def test_send_organization_deleted_email_states_erasure_window(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        _org, user = create_org_team_and_user("2022-01-01 00:00:00", "deleter@posthog.com")
+
+        send_organization_deleted_email(user_id=user.id, organization_name="My org", project_names=["A", "B"])
+
+        assert len(mocked_email_messages) == 1
+        html = mocked_email_messages[0].html_body
+        assert "January 09, 2022" in html
+        assert "started deleting the data" in html
+        assert mocked_email_messages[0].subject == "Your organization 'My org' is being deleted"
 
     @patch("posthog.tasks.email.ph_scoped_capture")
     def test_send_wizard_pr_ready_email_uses_customer_io_context(

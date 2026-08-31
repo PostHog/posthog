@@ -2200,32 +2200,46 @@ def send_conversation_restore_email(email: str, team_id: int, restore_url: str) 
     logger.info(f"Sent conversation restore email to {email} for team {team.id}")
 
 
+# Upper bound for erasing analytics event data after a project or organization is deleted. The
+# metadata delete is immediate, but event data is removed by a weekly batch job, so a deletion
+# waits at most one cycle.
+DATA_ERASURE_WINDOW_DAYS = 7
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_project_deleted_email(
     user_id: int,
     project_name: str,
 ) -> None:
-    """Send email notification when project deletion is complete."""
+    """Send email notification when project deletion starts.
+
+    The email goes out once the project metadata is removed. Analytics event data is then erased
+    by a scheduled batch job, so the email states the window rather than claiming completion.
+    """
     user = User.objects.filter(id=user_id).first()
     if not user:
         logger.warning(f"User {user_id} not found for project deletion email")
         return
 
+    data_erased_by = (timezone.now() + datetime.timedelta(days=DATA_ERASURE_WINDOW_DAYS)).strftime("%B %d, %Y")
     message = EmailMessage(
         use_http=True,
         campaign_key=f"project_deleted_{user_id}_{timezone.now().timestamp()}",
-        subject=f"Your project '{project_name}' has been deleted",
+        subject=f"Your project '{project_name}' is being deleted",
         template_name="project_deleted",
         template_context={
             "project_name": project_name,
+            # team_name aliases project_name for the remote Customer.io template; keep it until
+            # template 54 is confirmed to no longer read team_name.
             "team_name": project_name,
+            "data_erased_by": data_erased_by,
             "site_url": settings.SITE_URL,
         },
     )
     message.add_user_recipient(user)
     message.send()
-    logger.info(f"Sent project deletion confirmation email to user {user_id} for project {project_name}")
+    logger.info(f"Sent project deletion email to user {user_id} for project {project_name}")
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -2235,26 +2249,32 @@ def send_organization_deleted_email(
     organization_name: str,
     project_names: list[str],
 ) -> None:
-    """Send email notification when organization deletion is complete."""
+    """Send email notification when organization deletion starts.
+
+    The email goes out once the organization metadata is removed. Analytics event data is then
+    erased by a scheduled batch job, so the email states the window rather than claiming completion.
+    """
     user = User.objects.filter(id=user_id).first()
     if not user:
         logger.warning(f"User {user_id} not found for organization deletion email")
         return
 
+    data_erased_by = (timezone.now() + datetime.timedelta(days=DATA_ERASURE_WINDOW_DAYS)).strftime("%B %d, %Y")
     message = EmailMessage(
         use_http=True,
         campaign_key=f"organization_deleted_{user_id}_{timezone.now().timestamp()}",
-        subject=f"Your organization '{organization_name}' has been deleted",
+        subject=f"Your organization '{organization_name}' is being deleted",
         template_name="organization_deleted",
         template_context={
             "organization_name": organization_name,
             "project_names": project_names,
+            "data_erased_by": data_erased_by,
             "site_url": settings.SITE_URL,
         },
     )
     message.add_user_recipient(user)
     message.send()
-    logger.info(f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}")
+    logger.info(f"Sent organization deletion email to user {user_id} for organization {organization_name}")
 
 
 @shared_task(ignore_result=True)

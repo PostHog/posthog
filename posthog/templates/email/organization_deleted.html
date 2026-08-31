@@ -1,8 +1,8 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
 <p>
-    As requested, we've deleted your organization <strong>{{ organization_name }}</strong>{% if project_names %} and its project{{ project_names|length|pluralize }}: <strong>{{ project_names|join:", " }}</strong>{% endif %}.
+    As requested, we've removed your organization <strong>{{ organization_name }}</strong>{% if project_names %} and its project{{ project_names|length|pluralize }}: <strong>{{ project_names|join:", " }}</strong>{% endif %}, and started deleting the data.
 </p>
 <p>
-    This can't be undone, but hey, if you ever want to start fresh, we'll be here.
+    The analytics data is permanently erased by <strong>{{ data_erased_by }}</strong>. This can't be undone, but hey, if you ever want to start fresh, we'll be here.
 </p>
-{% endblock %}{% load posthog_filters %} {% block heading %}Organization deleted{% endblock %}
+{% endblock %}{% load posthog_filters %} {% block heading %}Deleting your organization{% endblock %}
