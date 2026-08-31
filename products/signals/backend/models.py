@@ -1459,8 +1459,8 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     model = models.CharField(max_length=200, null=True, blank=True)
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
-    # config columns. A Slack destination is active only when both its integration and channel
-    # are present; the UI may persist the integration first while the user chooses a channel.
+    # config columns. A Slack destination is active only when its integration and a target — a channel,
+    # or a member to DM — are present; the UI may persist the integration first while the user chooses.
     output_destinations = models.JSONField(default=dict, db_default={})
     # Free-form labels for grouping the fleet ("revenue", "on-call", "experimental"). Normalized
     # to lowercase and deduped at the API boundary, so a tag means the same thing whoever typed
