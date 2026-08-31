@@ -254,6 +254,8 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - `GrpcTransport`, `Router`, and `WorkerRegistry` keep their construction and ownership in `main.rs`. The batcher takes shared handles. Readiness gating, discovery reconciliation, the reaper, and the debug endpoints do not change.
 - The facade replicates today's behavior exactly, including the oldest-first flush pacing. This is code motion — moving code without changing it — not redesign.
 - The consumer loop keeps: poll collection, commits, the sentinels, and the admission cap. It tracks each poll's offset spans and completes the poll when completions cover them, so completion and commit behavior do not change.
+- The no-progress watchdog survives the move: a poll that gains no completions for the stall window fails the process and replays, exactly as the deferred-flush timeout does today. Every later cycle keeps this bail until cycle 10 adds the per-partition stall deadline.
+- The consumer discards a completion for a partition it no longer owns (the revoke dropped its ledger) and counts it. Cycle 10 replaces this with the assignment-epoch check.
 - Changes 9 and 10 extract the scheduler seam inside this boundary.
 
 **Interfaces:**
@@ -632,6 +634,7 @@ Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admiss
 ## Cycle 10: partitions hand off cleanly
 
 Outcome: a revocation drains in bounded time, and a wedged partition fails the process instead of hanging. Needs cycle 3.
+Until this cycle, revocation keeps today's behavior: no drain, uncommitted work replays on the new owner, and the old owner's in-flight sends finish as duplicate work. Nothing in cycles 1 to 9 changes that.
 
 **Verify:** e2e rebalance tests with the drain on, then the canary rebalance in change 29.
 Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the deadline, and `ingestion_consumer_drain_dropped_messages_total` matches the expected replay volume.
