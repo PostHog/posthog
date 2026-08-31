@@ -3,6 +3,7 @@ import { z } from 'zod'
 export interface LocalStorageSlot<T> {
     get: () => T | null
     set: (value: T) => void
+    clear: () => void
 }
 
 // Stored data outlives deploys and can be edited by hand, so reads validate
@@ -28,6 +29,13 @@ export function localStorageSlot<T>(key: string | (() => string), schema: z.ZodT
                 localStorage.setItem(resolveKey(), JSON.stringify(value))
             } catch {
                 // localStorage can be unavailable. Losing the value is fine
+            }
+        },
+        clear: (): void => {
+            try {
+                localStorage.removeItem(resolveKey())
+            } catch {
+                // Same as above: an unavailable localStorage has nothing to remove
             }
         },
     }

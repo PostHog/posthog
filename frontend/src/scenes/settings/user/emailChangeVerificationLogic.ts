@@ -78,6 +78,9 @@ export interface emailChangeVerificationLogicActions {
     setVerificationCodeError: (error: string | null) => {
         error: string | null
     }
+    verificationCodeRejected: (error: string) => {
+        error: string
+    }
     startResendCooldown: (seconds: number) => {
         seconds: number
     }
@@ -128,6 +131,7 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
         emailChangeStaged: true,
         setVerificationCode: (code: string) => ({ code }),
         setVerificationCodeError: (error: string | null) => ({ error }),
+        verificationCodeRejected: (error: string) => ({ error }),
         submitVerificationCode: true,
         resendCode: true,
         resendLimitReached: true,
@@ -146,6 +150,7 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
             '',
             {
                 setVerificationCode: (_, { code }) => code,
+                verificationCodeRejected: () => '',
                 openModal: () => '',
             },
         ],
@@ -155,6 +160,7 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
                 setVerificationCode: () => null,
                 submitVerificationCode: () => null,
                 setVerificationCodeError: (_, { error }) => error,
+                verificationCodeRejected: (_, { error }) => error,
                 openModal: () => null,
             },
         ],
@@ -197,7 +203,7 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
                         actions.loadUser()
                         return { success: true }
                     } catch (e: any) {
-                        actions.setVerificationCodeError(verificationCodeErrorMessage(e))
+                        actions.verificationCodeRejected(verificationCodeErrorMessage(e))
                         return null
                     }
                 },

@@ -7,10 +7,11 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from './verifyEmailLogic'
@@ -120,24 +121,14 @@ function VerificationCodeEntry(): JSX.Element {
                 }
             }}
         >
-            <LemonInput
+            <VerificationCodeInput
                 autoFocus
                 value={verificationCode}
                 onChange={setVerificationCode}
-                placeholder="123456"
-                aria-label="Email verification code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                size="large"
-                className="text-center ph-replay-block"
+                error={verificationCodeError}
+                disabled={validatedEmailTokenLoading}
                 data-attr="verify-email-code"
-                status={verificationCodeError ? 'danger' : 'default'}
             />
-            {verificationCodeError && (
-                <p className="m-0 text-sm text-danger" role="alert">
-                    {verificationCodeError}
-                </p>
-            )}
             <LemonButton
                 type="primary"
                 size="large"
@@ -145,7 +136,9 @@ function VerificationCodeEntry(): JSX.Element {
                 fullWidth
                 htmlType="submit"
                 loading={validatedEmailTokenLoading}
-                disabledReason={verificationCode ? undefined : 'Enter the code from your email'}
+                disabledReason={
+                    isValidVerificationCode(verificationCode) ? undefined : 'Enter the 6-digit code from your email'
+                }
                 data-attr="verify-email-code-submit"
             >
                 Verify email
@@ -155,7 +148,7 @@ function VerificationCodeEntry(): JSX.Element {
 }
 
 export function VerifyEmailForm(): JSX.Element {
-    const { view, uuid, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
+    const { view, uuid, pendingEmail, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -277,8 +270,14 @@ export function VerifyEmailForm(): JSX.Element {
                         Check your inbox
                     </h1>
                     <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                        We emailed you a 6-digit code. Enter it below to verify your email address. The code is valid
-                        for 30 minutes.
+                        {pendingEmail ? (
+                            <>
+                                We emailed a 6-digit code to <strong>{pendingEmail}</strong>. The code is valid for 30
+                                minutes.
+                            </>
+                        ) : (
+                            'We emailed you a 6-digit code. The code is valid for 30 minutes.'
+                        )}
                     </p>
                     <VerificationCodeEntry />
                     <div className="mt-3">
