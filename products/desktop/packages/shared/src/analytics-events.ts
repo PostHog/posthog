@@ -908,12 +908,30 @@ type ScoutActionType =
   | "filter_findings"
   | "sort_findings";
 
+/**
+ * How the fleet materialization that preceded this view ended. Without it an
+ * `is_empty: true` view from a viewer whose sync was refused looks exactly like
+ * one from a project whose fleet genuinely failed to arrive.
+ */
+export type ScoutFleetSyncOutcome =
+  /** The sync ran and answered with the fleet. */
+  | "synced"
+  /** No sync was issued — no project was resolved when the section opened. */
+  | "not_attempted"
+  /** 403: a member without `signal_scout:write`. The list query still fills the section. */
+  | "skipped_permission"
+  /** 404: a stale project id. */
+  | "not_found"
+  /** Anything else, including a 5xx. */
+  | "failed";
+
 export interface ScoutFleetViewedProperties {
   scout_count: number;
   enabled_count: number;
   dry_run_count: number;
   custom_count: number;
   is_empty: boolean;
+  sync_outcome: ScoutFleetSyncOutcome;
 }
 
 export interface ScoutDetailViewedProperties {
