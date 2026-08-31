@@ -496,6 +496,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
     const {
         archiveDatasetItem,
         restoreDatasetItem,
+        loadDataset,
         loadDatasetItems,
         loadDatasetRevisions,
         setFilters,
@@ -676,6 +677,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                 <div className="flex items-center gap-2 flex-wrap">
                     <RefreshButton
                         onClick={() => {
+                            loadDataset()
                             loadDatasetItems(true)
                             loadDatasetRevisions()
                         }}
