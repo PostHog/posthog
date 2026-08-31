@@ -7691,7 +7691,7 @@
         "feature_flag": "mcp-analytics"
     },
     "mcp-missing-capability-report": {
-        "description": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress.",
+        "description": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress. Describe the gap without personal data or sensitive query content. This records feedback for the PostHog team; continue with a fallback when possible.",
         "category": "MCP analytics",
         "feature": "mcp_analytics",
         "summary": "Report missing capability",
