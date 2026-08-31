@@ -761,11 +761,47 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
         assert facade.delete_custom_property_source(team_id=self.team.id, source_id=source.id) is True
         assert not CustomPropertySource.objects.for_team(self.team.id).filter(id=source.id).exists()
 
-    def test_creating_a_source_does_not_enqueue_a_property_sync(self):
-        with patch.object(facade, "current_app") as mock_app:
-            self._create()
+    @parameterized.expand([("enabled", True, True), ("disabled", False, False)])
+    def test_create_enqueues_initial_account_property_sync(self, _name, is_enabled, expect_enqueued):
+        with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
+            self._create(is_enabled=is_enabled)
 
-        mock_app.send_task.assert_not_called()
+        if expect_enqueued:
+            mock_app.send_task.assert_called_once_with(
+                "customer_analytics.process_custom_property_sync",
+                kwargs={"team_id": self.team.id, "saved_query_id": str(self.view.id)},
+            )
+        else:
+            mock_app.send_task.assert_not_called()
+
+    def test_reenabling_a_source_enqueues_an_initial_account_property_sync(self):
+        source = self._create(is_enabled=False)
+
+        with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
+            facade.update_custom_property_source(team_id=self.team.id, source_id=source.id, fields={"is_enabled": True})
+
+        mock_app.send_task.assert_called_once_with(
+            "customer_analytics.process_custom_property_sync",
+            kwargs={"team_id": self.team.id, "saved_query_id": str(self.view.id)},
+        )
+
+    @parameterized.expand(
+        [
+            ("noop", {}, False),
+            ("already_enabled", {"is_enabled": True}, False),
+            ("column_change", {"source_column": "org_id"}, True),
+        ]
+    )
+    def test_update_enqueues_initial_sync_only_after_a_meaningful_change(self, _name, fields, expect_enqueued):
+        source = self._create()
+
+        with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
+            facade.update_custom_property_source(team_id=self.team.id, source_id=source.id, fields=fields)
+
+        if expect_enqueued:
+            mock_app.send_task.assert_called_once()
+        else:
+            mock_app.send_task.assert_not_called()
 
     def test_external_batch_rejects_source_backed_definition(self):
         self._create()

@@ -111,6 +111,7 @@
 1 products/cohorts/backend/parity/recompute.py
 1 products/conversations/backend/services/restore.py
 1 products/customer_analytics/backend/logic/calendar_sync.py
+1 products/customer_analytics/backend/logic/custom_property_sync.py
 1 products/dashboards/backend/widgets/list_widget.py
 1 products/data_modeling/backend/logic/cohort_scheduling.py
 1 products/data_modeling/backend/logic/gitsync/model_parser.py
