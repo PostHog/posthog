@@ -16,7 +16,6 @@ from posthog.constants import AvailableFeature
 from posthog.models import Tag, User
 from posthog.models.team import Team
 
-from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.customer_analytics.backend.logic import relationships as relationships_logic
@@ -620,13 +619,13 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
         self.assertTrue(runner.validate_query_runner_access(self.user))
 
-    def test_validate_query_runner_access_denied(self):
+    def test_validate_query_runner_access_ignores_customer_analytics_access(self):
         AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")
         self.organization.available_product_features.append({"key": AvailableFeature.ACCESS_CONTROL})  # type: ignore[union-attr]
         self.organization.save()
 
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
-        self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)
+        self.assertTrue(runner.validate_query_runner_access(self.user))
 
     def test_multiple_aggregating_joins_preserve_left_join_defaults(self):
         # Selecting tags + notebooks + a custom property together merges the sibling
