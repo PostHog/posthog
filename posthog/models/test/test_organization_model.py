@@ -16,6 +16,7 @@ from posthog.models.organization_caching import (
     get_cached_organization_membership,
     get_cached_organization_memberships,
 )
+from posthog.models.user import User
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.redis import get_client
@@ -216,6 +217,20 @@ class TestOrganization(BaseTest):
         membership.delete()
         assert get_cached_organization_membership(self.organization.id, self.user) is None
         assert get_cached_organization_memberships(self.user) == []
+
+    def test_access_cache_is_invalidated_when_membership_is_created(self):
+        new_user = User.objects.create_user(email="cache-membership@example.com", password="password")
+
+        # Cache both the missing individual membership and the user's empty membership list.
+        assert get_cached_organization_membership(self.organization.id, new_user) is None
+        assert get_cached_organization_memberships(new_user) == []
+
+        OrganizationMembership.objects.create(organization=self.organization, user=new_user)
+
+        membership = get_cached_organization_membership(self.organization.id, new_user)
+        assert membership is not None
+        assert membership.user_id == new_user.id
+        assert [item.id for item in get_cached_organization_memberships(new_user)] == [membership.id]
 
     @parameterized.expand(
         [
