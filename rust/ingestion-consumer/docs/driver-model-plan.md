@@ -110,7 +110,7 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 
 - Group messages per partition first, then per routing key. Keep offset order inside each group.
 - The dispatcher flattens the groups back into one message list. Sub-batch assembly does not change.
-- Change 4 uses the groups as the unit of the batcher interface.
+- Change 4 submits them to the batcher as the accumulator.
 
 **Interfaces:**
 
@@ -124,19 +124,22 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 
 **Goal:** The dispatch concurrency becomes an implementation detail behind one interface.
 
-- Interface in: one poll's groups, submitted on the consumer loop in poll order.
-- Interface out: one completion event per group, with its partition, offsets, and accepted count. This is the final shape. The interface does not change again.
+- Interface in: one accumulator per poll — the poll's demuxed groups, submitted on the consumer loop in poll order.
+- Interface out: one completion event per group, with its partition, offsets, and accepted count.
+- This is the design doc's boundary: accumulators in, completions out. It is the final shape and does not change again.
+- No batch identity crosses the boundary. The facade mints an internal batch id per accumulator for the old machinery and the wire request. The consumer correlates completions by partition and offset — the same key the ledger uses.
 - The facade breaks each resolved send into its groups. The resolution paths already carry them (`routing_keys`, `key_offsets`), and a send is all-or-nothing.
 - Move inside the boundary: assignment, scatter, the deferred flush, the eager flush, the worker registry, the router, and the stream runners.
 - The facade replicates today's behavior exactly, including the oldest-first flush pacing. This is code motion, not redesign.
-- The consumer loop keeps: poll collection, commits, the sentinels, and the batch window. It aggregates group completions per batch, so completion and commit behavior do not change.
+- The consumer loop keeps: poll collection, commits, the sentinels, and the batch window. It tracks each poll's offset spans and completes the poll when completions cover them, so completion and commit behavior do not change.
 - Changes 5 and 6 carve the scheduler seam inside this boundary.
 
 **Interfaces:**
 
-- Add `Batcher` in `batcher.rs`: `submit(batch_id, Vec<Group>)` in, a channel of `GroupCompletion` out. It owns `Dispatcher`, `GrpcTransport`, `WorkerRegistry`, and the send tasks.
-- Add `GroupCompletion`: batch id, partition, offsets, accepted count.
-- Modify `IngestionConsumer`: drop `scatter`, `flush_deferred`, and the eager-flush loop — they move into the batcher. Keep collect, commit, and the window. Aggregate completions per batch.
+- Add `Accumulator`: one poll's groups, in poll order.
+- Add `Batcher` in `batcher.rs`: `submit(Accumulator)` in, a channel of `GroupCompletion` out. It owns `Dispatcher`, `GrpcTransport`, `WorkerRegistry`, and the send tasks. It mints batch ids internally.
+- Add `GroupCompletion`: partition, offsets, accepted count. No batch id.
+- Modify `IngestionConsumer`: drop `scatter`, `flush_deferred`, and the eager-flush loop — they move into the batcher. Keep collect, commit, and the window. Correlate completions to polls by partition and offset.
 - Modify `main.rs`: construct one `Batcher`. The consumer no longer sees the dispatcher or the transport.
 - Internalize `Dispatcher`'s resolve and accounting methods (`on_sub_batch_*`, `defer_failed`, `eager_flush_*`, `take_eager_accepted`): only the batcher calls them.
 
@@ -265,14 +268,14 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 **Goal:** A stalled batch stalls only its own partitions. Other partitions continue to commit.
 
 - Changes 7 and 9 are the prerequisites. Commits come from the frontier, and the old flush, whose per-key order depended on oldest-first completion, is gone. Only commits depend on completion order now, and the frontier gates those.
-- Mark each group's offsets in the ledger when its completion event arrives. Stop aggregating completions per batch before commits.
+- Mark each group's offsets in the ledger when its completion event arrives. Stop aggregating completions per poll before commits.
 - The frontier gates each partition's commit.
 - Keep `max_in_flight_batches` as the bound on outstanding work. A batch slot frees when all its groups are accepted.
 - Behavior change: commit timing decouples across partitions and batches. Replay exposure stays inside the batch window.
 
 **Interfaces:**
 
-- Modify `IngestionConsumer::process`: select over `GroupCompletion` events. Remove the ordered `InFlightBatch` queue and the per-batch aggregation from change 4.
+- Modify `IngestionConsumer::process`: select over `GroupCompletion` events. Remove the ordered `InFlightBatch` queue and the per-poll aggregation from change 4.
 - Modify the batch bookkeeping: a batch is only a window slot that frees when its groups are accepted.
 
 ### 13. Replace the batch window with budget B (logic)
