@@ -2692,7 +2692,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       mcpServers,
       permissionMode,
       posthogExecPermissionRegex,
-      canUseTool: this.createCanUseTool(sessionId, meta?.allowedDomains),
+      canUseTool: this.createCanUseTool(
+        sessionId,
+        meta?.allowedDomains,
+        meta?.disabledTools,
+      ),
       logger: this.logger,
       systemPrompt,
       userProvidedOptions: meta?.claudeCode?.options,
@@ -2707,6 +2711,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ...(params.additionalDirectories ?? meta?.additionalRoots ?? []),
       ],
       disableBuiltInTools: meta?.disableBuiltInTools,
+      disabledTools: meta?.disabledTools,
       outputFormat,
       settingsManager,
       onModeChange: this.createOnModeChange(),
@@ -2979,6 +2984,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private createCanUseTool(
     sessionId: string,
     allowedDomains?: string[],
+    disabledTools?: string[],
   ): CanUseTool {
     return async (toolName, toolInput, { suggestions, toolUseID, signal }) =>
       canUseTool({
@@ -2996,6 +3002,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           this.updateConfigOption(configId, value),
         applySessionMode: (modeId: string) => this.applySessionMode(modeId),
         allowedDomains,
+        disabledTools,
         emittedToolCalls: this.emittedToolCalls,
         supportsTerminalOutput:
           (

@@ -77,6 +77,7 @@ interface ToolHandlerContext {
   updateConfigOption: (configId: string, value: string) => Promise<void>;
   applySessionMode: (modeId: string) => Promise<void>;
   allowedDomains?: string[];
+  disabledTools?: string[];
   /** Shared with the streamed tool_use path; first emitter wins. */
   emittedToolCalls?: Set<string>;
   supportsTerminalOutput?: boolean;
@@ -804,9 +805,16 @@ function isDomainAllowed(hostname: string, allowedDomains: string[]): boolean {
 export async function canUseTool(
   context: ToolHandlerContext,
 ): Promise<ToolPermissionResult> {
-  const { toolName, toolInput, session, allowedDomains } = context;
+  const { toolName, toolInput, session, allowedDomains, disabledTools } =
+    context;
 
   recordPlanFile(context);
+
+  if (disabledTools?.includes(toolName)) {
+    const message = `Tool "${toolName}" is disabled for this session.`;
+    await emitToolDenial(context, message);
+    return { behavior: "deny", message, interrupt: false };
+  }
 
   // Enforce domain allowlist for web tools
   if (allowedDomains && allowedDomains.length > 0) {
