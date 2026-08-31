@@ -1322,9 +1322,10 @@ class TestTruncateForCapture:
                     "input_cost": 0.01,
                     "output_cost": 0.04,
                 },
+            },
+            "litellm_params": {
                 "metadata": large_metadata,
             },
-            "litellm_params": {},
         }
 
         mock_loop = MagicMock()
@@ -1346,7 +1347,7 @@ class TestTruncateForCapture:
             assert props["$ai_total_cost_usd"] == 0.05
             assert props["$ai_input_cost_usd"] == 0.01
             assert props["$ai_output_cost_usd"] == 0.04
-            assert props["$ai_billable"] is True
+            assert props["$ai_billable"] is False
             assert props["ai_product"] == "wizard"
             assert props["team_id"] == 456
 
@@ -1363,6 +1364,8 @@ class TestTruncateForCapture:
             "$ai_model": "hacked_model",
             "$feature/secret_flag": True,
             "$group_1": "https://attacker.com",
+            "$set": {"is_admin": True},
+            "$process_person_profile": False,
             "Authorization": "Bearer sensitive_token",
             "api_key": "sk-secret123",
             "nested_secrets": {
@@ -1372,6 +1375,7 @@ class TestTruncateForCapture:
                 "$feature/nested_flag": True,
                 "$group_nested": "should_be_stripped",
                 "$ai_injected": "should_be_stripped",
+                "$set": {"nested_bad": True},
             },
             "valid_custom_key": "valid_custom_value",
         }
@@ -1381,9 +1385,10 @@ class TestTruncateForCapture:
                 "model": "gpt-4o",
                 "custom_llm_provider": "openai",
                 "messages": [{"role": "user", "content": "Hi"}],
+            },
+            "litellm_params": {
                 "metadata": malicious_metadata,
             },
-            "litellm_params": {},
         }
 
         mock_loop = MagicMock()
@@ -1404,6 +1409,8 @@ class TestTruncateForCapture:
             assert props["$ai_model"] == "gpt-4o"
             assert "$feature/secret_flag" not in props
             assert props["$group_1"] == "https://us.posthog.com"
+            assert "$set" not in props
+            assert "$process_person_profile" not in props
             assert "Authorization" not in props
             assert "api_key" not in props
             assert props["valid_custom_key"] == "valid_custom_value"
@@ -1412,6 +1419,7 @@ class TestTruncateForCapture:
             assert "$feature/nested_flag" not in props["nested_secrets"]
             assert "$group_nested" not in props["nested_secrets"]
             assert "$ai_injected" not in props["nested_secrets"]
+            assert "$set" not in props["nested_secrets"]
             assert props["nested_secrets"]["safe_field"] == "valid_value"
 
     @pytest.mark.asyncio
@@ -1430,9 +1438,10 @@ class TestTruncateForCapture:
                 "model": "gpt-4o",
                 "custom_llm_provider": "openai",
                 "messages": [{"role": "user", "content": "Hi"}],
+            },
+            "litellm_params": {
                 "metadata": {"deep": deep_metadata},
             },
-            "litellm_params": {},
         }
 
         mock_loop = MagicMock()
@@ -1464,9 +1473,10 @@ class TestTruncateForCapture:
                 "model": "claude-3-opus",
                 "custom_llm_provider": "anthropic",
                 "error_str": "Internal Server Error",
+            },
+            "litellm_params": {
                 "metadata": large_metadata,
             },
-            "litellm_params": {},
         }
 
         with (
@@ -1482,5 +1492,3 @@ class TestTruncateForCapture:
             assert props["$ai_error"] == "Internal Server Error"
             assert props["team_id"] == 456
             assert props["ai_product"] == "wizard"
-
-

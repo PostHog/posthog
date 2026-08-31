@@ -171,6 +171,22 @@ def _is_sensitive_key(key: str) -> bool:
     return False
 
 
+def _is_rejected_custom_key(key: str) -> bool:
+    if not isinstance(key, str):
+        return True
+    key_lower = key.lower()
+    # Reject ALL caller-supplied $ properties ($set, $process_person_profile, $ai_*, $feature/*, $group_*, etc.)
+    if key.startswith("$") or key_lower.startswith("$"):
+        return True
+    if key in _GATEWAY_OWNED_FIELDS or key_lower in _GATEWAY_OWNED_FIELDS:
+        return True
+    if key_lower in _LITELLM_INTERNAL_METADATA_KEYS:
+        return True
+    if _is_sensitive_key(key):
+        return True
+    return False
+
+
 def _sanitize_custom_metadata_value(value: Any, depth: int = 0) -> Any:
     if depth > _MAX_RECURSION_DEPTH:
         return "[truncated: max depth exceeded]"
@@ -181,9 +197,7 @@ def _sanitize_custom_metadata_value(value: Any, depth: int = 0) -> Any:
                 break
             if not isinstance(k, str):
                 continue
-            # Reject sensitive keys AND gateway-owned prefixes ($ai_*, $group_*, $feature/*)
-            # at every nesting level so callers cannot inject protected fields via nested dicts.
-            if _is_sensitive_key(k) or _is_gateway_owned_property(k):
+            if _is_rejected_custom_key(k):
                 continue
             sanitized_dict[k] = _sanitize_custom_metadata_value(v, depth + 1)
         return sanitized_dict
@@ -207,13 +221,7 @@ def _merge_custom_metadata(properties: dict[str, Any], metadata: Any) -> None:
     for key, value in metadata.items():
         if not isinstance(key, str):
             continue
-        key_lower = key.lower()
-        if (
-            key_lower not in _LITELLM_INTERNAL_METADATA_KEYS
-            and not key_lower.startswith(("$ai_", "$feature/", "$group_"))
-            and not _is_gateway_owned_property(key)
-            and not _is_sensitive_key(key)
-        ):
+        if not _is_rejected_custom_key(key):
             clean_value = _sanitize_custom_metadata_value(value)
             properties.setdefault(key, clean_value)
 
