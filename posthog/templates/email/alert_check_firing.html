@@ -1,4 +1,6 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+{% extends "email/base.html" %}
+
+{% block section %}
     <p>
         {% if is_test %}
             This is a test delivery for the <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert on <a
@@ -16,4 +18,4 @@
     <div class="mb mt text-center">
         <a class="button" href="{% absolute_uri alert_url %}">Manage alert</a>
     </div>
-{% endblock %}{% load posthog_filters %}
+{% endblock %}

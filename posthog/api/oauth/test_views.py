@@ -555,12 +555,12 @@ class TestOAuthAPI(APIBaseTest):
         self,
         *,
         slug: str,
-        cimd_metadata_url: str,
+        cimd_url: str,
         name: str,
     ) -> tuple[OAuthApplication, OAuthGrant]:
         app = OAuthApplication.objects.create(
             name=name,
-            client_id=f"cimd-client-id-{slug}",
+            client_id=cimd_url,
             client_secret="",
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
@@ -568,7 +568,6 @@ class TestOAuthAPI(APIBaseTest):
             user=self.user,
             algorithm="RS256",
             is_cimd_client=True,
-            cimd_metadata_url=cimd_metadata_url,
         )
         grant = OAuthGrant.objects.create(
             application=app,
@@ -585,10 +584,6 @@ class TestOAuthAPI(APIBaseTest):
         return app, grant
 
     def _exchange_code_for_token(self, app: OAuthApplication, grant: OAuthGrant):
-        # Uses the internal UUID client_id rather than cimd_metadata_url so we
-        # exercise the validator-level suppression in _should_skip_refresh_token
-        # without also invoking the CIMD fetch/validate path (which would require
-        # HTTP mocks). Both entry paths converge on the same in-memory client.
         return self.post(
             "/oauth/token/",
             {
@@ -609,7 +604,7 @@ class TestOAuthAPI(APIBaseTest):
     def test_wizard_cimd_client_does_not_issue_refresh_token(self, region: str, wizard_cimd_url: str):
         wizard_app, grant = self._create_cimd_app_and_grant(
             slug=f"wizard-{region}",
-            cimd_metadata_url=wizard_cimd_url,
+            cimd_url=wizard_cimd_url,
             name="PostHog Wizard",
         )
 
@@ -627,7 +622,7 @@ class TestOAuthAPI(APIBaseTest):
         # keep the default refresh-token behavior.
         other_app, grant = self._create_cimd_app_and_grant(
             slug="other-cimd",
-            cimd_metadata_url="https://example.com/oauth/client-metadata",
+            cimd_url="https://example.com/oauth/client-metadata",
             name="Third-Party CIMD Client",
         )
 
@@ -649,7 +644,7 @@ class TestOAuthAPI(APIBaseTest):
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         app = OAuthApplication.objects.create(
             name="Private Key JWT CIMD Client",
-            client_id="cimd-pkjwt-client-id",
+            client_id=cimd_url if is_cimd_client else "pkjwt-non-cimd-client-id",
             client_secret="",
             client_type=client_type,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
@@ -657,7 +652,6 @@ class TestOAuthAPI(APIBaseTest):
             user=self.user,
             algorithm="RS256",
             is_cimd_client=is_cimd_client,
-            cimd_metadata_url=cimd_url if is_cimd_client else None,
             jwks_uri="https://partner.example.com/.well-known/jwks.json",
         )
         grant = OAuthGrant.objects.create(
@@ -678,8 +672,8 @@ class TestOAuthAPI(APIBaseTest):
         now = int(timezone.now().timestamp())
         assertion = jwt.encode(
             {
-                "iss": app.cimd_metadata_url,
-                "sub": app.cimd_metadata_url,
+                "iss": app.client_id,
+                "sub": app.client_id,
                 "aud": "https://us.posthog.com/oauth/token/",
                 "jti": "pkjwt-assertion-1",
                 "iat": now,
@@ -728,7 +722,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("access_token", response.json())
         # Token exchanges are the only traffic a refresh-grant-only client sends, so the
         # assertion path has to be what keeps its CIMD registration fresh.
-        refresh.assert_called_once_with(app.cimd_metadata_url)
+        refresh.assert_called_once_with(app.client_id)
 
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(SITE_URL="https://us.posthog.com")
@@ -796,7 +790,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(issued[0].kwargs["properties"]["client_auth_method"], "none")
         # Fallback exchanges are the only requests a client living on `none` sends, so
         # they must keep the CIMD document fresh the same way the assertion path does.
-        mock_refresh.assert_called_once_with(app.cimd_metadata_url)
+        mock_refresh.assert_called_once_with(app.client_id)
 
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_non_cimd_confidential_client_rejected_without_assertion(self):
@@ -3696,9 +3690,6 @@ class TestOAuthAPI(APIBaseTest):
     @parameterized.expand(["access_token", "refresh_token"])
     @override_settings(SITE_URL="https://us.posthog.com")
     def test_introspection_with_client_assertion_allows_own_token(self, token_type):
-        # A CIMD client's wire identity is its cimd_metadata_url (effective_client_id), not
-        # the opaque client_id PostHog assigns at registration. Comparing against the opaque
-        # value would reject a CIMD client introspecting even its own token.
         app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
         access_token, refresh_token = self._create_token_pair_for_app(app)
         token = access_token if token_type == "access_token" else refresh_token
@@ -3716,7 +3707,7 @@ class TestOAuthAPI(APIBaseTest):
                 "/oauth/introspect/",
                 {
                     "token": token.token,
-                    "client_id": app.cimd_metadata_url,
+                    "client_id": app.client_id,
                     "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
                     "client_assertion": assertion,
                 },
@@ -5011,7 +5002,7 @@ class TestOAuthFunnelInstrumentation(APIBaseTest):
                 side_effect=OperationalError("query_wait_timeout"),
             ),
             patch(
-                "posthog.api.oauth.views.get_application_by_client_id",
+                "posthog.api.oauth.views.OAuthApplication.objects.get",
                 side_effect=OperationalError("connection failed"),
             ),
             patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture,

@@ -20,11 +20,11 @@ import type {
 import { qualifiedLocalToolName } from "../registry";
 import { defineSignedGitTool } from "./signed-git-tool";
 
-export const GH_STACK_TOOL_NAME = "gh_stack";
+const GH_STACK_TOOL_NAME = "gh_stack";
 export const GH_STACK_QUALIFIED_TOOL_NAME =
   qualifiedLocalToolName(GH_STACK_TOOL_NAME);
 
-export const GH_STACK_TOOL_DESCRIPTION =
+const GH_STACK_TOOL_DESCRIPTION =
   "Manage GitHub native stacked pull requests — an ordered chain where each PR targets the " +
   "branch of the PR below it. Use this instead of the `gh stack` CLI, whose publishing " +
   "commands (`submit`, `sync`, `push`, `link`) all run `git push` and are therefore blocked " +
@@ -34,7 +34,7 @@ export const GH_STACK_TOOL_DESCRIPTION =
   'stack. "extend" appends new layers to an existing stack, "view" reads stacks, and ' +
   '"unstack" detaches the unmerged layers. Never merges anything.';
 
-export const ghStackToolSchema = {
+const ghStackToolSchema = {
   operation: z
     .enum(["view", "create", "extend", "unstack"])
     .describe(

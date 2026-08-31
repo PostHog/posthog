@@ -2,11 +2,13 @@
 
 import pytest
 
+from django.db.models.signals import post_save
+
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.logic import approvals, artifact_store, errors, repos, run_queries, runs
-from products.visual_review.backend.models import Repo, RunSnapshot
+from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -455,6 +457,52 @@ class TestRunOperations:
         assert updated.new_count == 1
         assert updated.error_message == ""
 
+    def test_finish_processing_publishes_settled_counts_with_the_completed_status(self, repo, mocker):
+        run, _ = runs.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[
+                    SnapshotManifestItem(identifier="changed1", content_hash="h1"),
+                    SnapshotManifestItem(identifier="new1", content_hash="h2"),
+                ],
+                baseline_hashes={"changed1": "old"},
+            ),
+            team_id=repo.team_id,
+        )
+        mocker.patch(
+            "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
+            return_value=({"changed1": "old"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        runs.complete_run(run.id)
+
+        # complete_run saved one changed and one new. Absorb both, which is what the diff
+        # task does to a snapshot whose diff comes in under the threshold.
+        RunSnapshot.objects.using(WRITER_DB).filter(run_id=run.id).update(result=SnapshotResult.UNCHANGED)
+
+        published: list[tuple[str, int, int]] = []
+
+        def record(sender, instance, **kwargs):
+            if instance.id == run.id:
+                published.append((instance.status, instance.changed_count, instance.new_count))
+
+        post_save.connect(record, sender=Run)
+        try:
+            runs.finish_processing(run.id)
+        finally:
+            post_save.disconnect(record, sender=Run)
+
+        # The CLI polls until the run reads COMPLETED and then reports that row's counts.
+        # A status published before the recount hands it the pre-diff counts, and it fails
+        # CI over drift the run no longer has.
+        completed = [state for state in published if state[0] == RunStatus.COMPLETED]
+        assert completed
+        assert all(state[1:] == (0, 0) for state in completed)
+
     def test_finish_processing_with_error(self, repo):
         run, _ = runs.create_run(
             CreateRunInput(
@@ -473,6 +521,42 @@ class TestRunOperations:
 
         assert updated.status == RunStatus.FAILED
         assert updated.error_message == "Something failed"
+
+    # Neither caller can recover a run left in PROCESSING: the diff task retries
+    # finish_processing through the same recount, and complete_run's no-change path runs
+    # synchronously and returns early on a run that is already PROCESSING.
+    @pytest.mark.parametrize(
+        "error_message,expected_error",
+        [
+            ("recount timed out", "recount timed out"),
+            ("", "Recount failed: recount timed out"),
+        ],
+    )
+    def test_finish_processing_fails_the_run_when_the_recount_raises(self, error_message, expected_error, repo, mocker):
+        run, _ = runs.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+                baseline_hashes={},
+            ),
+            team_id=repo.team_id,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic.gating._recount",
+            side_effect=RuntimeError("recount timed out"),
+        )
+
+        with pytest.raises(RuntimeError):
+            runs.finish_processing(run.id, error_message=error_message)
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.FAILED
+        assert run.error_message == expected_error
 
     def test_update_run_counts_reads_and_writes_through_requested_db(self, repo, mocker):
         run, _ = runs.create_run(

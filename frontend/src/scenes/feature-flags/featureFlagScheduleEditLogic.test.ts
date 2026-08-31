@@ -24,6 +24,7 @@ describe('featureFlagScheduleEditLogic', () => {
         recurrence_interval: null,
         cron_expression: '30 14 * * *',
         last_executed_at: null,
+        change_request: null,
     }
 
     afterEach(() => {

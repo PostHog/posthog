@@ -193,6 +193,7 @@ WHERE timestamp >= {window_start}
   AND event NOT IN (
     '$feature_flag_called', '$experiment_exposure', '$exception',
     'survey sent', 'survey shown', 'survey dismissed',
+    '$llm_prompt_fetched',
     '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric',
     '$ai_feedback', '$ai_evaluation', '$ai_tag',
     '$ai_trace_summary', '$ai_generation_summary',

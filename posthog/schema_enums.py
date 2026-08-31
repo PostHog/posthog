@@ -531,6 +531,7 @@ class Display(StrEnum):
     BOLD_NUMBER = "BoldNumber"
     METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
+    ACTIONS_DONUT = "ActionsDonut"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
@@ -667,6 +668,7 @@ class ChartDisplayType(StrEnum):
     BOLD_NUMBER = "BoldNumber"
     METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
+    ACTIONS_DONUT = "ActionsDonut"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
@@ -1162,6 +1164,11 @@ class ErrorTrackingQueryIssueSeverity(StrEnum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
+
+class ErrorTrackingReleasesOrderBy(StrEnum):
+    LATEST = "latest"
+    OCCURRENCES = "occurrences"
 
 
 class EvaluationRuntime(StrEnum):
@@ -2540,6 +2547,7 @@ class ExternalDataSourceType(StrEnum):
     SIDE_SHIFT = "SideShift"
     DUCK_LAKE = "DuckLake"
     STARBURST = "Starburst"
+    TRINO = "Trino"
     EASYBILL = "Easybill"
     BEXIO = "Bexio"
     UMAMI = "Umami"
@@ -2600,6 +2608,12 @@ class ExternalDataSourceType(StrEnum):
     LIVEBLOCKS = "Liveblocks"
     NATION_BUILDER = "NationBuilder"
     TANA = "Tana"
+    ZENCHEF = "Zenchef"
+    LOVABLE = "Lovable"
+    ANVIL = "Anvil"
+    COOLIFY = "Coolify"
+    SOCIAL_PILOT = "SocialPilot"
+    ROKT_ADS = "RoktAds"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3081,6 +3095,22 @@ class NeighborDirection(StrEnum):
     AFTER = "after"
 
 
+class MCPToolQualitySortColumn(StrEnum):
+    TOTAL_CALLS = "total_calls"
+    ERROR_RATE_PCT = "error_rate_pct"
+    P50_DURATION_MS = "p50_duration_ms"
+    P95_DURATION_MS = "p95_duration_ms"
+    P99_DURATION_MS = "p99_duration_ms"
+    USERS = "users"
+    SESSIONS = "sessions"
+    LAST_SEEN = "last_seen"
+
+
+class MCPToolQualitySortDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class MarketingAnalyticsAttributionBreakdown(StrEnum):
     CHANNEL = "channel"
     SOURCE = "source"
@@ -3151,6 +3181,12 @@ class MarketingAnalyticsDrillDownLevel(StrEnum):
 class MarketingAnalyticsOrderByEnum(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
+
+
+class MarketingAnalyticsRetentionInterval(StrEnum):
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
 
 
 class MarketingAnalyticsSchemaFieldTypes(StrEnum):
@@ -3322,6 +3358,7 @@ class NodeKind(StrEnum):
     ERROR_TRACKING_SIMILAR_ISSUES_QUERY = "ErrorTrackingSimilarIssuesQuery"
     ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY = "ErrorTrackingFingerprintProjectionQuery"
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
+    ERROR_TRACKING_RELEASES_QUERY = "ErrorTrackingReleasesQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
     LOGS_QUERY = "LogsQuery"
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
@@ -3364,6 +3401,7 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
+    MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
@@ -3453,6 +3491,21 @@ class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class PredicateIndexVerdict(StrEnum):
+    INDEXED = "indexed"
+    BLOCKED = "blocked"
+    UNINDEXED_COLUMN = "unindexed_column"
+    UNINDEXED_JSON = "unindexed_json"
+    OPERATOR_NOT_INDEXABLE = "operator_not_indexable"
+
+
+class PredicateScope(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    GROUP = "group"
+    UNKNOWN = "unknown"
 
 
 class ProductIntentContext(StrEnum):
@@ -4137,18 +4190,6 @@ class UsageMetricDisplay(StrEnum):
 class UsageMetricFormat(StrEnum):
     NUMERIC = "numeric"
     CURRENCY = "currency"
-
-
-class UserProductListReason(StrEnum):
-    DEFAULT = "default"
-    ONBOARDING = "onboarding"
-    PRODUCT_INTENT = "product_intent"
-    USED_BY_COLLEAGUES = "used_by_colleagues"
-    USED_SIMILAR_PRODUCTS = "used_similar_products"
-    USED_ON_SEPARATE_TEAM = "used_on_separate_team"
-    NEW_PRODUCT = "new_product"
-    SALES_LED = "sales_led"
-    ONBOARDING_DELEGATED = "onboarding_delegated"
 
 
 class WebAgentAnalyticsQueryType(StrEnum):

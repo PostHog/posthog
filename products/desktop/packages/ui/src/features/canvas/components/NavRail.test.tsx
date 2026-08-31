@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   href: "/",
   navigate: vi.fn(),
   navigateToActivity: vi.fn(),
+  navigateToCanvases: vi.fn(),
   navigateToSpaces: vi.fn(),
   navigateToChannel: vi.fn(),
   navigateToHome: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock(
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: (key: string) => mocks.featureFlags.get(key) ?? false,
 }));
-vi.mock("@posthog/ui/features/feature-flags/useSpacesTabs", () => ({
+vi.mock("@posthog/ui/features/browser-tabs/useSpacesTabs", () => ({
   useSpacesTabs: () => true,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
@@ -66,6 +67,7 @@ vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   getCurrentMatches: () => [{ fullPath: mocks.fullPath }],
   navigateToActivity: (...a: unknown[]) => mocks.navigateToActivity(...a),
+  navigateToCanvases: (...a: unknown[]) => mocks.navigateToCanvases(...a),
   navigateToSpaces: (...a: unknown[]) => mocks.navigateToSpaces(...a),
   navigateToChannel: (...a: unknown[]) => mocks.navigateToChannel(...a),
   navigateToHome: (...a: unknown[]) => mocks.navigateToHome(...a),
@@ -88,7 +90,6 @@ import {
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { NavRail } from "./NavRail";
 
 it("stays above floating sidebar layers", () => {
@@ -132,7 +133,6 @@ describe("NavRail", () => {
     mocks.featureFlags.set(DESKTOP_HOME_FLAG, true);
     mocks.fullPath = "/";
     mocks.href = "/";
-    useSidebarStore.setState({ navItemOverrides: {}, navItemOrder: [] });
     useActivityFilterStore.setState({ mentionsEnabled: true });
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
@@ -418,51 +418,6 @@ describe("NavRail", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(screen.queryByText("Recent activity card")).not.toBeInTheDocument();
-  });
-
-  it("drops an item hidden in the sidebar settings", () => {
-    useSidebarStore.setState({ navItemOverrides: { "command-center": false } });
-    render(<NavRail />);
-
-    expect(screen.queryByLabelText("Command Center")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Self-driving")).toBeInTheDocument();
-  });
-
-  it("keeps the column's own destinations when everything else is hidden", () => {
-    useSidebarStore.setState({
-      navItemOverrides: {
-        inbox: false,
-        activity: false,
-        "command-center": false,
-        loops: false,
-        configure: false,
-      },
-    });
-    render(<NavRail />);
-
-    expect(screen.getByLabelText("Home")).toBeInTheDocument();
-    expect(screen.getByLabelText("Spaces")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Settings")).not.toBeInTheDocument();
-  });
-
-  it("follows a stored order without moving the pinned destinations", () => {
-    useSidebarStore.setState({
-      navItemOrder: ["command-center", "inbox", "activity"],
-    });
-    const { container } = render(<NavRail />);
-
-    // Search leads the rail and is not a destination, so it sits outside the
-    // customizable order.
-    const labels = [...container.querySelectorAll("button")]
-      .map((button) => button.getAttribute("aria-label"))
-      .filter((label) => label !== "Search");
-    expect(labels.slice(0, 5)).toEqual([
-      "Home",
-      "Spaces",
-      "Command Center",
-      "Self-driving",
-      "Activity",
-    ]);
   });
 
   it("lights the last square of the Spaces mark while a space is open", () => {

@@ -1,6 +1,11 @@
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ErrorTrackingQuery, ProductKey } from '~/queries/schema/schema-general'
 
-import { FilterLogicalOperator } from '../../../frontend/src/types'
+import {
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+} from '../../../frontend/src/types'
 import { errorTrackingIssueBreakdownQuery, errorTrackingIssueEventsQuery, errorTrackingQuery } from './queries'
 
 describe('queries', () => {
@@ -26,6 +31,50 @@ describe('queries', () => {
                     personId: undefined,
                 })
                 expect(actual).toMatchSnapshot()
+            })
+        })
+
+        it('adds severity without changing an OR property filter', () => {
+            const browserFilter: EventPropertyFilter = {
+                type: PropertyFilterType.Event,
+                key: '$browser',
+                operator: PropertyOperator.Exact,
+                value: ['Chrome'],
+            }
+            const osFilter: EventPropertyFilter = {
+                type: PropertyFilterType.Event,
+                key: '$os',
+                operator: PropertyOperator.Exact,
+                value: ['Mac OS X'],
+            }
+            const actual = errorTrackingQuery({
+                orderBy: 'last_seen',
+                dateRange: { date_from: '-7d', date_to: null },
+                filterTestAccounts: true,
+                filterGroup: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.Or, values: [browserFilter, osFilter] }],
+                },
+                severity: 'high',
+                columns: ['error'],
+            })
+
+            expect((actual.source as ErrorTrackingQuery).filterGroup).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            { type: FilterLogicalOperator.Or, values: [browserFilter, osFilter] },
+                            {
+                                type: PropertyFilterType.ErrorTrackingIssue,
+                                key: 'severity',
+                                operator: PropertyOperator.Exact,
+                                value: ['high'],
+                            },
+                        ],
+                    },
+                ],
             })
         })
     })

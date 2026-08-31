@@ -73,6 +73,10 @@ def create_event_definitions_sql(
     }
     # Django relies on PK being present in the result set to tell if it's a saved instance
     event_definition_fields.add("id as pk")
+    # Sorted because a set iterates in an order that depends on the process hash seed. Unsorted,
+    # every worker emits a different statement text, so pg_stat_statements and Performance Insights
+    # split this query's load across hundreds of fingerprints and none of them looks expensive.
+    selected_fields = sorted(event_definition_fields)
 
     enterprise_join = (
         "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
@@ -92,11 +96,15 @@ def create_event_definitions_sql(
                 f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}"
             )
 
+    # COALESCE(project_id, team_id) is the leading expression of the unique index
+    # `event_definition_proj_uniq`, so the planner can seek that index for the project scope and
+    # for any `name` equality in `conditions`. The equivalent form
+    # `project_id = X OR (project_id IS NULL AND team_id = X)` matches no index at all.
     return f"""
-            SELECT {",".join(event_definition_fields)}
+            SELECT {",".join(selected_fields)}
             FROM posthog_eventdefinition
             {enterprise_join}
-            WHERE (project_id = %(project_id)s OR (project_id IS NULL AND team_id = %(project_id)s))
+            WHERE COALESCE(project_id, team_id) = %(project_id)s
             {conditions}
             ORDER BY {",".join(additional_ordering)}
         """
@@ -165,6 +173,14 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         return value
 
     def validate(self, data):
+        unsupported_metadata = {
+            field: "This field is not supported by this deployment."
+            for field in ("description", "verified", "hidden")
+            if field in self.initial_data
+        }
+        if unsupported_metadata:
+            raise serializers.ValidationError(unsupported_metadata)
+
         validated_data = super().validate(data)
 
         if "hidden" in validated_data and "verified" in validated_data:

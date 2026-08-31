@@ -152,7 +152,7 @@
         },
         "description": {
             "description": "Short description of the signal or behavior this scout investigates.",
-            "maxLength": 4096,
+            "maxLength": 1024,
             "type": "string"
         },
         "files": {

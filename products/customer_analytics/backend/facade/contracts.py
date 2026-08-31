@@ -167,6 +167,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    gong_url: str | None
     start_time: datetime
     end_time: datetime | None
     organizer_email: str
@@ -705,6 +706,7 @@ class FeatureRequestView:
     can_update: bool = False
     account: FeatureRequestAccountView | None = None
     account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
+    evidence_count: int = 0
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None

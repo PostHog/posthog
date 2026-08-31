@@ -133,7 +133,7 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
 
         user, auth = self._authenticate(self.authentication, self._request(token, url_team_id=self.team.id))
 
-        assert auth is None
+        assert auth["team_id"] == self.team.id
         assert user.is_authenticated
         assert user.current_team_id == self.team.id
         assert user.current_organization_id == self.team.organization_id
