@@ -765,6 +765,41 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
     assert {p.summary for p in summary.prs} == {"repo a change", "repo b change"}
 
 
+@pytest.mark.parametrize(
+    "raw_summary,expected",
+    [
+        ("The widget opens on the first click.", "The widget opens on the first click."),
+        ("  padded  ", "padded"),
+        (None, "The reviewer's own sentence."),
+        ("", "The reviewer's own sentence."),
+        ({"text": "Shipped"}, "The reviewer's own sentence."),
+        (["Shipped"], "The reviewer's own sentence."),
+        (42, "The reviewer's own sentence."),
+    ],
+    ids=[
+        "a_string_is_the_line",
+        "surrounding_whitespace_goes",
+        "an_omitted_summary_falls_back_to_the_reviewed_sentence",
+        "an_empty_summary_falls_back_too",
+        "a_dict_never_reaches_the_post_as_its_repr",
+        "a_list_does_not_either",
+        "nor_a_number",
+    ],
+)
+def test_only_a_string_becomes_a_change_line(raw_summary: Any, expected: str) -> None:
+    # Coercing whatever arrived put `{'text': 'Shipped'}` in the thread as its Python repr, and the
+    # channel lead can now promote a change line, so the repr had a route to the one line a reader
+    # cannot skip. Falling back to the reviewed sentence keeps a malformed entry saying something
+    # true rather than dropping the change.
+    pr = _pr_stub("o/r", 1, "The author's own claim.", "https://github.com/o/r/pull/1")
+    pr.summary_line = "The reviewer's own sentence."
+    content = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": raw_summary}]})
+
+    picked = _parse_selection(content, {0: pr})
+
+    assert [p.summary for p in picked] == [expected]
+
+
 @parameterized.expand(
     [
         ("empty_list_is_intentional_filtering", '{"prs": []}', True),

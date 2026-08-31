@@ -466,6 +466,23 @@ def _parse_headline(content: str) -> str:
     return _headline(json.loads(_strip_code_fence(content)))
 
 
+def _change_line(raw: Any, pr: PullRequest) -> str:
+    """The one sentence a change gets in the thread, or the best reviewed text when there is none.
+
+    Only a string counts as an answer. Coercing whatever arrived turned a `{"text": ...}` into its
+    Python repr and carried the braces into the post, and once a change line could be promoted to
+    the channel lead that repr had a route to the one line a reader cannot skip. The headline
+    parser has always dropped a non-string for the same reason, so this is that rule reaching the
+    other thing the channel can show.
+
+    Falling back to the reviewed summary rather than to "" keeps a malformed entry saying something
+    true. The reviewer wrote that sentence over the diff; the title is only the author's own claim,
+    which is why it sits last.
+    """
+    line = raw.strip() if isinstance(raw, str) else ""
+    return line or pr.summary_line or pr.title
+
+
 def _parse_selection(content: str, prs_by_index: dict[int, PullRequest]) -> list[DigestPRSummary]:
     """Map the model's JSON back onto captured PRs by the index we assigned. Unknown indexes ignored.
 
@@ -500,7 +517,7 @@ def _parse_selection(content: str, prs_by_index: dict[int, PullRequest]) -> list
                 title=pr.title,
                 url=pr.pr_url,
                 author_login=pr.author_login,
-                summary=str(item.get("summary") or pr.summary_line or pr.title).strip() or pr.summary_line or pr.title,
+                summary=_change_line(item.get("summary"), pr),
                 repository=pr.repo_config.repository,
             )
         )
