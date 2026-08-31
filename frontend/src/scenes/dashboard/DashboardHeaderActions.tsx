@@ -6,7 +6,6 @@ import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
@@ -30,6 +29,7 @@ export function getAddTileMenuItems({
     onAddInsight,
     push,
     setAddWidgetModalOpen,
+    enableWidgetsAndOpenAddModal,
     onBeforeSelect,
 }: {
     dashboardId: number
@@ -37,6 +37,7 @@ export function getAddTileMenuItems({
     onAddInsight: () => void
     push: (url: string) => void
     setAddWidgetModalOpen: (open: boolean) => void
+    enableWidgetsAndOpenAddModal: () => void
     onBeforeSelect?: () => void
 }): LemonMenuItems {
     const withBeforeSelect =
@@ -72,8 +73,8 @@ export function getAddTileMenuItems({
             : {
                   label: 'Widget',
                   tag: 'beta' as const,
-                  tooltip: 'Opens settings to enable the Dashboard widgets beta',
-                  onClick: withBeforeSelect(() => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))),
+                  tooltip: 'Enable the dashboard widgets beta and add one',
+                  onClick: withBeforeSelect(enableWidgetsAndOpenAddModal),
                   'data-attr': 'dashboard-add-widget-preview',
               },
     ]
@@ -83,8 +84,13 @@ export function getAddTileMenuItems({
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled, tiles } = useValues(dashboardLogic)
-    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal } =
-        useActions(dashboardLogic)
+    const {
+        loadDashboard,
+        setAddWidgetModalOpen,
+        enableWidgetsAndOpenAddModal,
+        setPendingInsertion,
+        openAddInsightModal,
+    } = useActions(dashboardLogic)
     const { push } = useActions(router)
     const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
 
@@ -124,6 +130,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
                         onAddInsight: openAddInsightModal,
                         push,
                         setAddWidgetModalOpen,
+                        enableWidgetsAndOpenAddModal,
                         // Adding from the header appends at the bottom; drop any stale inline-insertion target.
                         onBeforeSelect: () => setPendingInsertion(null),
                     })}

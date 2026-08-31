@@ -121,6 +121,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         setTileOverride,
         setDashboardMode,
         setAddWidgetModalOpen,
+        enableWidgetsAndOpenAddModal,
         setPendingInsertion,
     } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
@@ -270,6 +271,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                       onAddInsight: showAddInsightToDashboardModal,
                       push,
                       setAddWidgetModalOpen,
+                      enableWidgetsAndOpenAddModal,
                       onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
                   })
                 : [],
@@ -279,6 +281,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             showAddInsightToDashboardModal,
             push,
             setAddWidgetModalOpen,
+            enableWidgetsAndOpenAddModal,
             setPendingInsertion,
         ]
     )

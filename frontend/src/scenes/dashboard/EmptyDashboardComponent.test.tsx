@@ -8,7 +8,6 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -130,15 +129,16 @@ describe('EmptyDashboardComponent', () => {
         logic.unmount()
     })
 
-    it('routes Widget preview to feature previews when flag is disabled', async () => {
+    it('opens the add widget modal in place instead of routing to settings when the beta is off', async () => {
         const pushSpy = jest.spyOn(router.actions, 'push')
         const { logic } = renderEmptyState()
 
         await openAddFirstChartDropdown()
         await userEvent.click(screen.getByText('Widget'))
 
-        expect(pushSpy).toHaveBeenCalledWith(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
-        expect(logic.values.addWidgetModalOpen).toBe(false)
+        // The old flow stranded the user on the feature previews page with no route back.
+        expect(pushSpy).not.toHaveBeenCalled()
+        expect(logic.values.addWidgetModalOpen).toBe(true)
 
         pushSpy.mockRestore()
         logic.unmount()
