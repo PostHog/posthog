@@ -30,11 +30,14 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.funnels.utils import CONVERSION_WINDOW_INTERVAL_BOUNDS, conversion_window_to_seconds
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.validation.validation import QueryValidationContext, QueryValidationRule
 
+from products.product_analytics.backend.hogql_queries.funnels.utils import (
+    CONVERSION_WINDOW_INTERVAL_BOUNDS,
+    conversion_window_to_seconds,
+)
 from products.product_analytics.backend.hogql_queries.paths_v2.path_item import (
     DEFAULT_COLLAPSE_REPEATS,
     DEFAULT_CONVERSION_WINDOW_INTERVAL,
