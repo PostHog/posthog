@@ -44,6 +44,10 @@ import type { MetricsChartSeries } from './metricsSeries'
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
 export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
 
+/** Narrows an untrusted value (a URL param, a saved link) to an aggregation the backend accepts. */
+export const isMetricAggregation = (value: unknown): value is MetricAggregation =>
+    typeof value === 'string' && METRIC_AGGREGATIONS.includes(value as MetricAggregation)
+
 export type MetricsViewerSeries = _MetricSeriesApi
 
 // Display shape for the "vs baseline" anomaly badge (null = no anomaly / flat metric).
@@ -180,6 +184,7 @@ export interface metricsViewerLogicValues {
     pickerServices: string[] // metricNamePickerLogic
     currentTeamId: number | null // teamLogic
     aggregation: MetricAggregation
+    aggregationExplicitlySet: boolean
     anomalyBadge: MetricsAnomalyBadge | null
     anomalyReport: _MetricAnomalyReportApi | null
     anomalyReportLoading: boolean
@@ -441,6 +446,17 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 setRecommendedAggregation: (_, { aggregation }) => aggregation,
             },
         ],
+        // Whether the current aggregation was picked deliberately (by the user, or named in a
+        // link) rather than recommended from the metric's type. A deliberate pick holds only
+        // until the next metric switch, matching what picking a metric already does.
+        aggregationExplicitlySet: [
+            false,
+            {
+                setAggregation: () => true,
+                setRecommendedAggregation: () => false,
+                setMetricName: () => false,
+            },
+        ],
         dateFrom: [DEFAULT_DATE_FROM as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
         dateTo: [null as string | null, { setDateTo: (_, { dateTo }) => dateTo }],
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
@@ -511,22 +527,24 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 actions.setRecommendedAggregation(recommended)
             }
         },
-        // Recovers the type when the metric name was set before the picker's list
-        // arrived (initial load); an already-latched type is left alone.
+        // Recovers the type, and the aggregation that follows from it, when the metric name was set
+        // before the picker's list arrived — the shape of a deep link on a cold load. An
+        // already-latched type and an explicitly chosen aggregation are both left alone.
         loadItemsSuccess: () => {
-            if (values.selectedMetricType !== null || !values.hasMetricName) {
+            if (!values.hasMetricName) {
                 return
             }
             const metricType = values.items.find((item) => item.name === values.metricName.trim())?.metric_type
             const known = toKnownMetricType(metricType)
-            if (known) {
+            if (known && values.selectedMetricType === null) {
                 actions.setSelectedMetricType(known)
             }
-            // The name was set before the list arrived, so the pick-time recommendation
-            // never ran. Apply it late, but only over the untouched default — an
-            // aggregation restored from the URL or picked by the user stays.
+            // Without this a link to a cumulative counter charts the raw running total rather than
+            // its rate: nothing recommended an aggregation while the list was still empty. The
+            // explicit-pick flag, not a compare against the default, is what holds a deliberate
+            // choice — picking the default value is still a choice.
             const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
-            if (recommended && values.aggregation === DEFAULT_AGGREGATION && recommended !== values.aggregation) {
+            if (recommended && !values.aggregationExplicitlySet && recommended !== values.aggregation) {
                 actions.setRecommendedAggregation(recommended)
             }
         },

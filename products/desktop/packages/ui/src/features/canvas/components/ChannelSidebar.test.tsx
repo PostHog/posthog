@@ -58,6 +58,9 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
 }));
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => null,
+}));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: { id: 1, email: "u@posthog.com" } }),
 }));
@@ -269,7 +272,10 @@ describe("ChannelSidebar", () => {
     mocks.items = [item()];
     const { rerender } = renderSidebar();
 
-    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Search sessions" }),
+      "no such session",
+    );
     mocks.items = [];
     rerender(sidebar());
 

@@ -133,9 +133,25 @@ const commitsAt = (ageMins) => [
     },
 ]
 
-function run(github, { history = [], now = minutes(0), env = {} } = {}) {
+// Stand-in for the diagnosis webhook endpoint, one status per attempt.
+function makeWebhook(statuses = [200]) {
+    let call = 0
+    return recordingFn(() => {
+        const status = statuses[Math.min(call++, statuses.length - 1)]
+        return Promise.resolve({ ok: status >= 200 && status < 300, status })
+    })
+}
+
+function run(github, { history = [], now = minutes(0), env = {}, fetch: fetchImpl } = {}) {
     const outputs = {}
-    const core = { setOutput: (k, v) => (outputs[k] = v), info: () => {}, warning: () => {} }
+    const failures = []
+    const core = {
+        setOutput: (k, v) => (outputs[k] = v),
+        info: () => {},
+        warning: () => {},
+        setFailed: (m) => failures.push(m),
+        setSecret: () => {},
+    }
     const slack = makeSlack(history)
     Object.assign(process.env, {
         SLACK_CHANNEL: 'C0AS64N6DJL',
@@ -148,12 +164,13 @@ function run(github, { history = [], now = minutes(0), env = {} } = {}) {
         SCHEDULED_FAILURE_MINUTES_THRESHOLD: '150',
         ACTIVITY_WINDOW_MINUTES: '120',
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
+        DIAGNOSIS_WEBHOOK_URL: '',
         ...env,
     })
     return ciAlertsDevex(
         { context: { repo: { owner: 'PostHog', repo: 'posthog' } }, github, core },
-        { now, slack, sleep: () => Promise.resolve() }
-    ).then(() => ({ slack, outputs }))
+        { now, slack, fetch: fetchImpl, sleep: () => Promise.resolve() }
+    ).then(() => ({ slack, outputs, failures }))
 }
 
 describe('ci-alerts-devex', () => {
@@ -200,6 +217,72 @@ describe('ci-alerts-devex', () => {
             assert.match(thread.text, /is now failing master/)
         })
     }
+
+    describe('diagnosis agent start', () => {
+        const webhookEnv = { DIAGNOSIS_WEBHOOK_URL: 'https://webhooks.test/start' }
+        const fiveFailures = () =>
+            createGithubMock({
+                'ci-backend.yml': runs('Backend CI', Array(5).fill('failure')),
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            })
+
+        it('posts the incident and the anchor thread it must answer in', async () => {
+            const fetch = makeWebhook()
+            const { outputs, failures } = await run(fiveFailures(), { env: webhookEnv, fetch })
+
+            assert.equal(outputs.action, 'create')
+            assert.deepEqual(failures, [])
+            assert.equal(fetch.calls.length, 1)
+
+            const [url, init] = fetch.calls[0]
+            assert.equal(url, 'https://webhooks.test/start')
+            const body = JSON.parse(init.body)
+            assert.equal(body.event, 'master_ci_incident_opened')
+            assert.equal(body.properties.channel, 'C0AS64N6DJL')
+            assert.equal(body.properties.ts, '111.222') // the anchor, so the agent replies under it
+            assert.deepEqual(body.properties.workflows, ['Backend CI'])
+        })
+
+        it('retries a failed start rather than losing it', async () => {
+            const fetch = makeWebhook([502, 200])
+            const { failures } = await run(fiveFailures(), { env: webhookEnv, fetch })
+
+            assert.equal(fetch.calls.length, 2)
+            assert.deepEqual(failures, [])
+        })
+
+        it('fails the run when the start never lands', async () => {
+            const fetch = makeWebhook([500])
+            const { outputs, failures } = await run(fiveFailures(), { env: webhookEnv, fetch })
+
+            assert.equal(fetch.calls.length, 3)
+            assert.equal(failures.length, 1)
+            assert.match(failures[0], /HTTP 500/)
+            // The alert itself still posted; only the agent start is missing.
+            assert.equal(outputs.action, 'create')
+        })
+
+        it('stays quiet when no webhook is configured', async () => {
+            const fetch = makeWebhook()
+            const { outputs, failures } = await run(fiveFailures(), { fetch })
+
+            assert.equal(outputs.action, 'create')
+            assert.equal(fetch.calls.length, 0)
+            assert.deepEqual(failures, [])
+        })
+
+        it('does not start a second agent while the incident stays open', async () => {
+            const fetch = makeWebhook()
+            const github = createGithubMock({
+                'ci-backend.yml': runs('Backend CI', Array(8).fill('failure')),
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            })
+            const { outputs } = await run(github, { history: [activeAnchor()], env: webhookEnv, fetch })
+
+            assert.equal(outputs.action, 'update')
+            assert.equal(fetch.calls.length, 0)
+        })
+    })
 
     it('updates the existing anchor instead of posting a duplicate (regression)', async () => {
         const github = createGithubMock({

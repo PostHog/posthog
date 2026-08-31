@@ -167,7 +167,7 @@ export const FEATURE_FLAGS = {
     BILLING_FORECASTING_ISSUES: 'billing-forecasting-issues', // owner: #team-billing, see `Billing.tsx`, used to raise a warning when billing is having problems
     COMING_SOON_WAITLIST_SURVEYS: 'coming-soon-waitlist-surveys', // owner: #team-growth, see `FeaturePreviews.tsx`, swaps concept-stage one-click for an email waitlist survey
     HOG: 'hog', // owner: #team-data-tools, see `DebugScene.tsx` and also insights
-    NAV_PANEL_CAMPAIGN: 'nav-panel-campaign', // owner: #team-growth, sidebar promotional campaign, payload-driven. See NavPanelAdvertisement.tsx
+    NAV_PANEL_BROADCAST: 'nav-panel-broadcast', // owner: #team-growth, hand-authored sidebar broadcast, payload-driven. See NavPanelAdvertisement.tsx
     QUERY_TIMINGS: 'query-timings', // owner: #team-analytics-platform, usage: see `dataTableLogic.ts`
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith, see `signupLogic.ts`
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite, usage: see `loadPosthogJS.tsx`
@@ -217,6 +217,7 @@ export const FEATURE_FLAGS = {
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
     HEATMAPS_CREATION_FLOW: 'heatmaps-creation-flow', // owner: #team-web-analytics, gates the guided heatmap creation wizard at /heatmaps/new
+    HEATMAPS_EVENT_FILTER: 'heatmaps-event-filter', // owner: #team-web-analytics
     HEATMAPS_RECORDING_CLICKMAP: 'heatmaps-recording-clickmap', // owner: #team-web-analytics
     HEATMAPS_SCREENSHOT_PREWARM: 'heatmaps-screenshot-prewarm', // owner: #team-web-analytics, pre-renders the screenshot while entering a URL in the wizard
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: #team-web-analytics
@@ -239,8 +240,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
-    SLACK_APP_ASSISTANT: 'slack-app-assistant', // owner: @VojtechBartos #team-platform-features
-    SLACK_APP_OAUTH: 'slack-app-oauth', // owner: @VojtechBartos #team-platform-features
     SLOPE_GRAPH_INSIGHT: 'slope-graph-insight', // owner: @pauldambra #team-product-analytics
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
@@ -347,6 +346,7 @@ export const FEATURE_FLAGS = {
     FIELD_NOTES: 'field-notes', // owner: @adamleith
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
+    GITHUB_WORKFLOW_TRIGGERS: 'github-workflow-triggers', // owner: #team-workflows-cdp
     GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
@@ -373,7 +373,6 @@ export const FEATURE_FLAGS = {
     LOGS: 'logs', // owner: #team-logs
     LOGS_ANOMALIES: 'logs-anomalies', // owner: @jonmcwest #team-logs
     LOGS_IN_ERROR_TRACKING: 'logs-in-error-tracking', // owner: @jonmcwest #team-logs
-    LOGS_METRIC_RULES: 'logs-metric-rules', // owner: #team-logs
     LOGS_SERVICES_VIEW: 'logs-services-view', // owner: #team-logs
     LOGS_SERVICES_VIEW_V2: 'logs-services-view-v2', // owner: #team-logs
     LOGS_SETTINGS_JSON: 'logs-settings-json', // owner: #team-logs
