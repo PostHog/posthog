@@ -267,7 +267,9 @@ describe('ProactiveSubscriptionFields', () => {
         )
 
         expect(screen.getByText(/Previously selected source \(unavailable\)/)).toBeInTheDocument()
-        fireEvent.click(screen.getByRole('button', { name: 'Clear public research' }))
+        const clearPublicResearch = screen.getByText('Clear public research').closest('button')
+        expect(clearPublicResearch).not.toBeNull()
+        fireEvent.click(clearPublicResearch!)
         expect(setPublicResearchSubject).toHaveBeenCalledWith(null)
     })
 
