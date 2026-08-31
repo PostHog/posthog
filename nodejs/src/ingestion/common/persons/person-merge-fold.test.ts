@@ -178,6 +178,17 @@ describe('createMergeFoldPlanningStep', () => {
         expect(planOf(items[2])).toBe(plan)
     })
 
+    it('excludes anon ids no backend can store, which would fail the fold transaction', async () => {
+        // A NUL cannot exist in Postgres text and over 400 code points
+        // cannot fit the column, so folding one in aborts the whole
+        // transaction and every pair with it.
+        const items = await scan([identify('anon-1'), identify('anon\u0000two'), identify('x'.repeat(401))])
+
+        expect(planOf(items[0])?.pairs.map((p) => p.anonDistinctId)).toEqual(['anon-1'])
+        expect(items[1].mergeFold.type).toBe('immediate')
+        expect(items[2].mergeFold.type).toBe('immediate')
+    })
+
     it('skips planning when only illegal anon distinct ids are in the run', async () => {
         const items = await scan([identify('anonymous'), identify('null')])
 
