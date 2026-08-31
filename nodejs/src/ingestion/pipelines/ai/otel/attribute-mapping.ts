@@ -7,6 +7,8 @@ import {
 } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { usableStopReason } from './middleware/stop-reason'
+
 const ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.input.messages': '$ai_input',
     'gen_ai.output.messages': '$ai_output_choices',
@@ -283,8 +285,7 @@ function reconstructOutputChoice(entry: Record<string, unknown>): Record<string,
     // picks them up directly. The older spec reports `finish_reason` on the choice rather than on
     // the message, so carry it onto the flat message, which is where the middlewares' stop-reason
     // lift reads it.
-    const finishReason =
-        typeof entry.finish_reason === 'string' && entry.finish_reason !== '' ? entry.finish_reason : undefined
+    const finishReason = usableStopReason(entry.finish_reason)
     if (typeof entry.message === 'object' && entry.message !== null && !Array.isArray(entry.message)) {
         // Shallow-copy so the downstream $ai_output_choices array does not
         // share references with the transient parsed `events` payload.

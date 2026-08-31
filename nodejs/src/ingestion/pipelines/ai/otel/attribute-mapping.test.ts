@@ -340,6 +340,12 @@ describe('mapOtelAttributes', () => {
                     finish_reason: 'stop',
                     'event.name': 'gen_ai.choice',
                 },
+                {
+                    role: 'assistant',
+                    content: 'oversized',
+                    finish_reason: 'x'.repeat(65),
+                    'event.name': 'gen_ai.choice',
+                },
             ]
             const event = createEvent('$ai_generation', { events: JSON.stringify(events) })
             mapOtelAttributes(event)
@@ -347,6 +353,7 @@ describe('mapOtelAttributes', () => {
             expect(event.properties!.$ai_output_choices).toEqual([
                 { role: 'assistant', content: 'wrapped', finish_reason: 'length' },
                 { role: 'assistant', content: 'bare', finish_reason: 'stop' },
+                { role: 'assistant', content: 'oversized' },
             ])
         })
 
