@@ -2,6 +2,8 @@
 
 All analytics events tracked from the tasks backend via `posthoganalytics.capture()`.
 
+Update this document whenever a new event or property is added.
+
 All events include group analytics via `groups()` from `posthog.event_usage`, which sets `instance`, `organization`, `customer`, and `project` groups where available.
 
 ## Standard Properties
