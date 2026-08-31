@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import argparse
+import itertools
 import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
@@ -632,19 +633,59 @@ class CycleBreaker:
             order.extend(CycleBreaker._best_inner_order(members, weights))
         return order
 
+    # Exhaustive permutation search is factorial; beyond this SCC size, fall
+    # back to the greedy heuristic. The FK-level app SCC hit 21 members in
+    # Aug 2026, where exhaustive search does not return.
+    _EXACT_ORDER_LIMIT = 8
+
+    @staticmethod
+    def _order_cost(seq: list[str], weights: dict[tuple[str, str], int]) -> int:
+        pos = {n: i for i, n in enumerate(seq)}
+        return sum(w for (u, v), w in weights.items() if u in pos and v in pos and pos[u] > pos[v])
+
     @staticmethod
     def _best_inner_order(members: list[str], weights: dict[tuple[str, str], int]) -> list[str]:
-        import itertools
+        if len(members) <= CycleBreaker._EXACT_ORDER_LIMIT:
+            best: list[str] = members
+            best_cost = float("inf")
+            for perm in itertools.permutations(members):
+                cost = CycleBreaker._order_cost(list(perm), weights)
+                if cost < best_cost:
+                    best_cost = cost
+                    best = list(perm)
+            return best
+        return CycleBreaker._greedy_inner_order(members, weights)
 
-        best: list[str] = members
-        best_cost = float("inf")
-        for perm in itertools.permutations(members):
-            pos = {n: i for i, n in enumerate(perm)}
-            cost = sum(w for (u, v), w in weights.items() if u in pos and v in pos and pos[u] > pos[v])
-            if cost < best_cost:
-                best_cost = cost
-                best = list(perm)
-        return best
+    @staticmethod
+    def _greedy_inner_order(members: list[str], weights: dict[tuple[str, str], int]) -> list[str]:
+        """Weighted feedback-arc heuristic: place the node whose pending inbound
+        weight (edges that would become back edges) minus outbound weight is
+        smallest, then refine with adjacent swaps. Deterministic via name
+        tiebreak. Order quality only affects how many FK fields get deferred to
+        finalize_fks, never correctness."""
+        remaining = set(members)
+        order: list[str] = []
+        while remaining:
+
+            def placement_cost(n: str) -> tuple[int, int, str]:
+                in_w = sum(w for (u, v), w in weights.items() if v == n and u != n and u in remaining)
+                out_w = sum(w for (u, v), w in weights.items() if u == n and v != n and v in remaining)
+                return (in_w - out_w, in_w, n)
+
+            nxt = min(remaining, key=placement_cost)
+            order.append(nxt)
+            remaining.remove(nxt)
+
+        for _ in range(len(order) ** 2):
+            improved = False
+            for i in range(len(order) - 1):
+                cand = [*order[:i], order[i + 1], order[i], *order[i + 2 :]]
+                if CycleBreaker._order_cost(cand, weights) < CycleBreaker._order_cost(order, weights):
+                    order = cand
+                    improved = True
+            if not improved:
+                break
+        return order
 
     def _compute_intra_app_deferred(self, state: ProjectState) -> set[FKField]:
         """Per app, find intra-app FK cycles and defer back-edge fields.
@@ -803,14 +844,22 @@ class Emitter:
         self.squasher = squasher
         self.app = app
         self.cycle_breaker = cycle_breaker
+        # RunSQL ops from claimed migrations that the squash neither reproduces
+        # via CreateModel nor forwards to schema_addons. Populated by
+        # _collect_index_runsql_ops; emit writes them to DROPPED_RUNSQL.txt so
+        # every drop is auditable instead of silent.
+        self.dropped_runsql: list[str] = []
 
     def _models_in_app(self) -> list[Any]:
         return [ms for (app, _), ms in self.state.models.items() if app == self.app]
 
-    def _create_model_op(self, ms: Any, skip_fields: set[str]) -> tuple[Any, list[Any], list[Any]]:
+    def _create_model_op(
+        self, ms: Any, skip_fields: set[str]
+    ) -> tuple[Any, list[Any], list[Any], list[tuple[str, Any]]]:
         """Build a CreateModel that omits `skip_fields` plus any index/constraint
-        referencing those fields. Return the CreateModel plus deferred indexes
-        and constraints to be re-added in finalize_fks.
+        referencing those fields. Return the CreateModel plus deferred indexes,
+        constraints, and (option_key, full_value) unique_together/index_together
+        entries — all to be re-added in finalize_fks.
         """
         fields = [(name, field) for name, field in ms.fields.items() if name not in skip_fields]
         options = dict(ms.options)
@@ -837,13 +886,18 @@ class Emitter:
         if all_constraints:
             options["constraints"] = kept_constraints
         # unique_together / index_together also tolerate field lists. Strip any
-        # tuple that touches a deferred field. (We don't re-add these in
-        # finalize_fks — the test workload doesn't depend on them post-cycle.)
+        # tuple that touches a deferred field from the CreateModel; finalize_fks
+        # restores the full value via Alter*Together once the fields exist.
+        expanded_skip = set(skip_fields) | {f"{f}_id" for f in skip_fields}
+        deferred_together: list[tuple[str, Any]] = []
         for legacy_key in ("unique_together", "index_together"):
             legacy = options.get(legacy_key)
             if not legacy:
                 continue
-            filtered = {tuple(t) for t in legacy if not any(f in skip_fields for f in t)}
+            full = {tuple(t) for t in legacy}
+            filtered = {t for t in full if not any(f in expanded_skip for f in t)}
+            if filtered != full:
+                deferred_together.append((legacy_key, full))
             if filtered:
                 options[legacy_key] = filtered
             else:
@@ -856,7 +910,7 @@ class Emitter:
             bases=ms.bases,
             managers=ms.managers,
         )
-        return create, deferred_indexes, deferred_constraints
+        return create, deferred_indexes, deferred_constraints, deferred_together
 
     @staticmethod
     def _index_or_constraint_references(thing: Any, field_names: set[str]) -> bool:
@@ -968,7 +1022,38 @@ class Emitter:
                     deps.add((t_app, latest_old[t_app]))
                 elif t_app in self.BUILTIN_FK_APPS:
                     deps.add((t_app, "__latest__"))
+                else:
+                    # A silent drop here mis-orders the graph on fresh DBs: the
+                    # squash's CreateModel would carry an FK whose target app
+                    # has no dependency edge. Fail loudly; extend
+                    # BUILTIN_FK_APPS or EXCLUDED_APPS handling deliberately.
+                    raise RuntimeError(
+                        f"{self.app}.{mname}.{fname} FKs into app {t_app!r}, which the squash "
+                        f"neither claims (no old migrations) nor special-cases (BUILTIN_FK_APPS)"
+                    )
         return sorted(deps)
+
+    def _third_party_dependencies(self) -> list[tuple[str, str]]:
+        """Carry forward deps of claimed migrations into apps this repo does not
+        manage (e.g. posthog.0886 -> social_django.0010_uid_db_index). These are
+        hand-authored sequencing guarantees with no FK behind them, so the FK
+        walk cannot see them; dropping one lets the squash apply before a
+        third-party migration it needs. Keep the highest dep name per app.
+        """
+        managed_apps = {m.ref.app for m in self.squasher.tree.migrations.values()}
+        best: dict[str, str] = {}
+        for m in self.squasher.old.values():
+            if m.ref.app != self.app:
+                continue
+            for dep in m.dependencies:
+                if dep.app in managed_apps or dep.app == "__setting__":
+                    continue
+                if dep.name.startswith("__"):
+                    continue  # __first__/__latest__ sentinels; the FK walk covers these
+                cur = best.get(dep.app)
+                if cur is None or dep.name > cur:
+                    best[dep.app] = dep.name
+        return sorted(best.items())
 
     def _replaces(self) -> list[tuple[str, str]]:
         """Claim every old migration for this app, including the transitive
@@ -1112,7 +1197,7 @@ class Emitter:
         kept: list[Any | None] = []
         create_position: dict[str, int] = {}
 
-        def walk(ops: list[Any]) -> None:
+        def walk(mig_name: str, ops: list[Any]) -> None:
             for op in ops:
                 kind = op.__class__.__name__
                 if kind == "RunSQL":
@@ -1126,6 +1211,7 @@ class Emitter:
                     # collide. We only forward *pure* index work.
                     sql_upper = sql_text.upper()
                     if any(kw in sql_upper for kw in ("CREATE TABLE", "ALTER TABLE", "DROP TABLE")):
+                        self.dropped_runsql.append(f"{self.app}.{mig_name} [table-ddl]: {sql_text[:160]}")
                         continue
                     drop_match = self._DROP_INDEX_RE.search(sql_text)
                     if drop_match:
@@ -1136,6 +1222,7 @@ class Emitter:
                         continue
                     create_match = self._CREATE_INDEX_RE.search(sql_text)
                     if not create_match:
+                        self.dropped_runsql.append(f"{self.app}.{mig_name} [unrecognized]: {sql_text[:160]}")
                         continue
                     idx_name, table_name = create_match.group(1), create_match.group(2).lower()
                     if idx_name in meta_index_names:
@@ -1154,12 +1241,12 @@ class Emitter:
                     kept.append(safe_op)
                     create_position[idx_name] = len(kept) - 1
                 elif kind == "SeparateDatabaseAndState":
-                    walk(list(op.database_operations))
+                    walk(mig_name, list(op.database_operations))
 
         for (app, name), m in sorted(loader.graph.nodes.items()):
             if app != self.app or (app, name) not in claimed_keys:
                 continue
-            walk(list(m.operations))
+            walk(name, list(m.operations))
 
         return [op for op in kept if op is not None]
 
@@ -1218,7 +1305,7 @@ class Emitter:
         # read by code firing in parallel from bin/migrate's migrate_clickhouse).
         stub_ops: list[Any] = list(self._extension_preamble_ops())
         for ms in early_models:
-            create, _, _ = self._create_model_op(ms, set())
+            create, _, _, _ = self._create_model_op(ms, set())
             stub_ops.append(create)
         stub = SquashFile(
             app=self.app,
@@ -1233,16 +1320,20 @@ class Emitter:
         initial_ops: list[Any] = []
         deferred_indexes: list[tuple[str, Any]] = []  # (model_name_lower, Index)
         deferred_constraints: list[tuple[str, Any]] = []  # (model_name_lower, Constraint)
+        deferred_togethers: list[tuple[str, str, Any]] = []  # (model_name_lower, option_key, full_value)
         for ms in models:
             skip_fields = skip_by_model.get(ms.name.lower(), set())
-            create, idxs, cons = self._create_model_op(ms, skip_fields)
+            create, idxs, cons, togethers = self._create_model_op(ms, skip_fields)
             initial_ops.append(create)
             deferred_indexes.extend((ms.name.lower(), idx) for idx in idxs)
             deferred_constraints.extend((ms.name.lower(), c) for c in cons)
+            deferred_togethers.extend((ms.name.lower(), key, full) for key, full in togethers)
         # Initial's dependencies: stub + cross-app FK targets in the foreign-app
         # latest-old migration. The stub anchor means we're never __first__.
         initial_deps: list[tuple[str, str]] = [(self.app, self.STUB_NAME)]
         initial_deps.extend(self._cross_app_dependencies(skip_by_model))
+        initial_deps.extend(self._third_party_dependencies())
+        initial_deps = sorted(set(initial_deps))
         initial = SquashFile(
             app=self.app,
             name=self.INITIAL_NAME,
@@ -1257,7 +1348,7 @@ class Emitter:
         index_runsql_ops = self._collect_index_runsql_ops()
 
         deferred_fks = self.cycle_breaker.deferred_for_app(self.app)
-        if not deferred_fks and not deferred_indexes and not deferred_constraints:
+        if not deferred_fks and not deferred_indexes and not deferred_constraints and not deferred_togethers:
             if not index_runsql_ops:
                 return [stub, initial]
             addons = SquashFile(
@@ -1294,6 +1385,13 @@ class Emitter:
             addfield_ops.append(dj_migrations.AddIndex(model_name=model_name, index=idx))
         for model_name, c in deferred_constraints:
             addfield_ops.append(dj_migrations.AddConstraint(model_name=model_name, constraint=c))
+        # Restore the full unique_together / index_together sets now that every
+        # deferred field exists.
+        for model_name, key, full in deferred_togethers:
+            if key == "unique_together":
+                addfield_ops.append(dj_migrations.AlterUniqueTogether(name=model_name, unique_together=full))
+            else:
+                addfield_ops.append(dj_migrations.AlterIndexTogether(name=model_name, index_together=full))
 
         # finalize_fks depends on this app's initial + every foreign app's
         # initial, so its target tables exist. We deliberately do NOT depend on
@@ -1392,6 +1490,7 @@ def _run_emit(args: argparse.Namespace) -> None:
 
     writer = FileWriter(args.output_dir)
     written: list[Path] = []
+    dropped_runsql: list[str] = []
     # Retire manifest collected as we emit. Each replaced name maps to its owning
     # app; per-app we record both the pre-finalize leaf (where models are CREATED)
     # and the post-finalize leaf (where deferred FKs / indexes are wired). The
@@ -1407,6 +1506,7 @@ def _run_emit(args: argparse.Namespace) -> None:
     for app in apps:
         emitter = Emitter(state, squasher, app, cycle_breaker)
         squashes = emitter.build()
+        dropped_runsql.extend(emitter.dropped_runsql)
         # The initial squash is the second entry in `squashes` (after the stub).
         # If THAT has no operations, the app has no models to squash.
         initial = next((sq for sq in squashes if sq.name == emitter.INITIAL_NAME), None)
@@ -1454,6 +1554,11 @@ def _run_emit(args: argparse.Namespace) -> None:
         adds_file = args.output_dir / "FIRST_YOUNG_DEP_ADDITIONS.txt"
         adds_file.write_text("\n".join(f"{a}/{n}" for (a, n) in first_young_edits) + "\n")
         sys.stderr.write(f"wrote first-young dep-addition list to {adds_file}\n")
+
+    if dropped_runsql:
+        dropped_path = args.output_dir / "DROPPED_RUNSQL.txt"
+        dropped_path.write_text("\n".join(dropped_runsql) + "\n")
+        sys.stderr.write(f"wrote {len(dropped_runsql)} dropped-RunSQL entries to {dropped_path} — audit them\n")
 
     import json as _json
 
@@ -1506,10 +1611,13 @@ def _run_install(args: argparse.Namespace) -> None:
     # or schema_addons or just initial).
     manifest_path = output_dir / "RETIRE_MANIFEST.json"
     app_leaves: dict[str, str] = {}
+    app_initials: dict[str, str] = {}
     if manifest_path.exists():
         import json as _json
 
-        app_leaves = _json.loads(manifest_path.read_text()).get("leaves", {}) or {}
+        manifest = _json.loads(manifest_path.read_text())
+        app_leaves = manifest.get("leaves", {}) or {}
+        app_initials = manifest.get("initials", {}) or {}
 
     apps_processed: list[tuple[str, Path, list[Path]]] = []
     for app_dir in output_dir.iterdir() if output_dir.is_dir() else []:
@@ -1537,7 +1645,7 @@ def _run_install(args: argparse.Namespace) -> None:
         # Add dep on the app's leaf squash to first-young so finalize_fks /
         # schema_addons run before any young migration that needs them.
         leaf_name = app_leaves.get(app)
-        if leaf_name and leaf_name != Emitter.INITIAL_NAME:
+        if leaf_name and leaf_name != app_initials.get(app):
             for a, young_name in first_young_adds:
                 if a != app:
                     continue
