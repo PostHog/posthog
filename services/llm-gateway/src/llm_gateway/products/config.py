@@ -231,7 +231,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "llma_summarization": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"gpt-4.1-nano", "gpt-4.1-mini"}),
+        allowed_models=frozenset({"gpt-4.1-nano", "gpt-4.1-mini", "gpt-5-nano"}),
         allow_api_keys=True,
     ),
     "llma_eval_summary": ProductConfig(
