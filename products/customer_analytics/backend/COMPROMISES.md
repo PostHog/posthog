@@ -12,11 +12,10 @@ Shortcuts taken to ship the first version. Revisit when they bite.
 
 ## Custom property view sync
 
-- **Two bulk paths during rollout.** The legacy Celery task still re-queries the live view and has no
-  retry. A flagged successful materialization starts an isolated Temporal workflow that reads its
-  committed Delta snapshot and writes job-scoped Parquet. Staging failures remain visible without
-  failing the materialized view. Source create and re-enable still use Celery until the staged path
-  gains manual recovery.
+- **Temporal owns account-property syncs.** A successful materialization starts an isolated Temporal
+  workflow that reads its committed Delta snapshot and writes job-scoped Parquet. The workflow updates
+  property values and source status. Staging failures remain visible without failing the materialized
+  view.
 - **Run history is per source and segment.** Each source gets tracked and ignored records before
   staging starts. After both segments finish, their combined outcome updates the source status once.
 - **Tracked and ignored segments are independent.** They use separate snapshots, retries, and
@@ -26,22 +25,9 @@ Shortcuts taken to ship the first version. Revisit when they bite.
   / `key_column` exist in the view's schema. A bad column surfaces as a per-source sync error (and
   advances the auto-disable streak) on the next run, not as a 400 on save. Validate against the saved
   query's `columns` at write time if the delayed feedback bites.
-- **Initial sync is best-effort.** Saving an enabled account source queues a direct value sync on
-  commit so values populate without waiting for the next materialization. It does not write source
-  health. Temporal owns the scheduled sync outcome and run history. If the broker is down the save
-  still succeeds and the next materialization recovers.
-- **Create-path sync is synchronous, best-effort, and workflow-only.** When the external create
-  endpoint is called by a workflow "Create account" step (the `X-PostHog-Hog-Flow-Id` header),
-  it syncs warehouse-backed custom properties for the new account inline — scoped to its external
-  id, materialized views only — so the next workflow step can read the values. Creates without the
-  header skip the sync, which keeps the per-request warehouse fan-out off the general create path;
-  the header is caller-supplied, so a token holder can opt in by faking it — same trust level as
-  the existing workflow attribution. Failures are captured and swallowed: creation never fails,
-  and no sync outcome is recorded (streaks and `last_synced_at` belong to the scheduled full
-  sync). Values are as fresh as the last materialization. All enabled sources sync, not just
-  properties the workflow references — read-side usage isn't indexed, and one filtered query per
-  view is cheap. If the added request latency bites, narrow to workflow-referenced properties or
-  make the step poll.
+- **Source and account creation wait for materialization.** Creating or re-enabling an
+  account-property source, and creating an account through a workflow, does not hydrate values
+  directly. The next successful materialization updates the values through Temporal.
 - **v2 materialization only.** v1 `run_workflow.py` is frozen and does not dispatch the sync; v1
   teams get it after migrating to v2.
 

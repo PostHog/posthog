@@ -110,7 +110,6 @@ from products.customer_analytics.backend.logic.custom_property_definitions impor
     coerce_is_big_number,
     normalize_options,
 )
-from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_properties_for_account
 from products.customer_analytics.backend.logic.event_stream_destination import (
     archive_event_stream_destination,
     send_test_slack_message as send_test_slack_message,
@@ -523,8 +522,6 @@ def create_external_account(
     whether it was created; an existing account is returned untouched. The name comes from the
     matching group's ``name`` property (fallback: the external id). Attribution goes to the
     originating workflow (activity-log trigger) — there is no acting user on this path.
-    On workflow-originated creates, warehouse-backed custom properties are synced inline
-    (best-effort) so the response already carries them.
     Raises ``AccountPropertiesValidationError`` / ``AccountConflictError`` (concurrent create)."""
     existing = _get_external_account_by_external_id(team.pk, external_id)
     if existing is not None:
@@ -533,11 +530,6 @@ def create_external_account(
     account = create_account(
         team=team, name=_account_name_from_group(team, external_id), external_id=external_id, trigger=trigger
     )
-    if workflow_id is not None:
-        # Synchronous so the workflow can read the values in its next step; best-effort inside —
-        # a sync failure never fails the creation. Workflow-only to keep the per-request warehouse
-        # fan-out off the general create path.
-        sync_custom_properties_for_account(team_id=team.pk, external_id=external_id)
     return _to_external_account(account), True
 
 
@@ -1770,27 +1762,6 @@ def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[
     return cleaned
 
 
-def _send_initial_account_property_sync(team_id: int, saved_query_id: str) -> None:
-    try:
-        current_app.send_task(
-            "customer_analytics.process_custom_property_sync",
-            kwargs={"team_id": team_id, "saved_query_id": saved_query_id},
-        )
-    except Exception as error:
-        capture_exception(error)
-
-
-def _enqueue_initial_account_property_sync(source: CustomPropertySource) -> None:
-    if (
-        not source.is_enabled
-        or source.saved_query_id is None
-        or source.definition.target_type != TargetType.ACCOUNT.value
-    ):
-        return
-    team_id, saved_query_id = source.team_id, str(source.saved_query_id)
-    transaction.on_commit(lambda: _send_initial_account_property_sync(team_id, saved_query_id))
-
-
 # Targets fed by the warehouse staging/sync pipeline (person + group), as opposed to the account
 # materialized-view path. These share the sync-now / backfill / run-history machinery.
 _WAREHOUSE_PROFILE_TARGETS = (TargetType.PERSON.value, TargetType.GROUP.value)
@@ -2195,7 +2166,6 @@ def create_custom_property_source(
         if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
             raise
         raise CustomPropertySourceValidationError("This custom property already has a source.")
-    _enqueue_initial_account_property_sync(source)
     _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
@@ -2230,7 +2200,6 @@ def update_custom_property_source(
     source.save()
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
-        _enqueue_initial_account_property_sync(source)
         _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
