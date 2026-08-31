@@ -54,7 +54,7 @@ class TestWrapClickhouseQueryError:
             (
                 6,
                 "CANNOT_PARSE_TEXT",
-                "Cannot parse a value in the query as text. Check the types in your comparisons and IN clauses.",
+                "Cannot parse a text value as the required type. Check the types in your comparisons and IN clauses.",
             ),
             (
                 26,

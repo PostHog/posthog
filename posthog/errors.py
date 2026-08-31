@@ -372,7 +372,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     # response while still returning a 400 for the bad query (see also codes 26, 72, 130).
     6: ErrorCodeMeta(
         "CANNOT_PARSE_TEXT",
-        user_safe="Cannot parse a value in the query as text. Check the types in your comparisons and IN clauses.",
+        user_safe="Cannot parse a text value as the required type. Check the types in your comparisons and IN clauses.",
     ),
     7: ErrorCodeMeta("INCORRECT_NUMBER_OF_COLUMNS"),
     8: ErrorCodeMeta("THERE_IS_NO_COLUMN"),
