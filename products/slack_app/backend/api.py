@@ -104,7 +104,7 @@ from products.slack_app.backend.slack_link_unfurl import (
     link_url_region,
     parse_posthog_resource_link,
 )
-from products.slack_app.backend.slack_workflow_events import emit_slack_message_event
+from products.slack_app.backend.slack_workflow_events import emit_slack_message_event, is_triggering_message
 
 logger = structlog.get_logger(__name__)
 
@@ -547,6 +547,11 @@ def resolve_slack_user(
 # This keeps the slack manifest endpoint swappable between us.posthog.com and eu.posthog.com
 # without any other coordination.
 REGION_PROXY_HEADER = "X-PostHog-Region-Proxied"
+
+# Marks a copy of a channel message forwarded only for the workflow-trigger emit. A workspace can
+# be connected in both regions; the receiver runs the emit for its own projects and nothing else,
+# so the sender's pipeline (thread follow-ups, mentions) stays the only one handling the event.
+EMIT_ONLY_MIRROR_HEADER = "X-PostHog-Slack-Emit-Only"
 REGION_PROXY_TIMEOUT_SECONDS = 3
 # Tight budget: the workspace_claims endpoint is just a DB .exists(), and EU calls it inline
 # before deciding whether to proxy. Slack's webhook ack deadline is 3s total, so we want this
@@ -598,28 +603,46 @@ def was_proxied(request: HttpRequest) -> bool:
     return request.headers.get(REGION_PROXY_HEADER) == "1"
 
 
-def _proxy_event_to_region(request: HttpRequest, target_domain: str) -> requests.Response | None:
-    """Forward the original Slack event to the other region, tagged so the receiver does not hop again."""
+def _is_emit_only_mirror(request: HttpRequest) -> bool:
+    # Mirror copies also carry REGION_PROXY_HEADER, so `proxied` keeps guarding against re-hops.
+    return request.headers.get(EMIT_ONLY_MIRROR_HEADER) == "1"
+
+
+def _proxy_target_url(request: HttpRequest, target_domain: str) -> str:
     parsed_url = urlparse(request.build_absolute_uri())
     # In dev the EU "region" is plain-HTTP localhost while the incoming URI is HTTPS (ngrok-
     # terminated TLS), so always pick the scheme by target domain rather than copying the
     # inbound one. Production talks HTTPS region-to-region.
     target_scheme = "http" if settings.DEBUG else "https"
-    target_url = urlunparse(parsed_url._replace(scheme=target_scheme, netloc=target_domain))
+    return urlunparse(parsed_url._replace(scheme=target_scheme, netloc=target_domain))
+
+
+def _proxy_request_headers(request: HttpRequest) -> dict[str, str]:
     # Drop Host plus the host-identifying forwarded headers so the receiver computes its own
     # host from the new TCP connection rather than mirroring the sender's edge. X-Forwarded-For
     # is intentionally preserved so the original Slack client IP survives the inter-region hop.
     stripped = {"host", "x-forwarded-host", "forwarded"}
     headers = {key: value for key, value in request.headers.items() if key.lower() not in stripped}
     headers[REGION_PROXY_HEADER] = "1"
+    return headers
 
+
+def send_region_proxy_request(
+    *,
+    method: str,
+    target_url: str,
+    headers: dict[str, str],
+    params: dict[str, list[str]] | None = None,
+    body: bytes | None = None,
+) -> requests.Response | None:
+    """POST a Slack event payload to the other region and translate the outcome into logs."""
     try:
         response = requests.request(
-            method=request.method or "POST",
+            method=method,
             url=target_url,
             headers=headers,
-            params=dict(request.GET.lists()) if request.GET else None,
-            data=request.body or None,
+            params=params,
+            data=body,
             timeout=REGION_PROXY_TIMEOUT_SECONDS,
         )
         if 200 <= response.status_code < 300:
@@ -637,9 +660,74 @@ def _proxy_event_to_region(request: HttpRequest, target_domain: str) -> requests
         return None
 
 
+def _proxy_event_to_region(request: HttpRequest, target_domain: str) -> requests.Response | None:
+    """Forward the original Slack event to the other region, tagged so the receiver does not hop again."""
+    return send_region_proxy_request(
+        method=request.method or "POST",
+        target_url=_proxy_target_url(request, target_domain),
+        headers=_proxy_request_headers(request),
+        params=dict(request.GET.lists()) if request.GET else None,
+        body=request.body or None,
+    )
+
+
 def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> str:
     """Forward and translate the upstream result into a routing outcome string."""
     return ROUTE_PROXIED if _proxy_event_to_region(request, target_domain) is not None else ROUTE_PROXY_FAILED
+
+
+def _is_top_level_channel_post(event: dict[str, Any]) -> bool:
+    """Whether a channel ``message`` starts a thread rather than replying inside one.
+
+    Slack sets ``thread_ts`` on replies and to ``ts`` on the post that opened the thread. Top-level
+    posts are the ones the follow-up pipeline discards before its region gate, so the mirror is what
+    carries them across; a reply already reaches that gate and crosses through it.
+    """
+    thread_ts = event.get("thread_ts")
+    return not isinstance(thread_ts, str) or thread_ts == event.get("ts")
+
+
+def _mirror_message_event_to_other_region(
+    request: HttpRequest,
+    event: dict,
+    *,
+    slack_team_id: str,
+    incoming_host: str,
+    other_domain: str,
+) -> None:
+    """Queue an emit-only copy of a top-level channel post for the other region.
+
+    A workspace connected in both regions gets its events consumed by the region Slack delivers to,
+    and the plain hand-off only fires when that region holds no connection, so the other region's
+    workflow triggers would otherwise never see a top-level channel message. The claims probe and
+    the cross-region POST run in a Celery task: top-level posts dominate wire volume and the webhook
+    owes Slack an ack within three seconds, so this path spends no cross-region I/O inline.
+
+    Only top-level posts are mirrored. A thread reply already reaches the follow-up pipeline's
+    region gate and crosses through it, so mirroring one would make the other region emit it twice.
+    """
+    if not _is_top_level_channel_post(event):
+        return
+    if not is_triggering_message(event):
+        return
+    headers = _proxy_request_headers(request)
+    headers[EMIT_ONLY_MIRROR_HEADER] = "1"
+    # noqa reason: the task module imports this module's probe and transport, so a module-level
+    # import here would be circular.
+    from products.slack_app.backend.tasks import mirror_slack_message_event  # noqa: PLC0415
+
+    try:
+        mirror_slack_message_event.delay(
+            slack_team_id=slack_team_id,
+            incoming_host=incoming_host,
+            target_url=_proxy_target_url(request, other_domain),
+            headers=headers,
+            body=(request.body or b"").decode("utf-8"),
+        )
+    except Exception:
+        # A broker failure must not 500 the shared webhook: Slack would redeliver, and the mention
+        # pipeline would handle the copy again. A lost mirror costs the other region one message.
+        logger.exception("slack_app_mirror_dispatch_failed", slack_team_id=slack_team_id)
 
 
 def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
@@ -2042,6 +2130,17 @@ def route_posthog_code_event_to_relevant_region(
         # posts the follow-up pipeline discards are the ones it exists for. Emitting here rather
         # than inside that pipeline keeps the two independent.
         if event_type == "message":
+            # A mirror copy exists only to feed the receiving region's emit — the sender's pipeline
+            # already handles the event itself, so running the drops below would double-handle it.
+            if _is_emit_only_mirror(request):
+                emit_slack_message_event(
+                    event,
+                    slack_team_id,
+                    event_id=event_id,
+                    is_ext_shared_channel=is_ext_shared_channel,
+                )
+                return ROUTE_HANDLED_LOCALLY
+
             should_try_other_region = emit_slack_message_event(
                 event,
                 slack_team_id,
@@ -2049,10 +2148,20 @@ def route_posthog_code_event_to_relevant_region(
                 is_ext_shared_channel=is_ext_shared_channel,
             )
             # The emit sees only this region's connections, and the drops below end a top-level post
-            # before the pipeline's region gate could forward it. No US-precedence probe: for a
-            # channel trigger, whichever region holds the connection should run the workflow.
-            if should_try_other_region and not proxied and cross_region_routing_enabled():
-                return _proxy_event_and_return_route(request, other_domain)
+            # before the pipeline's region gate could forward it. For a channel trigger, every
+            # region holding a connection should run its workflows: with no local connection the
+            # whole event defers to the other region, and with one the event is handled here and a
+            # workspace connected over there as well gets an emit-only mirror.
+            if not proxied and cross_region_routing_enabled():
+                if should_try_other_region:
+                    return _proxy_event_and_return_route(request, other_domain)
+                _mirror_message_event_to_other_region(
+                    request,
+                    event,
+                    slack_team_id=slack_team_id,
+                    incoming_host=incoming_host,
+                    other_domain=other_domain,
+                )
 
         if event_type == "app_mention":
             ignore_reason = _app_mention_ignore_reason(event)
@@ -2084,8 +2193,7 @@ def route_posthog_code_event_to_relevant_region(
                 )
                 return ROUTE_HANDLED_LOCALLY
             # Top-level channel posts dominate the wire volume; drop before the pipeline's DB hits.
-            top_level_thread_ts = event.get("thread_ts")
-            if not isinstance(top_level_thread_ts, str) or top_level_thread_ts == event.get("ts"):
+            if _is_top_level_channel_post(event):
                 return ROUTE_HANDLED_LOCALLY
 
         slack_user_id_str = str(event.get("user") or "")
@@ -2792,11 +2900,7 @@ def _channel_is_approved(slack_workspace_id: str, channel_id: str) -> bool:
     at all lives on the Slack event envelope — see ``posthog_code_event_handler``
     — so this only needs to answer the persistence question.
     """
-    return SlackChannel.objects.filter(
-        slack_workspace_id=slack_workspace_id,
-        slack_channel_id=channel_id,
-        approved_at__isnull=False,
-    ).exists()
+    return SlackChannel.approval_granted(slack_workspace_id, channel_id)
 
 
 def _post_channel_approval_prompt(

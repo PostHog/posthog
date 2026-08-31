@@ -89,6 +89,7 @@ import {
   APP_SERVER_METHODS,
   APP_SERVER_NOTIFICATIONS,
   APP_SERVER_REQUESTS,
+  CODEX_CLIENT_INFO,
 } from "./protocol";
 import {
   type CodexSandboxPolicy,
@@ -121,10 +122,12 @@ type AppServerSessionMeta = {
   taskId?: string;
   persistence?: { taskId?: string };
   environment?: "local" | "cloud";
+  mode?: string;
   channelMode?: boolean;
   spokenNarration?: boolean;
   baseBranch?: string;
   taskOriginProduct?: string;
+  endRunWhenDone?: boolean;
   posthogExecPermissionRegex?: string;
   nativeGoal?: NativeGoalState;
 };
@@ -339,11 +342,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
   async initialize(request: InitializeRequest): Promise<InitializeResponse> {
     await this.rpc.request(APP_SERVER_METHODS.INITIALIZE, {
-      clientInfo: {
-        name: "posthog-code",
-        title: "PostHog",
-        version: "0.1.0",
-      },
+      clientInfo: CODEX_CLIENT_INFO,
       // Opt into codex's experimental API so experimental turn/start fields are honored.
       capabilities: { experimentalApi: true, requestAttestation: false },
     });
@@ -678,6 +677,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (!meta) return undefined;
     return {
       environment: meta.environment,
+      background: meta.mode === "background",
       channelMode: meta.channelMode,
       spokenNarration: resolveSpokenNarration(meta),
       taskId: meta.taskId,
@@ -686,6 +686,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       baseBranch: meta.baseBranch,
       peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
       taskOriginProduct: meta.taskOriginProduct,
+      endRunWhenDone: meta.endRunWhenDone === true,
     };
   }
 

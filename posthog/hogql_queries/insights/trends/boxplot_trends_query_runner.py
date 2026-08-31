@@ -95,6 +95,7 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            database=self.shared_database,
         )
 
         all_boxplot_data: list[BoxPlotDatum] = []
@@ -110,6 +111,7 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
                     query=boxplot_query,
                     team=self.team,
                     user=self.user,
+                    context=self.build_hogql_context(),
                     timings=self.timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,

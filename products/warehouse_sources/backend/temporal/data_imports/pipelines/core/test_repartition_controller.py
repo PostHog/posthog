@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports import workload_re
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller as ctrl
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    RepartitionAttemptsExhausted,
     RepartitionSupersededError,
     RepartitionUnpartitionableError,
 )
@@ -952,6 +953,46 @@ class TestRepartitionActivity:
             }
         )
         self._run(self._inputs(team, schema), AsyncMock(side_effect=ValueError("boom")))
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+
+    @pytest.mark.parametrize("trigger_reason", ["coarsening", "admin"])
+    def test_give_up_reports_to_error_tracking(self, team, trigger_reason):
+        # The give-up path fires when the cap is already spent by attempts that were hard-killed before
+        # they could record an outcome. It is the only terminal repartition path that never ran
+        # `_handle_failure` (which captures), so without an explicit capture here the most severe
+        # outcome — a table the controller has abandoned — is invisible in error tracking.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": trigger_reason,
+                "attempts": ctrl.MAX_REPARTITION_ATTEMPTS,
+            }
+        )
+        rewrite = AsyncMock()
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=rewrite),
+            patch.object(repartition_table, "capture_repartition_event") as capture,
+            patch.object(repartition_table, "capture_exception") as capture_exception,
+            patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
+            # A coarsening trigger answers to the coarsen flag, not the repartition one; without this the
+            # activity releases the queued rewrite before reaching the give-up.
+            patch.object(repartition_table, "is_auto_coarsen_enabled", return_value=True),
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+
+        # The cap was already spent, so no rewrite is attempted — this is the pre-run give-up.
+        rewrite.assert_not_called()
+        capture_exception.assert_called_once()
+        assert isinstance(capture_exception.call_args.args[0], RepartitionAttemptsExhausted)
+        failed = [c.args[1] for c in capture.call_args_list if c.args[0] == "warehouse_repartition_failed"]
+        assert len(failed) == 1
+        assert failed[0]["final"] is True
+        assert failed[0]["error_type"] == "RepartitionAttemptsExhausted"
         schema.refresh_from_db()
         assert schema.repartition_pending is None
 

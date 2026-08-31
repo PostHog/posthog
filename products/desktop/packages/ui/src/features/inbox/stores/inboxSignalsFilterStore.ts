@@ -15,6 +15,9 @@ type SignalSortField = Extract<
 
 type SignalSortDirection = "asc" | "desc";
 
+/** Whether to show every report, only PR-backed ones, or only PR-less ones. */
+export type InboxPrFilter = "all" | "with_pr" | "without_pr";
+
 interface InboxSignalsFilterState {
   sortField: SignalSortField;
   sortDirection: SignalSortDirection;
@@ -23,14 +26,17 @@ interface InboxSignalsFilterState {
   sourceProductFilter: SourceProduct[];
   /** Empty array means "all priorities" (no filter). */
   priorityFilter: SignalReportPriority[];
+  prFilter: InboxPrFilter;
 }
 
 interface InboxSignalsFilterActions {
   setSort: (field: SignalSortField, direction: SignalSortDirection) => void;
   setSearchQuery: (query: string) => void;
   toggleSourceProduct: (source: SourceProduct) => void;
+  setSourceProductFilter: (sources: SourceProduct[]) => void;
   togglePriority: (priority: SignalReportPriority) => void;
   setPriorityFilter: (priorities: SignalReportPriority[]) => void;
+  setPrFilter: (prFilter: InboxPrFilter) => void;
   /** Clear the source filter back to "Any" (empty = all sources). */
   clearSourceProductFilter: () => void;
   /** Reset all filters when a deep link arrives so the linked report isn't hidden. */
@@ -39,6 +45,28 @@ interface InboxSignalsFilterActions {
 
 type InboxSignalsFilterStore = InboxSignalsFilterState &
   InboxSignalsFilterActions;
+
+/**
+ * Whether a filter that can hide reports is active. Sort only reorders the
+ * list, so it does not count. This is the single definition of "filtered" used
+ * by the empty states and the filter bar.
+ *
+ * `includePrFilter` defaults to true. Surfaces that neither apply nor expose the
+ * PR filter (the legacy Reports and Pull requests tabs) pass false, so a stored
+ * PR filter they ignore does not make their empty state read as "filtered".
+ */
+export function hasActiveInboxFilters(
+  state: InboxSignalsFilterState,
+  options?: { includePrFilter?: boolean },
+): boolean {
+  const includePrFilter = options?.includePrFilter ?? true;
+  return (
+    state.searchQuery.trim().length > 0 ||
+    state.sourceProductFilter.length > 0 ||
+    state.priorityFilter.length > 0 ||
+    (includePrFilter && state.prFilter !== "all")
+  );
+}
 
 /**
  * v2 dropped per-status and per-reviewer filter UI; surviving consumers are sort,
@@ -54,6 +82,7 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
       searchQuery: "",
       sourceProductFilter: [],
       priorityFilter: [],
+      prFilter: "all",
       setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
       setSearchQuery: (searchQuery) => set({ searchQuery }),
       toggleSourceProduct: (source) =>
@@ -64,6 +93,8 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
             : [...current, source];
           return { sourceProductFilter: next };
         }),
+      setSourceProductFilter: (sources) =>
+        set({ sourceProductFilter: Array.from(new Set(sources)) }),
       togglePriority: (priority) =>
         set((state) => {
           const current = state.priorityFilter;
@@ -76,12 +107,14 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
         set({
           priorityFilter: Array.from(new Set(priorities)),
         }),
+      setPrFilter: (prFilter) => set({ prFilter }),
       clearSourceProductFilter: () => set({ sourceProductFilter: [] }),
       resetFilters: () =>
         set({
           searchQuery: "",
           sourceProductFilter: [],
           priorityFilter: [],
+          prFilter: "all",
         }),
     }),
     {
@@ -104,6 +137,7 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
         sortDirection: state.sortDirection,
         sourceProductFilter: state.sourceProductFilter,
         priorityFilter: state.priorityFilter,
+        prFilter: state.prFilter,
       }),
     },
   ),

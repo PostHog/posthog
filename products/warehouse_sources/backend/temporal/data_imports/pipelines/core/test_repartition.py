@@ -670,7 +670,10 @@ class TestRewriteIntoTemp:
         # the deadline for the early reads and every later read is over it.
         clock = Mock(side_effect=itertools.chain([0.0] * 4, itertools.repeat(100.0)))
 
-        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
+        with (
+            patch.object(repartition_module, "time", Mock(monotonic=clock)),
+            patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 2),
+        ):
             with pytest.raises(RepartitionBudgetExceededError):
                 asyncio.run(
                     _rewrite_into_temp(
@@ -711,7 +714,10 @@ class TestRewriteIntoTemp:
 
         # Stop the first pass after the buffer has flushed once, so temp holds a partial prefix.
         clock = Mock(side_effect=itertools.chain([0.0] * 4, itertools.repeat(100.0)))
-        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
+        with (
+            patch.object(repartition_module, "time", Mock(monotonic=clock)),
+            patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 2),
+        ):
             with pytest.raises(RepartitionBudgetExceededError):
                 asyncio.run(
                     _rewrite_into_temp(
@@ -1702,9 +1708,12 @@ class TestClaimFencing:
         assert rows_written == 24
         assert ensure.await_count == 1
 
-    def test_rewrite_coalesces_batches_into_one_commit(self, tmp_path):
-        # Commits must scale with data size, not source file count: under one batch_size worth of
-        # rows the whole rewrite lands as a single commit, losing no rows.
+    @pytest.mark.parametrize("batch_size", [50_000, 2])
+    def test_rewrite_coalesces_batches_into_one_commit(self, batch_size, tmp_path):
+        # Commits must scale with data size, not source file count or scan batch count: under one
+        # buffer's worth of rows the whole rewrite lands as a single commit, losing no rows. A scan
+        # batch size the buffer bound is derived from would cap the buffer at one batch and commit
+        # per batch instead, which is a throughput floor, not just extra versions.
         rows = [(i, datetime.datetime(2024, 1 + (i % 12), 5)) for i in range(1, 37)]
         live = _write_month_partitioned(str(tmp_path / "live"), rows)
         assert len(measure_partition_bytes(live)) == 12
@@ -1719,7 +1728,7 @@ class TestClaimFencing:
                 temp_uri=temp_uri,
                 storage_options={},
                 target=target,
-                batch_size=50_000,
+                batch_size=batch_size,
                 logger=logger,
             )
         )
@@ -1727,7 +1736,8 @@ class TestClaimFencing:
         temp = deltalake.DeltaTable(temp_uri)
         assert rows_written == 36
         assert temp.to_pyarrow_dataset().count_rows() == 36
-        # Version 0 is the sole commit; one-per-source-file would leave version 11.
+        # Version 0 is the sole commit; one-per-source-file would leave version 11, and
+        # one-per-scan-batch would leave version 17 at batch_size=2.
         assert temp.version() == 0
 
     def test_rewrite_of_empty_source_writes_nothing(self, tmp_path):
@@ -1789,12 +1799,12 @@ class TestClaimFencing:
         assert temp.to_pyarrow_dataset().count_rows() == 24
         assert temp.version() > 0
 
-    def test_rewrite_never_buffers_beyond_batch_size(self, tmp_path):
+    def test_rewrite_never_buffers_beyond_its_row_bound(self, tmp_path):
         # Appending before the size check lets a nearly-full buffer take another full-sized batch, so
-        # peak memory reaches ~2x batch_size — a regression on the one-batch bound the rewrite held
-        # before it coalesced, in the module that exists because oversized in-memory data OOMs the
-        # worker. Four 6-row source files against batch_size=10 catch it: flushing after the append
-        # writes commits of 12 rows, flushing before it keeps every commit within the bound.
+        # peak memory reaches ~2x the bound, in the module that exists because oversized in-memory
+        # data OOMs the worker. Four 6-row source files against a 10-row bound catch it: flushing
+        # after the append writes commits of 12 rows, flushing before it keeps every commit within
+        # the bound.
         rows = [(i, datetime.datetime(2024, 1 + (i % 4), 5)) for i in range(1, 25)]
         live = _write_month_partitioned(str(tmp_path / "live"), rows)
         assert len(measure_partition_bytes(live)) == 4
@@ -1803,16 +1813,17 @@ class TestClaimFencing:
             partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
         )
         temp_uri = str(tmp_path / "temp")
-        rows_written, _ = asyncio.run(
-            _rewrite_into_temp(
-                old_delta=live,
-                temp_uri=temp_uri,
-                storage_options={},
-                target=target,
-                batch_size=10,
-                logger=logger,
+        with patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 10):
+            rows_written, _ = asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=live,
+                    temp_uri=temp_uri,
+                    storage_options={},
+                    target=target,
+                    batch_size=2,
+                    logger=logger,
+                )
             )
-        )
 
         temp = deltalake.DeltaTable(temp_uri)
         assert rows_written == 24

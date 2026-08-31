@@ -1,309 +1,383 @@
 import {
   ArrowSquareOutIcon,
-  CaretDownIcon,
-  ChatCircleIcon,
-  GitPullRequestIcon,
+  ClockIcon,
+  CopyIcon,
+  DotsThreeIcon,
+  ReceiptIcon,
+  ShapesIcon,
 } from "@phosphor-icons/react";
-import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
-import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
-import { Button } from "@posthog/quill";
-import type { SignalReport } from "@posthog/shared/types";
-import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
-import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
-import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
-  findContinuableImplementationTask,
-  getTaskPrUrl,
-  useReportTasks,
-} from "@posthog/ui/features/inbox/hooks/useReportTasks";
-import { useOpenTask } from "@posthog/ui/router/useOpenTask";
-import { Flex, Popover, Spinner, Text, TextArea } from "@radix-ui/themes";
-import { useCallback, useState } from "react";
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Spinner,
+  Textarea,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
+import type { SignalReport } from "@posthog/shared/types";
+import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
+import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";
+import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
+import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
+import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundReport";
+import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
+import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { useCallback, useMemo, useState } from "react";
 
 interface ReportDetailActionsProps {
   report: SignalReport;
+  /** Explicit PR URL (the PR-tab detail passes its own); falls back to the report's. */
+  prUrl?: string | null;
+  placement?: "standalone" | "header";
 }
 
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+const HEADER_ACTION_CLASS = "h-7 gap-1.5 px-2.5 text-[12px]";
 
-export function ReportDetailActions({ report }: ReportDetailActionsProps) {
-  const canCreatePr = canCreateImplementationPr(report);
-  // Resolved reports are terminal — their PR already merged, so no actions apply.
+/** Report actions split between page-level housekeeping and conversation work. */
+export function ReportDetailActions({
+  report,
+  prUrl: prUrlProp,
+  placement = "standalone",
+}: ReportDetailActionsProps) {
+  // The report's own PR (open or merged) backs the GitHub item, so a merged
+  // fix stays reachable from the page even after the banner demotes it to
+  // history.
+  const prUrl = prUrlProp ?? report.implementation_pr_url ?? null;
+  // Resolved reports are terminal (their PR already merged), so the work actions
+  // drop out; only the read-only overflow menu (copy link, PR link) stays.
   const isResolved = report.status === "resolved";
-  const { data: artefactsResp } = useInboxReportArtefacts(report.id);
-  const cloudRepository = extractRepoSelectionRepository(
-    artefactsResp?.results,
-  );
-
-  // Structural dedupe guard: re-engaging a report that already has live
-  // implementation work (an open PR, or a run still in flight) should continue
-  // that task rather than spin up a duplicate PR. `report.implementation_pr_url`
-  // alone is unreliable here — it can be stale or not yet set — so we also look
-  // at the linked implementation task's own state.
-  const { data: reportTasks, isLoading: reportTasksLoading } = useReportTasks(
-    report.id,
-    report.status,
-  );
-  const continuableTask = findContinuableImplementationTask(reportTasks);
-  const existingPrUrl =
-    report.implementation_pr_url ??
-    (continuableTask ? getTaskPrUrl(continuableTask) : null);
-  const hasExistingPr = !!existingPrUrl || !!continuableTask;
 
   const fireAction = useReportActionTracker(report);
-  const openTask = useOpenTask();
+  const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
 
-  const { discussReport, isDiscussing } = useDiscussReport({
+  // Canvases started from a report file into the report's space, or #general
+  // when the report has none — a task without a channel shows in no space's
+  // sidebar at all.
+  const { generalChannel, isLoading: channelsLoading } = useTaskChannels();
+  const taskChannelId = report.channel_id ?? generalChannel?.id ?? null;
+  // Until the channels query settles, an unassigned report has no fallback
+  // channel yet — creating a task then would file it into no space at all.
+  const awaitingChannel = taskChannelId === null && channelsLoading;
+
+  const canvasActionEnabled = useChannelReportsEnabled();
+  const rememberStartedTask = useReportChatPanelStore(
+    (s) => s.rememberStartedTask,
+  );
+  const handleCanvasTaskCreated = useCallback(
+    (task: { id: string }) => {
+      rememberStartedTask(report.id, task.id);
+      setChatOpen(true);
+    },
+    [rememberStartedTask, report.id, setChatOpen],
+  );
+  const { createCanvasReport, isCreatingCanvas } = useCreateCanvasReport({
     reportId: report.id,
     reportTitle: report.title ?? null,
-    cloudRepository,
+    channelId: taskChannelId,
+    cloudRepository: null,
+    onTaskCreated: handleCanvasTaskCreated,
   });
 
-  const { createPrReport, isCreatingPr } = useCreatePrReport({
-    reportId: report.id,
-    reportTitle: report.title ?? null,
-    cloudRepository,
-  });
+  // implementation_pr_url comes from raw task-run output; only a verified
+  // GitHub PR URL may be opened or labeled as GitHub.
+  const safePrUrl = prUrl && parsePrUrl(prUrl) ? prUrl : null;
+  const refund = useRefundReport(report);
+  const [refundOpen, setRefundOpen] = useState(false);
+  const reportsForBulk = useMemo(() => [report], [report]);
+  const bulkActions = useInboxBulkActions(
+    reportsForBulk,
+    report.id,
+    "detail_pane",
+  );
+  const canDefer =
+    report.status === "ready" ||
+    report.status === "failed" ||
+    report.status === "pending_input";
 
-  const [discussQuestion, setDiscussQuestion] = useState("");
-  const [discussOpen, setDiscussOpen] = useState(false);
-  const [prOpen, setPrOpen] = useState(false);
-  const [prFeedback, setPrFeedback] = useState("");
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [canvasDirection, setCanvasDirection] = useState("");
 
-  const submitDiscuss = useCallback(() => {
-    const trimmed = discussQuestion.trim();
-    if (!trimmed) return;
-    fireAction("discuss", {
-      has_question: true,
-      question_text: trimmed.slice(0, 500),
-    });
-    setDiscussQuestion("");
-    setDiscussOpen(false);
-    void discussReport(trimmed);
-  }, [discussQuestion, discussReport, fireAction]);
+  const handleCreateCanvas = useCallback(() => {
+    const trimmed = canvasDirection.trim();
+    fireAction("create_canvas", { has_feedback: trimmed.length > 0 });
+    setCanvasDirection("");
+    setCanvasOpen(false);
+    void createCanvasReport(trimmed || undefined);
+  }, [canvasDirection, createCanvasReport, fireAction]);
 
-  const handleCreatePr = useCallback(() => {
-    const trimmed = prFeedback.trim();
-    fireAction("create_pr", {
-      has_feedback: trimmed.length > 0,
-      ...(trimmed ? { feedback_text: trimmed.slice(0, 500) } : {}),
-    });
-    setPrFeedback("");
-    setPrOpen(false);
-    void createPrReport(trimmed || undefined);
-  }, [createPrReport, fireAction, prFeedback]);
-
-  const handleContinuePr = useCallback(() => {
-    if (!continuableTask) return;
-    fireAction("open_pr");
-    setPrOpen(false);
-    void openTask(continuableTask);
-  }, [continuableTask, fireAction, openTask]);
-
-  const submitDisabled = discussQuestion.trim().length === 0 || isDiscussing;
-
-  // Show the PR action whenever the report can start one, or already has live
-  // work to continue (the latter also covers the Pull requests tab, where
-  // `canCreateImplementationPr` is false because a PR URL is set).
-  const showPr = canCreatePr || hasExistingPr;
-
-  // Terminal reports get no detail actions (guarded after hooks to satisfy rules-of-hooks).
-  if (isResolved) {
-    return null;
-  }
-
-  return (
-    <>
-      <Popover.Root
-        open={discussOpen}
-        onOpenChange={(next) => {
-          setDiscussOpen(next);
-          if (!next) setDiscussQuestion("");
-        }}
-      >
-        <Popover.Trigger>
+  // Read-only conveniences plus Refund. These are the only occasional actions,
+  // and the read-only ones stay even on a resolved report; Refund is a mutation,
+  // so it's gated out below.
+  const overflowMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
           <Button
             type="button"
             variant="outline"
             size="sm"
-            disabled={isDiscussing}
-            className="gap-1"
-            title="Discuss this report with your agent"
+            aria-label="More report actions"
           >
-            {isDiscussing ? <Spinner size="1" /> : <ChatCircleIcon size={12} />}
-            Discuss
-            <CaretDownIcon size={12} />
+            <DotsThreeIcon size={14} weight="bold" />
           </Button>
-        </Popover.Trigger>
-        <Popover.Content
-          align="end"
-          side="bottom"
-          sideOffset={6}
-          className="w-[420px] border border-(--gray-6) bg-(--color-panel-solid) p-3 shadow-6"
-        >
-          <form
-            className="flex flex-col gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              submitDiscuss();
-            }}
+        }
+      />
+      <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+        {canDefer && (
+          <DropdownMenuItem
+            disabled={
+              bulkActions.snoozeDisabledReason !== null ||
+              bulkActions.isSnoozing
+            }
+            onClick={() => void bulkActions.snoozeSelected()}
           >
-            <TextArea
-              aria-label="Question to discuss with the agent"
-              autoFocus
-              placeholder="Ask about this report…"
-              resize="vertical"
-              rows={5}
-              size="2"
-              value={discussQuestion}
-              onChange={(event) => setDiscussQuestion(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  submitDiscuss();
-                }
-              }}
-            />
-            <Flex justify="between" align="center" gap="2">
-              <Text size="1" color="gray">
-                {isMac ? "⌘↵" : "Ctrl+↵"} to send
-              </Text>
-              <Flex gap="2">
+            <ClockIcon size={13} />
+            Defer
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={() => copyInboxReportLink(report)}>
+          <CopyIcon size={13} />
+          Copy link
+        </DropdownMenuItem>
+        {refund.canRefund && !isResolved && (
+          <DropdownMenuItem
+            disabled={refund.disabledReason !== null}
+            onClick={() => setRefundOpen(true)}
+          >
+            <ReceiptIcon size={13} />
+            Refund…
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+  const githubButton = safePrUrl ? (
+    placement === "header" ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        className={HEADER_ACTION_CLASS}
+        onClick={() => openExternalUrl(safePrUrl)}
+      >
+        <ArrowSquareOutIcon size={14} />
+        Open PR in GitHub
+      </Button>
+    ) : (
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        className={HEADER_ACTION_CLASS}
+        onClick={() => openExternalUrl(safePrUrl)}
+      >
+        <ArrowSquareOutIcon size={16} />
+        Open PR in GitHub
+      </Button>
+    )
+  ) : null;
+
+  if (placement === "header") {
+    return (
+      <>
+        {githubButton}
+        <ReportChatToggle report={report} />
+        {canDefer && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
-                  onClick={() => setDiscussOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  disabled={submitDisabled}
-                >
-                  Discuss
-                </Button>
-              </Flex>
-            </Flex>
-          </form>
-        </Popover.Content>
-      </Popover.Root>
-
-      {showPr && (
-        <Popover.Root
-          open={prOpen}
-          onOpenChange={(next) => {
-            setPrOpen(next);
-            if (!next) setPrFeedback("");
-          }}
-        >
-          <Popover.Trigger>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              disabled={isCreatingPr}
-              className="gap-1"
-              title={
-                hasExistingPr
-                  ? "Continue the existing PR or open a new one"
-                  : "Have Self-driving open a pull request for this report"
+                  size="icon-xs"
+                  className="h-7 w-7"
+                  aria-label="Defer"
+                  loading={bulkActions.isSnoozing}
+                  disabled={bulkActions.snoozeDisabledReason !== null}
+                  onClick={() => void bulkActions.snoozeSelected()}
+                />
               }
             >
-              {isCreatingPr ? (
-                <Spinner size="1" />
-              ) : (
-                <GitPullRequestIcon size={12} />
-              )}
-              {hasExistingPr ? "Continue PR" : "Create PR"}
-              <CaretDownIcon size={12} />
-            </Button>
-          </Popover.Trigger>
-          <Popover.Content
+              <ClockIcon size={13} />
+            </TooltipTrigger>
+            <TooltipContent>
+              {bulkActions.snoozeDisabledReason ?? "Defer"}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-xs"
+                className="h-7 w-7"
+                aria-label="Copy link"
+                onClick={() => copyInboxReportLink(report)}
+              />
+            }
+          >
+            <CopyIcon size={13} />
+          </TooltipTrigger>
+          <TooltipContent>Copy link</TooltipContent>
+        </Tooltip>
+        {refund.canRefund && (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-xs"
+                        aria-label="More report actions"
+                      >
+                        <DotsThreeIcon size={13} weight="bold" />
+                      </Button>
+                    }
+                  />
+                }
+              />
+              <TooltipContent>More report actions</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+              <DropdownMenuItem
+                disabled={refund.disabledReason !== null}
+                onClick={() => setRefundOpen(true)}
+              >
+                <ReceiptIcon size={13} />
+                Refund…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {refund.canRefund && (
+          <RefundReportDialog
+            open={refundOpen}
+            onOpenChange={setRefundOpen}
+            report={report}
+            isSubmitting={refund.mutation.isPending}
+            onConfirm={(input) =>
+              refund.mutation.mutate(input, {
+                onSuccess: () => setRefundOpen(false),
+              })
+            }
+          />
+        )}
+      </>
+    );
+  }
+
+  // A terminal report keeps its read-only GitHub and overflow actions.
+  if (isResolved) {
+    return (
+      <>
+        {githubButton}
+        {overflowMenu}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {githubButton}
+
+      {canvasActionEnabled && (
+        <Popover
+          open={canvasOpen}
+          onOpenChange={(next) => {
+            setCanvasOpen(next);
+            if (!next) setCanvasDirection("");
+          }}
+        >
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                disabled={isCreatingCanvas || awaitingChannel}
+                className={HEADER_ACTION_CLASS}
+                title="Have the agent build a canvas from this report"
+              >
+                {isCreatingCanvas ? <Spinner /> : <ShapesIcon size={16} />}
+                Visualize on a canvas
+              </Button>
+            }
+          />
+          <PopoverContent
             align="end"
             side="bottom"
             sideOffset={6}
-            className="flex w-[420px] flex-col gap-3 border border-(--gray-6) bg-(--color-panel-solid) p-3 shadow-6"
+            className="flex w-[420px] flex-col gap-2 p-3"
           >
-            {hasExistingPr && (
-              <Flex direction="column" gap="2">
-                <Text size="1" color="gray">
-                  This report already has an open pull request. Continue it to
-                  keep work on the same branch instead of opening a duplicate.
-                </Text>
-                {existingPrUrl && (
-                  <a
-                    href={existingPrUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-(--accent-11) text-[11px] hover:underline"
-                  >
-                    <ArrowSquareOutIcon size={11} />
-                    View existing PR
-                  </a>
-                )}
-                {(continuableTask || reportTasksLoading) && (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    size="sm"
-                    disabled={isCreatingPr || !continuableTask}
-                    onClick={handleContinuePr}
-                    title="Resume the existing implementation task"
-                  >
-                    {reportTasksLoading && !continuableTask ? (
-                      <Spinner size="1" />
-                    ) : (
-                      <GitPullRequestIcon size={12} />
-                    )}
-                    Continue existing PR
-                  </Button>
-                )}
-                <div className="h-px bg-(--gray-5)" />
-              </Flex>
-            )}
-            <Flex direction="column" gap="2">
-              <TextArea
-                aria-label="Optional direction for the agent"
-                autoFocus={!hasExistingPr}
-                placeholder="Add direction for the agent (optional)…"
-                resize="vertical"
-                rows={4}
-                size="2"
-                value={prFeedback}
-                onChange={(event) => setPrFeedback(event.target.value)}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === "Enter" &&
-                    (event.metaKey || event.ctrlKey)
-                  ) {
-                    event.preventDefault();
-                    handleCreatePr();
-                  }
-                }}
-              />
-              <Flex justify="between" align="center" gap="2">
-                <Text size="1" color="gray">
-                  {isMac ? "⌘↵" : "Ctrl+↵"} to{" "}
-                  {hasExistingPr ? "open new" : "create"}
-                </Text>
-                <Button
-                  type="button"
-                  variant={hasExistingPr ? "outline" : "primary"}
-                  size="sm"
-                  disabled={isCreatingPr}
-                  onClick={handleCreatePr}
-                >
-                  {hasExistingPr ? "Open a new PR" : "Create PR"}
-                </Button>
-              </Flex>
-            </Flex>
-          </Popover.Content>
-        </Popover.Root>
+            <span className="text-[13px] text-gray-11">
+              What should the canvas focus on? The agent builds it from this
+              report's evidence and live data.
+            </span>
+            <Textarea
+              aria-label="What the canvas should focus on"
+              autoFocus
+              placeholder="Focus on… (optional)"
+              rows={3}
+              value={canvasDirection}
+              onChange={(event) => setCanvasDirection(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  handleCreateCanvas();
+                }
+              }}
+            />
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12px] text-gray-10">
+                {isMac ? "⌘↵" : "Ctrl+↵"} to create
+              </span>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                disabled={isCreatingCanvas || awaitingChannel}
+                onClick={handleCreateCanvas}
+              >
+                Create canvas
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {placement === "standalone" && overflowMenu}
+
+      {placement === "standalone" && refund.canRefund && (
+        <RefundReportDialog
+          open={refundOpen}
+          onOpenChange={setRefundOpen}
+          report={report}
+          isSubmitting={refund.mutation.isPending}
+          onConfirm={(input) =>
+            refund.mutation.mutate(input, {
+              onSuccess: () => setRefundOpen(false),
+            })
+          }
+        />
       )}
     </>
   );

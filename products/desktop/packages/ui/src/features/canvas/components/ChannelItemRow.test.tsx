@@ -1,14 +1,27 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  beginSidebarPeek,
+  cancelSidebarPeek,
+  endSidebarPeek,
+  useSidebarPeekStore,
+} from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import {
   TASK_DRAG_TYPE,
   TASK_IDS_DRAG_TYPE,
 } from "@posthog/ui/features/sidebar/taskDrag";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { Theme } from "@radix-ui/themes";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,9 +32,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   status: null as TaskStatusInput | null,
   currentUserId: 999 as number | undefined,
+  currentUserUuid: "u-1" as string | undefined,
+  analysis: {
+    canAnalyze: false,
+    isPending: false,
+    run: vi.fn(),
+  },
+  openBrowserTab: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
-  useCurrentUser: () => ({ data: { id: mocks.currentUserId } }),
+  useCurrentUser: () => ({
+    data: { id: mocks.currentUserId, uuid: mocks.currentUserUuid },
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => mocks.status,
@@ -34,9 +56,18 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => vi.fn(),
 }));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => mocks.openBrowserTab,
+}));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
 }));
+vi.mock(
+  "@posthog/ui/features/task-detail/components/TaskAnalysisButton",
+  () => ({
+    useTaskAnalysis: () => mocks.analysis,
+  }),
+);
 // The handoff dialog is tested on its own; here it only opens.
 vi.mock(
   "@posthog/ui/features/task-detail/components/HandoffTaskDialog",
@@ -56,6 +87,7 @@ const actions = {
   setPinned: () => {},
   archive: () => {},
   remove: () => {},
+  fileCanvas: () => {},
 };
 
 function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
@@ -103,6 +135,8 @@ function renderRow(model: ChannelItemModel) {
 
 beforeEach(() => {
   mocks.status = null;
+  mocks.analysis = { canAnalyze: false, isPending: false, run: vi.fn() };
+  mocks.openBrowserTab.mockClear();
   useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
   useTaskSelectionStore.setState({
@@ -118,6 +152,11 @@ describe("ChannelItemRow", () => {
   // rather than the status: starting, live but stalled, or something to read.
   it.each([
     ["a permission prompt", { needsPermission: true }, "Needs your input"],
+    [
+      "an agent session being created",
+      { isAgentSessionStarting: true },
+      "Starting",
+    ],
     ["a streaming agent", { isGenerating: true }, "Working"],
     [
       // A background run is one-shot and unattended, so its in_progress really
@@ -389,6 +428,96 @@ describe("ChannelItemRow", () => {
     }
   });
 
+  it("opens a task in a new tab from the context menu", () => {
+    renderWithMenu({});
+
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
+
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith("/tasks/task-1");
+  });
+
+  it("opens a canvas in a new tab at its space's URL", () => {
+    const canvas = item({
+      key: "canvas:c1",
+      kind: "canvas",
+      id: "c1",
+      title: "Web analytics overview",
+      authorUuid: "u-1",
+    });
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={canvas}
+        channelId="channel-1"
+        onAddToCommandCenter={() => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Web analytics overview"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
+
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith(
+      "/spaces/channel-1/dashboards/c1",
+    );
+  });
+
+  it("keeps the hover sidebar open while the context menu is open", () => {
+    vi.useFakeTimers();
+    try {
+      beginSidebarPeek();
+      renderWithMenu({});
+
+      fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+      endSidebarPeek(0);
+      act(() => vi.runAllTimers());
+
+      expect(useSidebarPeekStore.getState().peek).toBe(true);
+
+      fireEvent.keyDown(document, { key: "Escape" });
+      act(() => vi.runAllTimers());
+
+      expect(useSidebarPeekStore.getState().peek).toBe(false);
+    } finally {
+      cleanup();
+      cancelSidebarPeek();
+      vi.useRealTimers();
+    }
+  });
+
+  it("offers Run analysis for a task with a terminal run", () => {
+    const run = vi.fn();
+    mocks.analysis = { canAnalyze: true, isPending: false, run };
+    const task = {
+      id: "task-1",
+      task_number: 1,
+      slug: "task-1",
+      title: "Investigate signup drop-off",
+      description: "",
+      created_at: "2026-07-16T12:00:00.000Z",
+      updated_at: "2026-07-16T12:00:00.000Z",
+      origin_product: "user_created",
+      latest_run: { id: "run-1", status: "completed" },
+    } as Task;
+
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={item({ task })}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+
+    const analysisItem = screen.getByRole("menuitem", {
+      name: "Run analysis",
+    });
+    expect(analysisItem).not.toBeNull();
+    fireEvent.click(analysisItem);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("offers Hand off… only to the task's owner", async () => {
     // The API 404s a non-owner's handoff, so the menu must not offer it to one.
     const ownerItem = item({
@@ -462,12 +591,13 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "All caught up" })).toBeNull();
   });
 
-  it("gives a canvas the actions it has: pin and delete, not archive or filing", async () => {
+  it("lets a canvas be filed to another space", async () => {
     const canvas = item({
       key: "canvas:c1",
       kind: "canvas",
       id: "c1",
       title: "Web analytics overview",
+      authorUuid: "u-1",
     });
     renderInList(
       <ChannelItemRow
@@ -487,10 +617,28 @@ describe("ChannelItemRow", () => {
     expect(
       screen.getByRole("button", { name: "Add to Command Center…" }),
     ).not.toBeNull();
-    // A canvas can't be archived or filed to another space.
-    for (const absent of ["Archive", "File to…"]) {
-      expect(screen.queryByRole("button", { name: absent })).toBeNull();
-    }
+    expect(screen.getByRole("button", { name: "File to…" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+  });
+
+  it("does not offer filing for another user's canvas", async () => {
+    const canvas = item({
+      key: "canvas:c1",
+      kind: "canvas",
+      id: "c1",
+      title: "Web analytics overview",
+      authorUuid: "u-2",
+    });
+    renderInList(
+      <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
+    );
+
+    await userEvent.hover(screen.getByText("Web analytics overview"));
+
+    expect(
+      await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "File to…" })).toBeNull();
   });
 
   it("confirms before deleting a canvas — it goes for the whole space", async () => {

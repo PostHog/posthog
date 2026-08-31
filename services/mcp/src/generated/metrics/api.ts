@@ -397,6 +397,8 @@ export const MetricsValuesRetrieveParams = /* @__PURE__ */ zod.object({
 export const metricsValuesRetrieveQueryLimitDefault = 100
 export const metricsValuesRetrieveQueryLimitMax = 1000
 
+export const metricsValuesRetrieveQueryServiceMax = 1024
+
 export const metricsValuesRetrieveQueryValueDefault = ``
 export const metricsValuesRetrieveQueryValueMax = 255
 
@@ -407,6 +409,13 @@ export const MetricsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .max(metricsValuesRetrieveQueryLimitMax)
         .default(metricsValuesRetrieveQueryLimitDefault)
         .describe('Max number of names to return. Defaults to 100; maximum 1000.'),
+    service: zod
+        .string()
+        .max(metricsValuesRetrieveQueryServiceMax)
+        .optional()
+        .describe(
+            'Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.'
+        ),
     value: zod
         .string()
         .max(metricsValuesRetrieveQueryValueMax)

@@ -316,22 +316,25 @@ def _ingest_message_id(
     gmail_message_id: str,
     internal_emails: set[str],
 ) -> None:
-    payload = _get_json(
+    payload = _get_json_allowing_missing(
         integration=integration,
         access_token=access_token,
         url=f"{GMAIL_API_BASE_URL}/messages/{gmail_message_id}",
         endpoint="/gmail/v1/users/me/messages/{message_id}",
         params={"format": "full"},
     )
+    # The user deleted the message between the history page and this fetch. Skip it.
+    if payload is None:
+        return
 
     def load_attachment_data(attachment_id: str) -> str:
-        attachment = _get_json(
+        attachment = _get_json_allowing_missing(
             integration=integration,
             access_token=access_token,
             url=f"{GMAIL_API_BASE_URL}/messages/{gmail_message_id}/attachments/{attachment_id}",
             endpoint="/gmail/v1/users/me/messages/{message_id}/attachments/{attachment_id}",
         )
-        return str(attachment.get("data") or "")
+        return str(attachment.get("data") or "") if attachment else ""
 
     try:
         parsed = _parse_gmail_message(
@@ -532,6 +535,26 @@ def _get_json(
         endpoint=endpoint,
         params=params,
     )
+    return _response_json(response, "Gmail API")
+
+
+def _get_json_allowing_missing(
+    *,
+    integration: Integration,
+    access_token: str,
+    url: str,
+    endpoint: str,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    response = _request(
+        integration=integration,
+        access_token=access_token,
+        url=url,
+        endpoint=endpoint,
+        params=params,
+    )
+    if response.status_code == 404:
+        return None
     return _response_json(response, "Gmail API")
 
 

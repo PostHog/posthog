@@ -264,6 +264,29 @@ class ReplayScanner(UUIDModel):
         help_text="Billing period start this scanner was last reported as having reached its credit limit. Keeps the notification to one per period.",
     )
 
+    # Admission budget cache: the spend aggregates snapshotted at the last refresh, plus credits
+    # admitted since. The fast admission path is one conditional UPDATE on these columns; the
+    # aggregates re-run under the row lock only when the cache is stale. See create_observation.
+    admission_budget_used = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Credits counted against credit_limit at the last admission-budget refresh: settled receipts, in-flight reservations, and running evaluations.",
+    )
+    admission_budget_refreshed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the admission budget was last recomputed from the spend aggregates. Null until the first capped admission.",
+    )
+    admission_budget_period_start = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Billing period the cached admission budget belongs to. A period mismatch forces a refresh.",
+    )
+    admission_credits_since_refresh = models.PositiveIntegerField(
+        default=0,
+        help_text="Credits admitted since the last admission-budget refresh. Every refresh resets this to the admitting cost, or to zero on a refusal.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
@@ -341,6 +364,10 @@ class ReplayScanner(UUIDModel):
         "fast_read_bytes_by_hour",
         "deep_read_bytes_by_hour",
         "limit_notified_period_start",
+        "admission_budget_used",
+        "admission_budget_refreshed_at",
+        "admission_budget_period_start",
+        "admission_credits_since_refresh",
     )
 
     def save(self, *args, **kwargs) -> None:

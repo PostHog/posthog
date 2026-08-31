@@ -12,7 +12,7 @@ export const showActionsSchema = {
     .describe("One to four actions, in the order they should appear."),
 };
 
-export const SHOW_ACTIONS_TOOL_DESCRIPTION =
+const SHOW_ACTIONS_TOOL_DESCRIPTION =
   "Show the user a card of clickable buttons in PostHog Desktop, so they can " +
   "act on what you just told them without retyping it. Pass 1 to 4 actions. " +
   "Each action is a typed verb, never a URL: there is no URL parameter and " +
@@ -22,6 +22,8 @@ export const SHOW_ACTIONS_TOOL_DESCRIPTION =
   "start a task and does NOT send anything on click. " +
   "`open_space` opens a channel's feed. `open_canvas` opens a canvas inside a " +
   "channel, and needs both `channel_id` and `canvas_id`. " +
+  "`open_inbox` opens Self-driving, where PostHog files the reports it writes " +
+  "on its own. Pass `report_id` to open one report instead of the whole inbox. " +
   "Offer only what the person actually wants to do next, in the order they " +
   "would want it. Buttons that decorate an answer are noise, so skip the call " +
   "entirely when there is nothing worth clicking.";

@@ -31,7 +31,6 @@
     "rebuild:sqlite-electron": "node scripts/rebuild-better-sqlite3-electron.mjs",
     "typecheck": "turbo typecheck",
     "boundaries": "node scripts/check-host-boundaries.mjs",
-    "optimize:onboarding-videos": "node scripts/optimize-onboarding-videos.mjs",
     "lint": "biome check --write --unsafe",
     "format": "biome format --write",
     "clean": "pnpm -r clean",
@@ -51,7 +50,7 @@
   "license": "MIT",
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
-    "@posthog/cli": "^0.8.2",
+    "@posthog/shared": "workspace:*",
     "fflate": "^0.8.2",
     "knip": "^5.66.3",
     "mprocs": "^0.7.1",

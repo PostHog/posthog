@@ -26,6 +26,8 @@
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",
         "react": "*"

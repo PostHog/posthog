@@ -733,6 +733,190 @@ class TestPersonsDedupSurvivorSelection:
         assert _persons(persons_conn) == 2
 
 
+def _version(conn: psycopg.Connection, person_id: int) -> int:
+    return _count(conn, "SELECT version FROM posthog_person WHERE id = %s", (person_id,))
+
+
+class TestPersonsDedupSurvivorVersionFloor:
+    # ClickHouse keys person rows on (team_id, uuid) and resolves them with argMax(..., version),
+    # so both members of a duplicate group compete under one key. The survivor rule ranks
+    # reachability above version, so the row we keep is routinely the lower-versioned one and its
+    # later updates lose to the row we just deleted. These cover the raise that prevents that.
+
+    @pytest.mark.parametrize(
+        "victim_version,survivor_version,raised",
+        [(1500, 3, True), (5, 5, True), (5, 88, False)],
+        ids=["survivor below the ceiling", "survivor level with it", "survivor above it"],
+    )
+    def test_a_survivor_is_raised_only_when_a_victim_outranks_it(
+        self, persons_conn, tmp_path, victim_version, survivor_version, raised
+    ):
+        # Level with the ceiling still has to be raised: equal versions tie in ClickHouse and
+        # ReplacingMergeTree picks between them arbitrarily, so the survivor has to end up
+        # strictly above. Tightening the guard to a strict "<" would leave that tie standing.
+        # Above the ceiling is left alone rather than inflated for no gain.
+        uuid = _uuid(200 if raised else 202)
+        orphan = _add_person(persons_conn, uuid, version=victim_version)
+        survivor = _add_person(persons_conn, uuid, version=survivor_version)
+        _add_distinct_id(persons_conn, survivor, f"did-{200 if raised else 202}")
+
+        _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=True)
+
+        assert _persons(persons_conn) == 1
+        assert _count(persons_conn, "SELECT count(*) FROM posthog_person WHERE id = %s", (orphan,)) == 0
+        expected = victim_version + persons_dedup_command.SURVIVOR_VERSION_MARGIN if raised else survivor_version
+        assert _version(persons_conn, survivor) == expected
+
+    def test_the_raise_clears_every_victim_in_a_group_not_just_one(self, persons_conn, tmp_path):
+        # The ceiling is a max over the group's victims. Taking any single victim's version
+        # would leave the survivor below a sibling that also wrote to the same ClickHouse key.
+        uuid = _uuid(201)
+        _add_person(persons_conn, uuid, version=40)
+        _add_person(persons_conn, uuid, version=900)
+        _add_person(persons_conn, uuid, version=7)
+        survivor = _add_person(persons_conn, uuid, version=0)
+        _add_distinct_id(persons_conn, survivor, "did-201")
+
+        _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=True)
+
+        assert _persons(persons_conn) == 1
+        assert _version(persons_conn, survivor) == 900 + persons_dedup_command.SURVIVOR_VERSION_MARGIN
+
+    def test_a_survivor_already_above_its_victims_is_left_alone(self, persons_conn, tmp_path):
+        # Raising unconditionally would inflate the counter of every survivor that never had
+        # the problem, for no gain.
+        uuid = _uuid(202)
+        _add_person(persons_conn, uuid, version=5)
+        survivor = _add_person(persons_conn, uuid, version=88)
+        _add_distinct_id(persons_conn, survivor, "did-202")
+
+        _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=True)
+
+        assert _version(persons_conn, survivor) == 88
+
+    def test_a_merge_required_group_keeps_both_versions_untouched(self, persons_conn, tmp_path):
+        # Two reachable rows plus an unreachable third. Repair may remove the third, but giving
+        # both survivors the same version would make their ClickHouse rows tie rather than
+        # resolve, so the group is left for the merge pass.
+        uuid = _uuid(203)
+        unreachable = _add_person(persons_conn, uuid, version=770)
+        a = _add_person(persons_conn, uuid, version=2)
+        b = _add_person(persons_conn, uuid, version=4)
+        _add_distinct_id(persons_conn, a, "did-203a")
+        _add_distinct_id(persons_conn, b, "did-203b")
+
+        _run("repair", tmp_path, apply=True, raise_survivor_version=True)
+
+        assert _count(persons_conn, "SELECT count(*) FROM posthog_person WHERE id = %s", (unreachable,)) == 0
+        assert _version(persons_conn, a) == 2
+        assert _version(persons_conn, b) == 4
+
+    @pytest.mark.parametrize(
+        "kwargs,raised",
+        [({}, True), ({"raise_survivor_version": False}, False)],
+        ids=["on by default", "--no-raise-survivor-version opts out"],
+    )
+    def test_the_raise_is_on_unless_a_run_opts_out(self, persons_conn, tmp_path, kwargs, raised):
+        # A run that has to remember a flag to stay correct will eventually forget it, and the
+        # cost of forgetting is a survivor whose ClickHouse row never updates again. The opt-out
+        # still has to work, because it is the rollback if the wider lock ever contends.
+        uuid = _uuid(204)
+        _add_person(persons_conn, uuid, version=600)
+        survivor = _add_person(persons_conn, uuid, version=1)
+        _add_distinct_id(persons_conn, survivor, "did-204")
+
+        _run("delete-unreferenced", tmp_path, apply=True, **kwargs)
+
+        assert _persons(persons_conn) == 1
+        expected = 600 + persons_dedup_command.SURVIVOR_VERSION_MARGIN if raised else 1
+        assert _version(persons_conn, survivor) == expected
+
+    def test_a_dry_run_counts_the_raises_without_making_them(self, persons_conn, tmp_path):
+        # The flag has to be measurable before it writes to a row live ingestion also writes.
+        uuid = _uuid(205)
+        _add_person(persons_conn, uuid, version=500)
+        survivor = _add_person(persons_conn, uuid, version=0)
+        _add_distinct_id(persons_conn, survivor, "did-205")
+
+        with capture_logs() as logs:
+            _run("delete-unreferenced", tmp_path, raise_survivor_version=True)
+
+        assert _persons(persons_conn) == 2, "a dry run deletes nothing"
+        assert _version(persons_conn, survivor) == 0, "a dry run raises nothing"
+        dry = [log for log in logs if log["event"] == "persons_dedup.dry_run_ok"]
+        assert dry and dry[0]["survivors_to_raise"] == 1
+
+    def test_the_raise_is_rolled_back_with_the_delete(self, persons_conn, tmp_path, monkeypatch):
+        # The raise sits inside the delete transaction. If a later statement aborts it, a
+        # survivor left carrying a raised version would claim a ClickHouse ceiling for rows
+        # that were never removed.
+        uuid = _uuid(206)
+        _add_person(persons_conn, uuid, version=300)
+        survivor = _add_person(persons_conn, uuid, version=0)
+        _add_distinct_id(persons_conn, survivor, "did-206")
+
+        def _explode(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(persons_dedup_command.Command, "_backup", _explode)
+        with pytest.raises(RuntimeError):
+            _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=True)
+
+        assert _persons(persons_conn) == 2
+        assert _version(persons_conn, survivor) == 0
+
+    @pytest.mark.parametrize(
+        "raise_flag,expect_locked",
+        [(True, True), (False, False)],
+        ids=["flag on locks the survivor", "flag off leaves it alone"],
+    )
+    def test_the_survivor_lock_is_taken_up_front_and_only_when_asked(
+        self, persons_conn, tmp_path, monkeypatch, raise_flag, expect_locked
+    ):
+        # The raise runs after the gates and an fsync'd backup. Taking the survivor's lock there
+        # rather than up front reopens a deadlock: ingestion's updatePersonsBatch matches on
+        # (team_id, uuid), so one statement needs both rows, and it can hold the survivor while
+        # blocking on our victim. Probing during the backup proves the lock is already held.
+        # The off case guards the other half -- the wider lock must not be paid by runs that did
+        # not ask for it.
+        uuid = _uuid(207 if raise_flag else 208)
+        _add_person(persons_conn, uuid, version=400)
+        survivor = _add_person(persons_conn, uuid, version=0)
+        _add_distinct_id(persons_conn, survivor, f"did-{207 if raise_flag else 208}")
+
+        observed: dict[str, Any] = {}
+        real_backup = persons_dedup_command.Command._backup
+
+        def backup_then_probe(self, conn, team, path):
+            result = real_backup(self, conn, team, path)
+            with persons_db_connection(writer=True, autocommit=True) as other:
+                with other.cursor() as cur:
+                    # Session-level, not SET LOCAL: this connection is in autocommit, where
+                    # LOCAL is discarded with the implicit transaction and the probe would
+                    # wait forever instead of failing fast.
+                    cur.execute("SET lock_timeout = '250ms'")
+                    try:
+                        cur.execute("SELECT id FROM posthog_person WHERE id = %s FOR UPDATE", (survivor,))
+                        observed["locked"] = False
+                    except psycopg.errors.LockNotAvailable:
+                        observed["locked"] = True
+            return result
+
+        monkeypatch.setattr(persons_dedup_command.Command, "_backup", backup_then_probe)
+        _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=raise_flag)
+
+        assert observed["locked"] is expect_locked
+        expected_version = 400 + persons_dedup_command.SURVIVOR_VERSION_MARGIN if raise_flag else 0
+        assert _version(persons_conn, survivor) == expected_version
+
+    def test_the_update_grant_is_only_required_when_the_flag_is_set(self):
+        # The command runs today without UPDATE on posthog_person. Demanding it unconditionally
+        # would abort every run whose role was granted exactly what the old modes needed.
+        assert ("posthog_person", "UPDATE") not in persons_dedup_command.WRITE_PRIVILEGES
+        assert ("posthog_person", "UPDATE") in persons_dedup_command.SURVIVOR_VERSION_PRIVILEGES
+        assert set(persons_dedup_command.WRITE_PRIVILEGES) < set(persons_dedup_command.SURVIVOR_VERSION_PRIVILEGES)
+
+
 class TestPersonsDedupVerify:
     def test_verify_fails_while_resolvable_duplicates_remain(self, persons_conn, tmp_path):
         # An orphan repair would have taken: work is genuinely outstanding.
@@ -824,12 +1008,22 @@ class TestPersonsDedupLogVisibility:
 
         handler = _Collector()
         original_level = parent.level
+        original_disabled = module_logger.disabled
+        original_global_disable = logging.root.manager.disable
         parent.setLevel(logging.WARNING)
+        # Unrelated suites in the same worker reconfigure logging globally (dictConfig with
+        # disable_existing_loggers, logging.disable), which suppresses every record regardless
+        # of level. Clear both so the assertion isolates the one thing this test guards: the
+        # module's own level beating the parent clamp.
+        module_logger.disabled = False
+        logging.disable(logging.NOTSET)
         module_logger.addHandler(handler)
         try:
             persons_dedup_command.logger.info("persons_dedup.log_visibility_probe", team_id=1)
         finally:
             module_logger.removeHandler(handler)
+            module_logger.disabled = original_disabled
+            logging.disable(original_global_disable)
             parent.setLevel(original_level)
 
         assert captured, "INFO records are dropped, so a production run would leave no log"

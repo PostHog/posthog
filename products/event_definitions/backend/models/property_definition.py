@@ -17,6 +17,20 @@ from products.event_definitions.backend.property_type import PropertyType
 PERSON_EMAIL_PROPERTY_NAME = "email"
 
 
+def effective_project_id_expr() -> Coalesce:
+    """
+    The project scope this table is indexed by, for `.alias(effective_project_id=...)`.
+
+    It has to stay identical to the leading column of `posthog_propdef_proj_uniq` and of
+    `index_property_def_query_proj` below, or a filter on it stops being a seek and becomes a
+    range walk. Keep it next to those index definitions for that reason. `EventProperty` carries
+    the same pair of columns and the same expression indexes, so it uses this too.
+
+    Returns a new expression per call, so callers never share one instance across querysets.
+    """
+    return Coalesce(F("project_id"), F("team_id"), output_field=models.BigIntegerField())
+
+
 class PropertyFormat(models.TextChoices):
     UnixTimestamp = "unix_timestamp", "Unix Timestamp in seconds"
     UnixTimestampMilliseconds = (
