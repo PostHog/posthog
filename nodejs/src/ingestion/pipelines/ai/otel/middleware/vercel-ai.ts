@@ -1,4 +1,5 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { COSTED_AI_EVENT_TYPES } from '~/ingestion/pipelines/ai/ai-event-types'
 import { finiteNumberOrUndefined } from '~/ingestion/pipelines/ai/costs/cost-utils'
 import { mustAddReasoningCost } from '~/ingestion/pipelines/ai/costs/output-costs'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -379,8 +380,10 @@ function process(event: PluginEvent, next: () => void): void {
     delete props['gen_ai.response.finish_reasons']
 
     // The gateway reports only a total with no input/output split, so flag
-    // passthrough to stop the pipeline estimating one.
-    if (props['$ai_total_cost_usd'] === undefined) {
+    // passthrough to stop the pipeline estimating one. The AI SDK records the same
+    // providerMetadata on the parent ai.generateText and ai.streamText spans, which
+    // are not costed events, so the gate keeps the cost on the generation.
+    if (COSTED_AI_EVENT_TYPES.has(event.event) && props['$ai_total_cost_usd'] === undefined) {
         const gatewayCost = extractGatewayCost(props['ai.response.providerMetadata'])
         if (gatewayCost !== undefined) {
             props['$ai_total_cost_usd'] = gatewayCost

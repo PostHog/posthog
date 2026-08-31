@@ -164,6 +164,19 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_cost_passthrough']).toBeUndefined()
         })
 
+        // The AI SDK records the same providerMetadata on the parent ai.generateText span.
+        it('leaves the gateway cost off the parent span', () => {
+            const event = createEvent('$ai_span', {
+                'ai.operationId': 'ai.generateText',
+                $ai_parent_id: 'parent-1',
+                'ai.response.providerMetadata': JSON.stringify({ gateway: { cost: '0.001234' } }),
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_total_cost_usd']).toBeUndefined()
+            expect(event.properties!['$ai_cost_passthrough']).toBeUndefined()
+        })
+
         it.each([
             ['no gateway cost', JSON.stringify({ gateway: { generationId: 'gen-1' } })],
             ['non-numeric cost', JSON.stringify({ gateway: { cost: 'free' } })],

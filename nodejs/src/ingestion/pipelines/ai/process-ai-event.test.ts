@@ -301,6 +301,28 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_tool_call_count).toBe(2)
         })
 
+        // The middleware writes $ai_cost_passthrough and processCost reads it. Both
+        // halves have their own tests, so only a test through the whole pipeline
+        // catches the two sides drifting apart.
+        it('keeps the Vercel AI Gateway reported cost end to end', () => {
+            event.properties = {
+                $ai_ingestion_source: 'otel',
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'gen_ai.provider.name': 'gateway',
+                'gen_ai.response.model': 'openai/gpt-4o-mini',
+                'gen_ai.usage.input_tokens': 100,
+                'gen_ai.usage.output_tokens': 50,
+                'ai.response.providerMetadata': JSON.stringify({ gateway: { cost: '0.001234' } }),
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.001234)
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
+            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+        })
+
         it('uses total output tokens for non-Gemini AI SDK v7 reasoning models', () => {
             event.properties = {
                 $ai_ingestion_source: 'otel',

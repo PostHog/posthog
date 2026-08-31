@@ -151,6 +151,9 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
 
     // $ai_cost_passthrough keeps a caller-reported total and skips estimation.
     // Require a usable total, so an empty cost is never labeled passthrough.
+    // Zero is a usable total here because a gateway that charges nothing, such as
+    // under BYOK, reports zero. The branch above instead reads a zero input or
+    // output cost as absent.
     if (isCostPassthrough(event.properties['$ai_cost_passthrough'])) {
         const total = event.properties['$ai_total_cost_usd']
         if (typeof total === 'number') {
