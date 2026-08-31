@@ -12,6 +12,10 @@ class AlertDeliveryWorkflowInputs:
     status: str | None = None
     assignee: str | None = None
     actor_email: str | None = None
+    # Issue fields filters can reference; same values the internal event carries.
+    severity: str | None = None
+    fingerprint: str | None = None
+    first_seen: str | None = None
     # Reference to the triggering exception event, when the transition has one
     # (ingestion-driven transitions). Event properties are fetched by reference
     # inside activities; nothing large crosses the Temporal payload boundary.
