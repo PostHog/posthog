@@ -268,6 +268,33 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
 
         assert not builder.can_use_preaggregated_tables()
 
+    @parameterized.expand(
+        [
+            # is_set / is_not_set cannot be reproduced on non-nullable pre-aggregated columns.
+            ("is_not_set", {"key": "$browser", "operator": "is_not_set", "type": "event"}),
+            ("is_set", {"key": "$os", "operator": "is_set", "type": "event"}),
+            # A key with no pre-aggregated column (e.g. a person property) is not expressible either.
+            (
+                "unsupported_key",
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+            ),
+        ]
+    )
+    def test_test_account_filter_falls_back_when_preaggregation_cannot_reproduce_it(self, _name, test_filter):
+        self.team.test_account_filters = [test_filter]
+        self.team.save()
+
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+            filterTestAccounts=True,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        builder = StatsTablePreAggregatedQueryBuilder(runner)
+
+        assert not builder.can_use_preaggregated_tables()
+
     def test_query_with_supported_properties(self):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
@@ -403,6 +430,29 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         ]
 
         assert response.results == expected_results
+
+    def test_saved_test_account_filter_is_applied_on_preaggregated_path(self):
+        # A saved test-account filter must reach the pre-aggregated query, not be dropped from it.
+        # Same restriction and expected result as test_property_filtering, but driven by the project's
+        # test_account_filters with filterTestAccounts instead of an inline drill-down property.
+        self.team.test_account_filters = [
+            {"key": "$pathname", "value": "/landing", "operator": "exact", "type": "event"}
+        ]
+        self.team.save()
+
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+            filterTestAccounts=True,
+            limit=100,
+        )
+        modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
+        response = WebStatsTableQueryRunner(query=query, team=self.team, modifiers=modifiers).calculate()
+
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+        # Only Desktop users (user_0, user_2) viewed /landing.
+        assert response.results == [["Desktop", (2.0, None), (2.0, None), 1, ""]]
 
     def test_page_breakdown_with_pathname_filter(self):
         properties = [EventPropertyFilter(key="$pathname", value="/landing", operator=PropertyOperator.EXACT)]
