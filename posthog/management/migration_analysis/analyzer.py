@@ -15,6 +15,7 @@ from posthog.management.migration_analysis.operations import (
     CreateModelAnalyzer,
     DeleteModelAnalyzer,
     DropIndexConcurrentlyAnalyzer,
+    ExtensionAnalyzer,
     RemoveFieldAnalyzer,
     RemoveIndexAnalyzer,
     RemoveIndexConcurrentlyAnalyzer,
@@ -69,6 +70,17 @@ class RiskAnalyzer:
         "AddConstraintNotValid": AddConstraintNotValidAnalyzer(),
         "ValidateConstraint": ValidateConstraintAnalyzer(),
         "SeparateDatabaseAndState": SeparateDatabaseAndStateAnalyzer(),
+        # Postgres extension installs are safe under live load. Sharing one
+        # ExtensionAnalyzer instance across the named operations keeps the
+        # registry shape consistent and avoids the "Unknown operation" path.
+        "CreateExtension": ExtensionAnalyzer(),
+        "TrigramExtension": ExtensionAnalyzer(),
+        "BtreeGistExtension": ExtensionAnalyzer(),
+        "BtreeGinExtension": ExtensionAnalyzer(),
+        "CITextExtension": ExtensionAnalyzer(),
+        "HStoreExtension": ExtensionAnalyzer(),
+        "UnaccentExtension": ExtensionAnalyzer(),
+        "CryptoExtension": ExtensionAnalyzer(),
     }
 
     def analyze_migration(self, migration, path: str, file_path: str | None = None) -> MigrationRisk:
