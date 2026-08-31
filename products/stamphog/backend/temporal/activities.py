@@ -965,8 +965,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # Conditional like every terminal save (the load-time guard above can race an in-flight
     # supersession): a run that just went SUPERSEDED keeps that status, FAILED must not clobber it.
     now = timezone.now()
-    ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-        status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now
+    marked_failed = (
+        ReviewRun.objects.for_team(input.team_id)
+        .filter(id=run.id)
+        .exclude(status__in=TERMINAL_STATUSES)
+        .update(status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now)
     )
     # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too. After
     # the terminal save on purpose: the removal's live-peer check must see this run as terminal, or
@@ -989,12 +992,23 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # which reads exactly like a review still in progress. Say so on the same COMMENT-review surface
     # a non-approval uses, so every outcome for a head lands in one list. Fail-open like the sweep
     # above, because a GitHub error must not undo the terminal save.
-    try:
-        _post_non_approval_review(
-            client, repo, run, pull_request, input.team_id, _failure_body(pull_request.repo_config)
-        )
-    except Exception:
-        activity.logger.exception(f"Failed to post the failure notice for run {run.id}")
+    #
+    # Only when this run is the one that reached FAILED. A newer delivery can supersede it between the
+    # load above and that update, which leaves the update matching no rows; posting anyway would tell
+    # the author their review did not complete while its replacement is still running, or has already
+    # approved the same head.
+    if marked_failed:
+        try:
+            _post_non_approval_review(
+                client,
+                repo,
+                run,
+                pull_request,
+                input.team_id,
+                _failure_body(pull_request.repo_config, self_driving=bool((run.output or {}).get("inbox_review"))),
+            )
+        except Exception:
+            activity.logger.exception(f"Failed to post the failure notice for run {run.id}")
 
     with ph_scoped_capture() as capture:
         capture(
@@ -1341,17 +1355,22 @@ def _post_non_approval_review(
     ReviewRun.objects.for_team(team_id).filter(id=run.id).update(output=run.output, updated_at=timezone.now())
 
 
-def _failure_body(repo_config: StamphogRepoConfig) -> str:
+def _failure_body(repo_config: StamphogRepoConfig, *, self_driving: bool) -> str:
     """What the PR shows when a run ended without producing a verdict.
 
     No error text. The cause is internal infrastructure detail that the author cannot act on, and
-    this lands on a public pull request; it stays on the run and in the worker logs instead. Unlike
-    a refusal, a failure leaves the trigger label in place, so the author has to remove it first to
-    make GitHub send another `labeled` event.
+    this lands on a public pull request; it stays on the run and in the worker logs instead.
+
+    The retry line has to name something that actually starts a run. Unlike a refusal, a failure
+    leaves the trigger label in place, so a label-mode author has to remove it before GitHub sends
+    another `labeled` event. A self-driving inbox run ignores that route: it bypasses review mode,
+    and its re-review carve-out answers only to synchronize, reopen and base retarget, so a new
+    commit is the one thing that starts another run for it.
     """
+    relabels = repo_config.review_mode == ReviewMode.LABEL and not self_driving
     retry = (
         f"Remove and re-add the `{repo_config.trigger_label}` label to try again."
-        if repo_config.review_mode == ReviewMode.LABEL
+        if relabels
         else "Push a new commit to try again."
     )
     return (

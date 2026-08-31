@@ -292,20 +292,23 @@ def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
 
 
 @pytest.mark.parametrize(
-    "review_mode,expected_retry",
+    "review_mode,self_driving,expected_retry",
     [
-        (ReviewMode.LABEL, "Remove and re-add the `stamphog` label to try again."),
-        (ReviewMode.ALL, "Push a new commit to try again."),
+        (ReviewMode.LABEL, False, "Remove and re-add the `stamphog` label to try again."),
+        (ReviewMode.ALL, False, "Push a new commit to try again."),
+        # A self-driving inbox run bypasses review mode and never re-reviews on `labeled`, so the
+        # label instruction would send its reader down a route that starts nothing.
+        (ReviewMode.LABEL, True, "Push a new commit to try again."),
     ],
-    ids=["label_mode_says_relabel", "all_mode_says_push"],
+    ids=["label_mode_says_relabel", "all_mode_says_push", "self_driving_ignores_label_mode"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_failed_run_says_so_on_the_pull_request(
-    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, expected_retry: str
+    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, self_driving: bool, expected_retry: str
 ) -> None:
     # A failed run used to leave the author with a 👀 that vanished and nothing else, which reads
-    # exactly like a review still running. The retry line has to match the mode: unlike a refusal, a
-    # failure leaves the trigger label in place, so "re-add" alone would tell the author to do nothing.
+    # exactly like a review still running. The retry line has to name a route that starts a run, or
+    # the notice sends its reader somewhere that does nothing.
     repo_config = _repo_config(team.id)
     repo_config.review_mode = review_mode
     repo_config.save()
@@ -315,7 +318,11 @@ def test_a_failed_run_says_so_on_the_pull_request(
         team_id=team.id, repo_config=repo_config, pr_number=114, author_login="devex-dev"
     )
     run = ReviewRun.objects.for_team(team.id).create(
-        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.REVIEWING
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"inbox_review": True} if self_driving else {},
     )
 
     _run_activity(
@@ -330,6 +337,30 @@ def test_a_failed_run_says_so_on_the_pull_request(
     assert expected_retry in body
     # The cause belongs on the run and in the worker logs, never on a public pull request.
     assert "modal refused the box" not in body
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_superseded_run_posts_no_failure_notice(team, stamphog_chain: StamphogChain) -> None:
+    # A superseded run must not tell the author their review did not complete: the replacement is
+    # still running against the same head, or has already approved it. Two guards produce that, the
+    # terminal-status return this case reaches and the marked_failed gate that catches a run
+    # superseded after the load. The race between them cannot be driven from here without mocking
+    # the load, so this pins the outcome both exist for.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha-superseded"
+    stamphog_chain.recorder.register_pr(REPO, 115, _pr_object(115, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=115, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.SUPERSEDED
+    )
+
+    _run_activity(mark_review_failed, MarkReviewFailedInput(str(run.id), team.id, "RuntimeError: worker lost"))
+
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.SUPERSEDED  # the terminal guard held
+    assert [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"] == []
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
