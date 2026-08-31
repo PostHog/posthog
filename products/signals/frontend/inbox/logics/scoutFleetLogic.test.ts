@@ -336,9 +336,10 @@ describe('scoutFleetLogic', () => {
         logic.actions.materializeScoutFleet()
 
         await expectLogic(logic).toDispatchActions(['syncScoutFleetSuccess'])
-        expect(mockSignalsScoutConfigSync).toHaveBeenCalledWith(String(MOCK_TEAM_ID))
+        expect(mockSignalsScoutConfigSync).toHaveBeenCalledWith(String(MOCK_TEAM_ID), { surface: 'roster' })
         expect(logic.values.scoutConfigs).toEqual([BASE_CONFIG])
         expect(logic.values.scoutFleetSynced).toBe(true)
+        expect(logic.values.scoutFleetSyncOutcome).toBe('synced')
     })
 
     it('materializes the fleet at most once per roster session', async () => {
@@ -370,20 +371,26 @@ describe('scoutFleetLogic', () => {
 
     // Materializing is a write, so a member without write access gets a 403. Either way the sync
     // has to settle: a roster stuck unsynced shows a skeleton over its empty state forever. The 500
-    // row keeps a real outage from being swallowed into the same silent branch.
+    // row keeps a real outage from being swallowed into the same silent branch. Each refusal has to
+    // report its own outcome — a roster kept because the sync was refused reads as an empty fleet
+    // otherwise, and `Scout fleet viewed` can't tell that from a project with no scouts.
     it.each([
-        [403, 'syncScoutFleetSuccess'],
-        [404, 'syncScoutFleetSuccess'],
-        [500, 'syncScoutFleetFailure'],
-    ])('keeps the roster and settles the sync when it is refused with %s', async (status, expectedAction) => {
-        mockSignalsScoutConfigSync.mockRejectedValueOnce(new ApiError('nope', status))
+        [403, 'syncScoutFleetSuccess', 'skipped_permission'],
+        [404, 'syncScoutFleetSuccess', 'not_found'],
+        [500, 'syncScoutFleetFailure', 'failed'],
+    ])(
+        'keeps the roster and settles the sync when it is refused with %s',
+        async (status, expectedAction, expectedOutcome) => {
+            mockSignalsScoutConfigSync.mockRejectedValueOnce(new ApiError('nope', status))
 
-        logic.actions.materializeScoutFleet()
+            logic.actions.materializeScoutFleet()
 
-        await expectLogic(logic).toDispatchActions([expectedAction])
-        expect(logic.values.scoutConfigs).toEqual([BASE_CONFIG])
-        expect(logic.values.scoutFleetSynced).toBe(true)
-    })
+            await expectLogic(logic).toDispatchActions([expectedAction])
+            expect(logic.values.scoutConfigs).toEqual([BASE_CONFIG])
+            expect(logic.values.scoutFleetSynced).toBe(true)
+            expect(logic.values.scoutFleetSyncOutcome).toBe(expectedOutcome)
+        }
+    )
 
     it('sends newer queued updates after an earlier request fails', async () => {
         const firstRequest = deferred<SignalScoutConfigApi>()
