@@ -11,6 +11,11 @@ from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import BillingPeriod, OrganizationMembership
+from posthog.models.organization_caching import (
+    get_cached_organization,
+    get_cached_organization_membership,
+    get_cached_organization_memberships,
+)
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.redis import get_client
@@ -174,6 +179,43 @@ class TestOrganization(BaseTest):
         self.organization.session_cookie_age = 7200
         self.organization.save()
         self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 7200)
+
+    def test_access_cache_reuses_organization_and_membership_details(self):
+        with self.assertNumQueries(1):
+            membership = get_cached_organization_membership(self.organization.id, self.user)
+        assert membership is not None
+        assert membership.organization == self.organization
+        assert membership.user == self.user
+
+        with self.assertNumQueries(1):
+            assert get_cached_organization_memberships(self.user)[0].organization == self.organization
+
+        with self.assertNumQueries(0):
+            assert get_cached_organization(self.organization.id) == self.organization
+            assert get_cached_organization_membership(self.organization.id, self.user) == membership
+            assert get_cached_organization_memberships(self.user)[0] == membership
+
+    def test_access_cache_is_invalidated_when_organization_or_membership_changes(self):
+        membership = get_cached_organization_membership(self.organization.id, self.user)
+        assert membership is not None
+        get_cached_organization_memberships(self.user)
+
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        updated_membership = get_cached_organization_membership(self.organization.id, self.user)
+        assert updated_membership is not None
+        assert updated_membership.level == OrganizationMembership.Level.ADMIN
+        assert get_cached_organization_memberships(self.user)[0].level == OrganizationMembership.Level.ADMIN
+
+        self.organization.name = "Updated organization"
+        self.organization.save()
+        updated_organization = get_cached_organization(self.organization.id)
+        assert updated_organization is not None
+        assert updated_organization.name == "Updated organization"
+
+        membership.delete()
+        assert get_cached_organization_membership(self.organization.id, self.user) is None
+        assert get_cached_organization_memberships(self.user) == []
 
     @parameterized.expand(
         [

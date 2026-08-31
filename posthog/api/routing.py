@@ -27,6 +27,7 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
+from posthog.models.organization_caching import get_cached_organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.team import Team
@@ -516,10 +517,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def organization(self) -> Organization:
-        try:
-            return Organization.objects.get(id=self.organization_id)
-        except (Organization.DoesNotExist, ValueError):
+        if self._is_team_view:
+            return self.team.organization
+        organization_id = self.project.organization_id if self._is_project_view else self.organization_id
+        organization = get_cached_organization(organization_id)
+        if organization is None:
             raise NotFound(detail="Organization not found.")
+        return organization
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         if hasattr(self, "_should_skip_parents_filter") and callable(self._should_skip_parents_filter):

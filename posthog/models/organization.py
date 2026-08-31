@@ -22,6 +22,10 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.organization_caching import (
+    invalidate_organization_access_cache,
+    invalidate_organization_membership_access_cache,
+)
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, sane_repr
 
@@ -790,6 +794,19 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         return super().delete(*args, **kwargs)
 
     __repr__ = sane_repr("organization", "user", "level")
+
+
+@receiver(post_save, sender=Organization)
+@receiver(models.signals.post_delete, sender=Organization)
+def clear_organization_access_cache(sender: Any, instance: Organization, **kwargs: Any) -> None:
+    invalidate_organization_access_cache(instance.id)
+    transaction.on_commit(lambda: invalidate_organization_access_cache(instance.id))
+
+
+@receiver(post_save, sender=OrganizationMembership)
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def clear_organization_membership_access_cache(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
+    invalidate_organization_membership_access_cache(instance.organization_id, instance.user_id)
 
 
 @receiver(models.signals.pre_delete, sender=OrganizationMembership)
