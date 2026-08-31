@@ -10,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
-import { captureInboxReportAction } from '../inboxAnalytics'
+import { captureInboxReportAction, type InboxReportActionSurface } from '../inboxAnalytics'
 import {
     ACTIONABLE_ACTIONABILITY_VALUES,
     INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
@@ -281,8 +281,12 @@ export interface reportListLogicActions {
         reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged'
         reportId: string
     }
-    restoreReport: (reportId: string) => {
+    restoreReport: (
+        reportId: string,
+        surface: InboxReportActionSurface
+    ) => {
         reportId: string
+        surface: InboxReportActionSurface
     }
 }
 
@@ -377,7 +381,7 @@ export const reportListLogic = kea<reportListLogicType>([
         loadMore: true,
         dismissReport: (reportId: string, reason: DismissalReasonValue, note: string) => ({ reportId, reason, note }),
         resolveReport: (reportId: string, reason: ResolveReasonValue, note: string) => ({ reportId, reason, note }),
-        restoreReport: (reportId: string) => ({ reportId }),
+        restoreReport: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
     }),
@@ -651,13 +655,13 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         // Restore a suppressed report back to the inbox (transition to `potential`). Optimistically
         // drops it from Dismissed; the report re-enters the pipeline and resurfaces elsewhere.
-        restoreReport: async ({ reportId }) => {
+        restoreReport: async ({ reportId, surface }) => {
             const report = values.reports.find((r) => r.id === reportId)
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, { state: 'potential' })
                 // Fire only after the restore persists, matching ReportDetailActions' fallback path.
-                captureInboxReportAction({ report, actionType: 'restore', surface: 'list_row' })
+                captureInboxReportAction({ report, actionType: 'restore', surface })
                 lemonToast.success('Report restored to inbox')
                 // Restore maps through restore_target_status server-side, so the report lands back in
                 // whichever section its pre-suppression status names (a report suppressed while ready

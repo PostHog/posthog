@@ -23,6 +23,7 @@ import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
@@ -45,7 +46,7 @@ import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleto
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
-import { canCreateImplementationPr, useReportDetailActions } from './ReportDetailActions'
+import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'

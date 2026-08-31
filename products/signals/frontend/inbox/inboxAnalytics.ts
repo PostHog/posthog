@@ -54,8 +54,14 @@ export const INBOX_EVENTS = {
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
-/** Action surface an `Inbox report action` fired from. */
-export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar' | 'triage_mode'
+/** Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row. */
+export type InboxReportActionSurface =
+    | 'detail_pane'
+    | 'detail_footer'
+    | 'list_row'
+    | 'bulk_bar'
+    | 'triage_mode'
+    | 'context_menu'
 
 /** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'

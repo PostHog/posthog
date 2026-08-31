@@ -212,7 +212,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                                 report={report}
                                 sectionKey={INBOX_LEGACY_TAB_SECTION[tabKey]}
                                 onDismiss={(reason, note) => dismissReport(report.id, reason, note)}
-                                onRestore={() => restoreReport(report.id)}
+                                onRestore={() => restoreReport(report.id, 'list_row')}
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}
