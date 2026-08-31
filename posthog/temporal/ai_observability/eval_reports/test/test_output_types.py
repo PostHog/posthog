@@ -36,10 +36,16 @@ class TestOutcomeDefinitions(SimpleTestCase):
         self.assertEqual(definition.label_for("negative"), "negative")
         self.assertIsNone(definition.label_for("nonsense"))
 
-    def test_non_boolean_result_has_no_label(self):
+    @parameterized.expand([(None,), ("true",), (2,)])
+    def test_non_boolean_result_has_no_label(self, result: object):
         definition = get_outcome_definition("boolean")
-        self.assertIsNone(definition.label_for(None))
-        self.assertIsNone(definition.label_for("true"))
+        self.assertIsNone(definition.label_for(result))
+
+    def test_integer_boolean_result_gets_a_label(self):
+        # A ClickHouse UInt8 column can hand back an int for a logically boolean result.
+        definition = get_outcome_definition("boolean")
+        self.assertEqual(definition.label_for(1), "pass")
+        self.assertEqual(definition.label_for(0), "fail")
 
     def test_supported_types_are_derived_from_the_builders(self):
         self.assertEqual(set(SUPPORTED_EVAL_REPORT_OUTPUT_TYPES), {"boolean", "sentiment"})

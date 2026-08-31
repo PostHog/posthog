@@ -28,9 +28,11 @@ class EvaluationReportOutcomeDefinition:
             return result if isinstance(result, str) and result in self.outcomes else None
         if applicable is False:
             return "na"
-        if not isinstance(result, bool):
+        # Accepts 1/0 alongside True/False: a ClickHouse UInt8 column can hand back an int
+        # for what is logically a boolean result.
+        if result not in (True, False):
             return None
-        return "pass" if result is self.passing_result else "fail"
+        return "pass" if bool(result) is self.passing_result else "fail"
 
 
 # String comparison is deliberate: an unregistered JSON bool property extracts as the
