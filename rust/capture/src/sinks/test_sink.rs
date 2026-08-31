@@ -1,7 +1,5 @@
 //! Shared `MockSink` test helper for pipeline-level tests across the capture
-//! crate. Captures every `ProcessedEvent` published through it
-//! in an `Arc<Mutex<Vec<_>>>` so tests can assert on the exact stamped
-//! metadata the pipeline produced.
+//! crate.
 
 use crate::api::CaptureError;
 use crate::outputs::{OutputRegistry, PublishEvents};

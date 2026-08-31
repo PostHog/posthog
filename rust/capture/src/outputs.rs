@@ -146,7 +146,6 @@ impl OutputRegistry {
         Self { output }
     }
 
-    /// The degenerate table over one single-backend output.
     pub fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
         Self::new(Output::single(leaf))
     }

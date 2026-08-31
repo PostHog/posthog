@@ -565,8 +565,6 @@ fn create_v1_sink_router(
     Ok(Arc::new(router))
 }
 
-/// The deployment's produce surface: the output policy tree, wrapped in the
-/// address table every call site publishes through.
 async fn create_output_table(
     config: &Config,
     sink_handle: Option<lifecycle::Handle>,
