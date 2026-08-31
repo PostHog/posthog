@@ -26,6 +26,7 @@ from drf_spectacular.utils import extend_schema
 from oauth2_provider.models import AbstractApplication
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from rest_framework import serializers, status
+from rest_framework.parsers import FormParser, JSONParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -129,7 +130,10 @@ class PushedAuthorizationRequestSerializer(serializers.Serializer):
     # they stay optional here (a client may push any subset) and carry no per-field
     # length cap — the whole stored set is bounded by PAR_MAX_STORED_BYTES instead
     # (a small cap on `scope` would wrongly reject a full advertised scope list).
-    client_id = serializers.CharField(max_length=512, help_text="OAuth client identifier issued to the application.")
+    # CIMD (URL-form) client_ids are the metadata URL itself, which the CIMD row
+    # allows up to 2048 chars — matching /oauth/authorize/, which imposes no cap —
+    # so keep the same ceiling here or a long-but-valid CIMD client_id would 400.
+    client_id = serializers.CharField(max_length=2048, help_text="OAuth client identifier issued to the application.")
     client_secret = serializers.CharField(
         required=False,
         max_length=512,
@@ -178,6 +182,10 @@ class OAuthPushedAuthorizationRequestView(APIView):
     permission_classes: list = []
     authentication_classes: list = []
     throttle_classes = [PARBurstThrottle, PARSustainedThrottle]
+    # A pushed request is form-urlencoded (or JSON) scalar parameters. Excluding
+    # MultiPartParser keeps uploaded file objects out of request.data, so no file
+    # can slip into the cached payload past the urlencoded-size bound below.
+    parser_classes = [FormParser, JSONParser]
 
     @extend_schema(
         request=PushedAuthorizationRequestSerializer,
