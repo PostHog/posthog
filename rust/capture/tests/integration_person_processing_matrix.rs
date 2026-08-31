@@ -139,11 +139,8 @@ impl Batch {
     }
 }
 
-/// Count limiter evaluations on the recorder the caller installed. Each
-/// evaluation increments this counter exactly once, so it measures how much of
-/// the batch reached the limiter. Every event that reaches the stage is charged,
-/// including one whose person processing an upstream restriction already took
-/// away, so its volume stays in the key's fleet count.
+/// Count limiter evaluations on the recorder the caller installed. Every event
+/// that reaches the stage charges the limiter, restrictions included.
 fn consultations(snapshotter: &metrics_util::debugging::Snapshotter) -> u64 {
     snapshotter
         .snapshot()

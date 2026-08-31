@@ -319,10 +319,9 @@ impl Default for GlobalRateLimiterConfig {
 pub struct CacheEntry {
     /// Weighted count from last Redis sync (decays over time via leak_rate)
     pub estimated_count: f64,
-    /// When we last read from Redis. `None` until the first read lands, which
-    /// keeps "created just now" distinct from "synced just now". They decide
-    /// opposite things: a never-synced entry is due for a sync as soon as it
-    /// clears the floor, where a freshly synced one must wait out its tier.
+    /// When we last read from Redis; `None` until the first read lands. A
+    /// never-synced entry is due for a sync as soon as it clears the floor,
+    /// where a freshly synced one waits out its tier.
     pub synced_at: Option<Instant>,
     /// Events counted locally since last sync
     pub local_pending: u64,
@@ -336,8 +335,7 @@ pub struct CacheEntry {
 /// locally observed events. This keeps the estimate conservative (includes all
 /// local events) while allowing the global contribution to drain away.
 pub fn effective_level(entry: &CacheEntry, leak_rate: f64, now: Instant) -> f64 {
-    // Never synced, so `estimated_count` is still 0 and there is nothing to
-    // decay. The level is whatever this node has counted on its own.
+    // Never synced: nothing to decay yet, so the level is local counts alone.
     let Some(synced_at) = entry.synced_at else {
         return entry.local_pending as f64;
     };
@@ -552,14 +550,11 @@ impl GlobalRateLimiterImpl {
             );
             config.local_cache_ttl = config.window_interval;
         }
-        // Reads consult the current and the previous epoch, so the previous
-        // epoch's Redis key is still needed for a full window after its last
-        // write. A TTL below 2 x window_interval expires that key while it is
-        // still being read, and `weighted_count` then takes `prev_count` as 0.
-        // That understates the fleet estimate for the rest of the window and
-        // under-enforces. `global_cache_ttl` has a default derived from the
-        // default window, so any caller that changes the window without
-        // changing the TTL lands here.
+        // The previous epoch's Redis key is read for a full window after its
+        // last write, so a TTL under 2x the window zeroes `prev_count` early
+        // and under-enforces. The default TTL derives from the default window,
+        // so a caller that raises only the window lands here. Details in
+        // GLOBAL_RATE_LIMITER.md.
         let min_global_cache_ttl = config.window_interval * 2;
         if config.global_cache_ttl < min_global_cache_ttl {
             warn!(
@@ -662,8 +657,6 @@ impl GlobalRateLimiterImpl {
         let (level, entry_exists) = if let Some(mut entry) = self.cache.get(key) {
             let level = effective_level(&entry, leak_rate, now_instant);
 
-            // Record staleness for observability. A never-synced entry has no
-            // staleness to report; it is covered by the sync decision below.
             if let Some(synced_at) = entry.synced_at {
                 let staleness_ms = now_instant.duration_since(synced_at).as_millis() as f64;
                 metrics::histogram!(GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM, "scope" => self.scope).record(staleness_ms);
@@ -686,11 +679,9 @@ impl GlobalRateLimiterImpl {
                     tier_sync_interval(effective_pressure, self.config.sync_interval)
                         .unwrap_or_else(|| self.config.sync_interval.mul_f64(4.0));
 
-                // A never-synced entry is due immediately. Its level is local
-                // only, so the fleet count behind it is unknown, and waiting a
-                // tier interval to find out delays every verdict on the key by
-                // that long. Keys below the floor never reach this branch, so
-                // this does not sync the long tail of one-off keys.
+                // A never-synced entry is due immediately: its level is local
+                // only, and waiting a tier interval to learn the fleet count
+                // delays every verdict on the key by that long.
                 let due = match entry.synced_at {
                     None => true,
                     Some(synced_at) => now_instant.duration_since(synced_at) > tier_interval,
@@ -1462,12 +1453,9 @@ impl GlobalRateLimiterImpl {
         metrics::gauge!(GLOBAL_RATE_LIMITER_CACHE_SIZE_GAUGE, "scope" => scope)
             .set(cache.entry_count() as f64);
 
-        // The window sets Redis epoch numbering, so two deployments that share a
-        // key namespace must agree on it. Capture's AI byte budget is one such
-        // namespace: its prefix carries no capture_mode, so capture-analytics and
-        // capture-ai draw on one budget. A disagreement splits that budget in two
-        // with no error and no log, so publish the value each deployment is
-        // actually running and let an alert compare them.
+        // Deployments that share a Redis key prefix must agree on the window,
+        // or their epoch keys diverge and the shared counter silently splits.
+        // Publish the running value so an alert can compare deployments.
         metrics::gauge!(GLOBAL_RATE_LIMITER_WINDOW_GAUGE, "scope" => scope)
             .set(window_interval.as_secs_f64());
 

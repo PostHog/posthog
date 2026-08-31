@@ -511,20 +511,14 @@ async fn process_events_inner(
                 let cache_key =
                     GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
                         .to_cache_key();
-                // Charge every event, including one whose person processing an
-                // event restriction already took away. The verdict cannot be
-                // acted on for that event, but its volume still belongs in the
-                // key's fleet count. Leaving it out understates a key that a
-                // restriction covers, so the limiter would start from zero if
-                // the restriction were lifted. The charge is cheap: the check
-                // reads the local cache and hands its count to a batched
-                // background writer, so it costs no inline Redis round trip. At
-                // most it queues one batched read for the next tick.
+                // Charge every event, even one an event restriction already
+                // stripped of person processing: its volume belongs in the
+                // key's fleet count, or a covered key starts from zero when the
+                // restriction lifts. The check reads only the local cache.
                 let limited = limiter.is_limited(&cache_key, 1).await.is_some();
 
-                // The limiter has nothing left to take away from an event whose
-                // person processing is already off, so stamp nothing and leave
-                // it out of the customer-facing tallies below.
+                // Person processing is already off: nothing left to take away,
+                // so stamp nothing and keep it out of the customer-facing tallies.
                 if event.metadata.skip_person_processing {
                     already_disabled_event_count += 1;
                     continue;
@@ -565,9 +559,7 @@ async fn process_events_inner(
             }
 
             if already_disabled_event_count > 0 {
-                // Charged against the limiter but not re-stamped: person
-                // processing was already off. Mirrors v1's
-                // `capture_v1_rate_limiter{outcome="already_disabled"}`.
+                // Charged against the limiter but not re-stamped.
                 counter!("capture_global_rate_limiter_already_disabled")
                     .increment(already_disabled_event_count);
             }

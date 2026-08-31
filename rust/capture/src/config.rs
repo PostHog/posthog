@@ -472,12 +472,10 @@ pub struct Config {
     /// Window the AI byte budget is enforced over. Falls back to
     /// `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS` when unset.
     ///
-    /// The AI byte budget is shared across capture deployments: its Redis prefix
-    /// carries no `capture_mode`, so capture-analytics and capture-ai draw on one
-    /// counter. The epoch number is `floor(unix / window)`, so the deployments
-    /// must agree on this value or they write to different keys and the shared
-    /// budget splits. Keeping this separate from the token+distinct_id limiter's
-    /// window lets that one be tuned without moving every AI deployment in step.
+    /// The AI byte budget is shared across capture deployments through one
+    /// Redis counter, and the epoch key derives from this window, so every
+    /// deployment must set the same value or the shared budget splits. Kept
+    /// separate so the token+distinct_id window can be tuned per deployment.
     pub ai_byte_limit_window_interval_secs: Option<u64>,
 
     /// Max local cache entries for the AI byte limiter. Keyed per token, so this

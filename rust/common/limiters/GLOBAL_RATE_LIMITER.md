@@ -111,26 +111,19 @@ This produces a smooth, continuously-updating estimate that's more accurate than
 Each `CacheEntry` stores the last-known weighted count from Redis (`estimated_count`)
 and the time it was synced (`synced_at`).
 
-`synced_at` is `None` until the first Redis read lands. That keeps "created just
-now" distinct from "synced just now", which decide opposite things: a
-never-synced entry is due for a sync as soon as it clears `min_sync_floor`,
-where a freshly synced one waits out its pressure tier. Collapsing the two
-delays a new key's first read by a full tier interval (4 x `sync_interval` at
-Idle), during which the node knows only its own local count and cannot see the
-fleet.
+`synced_at` is `None` until the first Redis read lands. A never-synced entry is
+due for a sync as soon as it clears `min_sync_floor`; a synced one waits out its
+pressure tier. Collapsing the two delays a new key's first read by a full tier
+interval, during which the node cannot see the fleet.
 
-**A known, tolerated race.** `check_limit_internal` reads an entry, modifies
-it, and inserts it back. `process_read_results` inserts a fresh entry after a
-Redis read. Nothing orders the two, so a request that read just before a Redis
-read landed can overwrite the fresh fleet estimate with its stale copy. The
-effect is bounded in three ways. The stale entry is due for a sync at once, so
-the pod recovers on the next tick. The stale estimate is never higher than the
-fresh one, so the race only under-counts. The window is microseconds per event
-against one Redis read per key every 7.5 to 60 seconds. A fix through moka's
-per-key entry API (`entry().and_upsert_with` at both writers) was measured at
-about 0.3 µs per evaluation, a 31 to 36 percent regression on this crate's
-bench, for no measurable change in limiter decisions. It is deliberately not
-applied.
+**A known, tolerated race.** The request path's get-modify-insert can overwrite
+the entry a Redis read just refreshed. The effect is bounded: the clobbered
+entry is due for a sync at once (recovery is one tick), the stale estimate is
+never higher than the fresh one (it only under-counts), and the collision
+window is microseconds per event against one read per key every 7.5 to 60
+seconds. A fix via moka's per-key entry API cost ~0.3 µs per evaluation (+31%
+on this crate's bench) for no measurable change in decisions, so it is
+deliberately not applied.
 Between syncs, the estimate **decays** at the configured leak rate:
 
 ```text
@@ -254,12 +247,11 @@ TTL:   2 × window_interval (120s for 60s window)
 Only 2 keys per entity exist at any time (current + previous epoch).
 
 **Two deployments that share a key prefix must agree on `window_interval`.**
-The epoch number is `floor(unix / window_interval)`, so a mismatch puts each
-deployment on a different key namespace and silently splits the shared counter.
-Capture's AI byte budget is one such namespace: its prefix deliberately carries
-no `capture_mode`, so capture-analytics and capture-ai draw on one budget. The
-`global_rate_limiter_window_seconds{scope}` gauge publishes the value each
-process is running, so an alert can compare them.
+The epoch number is `floor(unix / window_interval)`, so a mismatch splits the
+shared counter into separate key namespaces. Capture's AI byte budget is one
+such namespace (its prefix carries no `capture_mode`). The
+`global_rate_limiter_window_seconds{scope}` gauge publishes each process's
+running value so an alert can compare them.
 
 ### Configuration
 
@@ -330,20 +322,16 @@ only if you're also changing the window/sync intervals.
   a shorter idle timeout reclaims slots faster, keeping the cache responsive.
 - `local_cache_ttl` acts as an upper bound on how stale an entry can get
   before being forced to re-sync from scratch on next access.
-- **`min_sync_floor` gates reads only.** `enqueue_update` runs unconditionally
-  for every event with a non-zero count, before any floor check, so every
-  event's count reaches Redis regardless of the floor. The floor suppresses the
-  `MGET` round trip for keys too far under their threshold to be limited. Writes
-  are bounded by a different mechanism: `absorb_update` merges by
-  `(key, epoch)` within a tick, so write volume scales with the number of
-  distinct active keys per tick rather than with event rate.
-- `global_cache_ttl` is an enforcement requirement, not only Redis hygiene.
-  Reads consult the current and previous epoch, so the previous epoch's key is
-  still needed for a full window after its last write. Below 2 × `window_interval`
-  it expires early, `weighted_count` reads `prev_count` as 0, and the fleet
-  estimate is understated for the rest of every window — always toward
-  under-limiting. `GlobalRateLimiterImpl::new` clamps it up and logs a warning.
-  Making it much larger than 2 × `window_interval` wastes Redis memory on dead keys.
+- **`min_sync_floor` gates reads only.** Every event's count reaches Redis
+  regardless of the floor; the floor only suppresses the `MGET` for keys too far
+  under their threshold to be limited. Writes are bounded separately:
+  `absorb_update` merges by `(key, epoch)` per tick, so write volume scales with
+  distinct active keys, not event rate.
+- `global_cache_ttl` is an enforcement requirement, not only Redis hygiene: the
+  previous epoch's key is read for a full window after its last write, and a
+  TTL under 2 × `window_interval` zeroes `prev_count` early, understating the
+  estimate. `new` clamps it up and warns. Much larger values only waste Redis
+  memory on dead keys.
 
 **All three TTLs are clamped at construction**, because each one expiring inside
 the window it serves causes silent under-enforcement:

@@ -108,7 +108,7 @@ metrics and CloudWatch ElastiCache metrics.
 - Optional read replica: `GLOBAL_RATE_LIMIT_REDIS_READER_URL`
 - Toggle: `GLOBAL_RATE_LIMIT_ENABLED` (may be off in some envs during rollout)
 - Metrics: `global_rate_limiter_*` (direct), `capture_events_rerouted_overflow{reason="rate_limited"}` (proxy signal)
-- `global_rate_limiter_window_seconds{scope}` publishes each process's window. The AI byte budget is shared between capture-analytics and capture-ai through a prefix with no `capture_mode`, and the epoch number derives from the window, so the two deployments disagreeing on this gauge means the shared budget has split
+- `global_rate_limiter_window_seconds{scope}` publishes each process's window. capture-analytics and capture-ai share the AI byte budget, so if they disagree on this gauge the shared budget has split
 - CloudWatch cluster id: `capture-globalratelimit-prod-redis`
 
 **3. Event Restrictions Redis** (`EVENT_RESTRICTIONS_REDIS_URL`)
