@@ -2294,10 +2294,10 @@ class TaskRun(models.Model):
         if not agent_active:
             return
 
-        from products.tasks.backend.redis import get_tasks_cache
+        from products.tasks.backend.redis import best_effort_cache_add
 
         cache_key = f"tasks:task_run:heartbeat:{self.id}:active"
-        if not get_tasks_cache().add(cache_key, True, timeout=60):
+        if not best_effort_cache_add(cache_key, True, timeout=60):
             return
 
         import asyncio
@@ -2335,10 +2335,10 @@ class TaskRun(models.Model):
             return False
 
     def signal_client_activity(self) -> None:
-        from products.tasks.backend.redis import get_tasks_cache
+        from products.tasks.backend.redis import best_effort_cache_add
 
         cache_key = f"tasks:task_run:client_activity:{self.id}"
-        if not get_tasks_cache().add(cache_key, True, timeout=60):
+        if not best_effort_cache_add(cache_key, True, timeout=60):
             return
 
         import asyncio

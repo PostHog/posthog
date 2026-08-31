@@ -41,7 +41,7 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state as is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
-from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.redis import best_effort_cache_set, get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     MINTABLE_PRODUCTS,
     mint_scoped_token,
@@ -497,7 +497,7 @@ def _sandbox_identity_cache_key(kind: str, scope: str) -> str:
 
 
 def _mark_sandbox_identity(kind: str, scope: str, user_id: int) -> None:
-    get_tasks_cache().set(_sandbox_identity_cache_key(kind, scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    best_effort_cache_set(_sandbox_identity_cache_key(kind, scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
 
 
 def _get_sandbox_identity_user(kind: str, scope: str) -> int | None:

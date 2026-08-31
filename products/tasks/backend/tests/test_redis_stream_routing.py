@@ -7,6 +7,7 @@ from django.test import SimpleTestCase, override_settings
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from redis.exceptions import ReadOnlyError
 
 from products.tasks.backend import redis as tasks_redis
 from products.tasks.backend.logic.stream import redis_stream
@@ -56,6 +57,27 @@ class TestEvaluateDedicatedStreamFlag(SimpleTestCase):
     def test_fails_safe_to_shared_on_flag_error(self):
         with patch.object(tasks_redis.posthoganalytics, "feature_enabled", side_effect=RuntimeError("boom")):
             self.assertFalse(tasks_redis.evaluate_dedicated_stream_flag(organization_id="org", distinct_id="u"))
+
+
+class TestBestEffortCache(SimpleTestCase):
+    """A Redis failover that serves a read-only replica must not escape these
+    optimization writes and fail the caller — the incident this guards against."""
+
+    def test_add_returns_fallback_when_cache_raises(self):
+        cache = patch.object(tasks_redis, "get_tasks_cache").start()
+        self.addCleanup(patch.stopall)
+        cache.return_value.add.side_effect = ReadOnlyError("read only replica")
+
+        # A rate-limit guard (`if not add(...): return`) proceeds with its primary work.
+        self.assertTrue(tasks_redis.best_effort_cache_add("k", True, timeout=60))
+        self.assertFalse(tasks_redis.best_effort_cache_add("k", True, timeout=60, when_unavailable=False))
+
+    def test_set_swallows_cache_error(self):
+        cache = patch.object(tasks_redis, "get_tasks_cache").start()
+        self.addCleanup(patch.stopall)
+        cache.return_value.set.side_effect = ReadOnlyError("read only replica")
+
+        self.assertIsNone(tasks_redis.best_effort_cache_set("k", "v", timeout=60))
 
 
 class _ThreadHungryAsyncClient:
