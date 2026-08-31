@@ -943,9 +943,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
+                'self-optimising-workflows',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(35)
     })
 
     it('every loops tool is gated on the loops flag', () => {
