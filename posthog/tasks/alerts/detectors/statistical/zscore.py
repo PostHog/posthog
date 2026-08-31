@@ -70,23 +70,29 @@ class ZScoreDetector(BaseDetector):
         current_value = values[-1]
 
         if std == 0:
-            is_anomaly = abs(current_value - mean) > 0
+            # Keep the score tied to the deviation, not the direction gate, so
+            # a suppressed point still records its magnitude - matching the
+            # probability branch, where direction never changes the score.
+            has_deviation = abs(current_value - mean) > 0
+            is_anomaly = has_deviation and self._direction_allows(current_value, mean)
+            score = 1.0 if has_deviation else 0.0
             return DetectionResult(
                 is_anomaly=is_anomaly,
-                score=1.0 if is_anomaly else 0.0,
+                score=score,
                 triggered_indices=[original_length - 1] if is_anomaly else [],
-                all_scores=[1.0 if is_anomaly else 0.0],
+                all_scores=[score],
                 metadata={"mean": float(mean), "std": 0.0, "value": float(current_value), "raw_zscore": None},
             )
 
         z_score = abs((current_value - mean) / std)
         window_zscores = np.abs((window_data - mean) / std)
         prob = _zscore_to_probability(z_score, window_zscores)
+        is_anomaly = prob > threshold and self._direction_allows(current_value, mean)
 
         return DetectionResult(
-            is_anomaly=prob > threshold,
+            is_anomaly=is_anomaly,
             score=prob,
-            triggered_indices=[original_length - 1] if prob > threshold else [],
+            triggered_indices=[original_length - 1] if is_anomaly else [],
             all_scores=[prob],
             metadata={
                 "mean": float(mean),
@@ -126,11 +132,11 @@ class ZScoreDetector(BaseDetector):
             current_val = values[i]
 
             if std == 0:
-                if abs(current_val - mean) > 0:
-                    scores.append(1.0)
+                # Score reflects the deviation; direction gates only the trigger.
+                has_deviation = abs(current_val - mean) > 0
+                scores.append(1.0 if has_deviation else 0.0)
+                if has_deviation and self._direction_allows(current_val, mean):
                     triggered.append(i + diffs_n)
-                else:
-                    scores.append(0.0)
                 continue
 
             z_score = abs((current_val - mean) / std)
@@ -138,7 +144,7 @@ class ZScoreDetector(BaseDetector):
             prob = _zscore_to_probability(z_score, window_zscores)
             scores.append(prob)
 
-            if prob > threshold:
+            if prob > threshold and self._direction_allows(current_val, mean):
                 triggered.append(i + diffs_n)
 
         return DetectionResult(

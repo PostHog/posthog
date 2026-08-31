@@ -6434,8 +6434,20 @@ export interface PreprocessingConfig {
     lags_n?: integer
 }
 
+/** Which side of the baseline a deviation must fall on to count as an anomaly */
+export enum DetectorDirection {
+    /** Fire on any deviation (default) */
+    BOTH = 'both',
+    /** Fire only on spikes above the baseline */
+    UP = 'up',
+    /** Fire only on drops below the baseline */
+    DOWN = 'down',
+}
+
 export interface ZScoreDetectorConfig {
     type: 'zscore'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
     threshold?: number
     /** Rolling window size for calculating mean/std (default: 30) */
@@ -6446,6 +6458,8 @@ export interface ZScoreDetectorConfig {
 
 export interface MADDetectorConfig {
     type: 'mad'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
     threshold?: number
     /** Rolling window size for calculating median/MAD (default: 30) */
@@ -6456,6 +6470,8 @@ export interface MADDetectorConfig {
 
 export interface IQRDetectorConfig {
     type: 'iqr'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
     multiplier?: number
     /** Rolling window size for calculating quartiles (default: 30) */
@@ -6476,6 +6492,8 @@ export interface ThresholdDetectorConfig {
 
 export interface ECODDetectorConfig {
     type: 'ecod'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
@@ -6486,6 +6504,8 @@ export interface ECODDetectorConfig {
 
 export interface COPODDetectorConfig {
     type: 'copod'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
@@ -6496,6 +6516,8 @@ export interface COPODDetectorConfig {
 
 export interface IsolationForestDetectorConfig {
     type: 'isolation_forest'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
     /** Number of trees in the forest (default: 100) */
@@ -6508,6 +6530,8 @@ export interface IsolationForestDetectorConfig {
 
 export interface KNNDetectorConfig {
     type: 'knn'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
     /** Number of neighbors to consider (default: 5) */
@@ -6522,6 +6546,8 @@ export interface KNNDetectorConfig {
 
 export interface HBOSDetectorConfig {
     type: 'hbos'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
     /** Number of histogram bins (default: 10) */
@@ -6534,6 +6560,8 @@ export interface HBOSDetectorConfig {
 
 export interface LOFDetectorConfig {
     type: 'lof'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
     /** Number of neighbors for LOF (default: 20) */
@@ -6546,6 +6574,8 @@ export interface LOFDetectorConfig {
 
 export interface OCSVMDetectorConfig {
     type: 'ocsvm'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
     /** SVM kernel type (default: "rbf") */
@@ -6560,6 +6590,8 @@ export interface OCSVMDetectorConfig {
 
 export interface PCADetectorConfig {
     type: 'pca'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
     /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
@@ -6593,6 +6625,8 @@ export type SingleDetectorConfig =
 
 export interface EnsembleDetectorConfig {
     type: 'ensemble'
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirection
     /** How to combine sub-detector results */
     operator: EnsembleOperator
     /** Sub-detector configurations (minimum 2) */

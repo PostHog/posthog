@@ -1022,6 +1022,12 @@ class DefaultChannelTypes(StrEnum):
     UNKNOWN = "Unknown"
 
 
+class DetectorDirection(StrEnum):
+    BOTH = "both"
+    UP = "up"
+    DOWN = "down"
+
+
 class DetectorType(StrEnum):
     ZSCORE = "zscore"
     MAD = "mad"
