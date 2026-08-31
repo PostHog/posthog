@@ -1,6 +1,6 @@
 import './InboxWelcome.scss'
 
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconRewindPlay, IconWarning } from '@posthog/icons'
@@ -9,9 +9,29 @@ import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 import { Logomark } from 'lib/brand'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { currencyFormatter } from 'scenes/billing/billing-utils'
 
 import { captureInboxWelcomeCommandCopied, captureInboxWelcomeViewed } from '../../inboxAnalytics'
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
+import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
+
+/**
+ * The pricing footnote, read from billing rather than hardcoded so the number matches the limit we
+ * enforce. Falls back to the free-report fact while billing loads or when a PR can't be priced, so
+ * the takeover never states a free-PR count that disagrees with the plan.
+ */
+function PricingNote(): JSX.Element {
+    const { freePrs, pricePerPrUsd } = useValues(inboxUsageLogic)
+
+    const freeTier =
+        freePrs === 1 ? 'Your first PR each month is free' : `Your first ${freePrs} PRs each month are free`
+    const text =
+        freePrs > 0 && pricePerPrUsd != null
+            ? `${freeTier}, then ${currencyFormatter(pricePerPrUsd)} per PR. Reports are always free.`
+            : 'Reports are always free. You only pay for the pull requests agents open.'
+
+    return <p className="mt-6 text-center text-xs text-tertiary">{text}</p>
+}
 
 /** The one command that sets up self-driving. The whole onboarding orbits this string. */
 export const SELF_DRIVING_WIZARD_COMMAND = 'npx -y @posthog/wizard@latest self-driving'
@@ -224,9 +244,7 @@ export function InboxWelcome(): JSX.Element {
             <div className="px-6 md:px-12">
                 <div className="mx-auto max-w-[1060px]">
                     <LoopDiagram />
-                    <p className="mt-6 text-center text-xs text-tertiary">
-                        Your first 3 PRs each month are free, then $15 per PR. Reports are always free.
-                    </p>
+                    <PricingNote />
                 </div>
             </div>
         </div>
