@@ -25,8 +25,10 @@ export function InboxScopeFilter(): JSX.Element {
     // External reference (callback ref → state so the Popover re-anchors once mounted).
     const [referenceEl, setReferenceEl] = useState<HTMLDivElement | null>(null)
     // Remember the selected teammate's label so the trigger stays correct even while a search
-    // query has filtered them out of the server-returned `reviewers` list.
-    const [knownTeammateLabel, setKnownTeammateLabel] = useState<string | null>(null)
+    // query has filtered them out of the server-returned `reviewers` list. Keep the uuid alongside
+    // it: a scope change to a different teammate the roster hasn't loaded (search-filtered, or past
+    // the 100-row cap) must not fall back to the previous teammate's name.
+    const [knownTeammate, setKnownTeammate] = useState<{ uuid: string; label: string } | null>(null)
 
     const isForYou = scope === INBOX_SCOPE_FOR_YOU
     const selectedTeammateUuid = isTeammateInboxScope(scope) ? parseTeammateInboxScope(scope) : null
@@ -35,19 +37,24 @@ export function InboxScopeFilter(): JSX.Element {
 
     useEffect(() => {
         if (selectedTeammateUuid && selectedTeammateLabel) {
-            setKnownTeammateLabel(selectedTeammateLabel)
+            setKnownTeammate({ uuid: selectedTeammateUuid, label: selectedTeammateLabel })
         }
     }, [selectedTeammateUuid, selectedTeammateLabel])
+
+    // Only reuse the cached label when it names the currently-scoped teammate.
+    const cachedTeammateLabel =
+        knownTeammate && knownTeammate.uuid === selectedTeammateUuid ? knownTeammate.label : null
 
     const triggerLabel = isForYou
         ? 'For you'
         : selectedTeammateUuid
-          ? (selectedTeammateLabel ?? knownTeammateLabel ?? 'Teammate')
+          ? (selectedTeammateLabel ?? cachedTeammateLabel ?? 'Teammate')
           : 'Entire project'
 
     const pick = (next: InboxScope, label?: string): void => {
-        if (label) {
-            setKnownTeammateLabel(label)
+        const nextUuid = parseTeammateInboxScope(next)
+        if (label && nextUuid) {
+            setKnownTeammate({ uuid: nextUuid, label })
         }
         setScope(next)
         setOpen(false)
