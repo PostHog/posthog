@@ -1460,7 +1460,8 @@ class CDCExtractActivity:
 
     def _handle_no_changes(self, truncated_tables: list[str]) -> None:
         """Early-return path: no DML events were read."""
-        advanced = False
+        # A mid-run page advance already released the WAL it committed, so the slot moved this run.
+        advanced = self.last_confirmed_lsn is not None
         if truncated_tables:
             truncate_end_lsn = self.reader.last_commit_end_lsn
             if truncate_end_lsn is not None:
@@ -1473,11 +1474,18 @@ class CDCExtractActivity:
         # writes yields nothing to advance on. The slot then pins the WAL from its last confirmed
         # position and the source retains it until the lag safety net drops the slot. The peek
         # examined every record up to the pre-read position and kept none of them, so releasing that
-        # much is safe. It is only safe once the backlog drained: a run stopped by the read deadline
-        # left records below that position unread.
+        # much is safe. Two conditions bound it. The backlog must have drained, because a run
+        # stopped by the read deadline left records below that position unread. Nothing else may
+        # have advanced the slot this run, because the pre-read position can sit behind where those
+        # advances left it, and the next quiet run releases the remainder anyway.
         if not advanced and self._backlog_drained and self._pre_read_position is not None:
-            self._confirm_position(self._pre_read_position)
-            self.log.info("slot_advanced_no_changes", position=self._pre_read_position)
+            try:
+                self._confirm_position(self._pre_read_position)
+                self.log.info("slot_advanced_no_changes", position=self._pre_read_position)
+            except Exception:
+                # Retention hygiene, not the run's work. Failing here would mark every schema failed
+                # and email the customer about a run that read nothing and lost nothing.
+                self.log.warning("slot_advance_no_changes_failed", exc_info=True)
 
         now = dt.datetime.now(tz=dt.UTC)
         for schema in self.cdc_schemas:

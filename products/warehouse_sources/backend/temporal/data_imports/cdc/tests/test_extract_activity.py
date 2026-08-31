@@ -3147,18 +3147,40 @@ class TestQuietRunSlotAdvance:
     source stops retaining WAL until the lag safety net drops the slot. The peek must have reached
     the end of the backlog first: a short read leaves records below that position unexamined."""
 
-    @pytest.mark.parametrize("drained,expected_advances", [(True, ["0/900"]), (False, [])])
-    def test_quiet_run_advances_only_after_the_backlog_drained(self, drained, expected_advances):
+    @pytest.mark.parametrize(
+        "drained,pre_read,already_confirmed,expected_advances",
+        [
+            (True, "0/900", None, ["0/900"]),
+            (False, "0/900", None, []),
+            (True, None, None, []),
+            (True, "0/900", "0/500", []),
+        ],
+    )
+    def test_quiet_run_advance_conditions(self, drained, pre_read, already_confirmed, expected_advances):
         source = _make_source()
         act = _make_extract_activity(source)
         act.cdc_schemas = [_make_schema("users", source=source)]
         act.reader = MagicMock(last_commit_end_lsn=None)
-        act._pre_read_position = "0/900"
+        act._pre_read_position = pre_read
         act._backlog_drained = drained
+        act.last_confirmed_lsn = already_confirmed
 
         act._handle_no_changes([])
 
         assert [c.args[0] for c in act.reader.confirm_position.call_args_list] == expected_advances
+
+    def test_a_failed_quiet_advance_does_not_fail_the_run(self):
+        source = _make_source()
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [_make_schema("users", source=source)]
+        act.reader = MagicMock(last_commit_end_lsn=None)
+        act.reader.confirm_position.side_effect = RuntimeError("slot is active for PID 42")
+        act._pre_read_position = "0/900"
+        act._backlog_drained = True
+
+        act._handle_no_changes([])
+
+        assert act.cdc_schemas[0].status == ExternalDataSchema.Status.COMPLETED
 
 
 class TestSuccessRepaintGuards:

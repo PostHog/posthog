@@ -501,21 +501,18 @@ class TestPgCDCStreamReaderCurrentPosition:
 
         assert reader.current_position() == "B4/C7327D08"
 
-    @pytest.mark.parametrize(
-        "conn,expected_rollback",
-        [("missing", False), ("failing", True)],
-    )
-    def test_current_position_returns_none_instead_of_failing_the_run(self, params, conn, expected_rollback):
-        # A source in recovery cannot run pg_current_wal_lsn(). The caller only loses the quiet-run
-        # slot advance, so this must never propagate.
+    def test_current_position_returns_none_without_a_connection(self, params):
+        assert PgCDCStreamReader(params).current_position() is None
+
+    def test_current_position_returns_none_instead_of_failing_the_run(self, params):
+        # A source in recovery cannot run pg_current_wal_flush_lsn(). The caller only loses the
+        # quiet-run slot advance, so this must never propagate.
         reader = PgCDCStreamReader(params)
         fake_conn = mock.MagicMock()
-        if conn == "failing":
-            fake_conn.cursor.return_value.__enter__.return_value.execute.side_effect = (
-                psycopg.errors.ObjectNotInPrerequisiteState("recovery is in progress")
-            )
-            reader._conn = fake_conn
+        fake_conn.cursor.return_value.__enter__.return_value.execute.side_effect = (
+            psycopg.errors.ObjectNotInPrerequisiteState("recovery is in progress")
+        )
+        fake_conn.rollback.side_effect = psycopg.OperationalError("the connection is closed")
+        reader._conn = fake_conn
 
         assert reader.current_position() is None
-        if expected_rollback:
-            fake_conn.rollback.assert_called_once()
