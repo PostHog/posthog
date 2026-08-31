@@ -1,4 +1,5 @@
-{% extends "email/base.html" %} {% load posthog_assets %}
+{% extends "email/base.html" %}
+
 {% block heading %}{% if high_impact %}Email sending is at risk of being paused{% else %}Reputation warning for your email sending{% endif %}{% endblock %}
 {% block section %}
 <!-- prettier-ignore -->

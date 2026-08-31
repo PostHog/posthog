@@ -29,10 +29,9 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -43,6 +42,7 @@ import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import {
   type ComponentPropsWithRef,
   type MouseEventHandler,
+  memo,
   type ReactElement,
   type ReactNode,
   useState,
@@ -179,19 +179,17 @@ function ActivityNavItem({
  * The app's leftmost column. Sits outside the resizable sidebar, so collapsing
  * that sidebar leaves the destinations reachable.
  */
-export function NavRail() {
+function NavRailImpl() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const contextEnabled = useContextLayerFlag();
-  const channelReportsEnabled = useChannelReportsEnabled();
-  const reportsInboxEnabled = useReportsInboxEnabled();
+  const inboxAvailable = useInboxAvailable();
   const tabsEnabled = useSpacesTabs();
   const openBrowserTab = useOpenBrowserTab();
   const mentionsEnabled = useActivityFilterStore(
     (state) => state.mentionsEnabled,
   );
 
-  const inboxAvailable = !channelReportsEnabled || reportsInboxEnabled;
   const destinations = visibleRailDestinations({
     home: homeEnabled,
     inbox: inboxAvailable,
@@ -325,3 +323,6 @@ export function NavRail() {
     </TooltipProvider>
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const NavRail = memo(NavRailImpl);

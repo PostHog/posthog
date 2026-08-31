@@ -37,12 +37,10 @@ import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
-import { useDraftStore } from "../../message-editor/draftStore";
 import { EmbeddedSessionView } from "../../sessions/components/EmbeddedSessionView";
 import { TaskIcon } from "../../sidebar/components/items/TaskIcon";
 import { useTaskPrStatus } from "../../sidebar/useTaskPrStatus";
-import { TaskInput } from "../../task-detail/components/TaskInput";
-import { getCellSessionId, useCommandCenterStore } from "../commandCenterStore";
+import { useCommandCenterStore } from "../commandCenterStore";
 import type {
   CellStatus,
   CommandCenterCellData,
@@ -126,20 +124,11 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   const [selectorOpen, setSelectorOpen] = useState(false);
   // The command-center terminal is unavailable on cloud-only hosts.
   const { localWorkspaces } = useHostCapabilities();
-  const isCreating = useCommandCenterStore((s) =>
-    s.creatingCells.includes(cellIndex),
-  );
-  const assignTask = useCommandCenterStore((s) => s.assignTask);
   const setBrainrotCell = useCommandCenterStore((s) => s.setBrainrotCell);
   const setTerminalCell = useCommandCenterStore((s) => s.setTerminalCell);
-  const startCreating = useCommandCenterStore((s) => s.startCreating);
-  const stopCreating = useCommandCenterStore((s) => s.stopCreating);
   const layout = useCommandCenterStore((s) => s.layout);
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
-  const clearDraft = useDraftStore((s) => s.actions.setDraft);
-
-  const sessionId = getCellSessionId(cellIndex);
 
   const handleBrainrot = useCallback(() => {
     track(ANALYTICS_EVENTS.BRAINROT_ACTIVATED, {
@@ -156,56 +145,6 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
     [setTerminalCell, cellIndex],
   );
 
-  const handleTaskCreated = useCallback(
-    (task: Task) => {
-      assignTask(cellIndex, task.id);
-      clearDraft(sessionId, null);
-    },
-    [assignTask, cellIndex, clearDraft, sessionId],
-  );
-
-  const handleCancel = useCallback(() => {
-    stopCreating(cellIndex);
-    clearDraft(sessionId, null);
-  }, [stopCreating, cellIndex, clearDraft, sessionId]);
-
-  const wasCreatingRef = useRef(false);
-  useEffect(() => {
-    if (wasCreatingRef.current && !isCreating) {
-      clearDraft(sessionId, null);
-    }
-    wasCreatingRef.current = isCreating;
-  }, [isCreating, clearDraft, sessionId]);
-
-  if (isCreating) {
-    return (
-      <Flex direction="column" height="100%">
-        <Flex
-          align="center"
-          justify="between"
-          px="2"
-          py="1"
-          className="shrink-0 border-gray-6 border-b"
-        >
-          <Text className="font-medium font-mono text-[11px] text-gray-11">
-            New task
-          </Text>
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
-            title="Cancel"
-          >
-            <X size={12} />
-          </button>
-        </Flex>
-        <Flex direction="column" className="min-h-0 flex-1">
-          <TaskInput sessionId={sessionId} onTaskCreated={handleTaskCreated} />
-        </Flex>
-      </Flex>
-    );
-  }
-
   return (
     <Flex align="center" justify="center" height="100%">
       <Flex direction="column" align="center" gap="2" className="select-none">
@@ -213,7 +152,6 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
           cellIndex={cellIndex}
           open={selectorOpen}
           onOpenChange={setSelectorOpen}
-          onNewTask={() => startCreating(cellIndex)}
           onNewTerminal={localWorkspaces ? handleNewTerminal : undefined}
           onBrainrot={brainrotMode ? handleBrainrot : undefined}
         >
@@ -544,7 +482,9 @@ function PopulatedCell({
   const clearCell = useCommandCenterStore((s) => s.clearCell);
 
   const handleExpand = useCallback(() => {
-    void openTask(cell.task);
+    void openTask(cell.task, {
+      channelId: cell.task.channel ?? undefined,
+    });
   }, [cell.task]);
 
   const handleRemove = useCallback(() => {

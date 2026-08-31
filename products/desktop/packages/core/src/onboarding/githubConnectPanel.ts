@@ -147,7 +147,7 @@ export function deriveConnectButtonState(inputs: {
 
 export type GithubApprovalState = "none" | "awaiting" | "approved";
 
-export interface GithubInstallRequestSummary {
+interface GithubInstallRequestSummary {
   status: "pending" | "approved" | "unidentified";
 }
 
