@@ -87,20 +87,33 @@ pub fn upload_cmd(args: &Args) -> Result<()> {
 }
 
 pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
+    // Resolve stdin once so the JavaScript upload and CSS cleanup scan the same paths.
+    let file_selection = args.file_selection.clone().resolve_stdin()?;
+    let selection = FileSelection::try_from(file_selection.clone())?;
+
+    let pairs = read_pairs(
+        selection.into_iter().filter(is_javascript_file),
+        &args.public_path_prefix,
+    );
+    upload_pairs(args, pairs, existing_release, file_selection)
+}
+
+/// Upload `pairs`, then run the `--delete-after` cleanup scoped to `file_selection`
+/// (already stdin-resolved). `process` calls this directly with the pairs inject just
+/// wrote, so upload acts on the exact files inject stamped - in the state it left them
+/// in - even when a bundler keeps writing into the scanned directory in the background
+/// (e.g. Turbopack's filesystem-cache flush on Next.js 16.3+, posthog-js#4667).
+pub fn upload_pairs(
+    args: &Args,
+    mut pairs: Vec<SourcePair>,
+    existing_release: Option<&Release>,
+    file_selection: FileSelectionArgs,
+) -> Result<()> {
     if args.conflict.skip_on_conflict_ignored(args.release_mode) {
         warn!(
             "--skip-on-conflict is ignored with --release-mode=event. Every chunk's content changes with each release, so skipping conflicts would leave the previous release id in place. Overwriting instead."
         );
     }
-
-    // Resolve stdin once so the JavaScript upload and CSS cleanup scan the same paths.
-    let file_selection = args.file_selection.clone().resolve_stdin()?;
-    let selection = FileSelection::try_from(file_selection.clone())?;
-
-    let mut pairs = read_pairs(
-        selection.into_iter().filter(is_javascript_file),
-        &args.public_path_prefix,
-    );
 
     let sourcemap_paths = pairs
         .iter()
