@@ -152,16 +152,6 @@ export function TimeseriesModal({
             )
         }
 
-        // Data exists for the metric, but not for this variant in the calculated range.
-        if (timeseriesDisplayState === 'data') {
-            return (
-                <div className="py-10 text-center text-muted flex flex-col items-center gap-2 max-w-80 mx-auto">
-                    <IconClock className="text-2xl" />
-                    <div>No data for this variant yet.</div>
-                </div>
-            )
-        }
-
         // 'pending' — not computed yet.
         return (
             <div className="py-10 text-center text-muted flex flex-col items-center gap-2 max-w-80 mx-auto">
