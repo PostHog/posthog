@@ -288,8 +288,8 @@ describe('scannerOverviewLogic', () => {
             await jest.advanceTimersByTimeAsync(1_000)
             expect(freshLogic.values.firstScanPending).toBe(true)
 
-            // Pending arms a background reload on the calmer first-scan interval. Each tick refreshes
-            // stats and the watermark only; reloading impact per tick would triple the request count.
+            // Pending arms a background reload on the calmer first-scan interval. Each tick reloads
+            // stats only; reloading impact per tick would double the request count.
             const before = statsRequests.length
             const impactBefore = impactRequests.length
             await jest.advanceTimersByTimeAsync(16_000)
@@ -306,26 +306,14 @@ describe('scannerOverviewLogic', () => {
             expect(statsRequests.length).toBe(after)
         })
 
-        it('dissolves once the first sweep completes even when it matched nothing', async () => {
-            jest.useFakeTimers()
-            freshLogic.mount()
-            await jest.advanceTimersByTimeAsync(1_000)
-            expect(freshLogic.values.firstScanPending).toBe(true)
-
-            // Stats stay all-zero forever here, so only the poll refetching the scanner's advanced
-            // sweep watermark can clear pending before the stuck-scan cap.
-            scannerBody = { ...scannerBody, last_swept_at: dayjs().toISOString() }
-            await jest.advanceTimersByTimeAsync(16_000)
-            expect(freshLogic.values.firstScanPending).toBe(false)
-        })
-
         it('stays dissolved once it settles, even if a later check reports new work in flight', async () => {
             jest.useFakeTimers()
             freshLogic.mount()
             await jest.advanceTimersByTimeAsync(1_000)
             expect(freshLogic.values.firstScanPending).toBe(true)
 
-            scannerBody = { ...scannerBody, last_swept_at: dayjs().toISOString() }
+            // A settled observation from stats is the only signal that clears pending.
+            statsBody = SETTLED_STATS
             await jest.advanceTimersByTimeAsync(16_000)
             expect(freshLogic.values.firstScanPending).toBe(false)
 
