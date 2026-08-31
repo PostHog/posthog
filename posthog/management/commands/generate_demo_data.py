@@ -401,7 +401,6 @@ class Command(BaseCommand):
                 product_path=product_path,
                 defaults={
                     "enabled": True,
-                    "reason": None,
                 },
             )
             if created:
