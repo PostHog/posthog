@@ -21,7 +21,6 @@ from django.utils.dateparse import parse_datetime
 
 import requests
 import structlog
-import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
@@ -82,6 +81,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -2081,18 +2081,15 @@ ISP_SENDING_HEALTH_FLAG = "workflows-isp-sending-health"
 
 
 def _isp_breakdown_enabled(team: Team) -> bool:
-    # Fail closed: a flag-eval error hides the breakdown.
+    # The shared helper suppresses the $feature_flag_called exposure event (this gate runs on every
+    # reputation request, not once per person) and honors _FORCE_ENABLED_FLAGS like other internal
+    # gates. It does not catch, so the try/except stays to fail closed when a flag-eval errors.
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                ISP_SENDING_HEALTH_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-            )
+        return posthog_feature_flag_enabled(
+            ISP_SENDING_HEALTH_FLAG,
+            str(team.uuid),
+            organization_id=team.organization_id,
+            team_id=team.id,
         )
     except Exception:
         logger.warning(
