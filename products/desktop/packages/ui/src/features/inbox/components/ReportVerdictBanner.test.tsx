@@ -9,6 +9,7 @@ const {
   createPrReport,
   discussReport,
   invalidateQueries,
+  openTask,
   setQueryData,
   useDiscussReport,
   useReportTasks,
@@ -16,6 +17,7 @@ const {
   createPrReport: vi.fn(),
   discussReport: vi.fn(),
   invalidateQueries: vi.fn(),
+  openTask: vi.fn(),
   setQueryData: vi.fn(),
   useDiscussReport: vi.fn(),
   useReportTasks: vi.fn(),
@@ -68,6 +70,10 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
 
 vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
   useReportActionTracker: () => vi.fn(),
+}));
+
+vi.mock("@posthog/ui/router/useOpenTask", () => ({
+  useOpenTask: () => openTask,
 }));
 
 import { ReportVerdictBanner } from "./ReportVerdictBanner";
@@ -133,6 +139,7 @@ describe("ReportVerdictBanner", () => {
     discussReport.mockReset();
     discussReport.mockResolvedValue(undefined);
     invalidateQueries.mockReset();
+    openTask.mockReset();
     setQueryData.mockReset();
     onDiscussionCreated = undefined;
     useDiscussReport.mockImplementation(
@@ -205,7 +212,7 @@ describe("ReportVerdictBanner", () => {
     expect(screen.queryByText("Defer")).not.toBeInTheDocument();
   });
 
-  it("does not start duplicate work while an implementation is running", async () => {
+  it("opens running implementation work without starting a duplicate", async () => {
     const user = userEvent.setup();
     useReportTasks.mockReturnValue({
       data: [runningImplementationTask],
@@ -219,11 +226,13 @@ describe("ReportVerdictBanner", () => {
       />,
     );
 
+    expect(screen.getByText("View task")).toBeInTheDocument();
     expect(screen.getByText("Ask about it")).toBeInTheDocument();
     expect(screen.queryByText("Fix & monitor")).not.toBeInTheDocument();
 
     await user.keyboard("f");
 
+    expect(openTask).toHaveBeenCalledWith(runningImplementationTask.task);
     expect(createPrReport).not.toHaveBeenCalled();
   });
 });

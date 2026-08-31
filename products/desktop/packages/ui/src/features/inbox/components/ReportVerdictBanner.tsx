@@ -1,6 +1,7 @@
 import {
   ArchiveIcon,
   ArrowSquareOutIcon,
+  ArrowsOutSimpleIcon,
   ChatCircleIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
@@ -39,6 +40,7 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
@@ -82,7 +84,7 @@ interface ReportVerdictBannerProps {
 /**
  * The report's decision bar, closing the document: what state the report is
  * in, what it asks of the reader, and every action that answers the ask -
- * start the fix (or continue the one in flight), discuss, or archive.
+ * start the fix, review work in flight, discuss, or archive.
  */
 export function ReportVerdictBanner({
   report,
@@ -138,6 +140,7 @@ export function ReportVerdictBanner({
   const verdict = deriveReportVerdict(report, { hasExistingPr });
 
   const fireAction = useReportActionTracker(report);
+  const openTask = useOpenTask();
   const queryClient = useQueryClient();
   const [prOpen, setPrOpen] = useState(false);
   const [prFeedback, setPrFeedback] = useState("");
@@ -217,6 +220,12 @@ export function ReportVerdictBanner({
     fireAction("open_pr");
     openExternalUrl(externalPrUrl);
   }, [externalPrUrl, fireAction]);
+
+  const handleOpenTask = useCallback(() => {
+    if (!continuableTask) return;
+    fireAction("open_task");
+    void openTask(continuableTask);
+  }, [continuableTask, fireAction, openTask]);
 
   const handleAsk = useCallback(() => {
     if (isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading) {
@@ -301,6 +310,9 @@ export function ReportVerdictBanner({
       if (externalPrUrl) {
         event.preventDefault();
         handleOpenPr();
+      } else if (continuableTask) {
+        event.preventDefault();
+        handleOpenTask();
       } else if (!hasExistingPr && canCreatePr) {
         event.preventDefault();
         handleCreatePr();
@@ -317,9 +329,11 @@ export function ReportVerdictBanner({
     awaitingChannel,
     reportTasksLoading,
     externalPrUrl,
+    continuableTask,
     hasExistingPr,
     canCreatePr,
     handleOpenPr,
+    handleOpenTask,
     handleCreatePr,
   ]);
 
@@ -332,19 +346,28 @@ export function ReportVerdictBanner({
 
   const actionsRow = showActions ? (
     <div className="flex flex-wrap items-center gap-2.5">
-      {report.status === "ready" && hasExistingPr ? (
-        externalPrUrl && (
-          <Button
-            type="button"
-            variant="primary"
-            onClick={handleOpenPr}
-            className={buttonClass}
-          >
-            <ArrowSquareOutIcon size={16} />
-            View PR on GitHub
-          </Button>
-        )
-      ) : report.status === "ready" && canCreatePr ? (
+      {report.status === "ready" && externalPrUrl ? (
+        <Button
+          type="button"
+          variant="primary"
+          onClick={handleOpenPr}
+          className={buttonClass}
+        >
+          <ArrowSquareOutIcon size={16} />
+          View PR on GitHub
+        </Button>
+      ) : report.status === "ready" && continuableTask ? (
+        <Button
+          type="button"
+          variant="primary"
+          onClick={handleOpenTask}
+          className={buttonClass}
+          data-attr="inbox-report-view-task"
+        >
+          <ArrowsOutSimpleIcon />
+          View task
+        </Button>
+      ) : report.status === "ready" && !hasExistingPr && canCreatePr ? (
         <Popover
           open={prOpen}
           onOpenChange={(next) => {
