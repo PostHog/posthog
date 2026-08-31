@@ -477,6 +477,9 @@ class TestRelativeDateParse(TestCase):
             ("months", "-999999m"),
             ("weeks", "-9999999w"),
             ("days", "-999999999d"),
+            # A numeral longer than CPython's int-string digit limit fails at int()
+            # inside get_delta_mapping_for, before the delta is applied.
+            ("too_many_digits", "-" + "1" * 4301 + "y"),
         ]
     )
     @freeze_time("2020-01-31")

@@ -241,11 +241,6 @@ def relative_date_parse_with_delta_mapping(
 
     match_group_dict = match.groupdict()
 
-    delta_mapping = get_delta_mapping_for(
-        **match_group_dict,
-        human_friendly_comparison_periods=human_friendly_comparison_periods,
-    )
-
     if match_group_dict["kind"] == "w":
         weekday_index = get_weekday_index(team_week_start_day, timezone_info, now)
         if match_group_dict["position"] == "Start":
@@ -255,14 +250,19 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt += datetime.timedelta(days=days_to_add)
 
     try:
+        # Kept inside the guard: get_delta_mapping_for runs int() on the magnitude,
+        # which raises for a numeral longer than CPython's int-string digit limit.
+        delta_mapping = get_delta_mapping_for(
+            **match_group_dict,
+            human_friendly_comparison_periods=human_friendly_comparison_periods,
+        )
         if increase:
             parsed_dt += relativedelta(**delta_mapping)  # type: ignore
         else:
             parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
     except (ValueError, TypeError, OverflowError):
-        # A huge magnitude (e.g. "7301y") pushes the date outside datetime's range,
-        # which dateutil reports as a bare ValueError. Surface it as a 400 that names
-        # the bad input instead of a 500.
+        # A magnitude that overflows datetime's range (e.g. "7301y"), or a numeral
+        # too long to convert, becomes a 400 that names the bad input, not a 500.
         raise serializers.ValidationError(f"Relative date '{input}' is out of range")
 
     if match_group_dict["kind"] == "q":
