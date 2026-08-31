@@ -624,6 +624,65 @@ class FlakyTestList:
     limit: int
 
 
+# How long a Trunk quarantine may stand before the scoreboard calls it overdue. Trunk itself never
+# expires a quarantine, so this deadline is the product's own accountability bar.
+TRUNK_QUARANTINE_TTL_DAYS = 15
+
+
+@dataclass(frozen=True)
+class TrunkQuarantinedTest:
+    """One test Trunk currently quarantines, aged against ``TRUNK_QUARANTINE_TTL_DAYS``.
+
+    Rows come from the synced TrunkIo ``QuarantinedTests`` warehouse table. Ownership rides the
+    per-test CI spans (the emitter stamps ``test.owner_team``); a quarantined test with no
+    in-retention span aggregates under ``'unowned'``.
+    """
+
+    # Runner label derived from Trunk's uploader-specific 'parent' field: 'pytest', 'jest',
+    # 'playwright', 'rust', or 'storybook'. Free-form on purpose; Trunk ingests suites the
+    # CITestRunner enum does not model.
+    runner: str
+    # Runner-native test id reconstructed from Trunk's (file, classname, name) key.
+    nodeid: str
+    file: str
+    owner_team: str
+    # Trunk's health verdict on the test, e.g. 'FLAKY' or 'BROKEN'.
+    status: str
+    # How the quarantine was applied, e.g. 'AUTO_QUARANTINE'.
+    quarantine_setting: str
+    quarantined_at: datetime
+    age_days: int
+    overdue: bool
+    # The Trunk app's page for this test; None when the source has no org slug or the row no id.
+    trunk_url: str | None
+
+
+@dataclass(frozen=True)
+class TrunkQuarantineTeamDebt:
+    """One owning team's share of the standing Trunk quarantine debt."""
+
+    owner_team: str
+    test_count: int
+    overdue_count: int
+    oldest_age_days: int
+
+
+@dataclass(frozen=True)
+class TrunkQuarantineDebt:
+    """The standing Trunk quarantine debt: every currently quarantined test with its owning team,
+    age, and whether it has outlived the TTL, plus the per-team rollup. ``available`` is false when
+    no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error."""
+
+    available: bool
+    ttl_days: int
+    # The 'owner/name' repository the debt was read for; test file paths are relative to it.
+    repository: str
+    # The Trunk app's flaky-tests page for this repository; None when the source has no org slug.
+    trunk_url: str | None
+    teams: list[TrunkQuarantineTeamDebt]
+    tests: list[TrunkQuarantinedTest]
+
+
 @dataclass(frozen=True)
 class TeamCIHealthItem:
     """One owning team's rollup of the CI test surfaces it owns, with equal-length
@@ -1173,13 +1232,13 @@ class DeploymentFrequencyBucket:
 
 
 @dataclass(frozen=True)
-class MergeToDeployBucket:
-    """One time bucket of per-PR merge-to-deploy seconds — the box-plot distribution of how long
-    merged PRs waited until the first successful deployment containing their merge (resolved
-    through the deploy's head commit; bots and drafts excluded, per the locked cycle-time
-    recipe). Keyed on deploy time: a PR lands in the bucket its deploy succeeded in. The measure
-    is named for exactly what it is: merge to deploy, not the full commit-to-deploy DORA lead
-    time (pre-merge time is on the other cards).
+class LeadTimeBucket:
+    """One time bucket of a per-PR duration distribution over deployed PRs — the box-plot shape
+    behind the three lead-time stages (open to merge, merge to deploy, open to deploy). All
+    three series measure the SAME population: merged PRs attributed to a successful deployment
+    (containment resolved through the deploy's head commit; bots and drafts excluded, per the
+    locked cycle-time recipe), keyed on deploy time — a PR lands in the bucket its deploy
+    succeeded in, so the stages decompose against each other bucket by bucket.
     Buckets where nothing deployed carry ``deployed_pr_count`` 0 and null stats (a gap).
     """
 
@@ -1187,8 +1246,8 @@ class MergeToDeployBucket:
     bucket_start: datetime
     # PRs whose first post-merge successful deployment landed in this bucket.
     deployed_pr_count: int
-    # Distribution of merged_at → first successful deploy, in seconds, over those PRs — the
-    # six-number summary a box plot draws (box p25→p75, median line, mean marker, whiskers).
+    # Distribution of the stage's duration, in seconds, over those PRs — the six-number
+    # summary a box plot draws (box p25→p75, median line, mean marker, whiskers).
     min_seconds: float | None
     p25_seconds: float | None
     p50_seconds: float | None
@@ -1271,8 +1330,14 @@ class DoraOverview:
     # Successful deployments per bucket across the window, oldest first, zero-filled.
     deployment_frequency_series: list[DeploymentFrequencyBucket]
     # Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series.
-    merge_to_deploy_series: list[MergeToDeployBucket]
-    # Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'.
+    merge_to_deploy_series: list[LeadTimeBucket]
+    # Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series,
+    # so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time.
+    open_to_merge_series: list[LeadTimeBucket]
+    # Open-to-deploy distribution over the same deployed PRs and buckets: the full open → first
+    # successful deploy span the two stages above compose into.
+    open_to_deploy_series: list[LeadTimeBucket]
+    # Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'.
     series_granularity: str
 
 

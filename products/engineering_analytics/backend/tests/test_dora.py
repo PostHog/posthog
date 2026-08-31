@@ -231,6 +231,23 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert empty.deployed_pr_count == 0
         assert empty.p50_seconds is None
 
+        # The stage series share the deployed-PR population and buckets, so a wrong stage slice
+        # in the shared series row would surface here as swapped values.
+        otm = {bucket.bucket_start: bucket for bucket in result.open_to_merge_series}
+        otd = {bucket.bucket_start: bucket for bucket in result.open_to_deploy_series}
+        assert len(result.open_to_merge_series) == len(result.open_to_deploy_series) == 11
+        # PR 1: created Jan 11 08:00, merged Jan 12 08:00, deployed Jan 12 10:00.
+        assert otm[datetime(2026, 1, 12)].deployed_pr_count == 1
+        assert otm[datetime(2026, 1, 12)].p50_seconds == 86400.0
+        assert otd[datetime(2026, 1, 12)].p50_seconds == 93600.0
+        # PR 2: 25.5h open→merge, 28h open→deploy. PR 6: 24h open→merge, 51h open→deploy.
+        assert otm[datetime(2026, 1, 13)].min_seconds == 86400.0
+        assert otm[datetime(2026, 1, 13)].max_seconds == 91800.0
+        assert otd[datetime(2026, 1, 13)].min_seconds == 100800.0
+        assert otd[datetime(2026, 1, 13)].max_seconds == 183600.0
+        assert otm[datetime(2026, 1, 15)].deployed_pr_count == 0
+        assert otd[datetime(2026, 1, 15)].p50_seconds is None
+
     def test_restore_recovery_excluded_when_it_lands_after_date_to(self):
         # d2 fails Jan 13 10:00, recovers via d3's success at Jan 13 12:00 (see _seeded_curated).
         # A historical report ending before that recovery must not count it: "no recovery in the

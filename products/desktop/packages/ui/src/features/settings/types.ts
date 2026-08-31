@@ -21,7 +21,7 @@ export type SettingsCategory =
   | "advanced"
   | "discord";
 
-export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
+const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "general",
   "notifications",
   "plan-usage",
