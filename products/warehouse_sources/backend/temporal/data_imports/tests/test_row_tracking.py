@@ -34,8 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 
 
 class _CacheReadFailsClient:
-    """Redis client that fails only the cached-row-count read, and delegates everything else."""
-
     def __init__(self, inner):
         self._inner = inner
 

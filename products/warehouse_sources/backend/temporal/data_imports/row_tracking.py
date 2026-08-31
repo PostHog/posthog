@@ -196,11 +196,20 @@ def _rows_synced_in_billing_period(
             cached_rows = redis.get(key)
             if cached_rows is not None:
                 return int(cached_rows)
-        except (redis_exceptions.RedisError, ValueError) as e:
+        except redis_exceptions.RedisError as e:
             # A cache failure must fall through to the query rather than raise: the caller treats
             # a RedisError as "fail open", which would skip the billing check for this run
             # instead of paying for the query.
+            #
+            # Drop the client so the write below is skipped too. This runs on a shared database
+            # executor thread, and a Redis endpoint that answers slowly can hold one for up to
+            # REDIS_SOCKET_TIMEOUT_SECONDS per command, which would delay unrelated activities.
+            redis = None
             logger.warning("BillingLimits: could not read the cached row count, querying Postgres", error=str(e))
+        except ValueError as e:
+            # A value that is not an integer means a corrupt key rather than an unhealthy Redis,
+            # so keep the client: the write below replaces the bad value.
+            logger.warning("BillingLimits: cached row count is not a number, querying Postgres", error=str(e))
 
     # Completed rows for every team in the org, excluding each source's first 7 free days.
     result = ExternalDataJob.objects.filter(
