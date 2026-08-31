@@ -2,6 +2,7 @@ import {
   BRAINROT_CELL,
   clampZoom,
   getCellCount,
+  getGridDimensions,
   getOptimalLayout,
   type LayoutPreset,
   makeCanvasCellValue,
@@ -35,7 +36,10 @@ interface CommandCenterStoreState {
 }
 
 interface CommandCenterStoreActions {
-  setLayout: (preset: LayoutPreset) => void;
+  setLayout: (
+    preset: LayoutPreset,
+    occupiedCellIndices?: readonly number[],
+  ) => void;
   setActiveTask: (taskId: string | null) => void;
   setActiveCell: (cellIndex: number | null) => void;
   assignTask: (cellIndex: number, taskId: string) => void;
@@ -80,10 +84,22 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
     (set) => ({
       ...COMMAND_CENTER_INITIAL_STATE,
 
-      setLayout: (preset) =>
+      setLayout: (preset, occupiedCellIndices) =>
         set((state) => {
           const newCount = getCellCount(preset);
-          const cells = reflowCells(state.cells, state.layout, preset);
+          const current = getGridDimensions(state.layout);
+          const target = getGridDimensions(preset);
+          const isShrinking =
+            target.cols < current.cols || target.rows < current.rows;
+          const cells =
+            occupiedCellIndices && isShrinking
+              ? resizeCells(
+                  occupiedCellIndices
+                    .map((index) => state.cells[index])
+                    .filter((cell): cell is string => cell != null),
+                  newCount,
+                )
+              : reflowCells(state.cells, state.layout, preset);
           const activeTaskId = cells.includes(state.activeTaskId)
             ? state.activeTaskId
             : null;
