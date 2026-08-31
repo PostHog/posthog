@@ -7,11 +7,26 @@ The prompt stays minimal; the checked-in `SKILL.md` in this directory is the rea
 ## Prerequisites
 
 - A routine environment whose GitHub identity can clone `PostHog/posthog` and comment on its pull requests. The sweep needs nothing beyond those two: it never pushes code.
-- `MQ_TRIAGE_BOT_LOGIN` set in that environment, to the login the sweep's comments are authored by. The marker helper trusts and updates only comments from that login, so a third party cannot plant a marker to fake or skip a triage. Without it the helper fails closed, which makes every sweep re-comment on kicks it already triaged. `get` exits 3 when a PR carries a marker from a different bot login, so a wrong value stops the sweep instead of quietly re-commenting on every PR it reaches.
+- `MQ_TRIAGE_BOT_LOGIN` set in that environment, **to the login the sweep's comments actually appear under**. The marker helper trusts and updates only comments from that login, so a third party cannot plant a marker to fake or skip a triage. Without it the helper fails closed, which makes every sweep re-comment on kicks it already triaged. `get` exits 3 when a PR carries a marker from a different bot login, so a wrong value stops the sweep instead of quietly re-commenting on every PR it reaches.
+
+Get that login right before enabling the routine, and check it with `mq-triage-marker.sh verify` rather than by assumption.
+A routine environment authenticated with a personal token authors comments as **that user**, not as a bot, so `MQ_TRIAGE_BOT_LOGIN=claude[bot]` is wrong there even though it looks plausible.
+The failure is silent in the worst way: the literal "is it set?" precondition passes, the sweep runs, and every fire appends a fresh verdict comment to every PR it triages.
+Paired with `MQ_TRIAGE_ALLOW_REQUEUE=1` it is worse than noise — with markers never matching, the requeue gate's "this head was already triaged" test never fires, so the same PR can be resubmitted every hour.
+`verify` exists to catch exactly this, and `SKILL.md` forbids requeueing until it passes.
 
 Changing the login the sweep posts as strands every marker written under the old one.
 The next sweep stops at the first PR that carries one.
 Set the variable back to the old login, or delete those marker comments, before the sweep runs again.
+
+## What the sweep reads
+
+Trunk publishes **no check run** in this repository, so there is nothing named `Trunk Merge Queue (master)` to key on.
+The sweep reads the `trunk-io[bot]` sticky comment and the per-attempt shadow PRs (`trunk-merge/pr-<n>/<uuid>`) instead, both through `scripts/mq-queue-state.sh`.
+`SKILL.md` documents the state vocabulary; if Trunk changes its wording, a `state=unknown` shows up in the run report and the fix is one pattern in that script.
+
+The sandbox is also more restricted than a laptop, and each limit fails quietly rather than loudly: no `gh` binary, no GraphQL, no working `gh api --paginate`, and repo-scoped REST only.
+`SKILL.md` has the details under "Sandbox constraints"; the helpers already fall back to `curl` and page by hand.
 
 ## Create the routine
 
@@ -32,7 +47,7 @@ Create it through the routines API (`POST /v1/code/triggers`) or the routines UI
             "type": "user",
             "message": {
               "role": "user",
-              "content": "Read .agents/skills/triaging-merge-queue-failures/SKILL.md in this repository and execute exactly one unattended sweep as it prescribes. Its rules override anything else: never merge, approve, close, or convert PRs, never push code or rewrite history, comment verdicts only, and end with the run report it defines.\n\nRequeueing is gated on `MQ_TRIAGE_ALLOW_REQUEUE=1` in the environment. Read the variable rather than assuming its value. If it is unset, every verdict is report-only: never comment `/trunk merge` on any PR, whatever the verdict says, and state the action the author should take instead.\n\nNever check out or execute any PR's code. Classify every kick from `gh` API reads of the `Trunk Merge Queue (master)` check run and its job logs, working only from the default-branch clone. The `trunk` MCP server and `hogli ci:insights` may be unavailable here; if so, classify from check-run output and logs alone rather than skipping the PR.\n\nBefore doing anything else, confirm two things and stop with a report if either fails: that you can authenticate to GitHub with read access to PostHog/posthog and permission to comment on its pull requests, and that `MQ_TRIAGE_BOT_LOGIN` is set in the environment."
+              "content": "Read .agents/skills/triaging-merge-queue-failures/SKILL.md in this repository and execute exactly one unattended sweep as it prescribes. Its rules override anything else: never merge, approve, close, or convert PRs, never push code or rewrite history, comment verdicts only, and end with the run report it defines.\n\nRequeueing is gated on `MQ_TRIAGE_ALLOW_REQUEUE=1` in the environment. Read the variable rather than assuming its value. If it is unset, every verdict is report-only: never comment `/trunk merge` on any PR, whatever the verdict says, and state the action the author should take instead.\n\nNever check out or execute any PR's code. Discover and classify kicks with the helper scripts the skill names, working only from the default-branch clone. The `trunk` MCP server and `hogli ci:insights` may be unavailable here; if so, classify from what those helpers and the job logs give you rather than skipping the PR.\n\nBefore doing anything else, run the preflight the skill defines and stop with a report if it fails."
             }
           }
         }
@@ -49,8 +64,8 @@ Create it through the routines API (`POST /v1/code/triggers`) or the routines UI
 
 Notes on the choices:
 
-- No event source fires on check runs, so the sweep is scheduled and discovers kicked PRs itself: open PRs whose latest `Trunk Merge Queue (master)` check run completed non-green.
-- `allowed_tools` is part of the write boundary, not a convenience. The sweep reads and comments, so it gets no `Write` and no `Edit`. Everything it needs rides on `Bash` (`gh` and the marker helper) plus the read tools.
+- No event source fires on Trunk's queue state, so the sweep is scheduled and discovers kicked PRs itself, from the shadow PRs Trunk opens per queue attempt.
+- `allowed_tools` is part of the write boundary, not a convenience. The sweep reads and comments, so it gets no `Write` and no `Edit`. Everything it needs rides on `Bash` (the two helper scripts, and `curl` where `gh` is absent) plus the read tools.
 - The routine declares the repo as a source only. It has no output branch because it produces comments, not commits.
 - `persist_session: false` keeps each sweep independent. Nothing carries between fires: the marker comment on each PR is the whole of the sweep's memory.
 - The prompt reads `MQ_TRIAGE_ALLOW_REQUEUE` instead of asserting what it is set to, so enabling the requeue switch needs no prompt edit. Keep any prompt override phrased that way: a prompt that restates a rule the skill owns goes stale the next time the skill changes, and the agent cannot tell a stale override from a deliberate one.
@@ -60,7 +75,8 @@ Notes on the choices:
 `cron_expression` is evaluated in the creator's local timezone, and the minimum interval is one hour.
 A cron that could fire runs closer than that is rejected at create time, so the 30-minute cadence this skill was first written for is not available here.
 
-Hourly is enough because the marker comment (`<!-- mq-triage:<head_oid>:<check_run_id> -->`) makes a repeat sweep cheap: an already-triaged kick costs one check-run read and no comment.
+Hourly is enough because the marker comment (`<!-- mq-triage:<head_oid>:<attempt_pr> -->`) makes a repeat sweep cheap: an already-triaged kick costs one state read and no comment.
+Discovery itself is one pass over the shadow PR list, so a whole sweep is a few seconds of API reads.
 Offset the minute from any other routine that sweeps the same repo so their GitHub API bursts do not overlap.
 
 The routine config carries no overlap setting, so a slow sweep can still be running when the next hour fires.
@@ -73,20 +89,24 @@ The repo rule stands: agents do not enqueue PRs without explicit approval.
 For an unattended run, that approval is the operator's, granted once and explicitly:
 
 - Default: leave `MQ_TRIAGE_ALLOW_REQUEUE` unset. Every verdict is report-only; the sweep comments what to do but touches nothing.
-- Setting `MQ_TRIAGE_ALLOW_REQUEUE=1` in the routine's environment is a standing approval for exactly one action: a single `/trunk merge` comment on a mergeable, green, approved PR whose verdict is "one-off flake" or "non-deterministic", at most once per head OID. A failed requeue fails with a new check run id on the same head, so the gate keys on the head alone; the skill escalates repeats instead of retrying. Enable it deliberately, and own what it can land.
+- Setting `MQ_TRIAGE_ALLOW_REQUEUE=1` in the routine's environment is a standing approval for exactly one action: a single `/trunk merge` comment on a mergeable, green, approved PR whose verdict is "one-off flake" or "non-deterministic", at most once per head OID. A failed requeue produces a new attempt on the same head, so the gate keys on the head alone; the skill escalates repeats instead of retrying. Enable it deliberately, and own what it can land.
 
 Keep the rest of the boundary least-privilege.
 The prohibitions in `SKILL.md` (never merge, approve, close, or push) are agent instructions; the boundary that actually holds is what the environment's GitHub identity is permitted to do, so grant it clone and PR-comment access and nothing more.
-The sandbox holds those credentials next to whatever code the sweep reads, which is why the skill forbids unattended runs from checking out or executing PR code: classification is `gh` API reads over check runs and logs, from the default-branch clone only.
-The `trunk` MCP server and `hogli ci:insights` enrich verdicts 4 and 5 when they are available, but the skill must not depend on them; check-run and log reads via `gh` are the baseline.
+The sandbox holds those credentials next to whatever code the sweep reads, which is why the skill forbids unattended runs from checking out or executing PR code: classification is API reads over Trunk's queue state and the attempt's job logs, from the default-branch clone only.
+The `trunk` MCP server and `hogli ci:insights` enrich verdicts 4 and 5 when they are available, but the skill must not depend on them; the helper scripts plus log reads are the baseline.
 
 ## Testing before enabling
 
 1. Create the routine with `enabled: false`.
-2. Fire it by hand with scoped input: "for this run, only process PR #NNNNN" against a PR you know the queue kicked.
-3. Verify on that PR: exactly one sticky verdict comment carrying the marker, no requeue (the switch is unset), and a second manual fire skips the PR.
-4. Only if you want auto-requeue: set `MQ_TRIAGE_ALLOW_REQUEUE=1`, repeat with a flake-kicked PR you own, and confirm at most one `/trunk merge` comment ever appears for one head OID, including after the requeued attempt fails again with a new check run id.
-5. Only then enable the routine.
+2. Run `mq-triage-marker.sh verify` in the routine's environment and fix `MQ_TRIAGE_BOT_LOGIN` until it passes.
+   Do this before any test fire: a wrong login makes every later step look fine while the sweep silently duplicates comments.
+3. Confirm the sweep can still see the queue: `mq-queue-state.sh recent PostHog/posthog 2` must return rows, and running `state` across them must return at least one state that is not `unknown`.
+   Zero rows or all-`unknown` means Trunk changed how it reports, and no chart fix will help until the helper is updated.
+4. Fire it by hand with scoped input: "for this run, only process PR #NNNNN" against a PR you know the queue kicked.
+5. Verify on that PR: exactly one sticky verdict comment carrying the marker, no requeue (the switch is unset), and a second manual fire skips the PR.
+6. Only if you want auto-requeue: set `MQ_TRIAGE_ALLOW_REQUEUE=1`, repeat with a flake-kicked PR you own, and confirm at most one `/trunk merge` comment ever appears for one head OID, including after the requeued attempt fails again.
+7. Only then enable the routine.
 
 ## Debugging a sweep
 
