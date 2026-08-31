@@ -744,6 +744,37 @@ class TestGetIdentityIspMetrics(TestCase):
         sent = {(query["Dimensions"]["ISP"], query["Metric"]) for batch in batches for query in batch}
         assert len(sent) == 15
 
+    def test_the_domain_cap_keeps_the_domains_that_actually_sent(self):
+        # The cap used to take the first few domains in id order, which is the order they were
+        # verified in — so a project that added its current sending domain last had the only domain
+        # with traffic dropped, while the breakdown still read as project-wide.
+        def respond(Queries):
+            results = []
+            for query in Queries:
+                dimensions = query["Dimensions"]
+                if "ISP" not in dimensions:
+                    volume = 500 if dimensions["EMAIL_IDENTITY"] == "busy.test" else 0
+                else:
+                    volume = 10
+                results.append(
+                    {"Id": query["Id"], "Timestamps": [datetime(2026, 8, 1, tzinfo=UTC)], "Values": [volume]}
+                )
+            return {"Results": results, "Errors": []}
+
+        self.mock_client.batch_get_metric_data.side_effect = lambda Queries: respond(Queries)
+
+        self.provider.get_identity_isp_metrics(
+            ["quiet-a.test", "quiet-b.test", "busy.test"], window_days=30, isps=["Gmail"], max_domains=1
+        )
+
+        per_provider = [
+            query["Dimensions"]["EMAIL_IDENTITY"]
+            for _, kwargs in self.mock_client.batch_get_metric_data.call_args_list
+            for query in kwargs["Queries"]
+            if "ISP" in query["Dimensions"]
+        ]
+        assert set(per_provider) == {"busy.test"}
+
     def test_providers_that_received_nothing_are_omitted(self):
         # Without this a silent provider divides by zero; a row of zeros would also read as a
         # delivery problem rather than as "we never mailed anyone here".

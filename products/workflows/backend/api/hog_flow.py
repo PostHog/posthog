@@ -2071,7 +2071,16 @@ def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
     return value
 
 
-ISP_METRICS_CACHE_SECONDS = 5 * 60
+# VDM aggregates by whole day and the window ends at the last UTC midnight, so these numbers move
+# at most once a day. A five-minute TTL bought nothing and cost a full fan-out on every expiry.
+ISP_METRICS_CACHE_SECONDS = 30 * 60
+# Served while a refresh is in flight, so a concurrent request shows the last known breakdown rather
+# than starting a second fan-out. Longer than the fresh TTL by design.
+ISP_METRICS_STALE_CACHE_SECONDS = 6 * 60 * 60
+# One refresh per project at a time. BatchGetMetricData is limited per AWS account, and one refresh
+# of five domains is already 100 queries across 10 calls, so projects refreshing together can
+# throttle each other — and a throttled query is indistinguishable from a healthy zero.
+ISP_METRICS_REFRESH_LOCK_SECONDS = 120
 ISP_METRICS_ERROR_CACHE_SECONDS = 60
 # Bounds the BatchGetMetricData fan-out: every extra domain costs one query per provider per
 # metric. A project with more sending domains gets a breakdown over its first few.
@@ -2109,9 +2118,18 @@ def _fetch_isp_metrics(team_id: int, window_days: int) -> list[dict[str, Any]]:
     because the breakdown adds to the rates display and must not stop it loading.
     """
     cache_key = f"workflows_ses_isp_metrics_{team_id}_{window_days}"
+    stale_key = f"{cache_key}_stale"
+    lock_key = f"{cache_key}_refreshing"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached["value"]
+
+    # `add` succeeds for the first caller only, so concurrent misses do not each start a fan-out.
+    # Whoever loses shows the last known breakdown, or nothing on a cold cache, rather than queueing
+    # behind a refresh the page cannot wait for anyway.
+    if not cache.add(lock_key, True, ISP_METRICS_REFRESH_LOCK_SECONDS):
+        stale = cache.get(stale_key)
+        return stale["value"] if stale is not None else []
 
     # Dedupe before the cap, so duplicates do not consume the budget and drop real domains.
     domains = list(
@@ -2122,16 +2140,20 @@ def _fetch_isp_metrics(team_id: int, window_days: int) -> list[dict[str, Any]]:
             .values_list("config__domain", flat=True)
             if domain
         )
-    )[:ISP_METRICS_MAX_DOMAINS]
+    )
     if not domains:
         cache.set(cache_key, {"value": []}, ISP_METRICS_CACHE_SECONDS)
+        cache.delete(lock_key)
         return []
 
     try:
-        rows = SESProvider().get_identity_isp_metrics(domains, window_days=window_days)
+        rows = SESProvider().get_identity_isp_metrics(
+            domains, window_days=window_days, max_domains=ISP_METRICS_MAX_DOMAINS
+        )
     except Exception:
         logger.exception("Failed to fetch SES per-ISP metrics", team_id=team_id)
         cache.set(cache_key, {"value": []}, ISP_METRICS_ERROR_CACHE_SECONDS)
+        cache.delete(lock_key)
         return []
 
     value = [
@@ -2154,6 +2176,8 @@ def _fetch_isp_metrics(team_id: int, window_days: int) -> list[dict[str, Any]]:
         for row in rows
     ]
     cache.set(cache_key, {"value": value}, ISP_METRICS_CACHE_SECONDS)
+    cache.set(stale_key, {"value": value}, ISP_METRICS_STALE_CACHE_SECONDS)
+    cache.delete(lock_key)
     return value
 
 

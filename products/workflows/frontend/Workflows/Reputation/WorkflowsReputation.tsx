@@ -139,14 +139,29 @@ function AwsFindings({ aws }: { aws: AwsTenantReputationApi }): JSX.Element | nu
 // A single point is a reading, not a trend, so the column stays empty until there are two.
 const MIN_TREND_POINTS = 2
 
-function DeliveryTrend({ isp }: { isp: IspSendingHealthApi }): JSX.Element | null {
+// Every row is drawn against the same dates: the days any provider sent on. A provider only appears
+// on its own send days, so without this each row stretches its own handful of dates across the full
+// width — a provider whose last send was two weeks ago ends level with one that sent yesterday, and
+// a ten-day gap draws like a one-day gap.
+function trendDates(isps: readonly IspSendingHealthApi[]): string[] {
+    return [...new Set(isps.flatMap((isp) => isp.daily.map((point) => point.date)))].sort()
+}
+
+// NaN rather than 0 for a day with no sends to this provider: the renderer breaks the line at a
+// non-finite value, so the gap reads as "nothing sent" instead of as a drop to zero.
+function alignToDates(isp: IspSendingHealthApi, dates: string[]): number[] {
+    const byDate = new Map(isp.daily.map((point) => [point.date, point.delivery_rate * 100]))
+    return dates.map((date) => byDate.get(date) ?? Number.NaN)
+}
+
+function DeliveryTrend({ isp, dates }: { isp: IspSendingHealthApi; dates: string[] }): JSX.Element | null {
     if (isp.daily.length < MIN_TREND_POINTS) {
         return null
     }
     return (
         <Sparkline
-            data={isp.daily.map((point) => point.delivery_rate * 100)}
-            labels={isp.daily.map((point) => point.date)}
+            data={alignToDates(isp, dates)}
+            labels={dates}
             name={`${isp.isp} delivery rate (%)`}
             type="line"
             renderTooltipValue={(value) => `${value.toFixed(1)}%`}
@@ -166,6 +181,7 @@ function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.E
     if (isps.length === 0) {
         return null
     }
+    const dates = trendDates(isps)
     return (
         <div className="mt-4 space-y-2" data-attr="workflows-reputation-isp-breakdown">
             <MetricLabel
@@ -195,7 +211,7 @@ function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.E
                         title: 'Delivery trend',
                         key: 'delivery_trend',
                         tooltip: 'Every provider is drawn on the same 0-100% axis, so rows can be compared by height.',
-                        render: (_, row: IspSendingHealthApi) => <DeliveryTrend isp={row} />,
+                        render: (_, row: IspSendingHealthApi) => <DeliveryTrend isp={row} dates={dates} />,
                     },
                     {
                         title: 'Bounce rate',
@@ -209,8 +225,8 @@ function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.E
                         align: 'right',
                         render: (_, row: IspSendingHealthApi) =>
                             row.complaint_rate === null ? (
-                                <Tooltip title="This provider does not report spam complaints back to senders, so there is no rate to show. Its delivery rate still catches rejection, but it cannot show whether accepted mail reaches the inbox.">
-                                    <span className="text-secondary cursor-default">Not reported</span>
+                                <Tooltip title="No complaints could be measured here: either this provider does not report them back to senders, or none of your email to it was delivered. Watch the delivery rate instead.">
+                                    <span className="text-secondary cursor-default">No data</span>
                                 </Tooltip>
                             ) : (
                                 <RateCell rate={row.complaint_rate} kind="complaint" />

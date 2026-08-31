@@ -522,11 +522,54 @@ class SESProvider:
             logger.exception(f"SES API error deleting identity: {e}")
             raise
 
+    def _busiest_domains(self, domains: Sequence[str], *, start: datetime, end: datetime, limit: int) -> list[str]:
+        """The `limit` domains that sent the most over the window.
+
+        One SEND query per domain with no ISP dimension, which is a fraction of the per-provider
+        fan-out it decides. A domain whose query fails sorts last rather than raising: losing it is
+        the same outcome the unconditional slice already had, and this panel never fails the page.
+        """
+        totals: dict[str, int] = dict.fromkeys(domains, 0)
+        subjects = {f"d{index}": domain for index, domain in enumerate(domains)}
+        queries = [
+            {
+                "Id": query_id,
+                "Namespace": "VDM",
+                "Metric": "SEND",
+                "Dimensions": {"EMAIL_IDENTITY": domain},
+                "StartDate": start,
+                "EndDate": end,
+            }
+            for query_id, domain in subjects.items()
+        ]
+        try:
+            for batch in batched(queries, METRIC_QUERY_BATCH_SIZE, strict=False):
+                response = self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(batch))  # type: ignore[arg-type]
+                for result in response.get("Results", []):
+                    domain = subjects.get(result["Id"])
+                    if domain is not None:
+                        totals[domain] = sum(result.get("Values", []) or [])
+        except Exception:
+            logger.exception("Could not rank sending domains by volume; keeping the first few")
+            return list(domains)[:limit]
+
+        # Volume first, then the caller's order, so the choice is stable between refreshes when two
+        # domains sent the same amount.
+        order = {domain: index for index, domain in enumerate(domains)}
+        ranked = sorted(domains, key=lambda domain: (-totals[domain], order[domain]))
+        if ranked[limit:]:
+            logger.info(
+                "Capped the per-provider breakdown to the busiest sending domains",
+                extra={"kept": ranked[:limit], "dropped": ranked[limit:]},
+            )
+        return ranked[:limit]
+
     def get_identity_isp_metrics(
         self,
         domains: Sequence[str],
         window_days: int,
         isps: Sequence[str] | None = None,
+        max_domains: int | None = None,
     ) -> list[IspSendingMetrics]:
         """
         Sending health per mailbox provider, over the given sending domains.
@@ -546,6 +589,11 @@ class SESProvider:
         # days ending at the last midnight. Today is therefore excluded.
         end = datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         start = end - timedelta(days=window_days)
+
+        # Bounding the fan-out by taking an arbitrary slice drops whichever domains sort last, which
+        # can be the only one sending today. One cheap query each says which ones actually sent.
+        if max_domains is not None and len(domains) > max_domains:
+            domains = self._busiest_domains(domains, start=start, end=end, limit=max_domains)
 
         # Dimensions filter rather than group, and the response echoes only the query id, so a
         # per-provider breakdown needs one query per (domain, provider, metric) and a local index
