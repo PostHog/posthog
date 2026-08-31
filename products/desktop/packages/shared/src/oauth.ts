@@ -246,10 +246,6 @@ export const OAUTH_SCOPES = [
 // v7: "*" replaced with the explicit list above.
 export const OAUTH_SCOPE_VERSION = 7;
 
-// Token refresh settings
-export const TOKEN_REFRESH_BUFFER_MS = 30 * 60 * 1000; // 30 minutes before expiry
-export const TOKEN_REFRESH_FORCE_MS = 60 * 1000; // Force refresh when <1 min to expiry, even with active sessions
-
 export function getOauthClientIdFromRegion(region: CloudRegion): string {
   switch (region) {
     case "us":

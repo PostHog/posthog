@@ -808,6 +808,33 @@ def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
 
 
+def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
+    """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
+
+    Callers use it to attribute a sandbox agent's writes to the stage that started it. Only
+    ``SIGNAL_REPORT``-origin tasks qualify, and ``ai_stage`` is written server-side once at run
+    creation (see ``Task.create_and_run``), so the sandbox whose token names the task cannot set
+    or change it — which is what makes it safe to treat as an identity rather than a claim.
+
+    A task's runs all carry the stage the pipeline started it for, so the newest run answers for
+    the task. ``None`` covers everything else: a scout run, a user-created task, a legacy row
+    predating the stamp.
+    """
+    state = (
+        TaskRun.objects.filter(
+            task_id=task_id,
+            team_id=team_id,
+            task__deleted=False,
+            task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        .order_by("-created_at")
+        .values_list("state", flat=True)
+        .first()
+    )
+    stage = (state or {}).get("ai_stage")
+    return stage if isinstance(stage, str) and stage else None
+
+
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
@@ -1520,6 +1547,24 @@ def update_task_run_state(
 ) -> dict:
     """Atomically merge state updates into a run's ``state`` and return the new state."""
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
+
+
+def promote_run_to_user_authorship(run_id: str | UUID, actor_user_id: int) -> bool:
+    """Promote a bot-authored run to user authorship when the actor now has a usable GitHub install.
+
+    Delegates to ``upgrade_run_to_user_authorship``, which persists the change and leaves
+    runs that are bot-authored by design (signal reports, caller-token runs) untouched.
+    Returns True when the run was promoted.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep tasks internals off the api import path
+        upgrade_run_to_user_authorship,
+    )
+
+    run = TaskRun.objects.select_related("task").filter(id=run_id).first()
+    actor_user = User.objects.filter(id=actor_user_id).first()
+    if run is None or actor_user is None:
+        return False
+    return upgrade_run_to_user_authorship(run, actor_user, run.state) is not None
 
 
 def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:

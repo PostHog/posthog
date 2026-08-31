@@ -26,22 +26,6 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
         'Recurring summaries of what agents are doing, plus instant alerts for the things you need to know about right away.',
 }
 
-// Per-tab question seeded into PostHog AI so the answer is grounded in what the user is looking at.
-export const TAB_AI_PROMPTS: Record<MCPAnalyticsTab, string> = {
-    activity:
-        'What have agents done with my MCP server recently? Look at the latest $mcp_tool_call events — tools, intents, failures.',
-    dashboard:
-        "Summarize how agents are using my MCP server from $mcp_tool_call events — top tools, error rates, and what they're trying to do.",
-    sessions:
-        'What are agents actually trying to do across my MCP sessions? Group the $mcp_intent values on $mcp_tool_call events into themes.',
-    'tool-quality':
-        'Which of my MCP tools are least reliable? Break down $mcp_tool_call error rate and p95 $mcp_duration_ms by $mcp_tool_name.',
-    'intent-clustering':
-        "What's the biggest unmet need agents have that my MCP tools don't cover? Look at $mcp_intent on failing tool calls.",
-    notifications:
-        'What MCP events should I be notified about? Summarize what agents were trying to do on failing $mcp_tool_call events.',
-}
-
 const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
     mcpAnalyticsActivity: 'activity',
     mcpAnalyticsDashboard: 'dashboard',

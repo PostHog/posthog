@@ -634,12 +634,16 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     )
     created_by_run_id = serializers.CharField(
         allow_null=True,
-        help_text="Run that wrote this entry, or null if human-authored.",
+        help_text="Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.",
     )
     created_by_skill = serializers.CharField(
         allow_null=True,
         required=False,
-        help_text="Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.",
+        help_text=(
+            "Who created this entry: the canonical skill name of the scout that wrote it "
+            "(e.g. `signals-scout-apm`), or the report-pipeline stage that did "
+            "(`pipeline:report-research`, `pipeline:implementation`). Null if human-authored."
+        ),
     )
     created_by_run_url = serializers.CharField(
         allow_null=True,
