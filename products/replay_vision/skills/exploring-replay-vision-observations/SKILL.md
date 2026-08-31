@@ -67,8 +67,10 @@ Pick the axis that matches the question:
     `vision-actions-list` returns each scout as a group-summary action whose `id` is the scout config ID. The
     `vision-actions-runs-*` endpoints do not resolve that ID, so they return no history for it. Take the action's
     `name` as the scout skill name, list its runs with `scout-runs-list` (`skill_name=<name>`), then read one run
-    with `scout-runs-retrieve`. For the run's emitted report, map the run to its inbox report with
-    `scout-runs-emission-reports`, then fetch it with `inbox-reports-retrieve`.
+    with `scout-runs-retrieve`. These scouts author the group summary as an inbox report, so the run carries
+    its report IDs directly: read `emitted_report_ids` (reports the run wrote) and `edited_report_ids` (reports
+    it updated), then fetch each with `inbox-reports-retrieve`. Don't use `scout-runs-emission-reports` here — it
+    resolves only signal-channel findings (`emit_signal`), so it returns nothing for a report-authoring scout.
   - **Legacy actions** (created before the migration). Read a run's `synthesized_markdown` with
     `vision-actions-runs-list` and `vision-actions-runs-retrieve`. These endpoints serve pre-migration history only.
     The report cites its sources inline as `[obs N]`, matching `observations[N-1]`, so you can check each claim
