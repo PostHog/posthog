@@ -6,9 +6,21 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@posthog/quill";
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import {
+  type HintState,
+  isHintRetired,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+function discountOwnShowing(
+  hint: HintState | undefined,
+  recorded: boolean,
+): HintState | undefined {
+  if (!recorded || !hint || hint.learned) return hint;
+  return { ...hint, count: Math.max(0, hint.count - 1) };
+}
 
 function ArrowGlyph() {
   return (
@@ -53,7 +65,8 @@ export function TeachingTip({
   className?: string;
   children: ReactNode;
 }) {
-  const offerable = useSettingsStore((state) => state.shouldShowHint(id));
+  const hint = useSettingsStore((state) => state.hints[id]);
+  const tipsEnabled = useSettingsStore((state) => state.tipsEnabled);
   // Wait for persisted answers, or a restart would flash already-hidden tips.
   const hydrated = useSettingsStore((state) => state._hasHydrated);
   const markLearned = useSettingsStore((state) => state.markHintLearned);
@@ -65,7 +78,20 @@ export function TeachingTip({
     setOffered({ open, moment });
     if (open) setHidden(false);
   }
+  const episode = useRef({ showing: false, recorded: false });
+  const offerable =
+    tipsEnabled &&
+    !isHintRetired(id, discountOwnShowing(hint, episode.current.recorded));
   const showing = open && offerable && hydrated && !hidden;
+  useEffect(() => {
+    if (showing && !episode.current.showing) {
+      episode.current.recorded = true;
+      useSettingsStore.getState().recordHintShown(id);
+    } else if (!showing) {
+      episode.current.recorded = false;
+    }
+    episode.current.showing = showing;
+  }, [showing, id]);
 
   return (
     <Popover
