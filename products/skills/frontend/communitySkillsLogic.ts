@@ -11,9 +11,9 @@ import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
 import { communitySkillsInstallCreate, communitySkillsList, communitySkillsVoteCreate } from './generated/api'
-import { openInstallRenameDialog } from './installDialogs'
 import { TrustTierEnumApi } from './generated/api.schemas'
 import type { CommunitySkillListApi, PaginatedCommunitySkillListListApi } from './generated/api.schemas'
+import { openInstallRenameDialog } from './installDialogs'
 
 export const COMMUNITY_SKILLS_PER_PAGE = 30
 
