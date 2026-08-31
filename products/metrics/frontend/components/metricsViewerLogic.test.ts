@@ -315,6 +315,15 @@ describe('metricsViewerLogic', () => {
 
             expect(logic.values.queryFilters).toEqual([{ key: 'pod', op: 'eq', value: 'api-7f9' }])
         })
+
+        it('widens the existing chip when a second value of the same key is picked', () => {
+            // Two chips on one key are ANDed, and no series can equal both values, so appending
+            // would blank the chart with no error rather than showing both pods.
+            logic.actions.addAttributeFilter('pod', 'api1')
+            logic.actions.addAttributeFilter('pod', 'api2')
+
+            expect(logic.values.queryFilters).toEqual([{ key: 'pod', op: 'regex', value: '^(?:api1|api2)$' }])
+        })
     })
 
     // Drives the metric picker's scope. Getting this wrong is silent: the picker
