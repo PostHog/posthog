@@ -1923,6 +1923,14 @@ CREATE TABLE posthog.sharded_experiment_metric_events_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at) ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_experiment_replay_exposed_distinct_ids (
+  team_id Int64,
+  cache_key String,
+  distinct_id String,
+  first_exposure_time DateTime64(6, 'UTC'),
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at Date DEFAULT today() + toIntervalDay(1)
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.experiment_replay_exposed_distinct_ids', '{replica}', computed_at) ORDER BY (team_id, cache_key, distinct_id) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_flag_evaluations (
   uuid UUID,
   event LowCardinality(String),
@@ -6023,6 +6031,14 @@ CREATE TABLE posthog.experiment_metric_events_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_experiment_metric_events_preaggregated', cityHash64(entity_id));
+CREATE TABLE posthog.experiment_replay_exposed_distinct_ids (
+  team_id Int64,
+  cache_key String,
+  distinct_id String,
+  first_exposure_time DateTime64(6, 'UTC'),
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at Date DEFAULT today() + toIntervalDay(1)
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_experiment_replay_exposed_distinct_ids', cityHash64(distinct_id));
 CREATE TABLE posthog.flag_evaluations (
   uuid UUID,
   event LowCardinality(String),
