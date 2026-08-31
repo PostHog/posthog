@@ -53,6 +53,7 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
         "data-warehouse-table",
         "data-warehouse-view",
         "slack-message",
+        "github-event",
     }
 )
 
@@ -90,6 +91,7 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-table",
     "data-warehouse-view",
     "slack-message",
+    "github-event",
 }
 
 

@@ -1683,6 +1683,7 @@ export const productSetupProbes: ProductSetupProbe[] = [
         hasDataEvents: ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'],
         staleAfterDays: 90,
     },
+    { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
     {
         productKey: ProductKey.MCP_ANALYTICS,
         hasDataEvents: ['$mcp_tool_call'],

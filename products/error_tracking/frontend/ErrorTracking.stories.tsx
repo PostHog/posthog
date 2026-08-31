@@ -638,13 +638,14 @@ function IngestionWarningStory(): JSX.Element | null {
     return ready ? <App /> : null
 }
 
-// No exceptions ingested yet, but autocapture enabled — the ingestion warning banner
-// renders above the issue list without the sticky filters bar overlapping it
+// A banner renders above the issue list without the sticky filters bar overlapping it.
+// Issues have to exist, or the scene's setup empty state takes over and there is no list
+// to lay the banner out against.
 export const ListPageWithIngestionWarning: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/error_tracking/issues/exists/': () => [200, { exists: false }],
+                '/api/environments/:team_id/error_tracking/issues/exists/': () => [200, { exists: true }],
             },
         }),
     ],
