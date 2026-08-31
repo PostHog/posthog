@@ -82,6 +82,7 @@ export function GithubIntegration({
                 <GitHubInstallRequestsBanner
                     finishConnectingUrl={authorizationUrl}
                     onFinishConnecting={() => reportConnect('install_approved_banner')}
+                    variant={emphasizeConnect ? 'onboarding' : 'default'}
                 />
                 {/* An install GitHub already has is the exception, not a second way to connect, so it
                     reads as an aside with its own action rather than a button competing with the one

@@ -932,6 +932,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 // When the org has more than one installation the caller passes the chosen
                 // installationId, since the backend can't auto-resolve between them.
                 linkExistingGithubInstallation: async (installationId?: string) => {
+                    // The global kea-loaders failure handler shows the API detail. Do not add a
+                    // local toast here because the rejected loader would then show both messages.
                     const integration = await api.integrations.githubLinkExisting(
                         installationId ? { installation_id: installationId } : {}
                     )
