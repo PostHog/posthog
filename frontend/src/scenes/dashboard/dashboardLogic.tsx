@@ -1221,10 +1221,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
     props({} as DashboardLogicProps),
 
     key((props) => {
-        // A non-numeric route segment (e.g. `/dashboard/abc`) parses to NaN. Mount a stable
-        // instance under a shared key so the scene can render a dashboard "not found" screen,
-        // instead of throwing and dropping the user on the generic 404 page.
-        if (typeof props.id !== 'number' || !Number.isFinite(props.id)) {
+        if (!Number.isFinite(props.id)) {
             return 'invalid'
         }
         return props.id
@@ -3053,7 +3050,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         hasInvalidDashboardId: [
             () => [(_, props: DashboardLogicProps) => props.id],
-            (id: number): boolean => typeof id !== 'number' || !Number.isFinite(id),
+            (id: number): boolean => !Number.isFinite(id),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.dashboard],
@@ -3183,7 +3180,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
     events(({ actions, props, values, cache }) => ({
         afterMount: () => {
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
-            if (typeof props.id === 'number' && Number.isFinite(props.id)) {
+            if (!Number.isFinite(props.id)) {
+                actions.dashboardNotFound()
+                return
+            }
+            if (props.id) {
                 if (props.dashboard) {
                     // If we already have dashboard data, use it. Should the data turn out to be stale,
                     // the loadDashboardSuccess listener will initiate a refresh
@@ -3218,10 +3219,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         actions.setInitialVariablesLoaded(true)
                     }
                 }
-            } else if (!props.dashboard) {
-                // A malformed dashboard id (a non-numeric URL segment) can never load. Show the
-                // "not found" screen right away instead of leaving the user on a stuck loading state.
-                actions.dashboardNotFound()
             }
         },
         beforeUnmount: () => {

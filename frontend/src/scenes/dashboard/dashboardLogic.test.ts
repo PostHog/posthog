@@ -16,6 +16,7 @@ import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
@@ -325,6 +326,30 @@ describe('dashboardLogic', () => {
 
         it('accepts a finite numeric id', () => {
             expect(() => dashboardLogic({ id: 42 })).not.toThrow()
+        })
+
+        it('reports not found when dashboard data is supplied for an invalid id', async () => {
+            const invalidLogic = dashboardLogic({ id: NaN, dashboard: dashboards[5] })
+            invalidLogic.mount()
+
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
+        })
+
+        it('does not load the zero dashboard sentinel', async () => {
+            const zeroLogic = dashboardLogic({ id: 0 })
+            zeroLogic.mount()
+
+            await expectLogic(zeroLogic)
+                .toNotHaveDispatchedActions(['loadDashboard', 'loadDashboardStreaming', 'dashboardNotFound'])
+                .toMatchValues({ error404: false, hasInvalidDashboardId: false })
+        })
+
+        it.each(['12abc', '12.5', '+12', '-12'])('rejects malformed route id %s', (id) => {
+            expect(parseDashboardId(id)).toBeNaN()
+        })
+
+        it('parses a full numeric route id', () => {
+            expect(parseDashboardId('12')).toBe(12)
         })
     })
 

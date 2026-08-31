@@ -50,7 +50,12 @@ interface DashboardProps {
     showCreateAnomalyAlertButton?: boolean
 }
 
-const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
+export const parseDashboardId = (id: string | undefined): number => {
+    if (!id || !/^\d+$/.test(id)) {
+        return NaN
+    }
+    return Number(id)
+}
 
 // Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
 // DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
