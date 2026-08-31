@@ -1,10 +1,9 @@
 # Pulling the data
 
 Run this sequence read-only before diagnosing or asking the customer anything.
-It produces the numbers you will cite back to them. The queries reuse the templates verified in
-[`../../diagnosing-experiment-results/references/diagnostic-snapshot.md`](../../diagnosing-experiment-results/references/diagnostic-snapshot.md) —
-read that file for the full rationale and edge cases; this is the customer-support-focused
-subset plus the numbers each cause needs.
+It produces the numbers you will cite back to them. This file is self-contained for the fixed
+data-pull sequence: it carries the customer-support subset of the queries, the edge cases each
+one needs, and the numbers each cause needs.
 
 ## 1. Config — `posthog:experiment-get`
 
@@ -75,9 +74,15 @@ Returns per-variant exposure totals and metric results in one call:
 - `exposures.timeseries[]` — daily `exposure_counts` per variant, for trajectory/flat-tail.
 - `metrics.primary.results[]` / `metrics.secondary.results[]` — each row carries `index`, a `metric`
   summary, and `data` (the primary/secondary object itself also has a `count`); a `data: null` row is
-  failed-or-not-yet-computed, not necessarily broken. Re-pull, or force one recompute with
-  `posthog:experiment-results-get { refresh: true }`, before reporting a metric as failing (see the
-  transient-vs-real protocol in `diagnostic-snapshot.md`).
+  failed-or-not-yet-computed, not necessarily broken. PostHog precomputes results on a schedule, so a
+  recently launched or edited experiment returns `data: null` placeholders that fill in on their own;
+  transient query load produces the same shape. Disambiguate transient from a real failure before you
+  report it: re-pull the cached results a while later, or force one recompute with
+  `posthog:experiment-results-get { refresh: true }`. If the rows then populate, the earlier nulls
+  were transient. If a row stays `null` after a successful force-refresh, that metric genuinely fails
+  to compute — inspect its definition (a `mean` metric over a missing property, a zero baseline, or a
+  malformed funnel). A large null count on its own is not severity: an experiment with many secondary
+  metrics shows the most warming placeholders, and they clear.
 
 ## 3. Exposure shape — `posthog:execute-sql`
 
@@ -105,9 +110,11 @@ it more often, so the event ratio drifts from the person ratio with nothing wron
 for volume and liveness (is anything arriving, has one arm gone quiet), and take the SRM counts from
 §2's `total_exposures`, which is already one row per person. See the chi-squared section in §4.
 
-If `exposure_criteria.exposure_config.event` is set, the variant attribution lives on
-`properties.$feature/<flag-key>` instead of `$feature_flag_response`, and the event filter is
-the custom event — see `diagnostic-snapshot.md` for the custom-event variant of this query.
+If `exposure_criteria.exposure_config.event` is set, adjust the query above: filter on the custom
+event instead of `$feature_flag_called`, and read the variant from `properties.$feature/<flag-key>`
+instead of `$feature_flag_response`. A custom exposure event does not carry `$feature_flag` or
+`$feature_flag_response` — the SDK stamps `$feature/<flag-key>` onto the event instead — so querying
+it with `$feature_flag_response` returns zero rows even when capture is healthy.
 
 A `holdout-<id>` row (if the experiment has a holdout) is expected and correctly excluded from the
 control/test split — its count is the size of the holdout, useful for explaining a population
