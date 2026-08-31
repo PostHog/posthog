@@ -19,6 +19,7 @@ export const manifest: ProductManifest = {
             activityScope: 'DataWarehouse',
             description: "Manage your organization's shared data warehouse.",
             iconType: 'data_warehouse',
+            docsHref: 'https://posthog.com/docs/data-warehouse',
         },
         Models: {
             name: 'Models',
@@ -38,6 +39,7 @@ export const manifest: ProductManifest = {
             layout: 'app-raw-no-header',
             hideProjectNotice: true,
             description: 'Write and execute SQL queries against your data warehouse',
+            docsHref: 'https://posthog.com/docs/sql',
         },
         Sources: {
             import: () => import('./frontend/scenes/SourcesScene/SourcesScene'),

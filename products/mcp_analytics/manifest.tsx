@@ -24,6 +24,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
             iconType: 'mcp_analytics',
+            docsHref: 'https://posthog.com/docs/mcp-analytics',
         },
         MCPAnalyticsToolDetail: {
             import: () => import('./frontend/MCPAnalyticsToolDetail'),
