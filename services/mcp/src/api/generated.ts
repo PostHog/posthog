@@ -17064,6 +17064,8 @@ export namespace Schemas {
       /** @nullable */
       github_integration: number | null;
       repositories: string[];
+      /** @nullable */
+      auto_archive_after_days: number | null;
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
       starred?: boolean;
@@ -59997,6 +59999,11 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       repositories?: string[];
+      /**
+         * Days of inactivity before tasks in this channel are archived. Allowed values: 1, 3, 7, 14, or 30. Null disables automatic archiving.
+         * @nullable
+         */
+      auto_archive_after_days?: number | null;
     }
 
     export interface PatchedClusteringJob {

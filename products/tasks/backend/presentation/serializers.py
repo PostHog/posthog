@@ -2031,6 +2031,7 @@ class ChannelSerializer(DataclassSerializer):
             "channel_type",
             "github_integration",
             "repositories",
+            "auto_archive_after_days",
             "created_at",
             "created_by",
             "starred",
@@ -2155,10 +2156,20 @@ class ChannelUpdateSerializer(serializers.Serializer):
         max_length=10,
         help_text="GitHub repositories inherited by new tasks in this channel.",
     )
+    auto_archive_after_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Days of inactivity before tasks in this channel are archived. Allowed values: 1, 3, 7, 14, or 30. Null disables automatic archiving.",
+    )
 
     def validate_name(self, value: str) -> str:
         if tasks_facade.is_reserved_channel_name(value):
             raise serializers.ValidationError("That name is reserved for a default space. Pick another name.")
+        return value
+
+    def validate_auto_archive_after_days(self, value: int | None) -> int | None:
+        if value is not None and value not in tasks_facade.Channel.AutoArchiveAfterDays.values:
+            raise serializers.ValidationError("Must be one of 1, 3, 7, 14, or 30.")
         return value
 
     def validate_github_integration(self, value):
