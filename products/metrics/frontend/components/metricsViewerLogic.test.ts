@@ -292,6 +292,31 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.queryFilters).toEqual([expected])
     })
 
+    // The anomaly panel's one-click drilldown: clicking a label value that moved narrows the
+    // chart to it. Appending rather than replacing is the point — an investigation stacks
+    // findings, and replacing would silently drop the service the user had already pinned.
+    describe('addAttributeFilter', () => {
+        it('adds the label value as a chip alongside the existing filters', () => {
+            logic.actions.setFilterGroup(
+                filterGroupWith([{ key: 'service_name', operator: PropertyOperator.Exact, value: ['web'] }])
+            )
+
+            logic.actions.addAttributeFilter('pod', 'api-7f9')
+
+            expect(logic.values.queryFilters).toEqual([
+                { key: 'service_name', op: 'eq', value: 'web' },
+                { key: 'pod', op: 'eq', value: 'api-7f9' },
+            ])
+        })
+
+        it('does not stack a duplicate when the same value is clicked twice', () => {
+            logic.actions.addAttributeFilter('pod', 'api-7f9')
+            logic.actions.addAttributeFilter('pod', 'api-7f9')
+
+            expect(logic.values.queryFilters).toEqual([{ key: 'pod', op: 'eq', value: 'api-7f9' }])
+        })
+    })
+
     // Drives the metric picker's scope. Getting this wrong is silent: the picker
     // reverts to offering every metric while the filter bar still shows a service.
     it.each([
