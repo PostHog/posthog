@@ -99,10 +99,11 @@ Each deletion follows its cutover.
 **Goal:** The dispatch concurrency becomes an implementation detail behind one interface.
 
 - Interface in: one poll's groups, submitted on the consumer loop in poll order.
-- Interface out: one completion event per batch, with the accepted count. Group-level events come later, when the budget needs them.
+- Interface out: one completion event per group, with its partition, offsets, and accepted count. This is the final shape. The interface does not change again.
+- The facade breaks each resolved send into its groups. The resolution paths already carry them (`routing_keys`, `key_offsets`), and a send is all-or-nothing.
 - Move inside the boundary: assignment, scatter, the deferred flush, the eager flush, the worker registry, the router, and the stream runners.
 - The facade replicates today's behavior exactly, including the oldest-first flush pacing. This is code motion, not redesign.
-- The consumer loop keeps: poll collection, commits, the sentinels, and the batch window.
+- The consumer loop keeps: poll collection, commits, the sentinels, and the batch window. It aggregates group completions per batch, so completion and commit behavior do not change.
 - The boundary is the seam for change 5: two implementations can stand behind it.
 
 ### 5. Build the key-table batcher (structure)
@@ -167,10 +168,10 @@ Each deletion follows its cutover.
 **Goal:** A stalled batch stalls only its own partitions. Other partitions continue to commit.
 
 - Changes 6 and 8 are the prerequisites. Commits come from the frontier, and the old flush, whose per-key order depended on oldest-first completion, is gone. Only commits depend on completion order now, and the frontier gates those.
-- The consumer loop awaits all in-flight batches at once (a completion channel or `FuturesUnordered`).
-- A completed batch marks its offsets in the ledger. The frontier gates each partition's commit.
-- Keep `max_in_flight_batches` as the bound on outstanding work.
-- Behavior change: commit timing decouples across partitions. Replay exposure stays inside the batch window.
+- Mark each group's offsets in the ledger when its completion event arrives. Stop aggregating completions per batch before commits.
+- The frontier gates each partition's commit.
+- Keep `max_in_flight_batches` as the bound on outstanding work. A batch slot frees when all its groups are accepted.
+- Behavior change: commit timing decouples across partitions and batches. Replay exposure stays inside the batch window.
 
 ### 11. Replace the batch window with budget B (logic)
 
@@ -180,7 +181,6 @@ Each deletion follows its cutover.
 
 - Charge each message on poll. The ledger slots already carry the costs (change 1).
 - Refund the charge when the commit that covers the message is issued.
-- Upgrade the batcher interface to group-level completion events, so the ledger marks groups as they settle.
 - Remove `max_in_flight_batches`. The batch reduces to a per-poll accumulator.
 - Pause and resume the poll at the budget limit. Do not stop servicing Kafka callbacks.
 - New config: the budget in events and in bytes.
