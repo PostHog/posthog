@@ -192,6 +192,13 @@ log "warming cargo registry for the rust workspace"
 log "building the rust workspace binaries"
 mapfile -t RUST_BINS < <(cd rust && cargo metadata --no-deps --format-version 1 \
     | python3 -c 'import json, sys; print("\n".join(sorted({t["name"] for p in json.load(sys.stdin)["packages"] for t in p["targets"] if "bin" in t["kind"] and not t.get("required-features")})))')
+# Fail loud if metadata yielded no binaries: a bare `cargo build` with no --bin flags
+# would build the whole workspace instead, so an empty list must stop the bake, not
+# silently change what gets warmed.
+if [[ ${#RUST_BINS[@]} -eq 0 ]]; then
+    echo "no rust binaries discovered from cargo metadata" >&2
+    exit 1
+fi
 # One cargo build over every binary, not a per-binary loop: cargo prints its `Finished`
 # line and the multi-line js-source-scopes patch warning once instead of ~30 times, which
 # is most of what floods the retained log tail.
