@@ -31,6 +31,7 @@ import {
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { useCodexSubscription } from "@posthog/ui/features/settings/useCodexSubscription";
 import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -52,6 +53,7 @@ import { useConnectivity } from "../../../hooks/useConnectivity";
 import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
 import { toast } from "../../../primitives/toast";
 import { useActiveRepoStore } from "../../../shell/activeRepoStore";
+import { pendingTaskPromptStoreApi } from "../../../shell/pendingTaskPromptStore";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
 import { useAuthStateValue } from "../../auth/store";
 import { AutoresearchComposerControls } from "../../autoresearch/AutoresearchComposerControls";
@@ -106,6 +108,8 @@ import {
   useSettingsStore,
 } from "../../settings/settingsStore";
 import { useSkills } from "../../skills/useSkills";
+import { cloudTargetIds } from "../cloudTargets";
+import { useCloudTargetSelection } from "../hooks/useCloudTarget";
 import {
   areReposReady,
   useInitialRepoSelectionFromFolderId,
@@ -128,6 +132,10 @@ interface TaskInputProps {
   onTaskCreated?: (task: Task) => void;
   onTaskCreatedEffect?: (task: Task) => void;
   initialPrompt?: string;
+  /** Full editor content to prefill (chips + attachments), preferred over initialPrompt. */
+  initialContent?: EditorContent;
+  /** Pending-prompt record to clear once this prefill is applied (interrupted-prompt recovery). */
+  recoveredFromKey?: string;
   initialPromptKey?: string;
   initialCloudRepository?: string;
   initialModel?: string;
@@ -196,6 +204,8 @@ export function TaskInput({
   onTaskCreated,
   onTaskCreatedEffect,
   initialPrompt,
+  initialContent,
+  recoveredFromKey,
   initialPromptKey,
   initialCloudRepository,
   initialModel,
@@ -333,12 +343,7 @@ export function TaskInput({
   const [selectedEnvironment, setSelectedEnvironmentRaw] = useState<
     string | null
   >(null);
-  const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
-    null,
-  );
-  const [selectedCustomImageId, setSelectedCustomImageId] = useState<
-    string | null
-  >(null);
+  const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
   const [activeReportAssociation, setActiveReportAssociation] = useState(
     reportAssociation ?? null,
   );
@@ -359,23 +364,42 @@ export function TaskInput({
     !!channelContextSource && !channelContextDismissed;
 
   const adapter = lastUsedAdapter;
+  const codexSubscription = useCodexSubscription();
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
 
   // Applying a prefilled prompt replaces whatever the composer had, so it must
   // happen exactly once per request — not again on every remount, which would
-  // clobber a draft the user typed in between.
+  // clobber a draft the user typed in between. initialContent wins over
+  // initialPrompt so a recovered prompt keeps its chips and attachments.
   const lastAppliedPromptKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!initialPrompt || !prefillRequestKey) return;
+    if (!prefillRequestKey) return;
+    if (!initialContent && !initialPrompt) return;
     if (lastAppliedPromptKeyRef.current === prefillRequestKey) return;
     lastAppliedPromptKeyRef.current = prefillRequestKey;
-    useDraftStore.getState().actions.setPendingContent(sessionId, {
-      segments: [{ type: "text", text: initialPrompt }],
-    });
+    useDraftStore.getState().actions.setPendingContent(
+      sessionId,
+      initialContent ?? {
+        segments: [{ type: "text", text: initialPrompt ?? "" }],
+      },
+    );
+    // Clear the recovered prompt's durable record only now that its content is
+    // in the composer, so an interrupted-then-recovered prompt is never lost to
+    // a crash before this point.
+    if (recoveredFromKey) {
+      pendingTaskPromptStoreApi.clear(recoveredFromKey);
+    }
     if (initialPromptKey) {
       useTaskInputPrefillStore.getState().consumePrompt(initialPromptKey);
     }
-  }, [initialPrompt, initialPromptKey, prefillRequestKey, sessionId]);
+  }, [
+    initialContent,
+    initialPrompt,
+    initialPromptKey,
+    prefillRequestKey,
+    recoveredFromKey,
+    sessionId,
+  ]);
 
   useEffect(() => {
     reportInputHadContentRef.current = false;
@@ -471,6 +495,12 @@ export function TaskInput({
       isLoadingIntegrations,
       pinCloud: !!initialCloudRepository,
     });
+
+  const showCodexNotConnectedNotice =
+    runtime !== "pi" &&
+    adapter === "codex" &&
+    workspaceMode !== "cloud" &&
+    codexSubscription.needsConnection;
 
   const {
     repositories: visibleCloudRepositories,
@@ -767,6 +797,7 @@ export function TaskInput({
   }
 
   const effectiveWorkspaceMode = workspaceMode;
+  const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
 
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
@@ -847,8 +878,8 @@ export function TaskInput({
     runtimeAdapter: adapter ?? null,
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
-    sandboxEnvironmentId: workspaceMode === "cloud" ? selectedCloudEnvId : null,
-    customImageId: workspaceMode === "cloud" ? selectedCustomImageId : null,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId ?? null,
+    customImageId: cloudIds.customImageId ?? null,
   });
 
   const branchForTaskCreation =
@@ -987,14 +1018,8 @@ export function TaskInput({
     onTaskCreated,
     onTaskCreatedEffect: handleTaskCreatedEffect,
     environmentId: selectedEnvironment,
-    sandboxEnvironmentId:
-      effectiveWorkspaceMode === "cloud" && selectedCloudEnvId
-        ? selectedCloudEnvId
-        : undefined,
-    customImageId:
-      effectiveWorkspaceMode === "cloud" && selectedCustomImageId
-        ? selectedCustomImageId
-        : undefined,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId,
+    customImageId: cloudIds.customImageId,
     signalReportId: activeReportAssociation?.reportId,
     channelContext: includeChannelContext ? channelContext : undefined,
     channelContextPath: includeChannelContext ? channelContextPath : undefined,
@@ -1270,10 +1295,9 @@ export function TaskInput({
                 <WorkspaceModeSelect
                   value={workspaceMode}
                   onChange={setWorkspaceMode}
-                  selectedCloudEnvironmentId={selectedCloudEnvId}
-                  onCloudEnvironmentChange={setSelectedCloudEnvId}
-                  selectedCustomImageId={selectedCustomImageId}
-                  onCustomImageChange={setSelectedCustomImageId}
+                  adapter={runtime === "pi" ? undefined : adapter}
+                  cloudTarget={cloudTarget}
+                  onCloudTargetChange={setCloudTarget}
                   size="1"
                 />
                 {repoOptional && (
@@ -1556,6 +1580,19 @@ export function TaskInput({
                     if (canSubmit) void submitTask();
                   }}
                 />
+                {showCodexNotConnectedNotice && (
+                  <div className="mx-2 mt-1.5 text-[12px] text-gray-10">
+                    Codex is set to use your ChatGPT plan, but no account is
+                    connected. Sessions use PostHog credits.{" "}
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => openSettings("harness")}
+                    >
+                      Connect in Settings
+                    </button>
+                  </div>
+                )}
                 {activeReportAssociation && (
                   <div className="-mt-px mx-2 flex select-none items-center justify-between gap-2 rounded-b-md border border-blue-6 border-t-0 bg-blue-2 px-2 py-1 text-[12px] text-blue-11">
                     <span className="flex min-w-0 flex-1 items-center gap-1">

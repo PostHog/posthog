@@ -2,6 +2,7 @@ import { useService } from "@posthog/di/react";
 import {
   closeTab as closeTabLocal,
   closeTabs as closeTabsLocal,
+  DEFAULT_TAB_HREF,
   decideTabNavigation,
   openTab as openTabLocal,
   primaryWindow,
@@ -50,7 +51,7 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { shouldHandleBrowserTabSwitch } from "./browserTabShortcuts";
 import {
@@ -86,7 +87,6 @@ import { useOpenBrowserTab } from "./useOpenBrowserTab";
  */
 const canvasInfo = new Map<string, { name: string; templateId: string }>();
 const taskInfo = new Map<string, string>();
-const BLANK_TAB_HREF = "/activity";
 
 /** Bounded insert (most-recent kept) so the caches don't grow unbounded over a
  * long session. */
@@ -126,7 +126,7 @@ type TabRef = {
   appView: string | null;
 };
 
-export function BrowserTabStrip() {
+function BrowserTabStripImpl() {
   const spacesLayout = useChannelsLayout();
   const snapshot = useTabsSnapshot();
   const navigate = useNavigate();
@@ -381,16 +381,22 @@ export function BrowserTabStrip() {
       href: locationHref,
       ...(railPane === "spaces" ? { listOpen, spaceId: stampedSpaceId } : {}),
     };
+    const previousLastByPane = mirrorActive?.viewState?.lastByPane ?? {};
     const viewState: TabViewState = {
       // Keep the stored name when nothing has resolved yet, so a loading frame
       // does not blank a background tab's label.
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
       spaceId: stampedSpaceId,
-      lastByPane: {
-        ...(mirrorActive?.viewState?.lastByPane ?? {}),
-        [railPane]: visit,
-      },
+      // Settings is a full-window overlay that classifies as the spaces pane, so
+      // recording its href here would overwrite the tab's real last spaces
+      // location and a later Spaces rail click would reopen Settings. Keep the
+      // existing map on the settings route, as the strip did before settings
+      // stayed mounted.
+      lastByPane:
+        routeAppView === "settings"
+          ? previousLastByPane
+          : { ...previousLastByPane, [railPane]: visit },
     };
     const decision = decideTabNavigation({
       // The SETTLED tag, not the in-flight one. Pairing the in-flight tag with
@@ -752,7 +758,7 @@ export function BrowserTabStrip() {
           }
         }
       } else {
-        navigate({ to: BLANK_TAB_HREF, state });
+        navigate({ to: DEFAULT_TAB_HREF, state });
       }
     },
     [channelReportsEnabled, navigate, router.history],
@@ -788,9 +794,17 @@ export function BrowserTabStrip() {
     useDraftStore
       .getState()
       .actions.setDraft(getTaskInputSessionId(tabId), null);
-    const next = applyLocalTransform((s) => closeTabLocal(s, tabId).snapshot);
+    const newTabId = crypto.randomUUID();
+    const next = applyLocalTransform(
+      (s) =>
+        closeTabLocal(s, tabId, {
+          href: DEFAULT_TAB_HREF,
+          makeId: () => newTabId,
+          now: Date.now,
+        }).snapshot,
+    );
     applyCloseResult(next);
-    void persistWrite(() => client.close(tabId));
+    void persistWrite(() => client.close(tabId, newTabId));
   };
 
   // Unpinning re-homes the tab at the front of the unpinned block. Apply the
@@ -814,12 +828,22 @@ export function BrowserTabStrip() {
     for (const tabId of tabIds) {
       draftActions.setDraft(getTaskInputSessionId(tabId), null);
     }
+    const newTabId = crypto.randomUUID();
     const next = applyLocalTransform((s) =>
-      closeTabsLocal(s, tabIds, anchorTabId),
+      closeTabsLocal(
+        s,
+        tabIds,
+        {
+          href: DEFAULT_TAB_HREF,
+          makeId: () => newTabId,
+          now: Date.now,
+        },
+        anchorTabId,
+      ),
     );
     applyCloseResult(next);
     void persistWrite(() =>
-      client.closeMany({ tabIds, focusTabId: anchorTabId }),
+      client.closeMany({ tabIds, newTabId, focusTabId: anchorTabId }),
     );
   };
 
@@ -856,10 +880,10 @@ export function BrowserTabStrip() {
 
   const landOnDefault = (tabId?: string): void => {
     const state = tabId ? (prev: object) => ({ ...prev, tabId }) : undefined;
-    navigate({ to: BLANK_TAB_HREF, state });
+    navigate({ to: DEFAULT_TAB_HREF, state });
   };
 
-  const handleNewTab = (): void => openBrowserTab(BLANK_TAB_HREF);
+  const handleNewTab = (): void => openBrowserTab(DEFAULT_TAB_HREF);
 
   // Cmd/Ctrl+T opens a new browser tab. Bound here (not globally) so it only
   // fires where the strip is mounted; the new-task shortcut owns Cmd/Ctrl+N.
@@ -926,3 +950,6 @@ export function BrowserTabStrip() {
     />
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const BrowserTabStrip = memo(BrowserTabStripImpl);

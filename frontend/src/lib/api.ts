@@ -196,6 +196,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyType,
     SurveyStatsResponse,
     TeamType,
     TwilioPhoneNumberType,
@@ -5452,7 +5453,10 @@ const api = {
                 offset?: number
                 search?: string
                 archived?: boolean
+                created_by?: number
                 ids?: string
+                status?: 'draft' | 'running' | 'complete'
+                type?: SurveyType
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }

@@ -102,6 +102,7 @@ export function DataPipelinesHogFunctions({
                     type={kind}
                     additionalTypes={additionalKinds}
                     manualFunctions={manualFunctions}
+                    truncateDescriptions
                 />
             </SceneSection>
             <SceneDivider />

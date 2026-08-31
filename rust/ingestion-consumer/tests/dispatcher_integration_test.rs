@@ -3,15 +3,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{Json, State};
+use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::Router;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
 use ingestion_consumer::dispatcher::Dispatcher;
-use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
+use ingestion_consumer::types::SerializedKafkaMessage;
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig, WorkerState};
 
 // ---- FakeWorker ----
@@ -27,19 +27,6 @@ async fn ready_handler(State(ctrl): State<WorkerCtrl>) -> impl IntoResponse {
     } else {
         axum::http::StatusCode::SERVICE_UNAVAILABLE
     }
-}
-
-async fn ingest_handler(
-    State(_ctrl): State<WorkerCtrl>,
-    Json(req): Json<IngestBatchRequest>,
-) -> Json<IngestBatchResponse> {
-    let accepted = req.messages.len() as u32;
-    Json(IngestBatchResponse {
-        batch_id: req.batch_id,
-        status: "ok".to_string(),
-        accepted,
-        error: None,
-    })
 }
 
 struct FakeWorker {
@@ -60,7 +47,6 @@ impl FakeWorker {
 
         let app = Router::new()
             .route("/_ready", get(ready_handler))
-            .route("/ingest", post(ingest_handler))
             .with_state(ctrl);
 
         let handle = tokio::spawn(async move {

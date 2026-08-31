@@ -20,7 +20,7 @@ import {
   WATCHER_SERVICE,
 } from "./tokens";
 
-export interface WorkspaceServerBindings {
+interface WorkspaceServerBindings {
   [FOCUS_SERVICE]: FocusService;
   [FOCUS_SYNC_SERVICE]: FocusSyncService;
   [GIT_SERVICE]: GitService;

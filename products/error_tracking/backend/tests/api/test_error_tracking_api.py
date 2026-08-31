@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -33,6 +34,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
+from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueAssignRequestSerializer
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 
@@ -40,6 +42,22 @@ TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 def get_path_to(fixture_file: str) -> str:
     file_dir = os.path.dirname(__file__)
     return os.path.join(file_dir, "fixtures", fixture_file)
+
+
+class TestErrorTrackingIssueAssignRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("user", "not-a-user-id"),
+            ("role", "not-a-role-id"),
+        ]
+    )
+    def test_rejects_invalid_assignee_id(self, assignee_type: str, assignee_id: str) -> None:
+        serializer = ErrorTrackingIssueAssignRequestSerializer(
+            data={"assignee": {"id": assignee_id, "type": assignee_type}}
+        )
+
+        assert not serializer.is_valid()
+        assert "id" in serializer.errors["assignee"]
 
 
 class TestErrorTracking(APIBaseTest):
@@ -834,6 +852,17 @@ class TestErrorTracking(APIBaseTest):
         )
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_rejects_unknown_assignee_type(self) -> None:
+        issue = self.create_issue()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": self.user.id, "type": "team"}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ErrorTrackingIssueAssignment.objects.filter(issue=issue).exists()
 
     @patch("products.error_tracking.backend.logic.issue_mutations.sync_issues_to_clickhouse")
     @patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime")

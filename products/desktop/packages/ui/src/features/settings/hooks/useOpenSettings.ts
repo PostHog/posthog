@@ -2,7 +2,6 @@ import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/setti
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useRouterState } from "@tanstack/react-router";
-import { useCallback } from "react";
 
 interface SettingsContext {
   repoPath?: string;
@@ -67,15 +66,11 @@ export function closeSettings(): void {
   }
 }
 
-export function useCloseSettings(): typeof closeSettings {
-  return useCallback(closeSettings, []);
-}
-
 /**
  * True when the current route is anywhere under `/settings/*`.
  */
 export function useIsSettingsOpen(): boolean {
   return useRouterState({
-    select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
+    select: (s) => s.matches.some((m) => nav.isSettingsRouteId(m.routeId)),
   });
 }
