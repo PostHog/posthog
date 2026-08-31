@@ -62,6 +62,23 @@ const RATE_LEVEL_TAG: Record<RateLevel, { label: string; type: LemonTagType }> =
     high: { label: 'High', type: 'danger' },
 }
 
+// AWS returning nothing for a metric is not the same as the metric being zero, and a 0.00% spam
+// complaint rate with a green tag is the most misleading thing this table could show. The API names
+// the rates it could not load, and those say so instead.
+function MissingRate({ reason }: { reason: 'unavailable' | 'no-rate' }): JSX.Element {
+    const tooltip =
+        reason === 'unavailable'
+            ? 'AWS did not return this metric, so there is no number to show. It usually reappears on the next refresh.'
+            : 'No complaints could be measured here: either this provider does not report them back to senders, or none of your email to it was delivered. Watch the delivery rate instead.'
+    return (
+        <Tooltip title={tooltip}>
+            <span className="text-secondary cursor-default">
+                {reason === 'unavailable' ? "Couldn't load" : 'No data'}
+            </span>
+        </Tooltip>
+    )
+}
+
 function RateCell({ rate, kind }: { rate: number; kind: 'bounce' | 'complaint' }): JSX.Element {
     const level = classifyRate(rate, kind)
     const tag = RATE_LEVEL_TAG[level]
@@ -154,9 +171,11 @@ function alignToDates(isp: IspSendingHealthApi, dates: string[]): number[] {
     return dates.map((date) => byDate.get(date) ?? Number.NaN)
 }
 
-function DeliveryTrend({ isp, dates }: { isp: IspSendingHealthApi; dates: string[] }): JSX.Element | null {
+function DeliveryTrend({ isp, dates }: { isp: IspSendingHealthApi; dates: string[] }): JSX.Element {
+    // An empty box of the same size rather than nothing: a provider with too few points to draw
+    // would otherwise collapse its row, and the table's rows would step up and down the column.
     if (isp.daily.length < MIN_TREND_POINTS) {
-        return null
+        return <div className="h-8 w-28" aria-hidden />
     }
     return (
         <Sparkline
@@ -201,11 +220,14 @@ function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.E
                         title: 'Delivery rate',
                         key: 'delivery_rate',
                         align: 'right',
-                        render: (_, row: IspSendingHealthApi) => (
-                            <Tooltip title="Emails this provider accepted, divided by emails sent to it. Accepting a message is not the same as putting it in the inbox: a provider can accept your email and still file it as spam.">
-                                <span className="tabular-nums cursor-default">{formatRate(row.delivery_rate)}</span>
-                            </Tooltip>
-                        ),
+                        render: (_, row: IspSendingHealthApi) =>
+                            row.delivery_rate === null ? (
+                                <MissingRate reason="unavailable" />
+                            ) : (
+                                <Tooltip title="Emails this provider accepted, divided by emails sent to it. Accepting a message is not the same as putting it in the inbox: a provider can accept your email and still file it as spam.">
+                                    <span className="tabular-nums cursor-default">{formatRate(row.delivery_rate)}</span>
+                                </Tooltip>
+                            ),
                     },
                     {
                         title: 'Delivery trend',
@@ -217,7 +239,12 @@ function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.E
                         title: 'Bounce rate',
                         key: 'bounce_rate',
                         align: 'right',
-                        render: (_, row: IspSendingHealthApi) => <RateCell rate={row.bounce_rate} kind="bounce" />,
+                        render: (_, row: IspSendingHealthApi) =>
+                            row.bounce_rate === null ? (
+                                <MissingRate reason="unavailable" />
+                            ) : (
+                                <RateCell rate={row.bounce_rate} kind="bounce" />
+                            ),
                     },
                     {
                         title: 'Complaint rate',
@@ -225,9 +252,9 @@ function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.E
                         align: 'right',
                         render: (_, row: IspSendingHealthApi) =>
                             row.complaint_rate === null ? (
-                                <Tooltip title="No complaints could be measured here: either this provider does not report them back to senders, or none of your email to it was delivered. Watch the delivery rate instead.">
-                                    <span className="text-secondary cursor-default">No data</span>
-                                </Tooltip>
+                                <MissingRate
+                                    reason={row.unavailable?.includes('complaint') ? 'unavailable' : 'no-rate'}
+                                />
                             ) : (
                                 <RateCell rate={row.complaint_rate} kind="complaint" />
                             ),

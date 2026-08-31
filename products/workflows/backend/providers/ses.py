@@ -52,12 +52,19 @@ class IspDailyPoint:
 class IspSendingMetrics:
     isp: str
     emails_sent: int
-    delivery_rate: float
-    bounce_rate: float
-    # None when the provider runs no feedback loop, so complaints are unmeasurable rather than zero.
+    # None when the metric behind the rate could not be loaded. A failed query returns an empty
+    # series, which is arithmetically indistinguishable from a real zero — and a 0% complaint rate
+    # reads as a healthy provider. Unknown is reported as unknown rather than as a number.
+    delivery_rate: float | None
+    bounce_rate: float | None
+    # Also None when the provider runs no feedback loop, or when nothing was delivered to measure
+    # complaints against: both are "no rate exists", as against "we could not load it".
     complaint_rate: float | None
     # Oldest bucket first. Buckets SES returned nothing for are absent rather than zero-filled.
     daily: tuple[IspDailyPoint, ...]
+    # Rates whose metric AWS did not return, so the reader can be told the number is missing rather
+    # than shown one. A null rate that is not listed here has no value to state at all.
+    unavailable: tuple[str, ...] = ()
 
 
 class SESProvider:
@@ -617,6 +624,9 @@ class SESProvider:
                     )
 
         series: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        # (provider, metric) pairs whose query failed. Their series is empty for want of an answer,
+        # not because nothing happened, so every rate derived from them is reported as unknown.
+        failed: set[tuple[str, str]] = set()
         deadline = monotonic() + METRIC_QUERY_BUDGET_SECONDS
         for batch in batched(queries, METRIC_QUERY_BATCH_SIZE, strict=False):
             if monotonic() > deadline:
@@ -633,6 +643,9 @@ class SESProvider:
                 for timestamp, value in zip(result.get("Timestamps", []), result.get("Values", []), strict=False):
                     buckets[timestamp.date().isoformat()] += value
             for error in response.get("Errors", []):
+                subject = query_subjects.get(error.get("Id", ""))
+                if subject is not None:
+                    failed.add(subject)
                 # A per-query failure leaves that metric at zero, which understates a rate rather
                 # than breaking the panel. Log it so a systematic failure stays visible. A
                 # malformed ISP name is different: SES fails the whole request, which the caller
@@ -650,12 +663,19 @@ class SESProvider:
 
         rows: list[IspSendingMetrics] = []
         for isp in isps:
+            if (isp, "SEND") in failed:
+                # Without the denominator there is no row to build: volume is unknown and every
+                # rate divides by it. This is the one case where the provider is dropped.
+                continue
             sent_by_date = series[(isp, "SEND")]
             emails_sent = sum(sent_by_date.values())
             if emails_sent == 0:
                 continue
             delivered_by_date = series[(isp, "DELIVERY")]
             bounced_by_date = series[(isp, "PERMANENT_BOUNCE")]
+            delivery_failed = (isp, "DELIVERY") in failed
+            bounce_failed = (isp, "PERMANENT_BOUNCE") in failed
+            complaint_failed = (isp, "COMPLAINT") in failed or (isp, "DELIVERY_COMPLAINT") in failed
             complaint_base = sum(series[(isp, "DELIVERY_COMPLAINT")].values())
             rows.append(
                 IspSendingMetrics(
@@ -663,17 +683,32 @@ class SESProvider:
                     emails_sent=emails_sent,
                     # Feedback can arrive after the window closes, so a rate can exceed its
                     # denominator at the boundary. Clamp, as the project-wide rates do.
-                    delivery_rate=min(1.0, sum(delivered_by_date.values()) / emails_sent),
-                    bounce_rate=min(1.0, sum(bounced_by_date.values()) / emails_sent),
+                    delivery_rate=None if delivery_failed else min(1.0, sum(delivered_by_date.values()) / emails_sent),
+                    bounce_rate=None if bounce_failed else min(1.0, sum(bounced_by_date.values()) / emails_sent),
                     complaint_rate=(
-                        min(1.0, sum(series[(isp, "COMPLAINT")].values()) / complaint_base) if complaint_base else None
+                        None
+                        if complaint_failed or not complaint_base
+                        else min(1.0, sum(series[(isp, "COMPLAINT")].values()) / complaint_base)
                     ),
-                    daily=tuple(
+                    # The trend is a delivery-rate series, so a failed DELIVERY query leaves nothing
+                    # to draw. An empty series renders no line rather than a flat one at zero.
+                    unavailable=tuple(
+                        name
+                        for name, missing in (
+                            ("delivery", delivery_failed),
+                            ("bounce", bounce_failed),
+                            ("complaint", complaint_failed),
+                        )
+                        if missing
+                    ),
+                    daily=()
+                    if delivery_failed
+                    else tuple(
                         IspDailyPoint(
                             date=date,
                             emails_sent=sent,
                             delivery_rate=min(1.0, delivered_by_date.get(date, 0) / sent),
-                            bounce_rate=min(1.0, bounced_by_date.get(date, 0) / sent),
+                            bounce_rate=0.0 if bounce_failed else min(1.0, bounced_by_date.get(date, 0) / sent),
                         )
                         # A rate over zero sends is undefined, and zero-filling draws a cliff in
                         # the trend that never happened.

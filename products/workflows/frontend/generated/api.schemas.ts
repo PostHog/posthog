@@ -1439,15 +1439,23 @@ export interface IspSendingHealthApi {
     readonly isp: string
     /** Emails sent to this provider during the window. */
     readonly emails_sent: number
-    /** Emails this provider accepted, divided by emails sent to it (0-1). Acceptance is not inbox placement: a provider can accept a message and still file it as spam. */
-    readonly delivery_rate: number
-    /** Hard (permanent) bounces at this provider, divided by emails sent to it (0-1). */
-    readonly bounce_rate: number
     /**
-     * Spam complaints from this provider, divided by the deliveries it reports complaints for (0-1). Null when the provider runs no feedback loop, so complaints are unmeasurable here rather than zero.
+     * Emails this provider accepted, divided by emails sent to it (0-1). Acceptance is not inbox placement: a provider can accept a message and still file it as spam. Null when the underlying metric could not be loaded from AWS, which is not the same as zero.
+     * @nullable
+     */
+    readonly delivery_rate: number | null
+    /**
+     * Hard (permanent) bounces at this provider, divided by emails sent to it (0-1). Null when the underlying metric could not be loaded from AWS.
+     * @nullable
+     */
+    readonly bounce_rate: number | null
+    /**
+     * Spam complaints from this provider, divided by the deliveries it reports complaints for (0-1). Null when there is no rate to state — the provider runs no feedback loop, or nothing was delivered — and also when the metric could not be loaded from AWS.
      * @nullable
      */
     readonly complaint_rate: number | null
+    /** Rates AWS did not return for this provider, from `delivery`, `bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
+    readonly unavailable: readonly string[]
     /** Sending history for this provider, oldest first, so a drop can be dated rather than averaged into the window. Dates this provider received nothing are omitted. */
     readonly daily: readonly IspDailyPointApi[]
 }

@@ -678,8 +678,15 @@ class TestGetIdentityIspMetrics(TestCase):
         assert any("SES metric query failed" in line for line in logs.output)
         assert [row.isp for row in rows] == ["Gmail"]
         assert rows[0].emails_sent == 100
-        # The failed metrics stay at zero rather than removing the provider.
-        assert rows[0].delivery_rate == 0.0
+        # The provider stays, because SEND answered and its volume is known. The rates behind the
+        # failed queries are reported as missing: zero would read as a real measurement, and a 0%
+        # complaint rate is the most reassuring number this table can show.
+        assert rows[0].delivery_rate is None
+        assert rows[0].bounce_rate is None
+        assert rows[0].complaint_rate is None
+        assert set(rows[0].unavailable) == {"delivery", "bounce", "complaint"}
+        # No delivery series means no trend to draw, rather than a line flat at zero.
+        assert rows[0].daily == ()
 
     def test_daily_series_skips_buckets_with_no_sends(self):
         self._serve_series(

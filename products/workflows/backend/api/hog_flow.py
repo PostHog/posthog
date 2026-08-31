@@ -2163,6 +2163,7 @@ def _fetch_isp_metrics(team_id: int, window_days: int) -> list[dict[str, Any]]:
             "delivery_rate": row.delivery_rate,
             "bounce_rate": row.bounce_rate,
             "complaint_rate": row.complaint_rate,
+            "unavailable": list(row.unavailable),
             "daily": [
                 {
                     "date": point.date,
@@ -2289,22 +2290,36 @@ class IspSendingHealthSerializer(serializers.Serializer):
     emails_sent = serializers.IntegerField(read_only=True, help_text="Emails sent to this provider during the window.")
     delivery_rate = serializers.FloatField(
         read_only=True,
+        allow_null=True,
         help_text=(
             "Emails this provider accepted, divided by emails sent to it (0-1). Acceptance is not "
-            "inbox placement: a provider can accept a message and still file it as spam."
+            "inbox placement: a provider can accept a message and still file it as spam. Null when "
+            "the underlying metric could not be loaded from AWS, which is not the same as zero."
         ),
     )
     bounce_rate = serializers.FloatField(
         read_only=True,
-        help_text="Hard (permanent) bounces at this provider, divided by emails sent to it (0-1).",
+        allow_null=True,
+        help_text=(
+            "Hard (permanent) bounces at this provider, divided by emails sent to it (0-1). Null "
+            "when the underlying metric could not be loaded from AWS."
+        ),
     )
     complaint_rate = serializers.FloatField(
         read_only=True,
         allow_null=True,
         help_text=(
             "Spam complaints from this provider, divided by the deliveries it reports complaints "
-            "for (0-1). Null when the provider runs no feedback loop, so complaints are "
-            "unmeasurable here rather than zero."
+            "for (0-1). Null when there is no rate to state — the provider runs no feedback loop, "
+            "or nothing was delivered — and also when the metric could not be loaded from AWS."
+        ),
+    )
+    unavailable = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Rates AWS did not return for this provider, from `delivery`, `bounce` and `complaint`. "
+            "A rate named here is missing, not zero, and the UI says so rather than showing a number."
         ),
     )
     daily = IspDailyPointSerializer(
