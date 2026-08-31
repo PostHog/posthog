@@ -71,6 +71,9 @@ export function openDismissReportDialog({
                 </LemonField>
                 <LemonField name="note" label="Note" info="Optional. The agent reads it on its next run.">
                     <LemonTextArea
+                        // With the reason already chosen, the note is the only thing left to type.
+                        // Never focus otherwise: the hotkey flow reads digits as reason picks.
+                        autoFocus={initialReason != null}
                         placeholder="What made this report wrong, or not worth fixing?"
                         maxLength={4000}
                         minRows={5}

@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { Fragment, ReactNode } from 'react'
+import { Fragment, ReactNode, useRef } from 'react'
 
 import { IconCheckCircle, IconChevronRight, IconHide, IconPeople, IconPullRequest, IconUndo } from '@posthog/icons'
 
@@ -53,6 +53,8 @@ export function ReportContextMenu({
 }): JSX.Element {
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     const isResolved = report.status === SignalReportStatus.RESOLVED
+    // Set when a menu item opens a dialog, read once when the menu closes right after.
+    const openedDialogRef = useRef(false)
 
     // Resolved reports are terminal, and a refunded dismissed report cannot be restored.
     if (isResolved || (isDismissed && !!report.refund)) {
@@ -67,8 +69,25 @@ export function ReportContextMenu({
             </ContextMenuTrigger>
             {/* The item tree lives in its own component so a closed row builds one element and
                 mounts no logic; `ContextMenuContent` renders its children only while open. */}
-            <ContextMenuContent loop className="min-w-48">
-                <ReportContextMenuItems report={report} sectionKey={sectionKey} isDismissed={isDismissed} />
+            <ContextMenuContent
+                loop
+                className="min-w-48"
+                // The "Something else…" dialogs autofocus their note field, and the menu closes on
+                // the same click. Its closing focus restore runs after the dialog opens and would
+                // pull focus back to the row, so skip the restore for exactly that close.
+                onCloseAutoFocus={(event) => {
+                    if (openedDialogRef.current) {
+                        openedDialogRef.current = false
+                        event.preventDefault()
+                    }
+                }}
+            >
+                <ReportContextMenuItems
+                    report={report}
+                    sectionKey={sectionKey}
+                    isDismissed={isDismissed}
+                    onOpenDialog={() => (openedDialogRef.current = true)}
+                />
             </ContextMenuContent>
         </ContextMenu>
     )
@@ -79,10 +98,13 @@ function ReportContextMenuItems({
     report,
     sectionKey,
     isDismissed,
+    onOpenDialog,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     isDismissed: boolean
+    /** Tells the menu a dialog is opening, so its close skips the focus restore. */
+    onOpenDialog: () => void
 }): JSX.Element {
     const { dismissReport, resolveReport, restoreReport } = useActions(
         reportListLogic(sectionListLogicProps(sectionKey))
@@ -118,6 +140,7 @@ function ReportContextMenuItems({
     // "Something else…" needs the note the other reasons don't, so it goes through the dialog.
     const pickResolveReason = (reason: ResolveReasonValue): void => {
         if (reason === 'other') {
+            onOpenDialog()
             openResolveReportDialog({
                 reportTitle,
                 hasOpenPr: hasOpenImplementationPr(report),
@@ -131,6 +154,7 @@ function ReportContextMenuItems({
 
     const pickDismissReason = (reason: DismissalReasonValue): void => {
         if (reason === 'other') {
+            onOpenDialog()
             openDismissReportDialog({
                 reportTitle,
                 initialReason: reason,

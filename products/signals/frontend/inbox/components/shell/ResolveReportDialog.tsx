@@ -83,6 +83,9 @@ export function openResolveReportDialog({
                         // stopPropagation keeps Enter in this multi-line note from reaching the dialog
                         // form and resolving the report (and closing its PR) mid-sentence.
                         stopPropagation
+                        // With the reason already chosen, the note is the only thing left to type.
+                        // Never focus otherwise: the hotkey flow reads digits as reason picks.
+                        autoFocus={initialReason != null}
                         placeholder="Link to the pull request or commit, or what fixed it."
                         maxLength={4000}
                         minRows={3}
