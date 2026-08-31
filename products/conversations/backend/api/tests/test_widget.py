@@ -1,17 +1,22 @@
 import uuid
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import Throttled
 from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.api.serializers import WidgetMessageSerializer
+from products.conversations.backend.api.serializers import MESSAGE_MAX_LENGTH, WidgetMessageSerializer
+from products.conversations.backend.api.widget import WidgetMessageView, _actionable_error
+from products.conversations.backend.cache import get_throttle_reported_cache_key
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
@@ -210,6 +215,8 @@ class TestWidgetAPI(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # The widget shows a specific reason, not a bare "Invalid request data".
+        self.assertIn("widget_session_id", response.json()["error"])
 
     def test_create_message_missing_distinct_id(self):
         response = self.client.post(
@@ -571,6 +578,21 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.session_context["current_url"], long_url[:2000])
+
+    def test_long_message_is_truncated_not_rejected(self):
+        long_message = "a" * (MESSAGE_MAX_LENGTH + 500)
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": long_message,
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        comment = Comment.objects.get(id=response.json()["message_id"])
+        self.assertEqual(comment.content, "a" * MESSAGE_MAX_LENGTH)
 
 
 class TestWidgetCacheInvalidation(BaseTest):
@@ -1111,3 +1133,64 @@ class TestWidgetContextSanitization(SimpleTestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn(field, serializer.errors)
+
+    def test_oversized_message_is_truncated_not_rejected(self):
+        validated = self._validated(message="x" * (MESSAGE_MAX_LENGTH + 500))
+
+        self.assertEqual(validated["message"], "x" * MESSAGE_MAX_LENGTH)
+
+    def test_blank_message_is_still_rejected(self):
+        serializer = self._serializer(message="   ")
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("message", serializer.errors)
+
+
+class TestActionableError(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({"widget_session_id": ["Must be a valid UUID."]}, "Must be a valid UUID."),
+            ({"non_field_errors": ["distinct_id is required when using widget_session_id"]}, "distinct_id is required"),
+            ({}, "Invalid request data"),
+            ({"message": []}, "Invalid request data"),
+        ]
+    )
+    def test_returns_first_field_message(self, errors, expected_fragment):
+        self.assertIn(expected_fragment, _actionable_error(errors))
+
+
+class TestWidgetMessageThrottleTelemetry(SimpleTestCase):
+    TEAM_ID = 12345
+
+    def setUp(self):
+        super().setUp()
+        # Dedup lives in the cache, which SimpleTestCase does not isolate between tests.
+        key = get_throttle_reported_cache_key(self.TEAM_ID)
+        cache.delete(key)
+        self.addCleanup(cache.delete, key)
+
+    def test_throttled_records_send_failed(self):
+        view = WidgetMessageView()
+        request = SimpleNamespace(auth=SimpleNamespace(id=self.TEAM_ID))  # a truthy team stand-in
+
+        with patch("products.conversations.backend.api.widget.report_team_action") as mock_report:
+            with self.assertRaises(Throttled):
+                view.throttled(request, 1.0)
+
+        mock_report.assert_called_once()
+        _, event, properties = mock_report.call_args[0]
+        self.assertEqual(event, "support ticket send failed")
+        self.assertEqual(properties["reason"], "throttled")
+
+    def test_repeated_throttling_reports_once_per_window(self):
+        # The endpoint is public, so an abusive client can keep hitting the 429 path. Only
+        # the first rejection per team per window should emit telemetry, not every request.
+        view = WidgetMessageView()
+        request = SimpleNamespace(auth=SimpleNamespace(id=self.TEAM_ID))
+
+        with patch("products.conversations.backend.api.widget.report_team_action") as mock_report:
+            for _ in range(5):
+                with self.assertRaises(Throttled):
+                    view.throttled(request, 1.0)
+
+        mock_report.assert_called_once()

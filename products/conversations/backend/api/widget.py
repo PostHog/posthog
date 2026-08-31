@@ -47,6 +47,7 @@ from products.conversations.backend.cache import (
     invalidate_unread_count_cache,
     set_cached_messages,
     set_cached_tickets,
+    should_report_throttled_send,
 )
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail
@@ -64,6 +65,34 @@ SIGNING_SECRET_STALE_COUNTER = Counter(
     "conversations_signing_secret_stale_total",
     "Signing secret rows skipped because they do not match the team's current secret API token",
 )
+
+
+def _actionable_error(errors: dict) -> str:
+    """Pick the first field error so the widget can tell the person what to fix.
+
+    Falls back to a generic message when the errors have no readable string, so the
+    widget never shows a bare "Invalid request data".
+    """
+    for value in errors.values():
+        if isinstance(value, list) and value and isinstance(value[0], str):
+            return str(value[0])
+    return "Invalid request data"
+
+
+def _report_send_failed(team: Team, reason: str, extra: dict | None = None) -> None:
+    """Record a dropped widget message so the loss is queryable server-side.
+
+    The client-side event can be blocked by ad blockers or network drops, so every
+    rejection path stores its reason here. Never records message content.
+    """
+    try:
+        report_team_action(
+            team,
+            "support ticket send failed",
+            {"channel_source": "widget", "reason": reason, **(extra or {})},
+        )
+    except Exception as e:
+        capture_exception(e)
 
 
 class IdentityVerificationFailed(Exception):
@@ -155,6 +184,19 @@ class WidgetMessageView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
 
+    def throttled(self, request: Request, wait: float | None) -> None:
+        """Record the dropped message before raising, since the 429 path stored nothing.
+
+        Deduplicated per team per window: the endpoint is public and the throttle window
+        does not extend on rejection, so a client that keeps sending past the limit would
+        otherwise emit one analytics event per request. The throttled bucket now counts
+        teams with throttled sends per window, not raw rejected requests.
+        """
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        if team and should_report_throttled_send(team.id):
+            _report_send_failed(team, "throttled")
+        super().throttled(request, wait)
+
     def post(self, request: Request) -> Response:
         """Handle incoming message from widget."""
 
@@ -174,36 +216,30 @@ class WidgetMessageView(APIView):
         serializer = WidgetMessageSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Validation error in WidgetMessageView", extra={"errors": serializer.errors})
-            try:
-                # Track rejected submissions server-side so they're queryable even when the
-                # client-side event is blocked (ad blockers, network drops). Field names and
-                # value lengths only — never message content. An over-long auto-captured
-                # session_context value (e.g. current_url) is a known rejection cause.
-                # This endpoint is public and unauthenticated, so session_context is
-                # attacker-controlled: bound both the number of fields and the key length we
-                # record so a request stuffed with many keys can't inflate the event payload.
-                raw_session_context = request.data.get("session_context")
-                session_context_field_count = len(raw_session_context) if isinstance(raw_session_context, dict) else 0
-                session_context_field_lengths = {}
-                if isinstance(raw_session_context, dict):
-                    for key, value in list(raw_session_context.items())[:20]:
-                        if isinstance(key, str) and isinstance(value, str):
-                            session_context_field_lengths[key[:100]] = len(value)
-                report_team_action(
-                    team,
-                    "support ticket send failed",
-                    {
-                        "channel_source": "widget",
-                        "reason": "validation_error",
-                        "error_fields": sorted(serializer.errors.keys()),
-                        "session_context_field_count": session_context_field_count,
-                        "session_context_field_lengths": session_context_field_lengths,
-                    },
-                )
-            except Exception as e:
-                capture_exception(e)
+            # Field names and value lengths only — never message content. An over-long
+            # auto-captured session_context value (e.g. current_url) is a known cause. This
+            # endpoint is public and unauthenticated, so session_context is attacker-controlled:
+            # bound both the number of fields and the key length we record so a request stuffed
+            # with many keys can't inflate the event payload.
+            raw_session_context = request.data.get("session_context")
+            session_context_field_count = len(raw_session_context) if isinstance(raw_session_context, dict) else 0
+            session_context_field_lengths = {}
+            if isinstance(raw_session_context, dict):
+                for key, value in list(raw_session_context.items())[:20]:
+                    if isinstance(key, str) and isinstance(value, str):
+                        session_context_field_lengths[key[:100]] = len(value)
+            _report_send_failed(
+                team,
+                "validation_error",
+                {
+                    "error_fields": sorted(serializer.errors.keys()),
+                    "session_context_field_count": session_context_field_count,
+                    "session_context_field_lengths": session_context_field_lengths,
+                },
+            )
             return Response(
-                {"error": "Invalid request data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+                {"error": _actionable_error(serializer.errors), "details": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
