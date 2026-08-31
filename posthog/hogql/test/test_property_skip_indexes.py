@@ -705,10 +705,10 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         [
             # ``equals(map[key], 'v')`` — both keys and values bloom filters apply.
             ("eq_string", PropertyOperator.EXACT, "5", {PG_KEYS_INDEX, PG_VALUES_INDEX}, set()),
-            # is_set → ``has(map, key)`` — keys bloom filter applies.
-            ("is_set", PropertyOperator.IS_SET, None, {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
-            # is_not_set → ``not(has(map, key))`` — keys bloom filter still applies (proves granules where the key is definitely absent).
-            ("is_not_set", PropertyOperator.IS_NOT_SET, None, {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
+            # is_set → ``and(has(map, key), map[key] != '')`` — keys + values (JSON null is stored as '').
+            ("is_set", PropertyOperator.IS_SET, None, {PG_KEYS_INDEX, PG_VALUES_INDEX}, set()),
+            # is_not_set → ``or(not(has(map, key)), map[key] = '')`` — keys + values bloom filters.
+            ("is_not_set", PropertyOperator.IS_NOT_SET, None, {PG_KEYS_INDEX, PG_VALUES_INDEX}, set()),
             # Multi-value IN → ``and(has(map, key), in(map[key], tuple(...)))`` — keys only; ``transform_null_in`` defaults break a direct values-bloom probe.
             ("in_multi", PropertyOperator.IN_, ["2", "5"], {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             # Range ops fall back to the unoptimized ``has(map, key) ? map[key] : null`` form — no bloom filter applies.
@@ -881,7 +881,7 @@ class TestPersonOnEventsPropertySkipIndexes(_PropertySkipIndexTestBase):
     @parameterized.expand(
         [
             ("eq_string", PropertyOperator.EXACT, "5", {PG_KEYS_INDEX, PG_VALUES_INDEX}, set()),
-            ("is_set", PropertyOperator.IS_SET, None, {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
+            ("is_set", PropertyOperator.IS_SET, None, {PG_KEYS_INDEX, PG_VALUES_INDEX}, set()),
             ("in_multi", PropertyOperator.IN_, ["2", "5"], {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
             ("lt", PropertyOperator.LT, "5", set(), {PG_KEYS_INDEX, PG_VALUES_INDEX}),
         ]

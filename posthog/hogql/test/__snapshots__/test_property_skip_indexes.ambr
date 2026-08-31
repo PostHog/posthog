@@ -447,7 +447,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), has(events.properties_group_custom, 'test_prop'))
+  WHERE and(equals(events.team_id, 99999), and(has(events.properties_group_custom, 'test_prop'), notEquals(events.properties_group_custom['test_prop'], '')))
   LIMIT 50000
   '''
 # ---
@@ -455,7 +455,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), not(has(events.properties_group_custom, 'test_prop')))
+  WHERE and(equals(events.team_id, 99999), or(not(has(events.properties_group_custom, 'test_prop')), equals(events.properties_group_custom['test_prop'], '')))
   LIMIT 50000
   '''
 # ---
@@ -471,7 +471,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(nullIf(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), ''), '5'), 0))
   LIMIT 50000
   '''
 # ---
@@ -479,7 +479,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL)), '%5%'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(nullIf(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), '')), '%5%'), 0))
   LIMIT 50000
   '''
 # ---
@@ -599,7 +599,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), has(events.person_properties_map_custom, 'test_prop'))
+  WHERE and(equals(events.team_id, 99999), and(has(events.person_properties_map_custom, 'test_prop'), notEquals(events.person_properties_map_custom['test_prop'], '')))
   LIMIT 50000
   '''
 # ---
@@ -615,7 +615,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL), '5'), 0))
+  WHERE and(equals(events.team_id, 99999), ifNull(less(nullIf(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL), ''), '5'), 0))
   LIMIT 50000
   '''
 # ---
