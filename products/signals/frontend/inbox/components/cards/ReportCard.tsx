@@ -258,7 +258,14 @@ export function ReportCard({
     )
 
     return (
-        <div className={inboxCardRowClassName(attached, { dashed: !hasPr })}>
+        <div
+            className={clsx(
+                inboxCardRowClassName(attached, { dashed: !hasPr }),
+                // Closed rows recede so open work stands out in the mixed flat list; hover restores
+                // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
+                (isDismissed || isResolved) && 'opacity-50 hover:opacity-100'
+            )}
+        >
             <div className="relative flex min-w-0 flex-1">
                 {hasPr && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">

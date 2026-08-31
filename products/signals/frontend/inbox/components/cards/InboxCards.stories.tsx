@@ -92,7 +92,7 @@ export const ReportCardStates: Story = {
                     summary: 'Real but insignificant.',
                 })}
             />
-            {/* Closed states keep the open-row surface; a green or red dot on the reason tag says which. */}
+            {/* Closed states keep the open-row surface, dimmed; a green or red dot on the reason tag says which. */}
             <ReportCard
                 report={makeReport({
                     title: 'Resolved by a merged pull request',
