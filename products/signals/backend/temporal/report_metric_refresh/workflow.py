@@ -6,6 +6,7 @@ from temporalio import common, workflow
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
+    from products.signals.backend.temporal import metrics
     from products.signals.backend.temporal.report_metric_refresh.activities import (
         collect_report_metric_refresh_page_activity,
         refresh_report_metric_snapshots_batch_activity,
@@ -99,6 +100,23 @@ class SignalReportMetricRefreshWorkflow(PostHogWorkflow):
             if page.next_cursor is None:
                 break
             cursor = page.next_cursor
+
+        # The run completes even when batches fail, so emit a completion log and alerting counters:
+        # without them a degraded sweep (every batch failing) reports success and pages nothing.
+        workflow.logger.info(
+            "signals.report_metric_refresh.tick_done",
+            extra={
+                "selected": selected,
+                "attempted": attempted,
+                "updated": updated,
+                "failed": failed,
+                "skipped": skipped,
+                "batches_failed": batches_failed,
+            },
+        )
+        metrics.record_report_metric_refresh_summary(
+            updated=updated, failed=failed, skipped=skipped, batches_failed=batches_failed
+        )
 
         return ReportMetricRefreshResult(
             selected=selected,

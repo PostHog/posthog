@@ -43,6 +43,7 @@ class TestCounterHelpers:
             metrics.increment_llm_call("match", metrics.LLM_STATUS_OK)
             metrics.increment_ch_wait_timeout()
             metrics.increment_scout_run("completed")
+            metrics.record_report_metric_refresh_summary(updated=1, failed=1, skipped=1, batches_failed=1)
 
         get_meter.assert_not_called()
 
@@ -85,6 +86,26 @@ class TestCounterHelpers:
             metrics.increment_llm_call("match", metrics.LLM_STATUS_ERROR)
 
         assert get_meter.call_args[0][0] == {"stage": "match", "status": "error"}
+
+    def test_report_metric_refresh_summary_labels_and_skips_zero(self):
+        meter = _mock_meter()
+        with (
+            patch.object(metrics, "_in_temporal_context", return_value=True),
+            patch.object(metrics, "get_metric_meter", return_value=meter) as get_meter,
+        ):
+            metrics.record_report_metric_refresh_summary(updated=6, failed=2, skipped=0, batches_failed=1)
+
+        # skipped=0 is dropped; the non-zero outcomes each emit their labelled count.
+        assert [call.args[0] for call in get_meter.call_args_list] == [
+            {"outcome": "updated"},
+            {"outcome": "failed"},
+            {"outcome": "batch_failed"},
+        ]
+        assert [call.args[0] for call in meter.create_counter.return_value.add.call_args_list] == [6, 2, 1]
+        meter.create_counter.assert_called_with(
+            "signals_report_metric_refresh_total",
+            "Report metric refresh sweep outcomes by result",
+        )
 
     def test_ch_wait_timeout_counter(self):
         meter = _mock_meter()
