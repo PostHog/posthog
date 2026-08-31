@@ -1,11 +1,12 @@
 import asyncio
 import concurrent.futures
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 from asgiref.sync import sync_to_async
+from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 
 from products.tasks.backend import redis as tasks_redis
@@ -35,6 +36,39 @@ class TestStreamRouting(SimpleTestCase):
     )
     def test_run_uses_dedicated_stream(self, _name, state, expected):
         self.assertEqual(tasks_redis.run_uses_dedicated_stream(state), expected)
+
+
+class TestGuardedTasksCache(SimpleTestCase):
+    # A loading Redis raises BusyLoadingError, which django-redis wraps in ConnectionInterrupted.
+    # Without the guard this bubbles out of the request handler as a 500 on run detail, run list,
+    # and log streaming. Each helper must degrade to a miss instead.
+    def _cache_raising(self) -> MagicMock:
+        cache = MagicMock()
+        error = ConnectionInterrupted(RuntimeError("loading"))
+        cache.get.side_effect = error
+        cache.set.side_effect = error
+        cache.add.side_effect = error
+        cache.delete.side_effect = error
+        cache.delete_many.side_effect = error
+        return cache
+
+    def test_get_degrades_to_default_on_redis_error(self):
+        with patch.object(tasks_redis, "get_tasks_cache", return_value=self._cache_raising()):
+            self.assertEqual(tasks_redis.tasks_cache_get("k", "fallback"), "fallback")
+
+    def test_set_returns_false_on_redis_error(self):
+        with patch.object(tasks_redis, "get_tasks_cache", return_value=self._cache_raising()):
+            self.assertFalse(tasks_redis.tasks_cache_set("k", "v", timeout=60))
+
+    def test_add_returns_false_on_redis_error(self):
+        # The reservation is unknown, so callers that gate a one-shot side effect skip it.
+        with patch.object(tasks_redis, "get_tasks_cache", return_value=self._cache_raising()):
+            self.assertFalse(tasks_redis.tasks_cache_add("k", True, timeout=60))
+
+    def test_delete_helpers_swallow_redis_error(self):
+        with patch.object(tasks_redis, "get_tasks_cache", return_value=self._cache_raising()):
+            tasks_redis.tasks_cache_delete("k")
+            tasks_redis.tasks_cache_delete_many(["k1", "k2"])
 
 
 class TestEvaluateDedicatedStreamFlag(SimpleTestCase):

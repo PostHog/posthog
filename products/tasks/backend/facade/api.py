@@ -447,16 +447,19 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     """Presigned S3 URL for a run's log, cached. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
-    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+    from products.tasks.backend.redis import (  # noqa: PLC0415 — keep redis off the api import path
+        tasks_cache_get,
+        tasks_cache_set,
+    )
 
     cache_key = f"task_run_log_url:{run.id}"
-    cached_url = get_tasks_cache().get(cache_key)
+    cached_url = tasks_cache_get(cache_key)
     if cached_url:
         return cached_url
 
     presigned_url = object_storage.get_presigned_url(run.log_url, expiration=3600)
     if presigned_url:
-        get_tasks_cache().set(cache_key, presigned_url, timeout=_TASK_RUN_LOG_URL_CACHE_TTL)
+        tasks_cache_set(cache_key, presigned_url, timeout=_TASK_RUN_LOG_URL_CACHE_TTL)
     return presigned_url
 
 
@@ -6312,7 +6315,7 @@ def _attach_staged_artifacts_to_run(
         build_task_staged_artifact_cache_key,
         tag_task_artifact,
     )
-    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415
+    from products.tasks.backend.redis import tasks_cache_delete_many  # noqa: PLC0415
 
     manifest = list(run.artifacts or [])
     for staged_artifact in staged_artifacts:
@@ -6322,7 +6325,7 @@ def _attach_staged_artifacts_to_run(
         tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id)
         manifest.append(dict(staged_artifact))
     _save_artifact_manifest(run, manifest)
-    get_tasks_cache().delete_many(
+    tasks_cache_delete_many(
         [build_task_staged_artifact_cache_key(str(task.id), artifact_id) for artifact_id in artifact_ids]
     )
 

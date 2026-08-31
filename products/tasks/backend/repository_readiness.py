@@ -15,7 +15,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.tasks.backend.models import Task
-from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.redis import tasks_cache_get, tasks_cache_set
 
 logger = logging.getLogger(__name__)
 
@@ -392,7 +392,7 @@ def compute_repository_readiness(
 
     key = _cache_key(team_id=team.id, integration_id=integration.id, repository=repository, window_days=window_days)
     if not refresh:
-        cached = get_tasks_cache().get(key)
+        cached = tasks_cache_get(key)
         if isinstance(cached, dict):
             generated_at_str = cached.get("generatedAt")
             if generated_at_str:
@@ -424,7 +424,7 @@ def compute_repository_readiness(
             "generatedAt": timezone.now().isoformat(),
             "cacheAgeSeconds": 0,
         }
-        get_tasks_cache().set(key, response, READINESS_CACHE_TTL_SECONDS)
+        tasks_cache_set(key, response, READINESS_CACHE_TTL_SECONDS)
         return response
 
     try:
@@ -606,5 +606,5 @@ def compute_repository_readiness(
         },
     }
 
-    get_tasks_cache().set(key, response, READINESS_CACHE_TTL_SECONDS)
+    tasks_cache_set(key, response, READINESS_CACHE_TTL_SECONDS)
     return response
