@@ -339,6 +339,13 @@ class AccountsTableAccountIdFilter(BaseModel):
     kind: Literal["account_id"] = "account_id"
 
 
+class AccountsTableAssignedFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["assigned"] = "assigned"
+
+
 class AccountsTableCountMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -24586,6 +24593,7 @@ class AccountsTableQuery(BaseModel):
             AccountsTableSearchFilter
             | AccountsTableTagsFilter
             | AccountsTableAssignedToFilter
+            | AccountsTableAssignedFilter
             | AccountsTableUnassignedFilter
             | AccountsTableAccountIdFilter
             | AccountsTableAccountFieldFilter
