@@ -87,6 +87,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
+from posthog.hogql.database.schema.experiment_replay_exposed_distinct_ids import ExperimentReplayExposedDistinctIdsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -307,6 +308,9 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     ),
     "experiment_metric_events_preaggregated": TableNode(
         name="experiment_metric_events_preaggregated", table=ExperimentMetricEventsPreaggregatedTable()
+    ),
+    "experiment_replay_exposed_distinct_ids": TableNode(
+        name="experiment_replay_exposed_distinct_ids", table=ExperimentReplayExposedDistinctIdsTable()
     ),
     # Revenue analytics tables
     "persons_revenue_analytics": TableNode(name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()),
