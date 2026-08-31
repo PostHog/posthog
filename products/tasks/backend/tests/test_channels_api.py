@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from posthog.models.utils import generate_random_token_personal
 
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
 from products.tasks.backend.push_dispatcher import (
     notify_task_run_awaiting_input,
@@ -134,6 +136,43 @@ class ChannelsAPITestCase(TestCase):
             [c["id"] for c in again["channels"] if c["system_role"] == "general"],
             [general[0]["id"]],
         )
+
+    @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=False)
+    def test_onboarding_test_tools_require_the_feature_flag(self, _enabled):
+        for action in ("onboarding_session_test", "teaching_canvas_test"):
+            response = self.client.post(f"{self._channels_url()}{action}/", {}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=True)
+    def test_flagged_user_can_create_test_onboarding_artifacts(self, _enabled):
+        personal_id = next(
+            channel["id"] for channel in self._provision()["channels"] if channel["system_role"] == "personal"
+        )
+        task_id = uuid4()
+        canvas_id = uuid4()
+
+        with patch(
+            "products.tasks.backend.presentation.views.channels_api.start_onboarding_test_session", return_value=task_id
+        ) as start:
+            response = self.client.post(
+                f"{self._channels_url()}onboarding_session_test/",
+                {"joining_existing_organization": True, "other_members": ["Max"], "has_events": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"task_id": str(task_id), "channel_id": personal_id})
+        self.assertTrue(start.call_args.kwargs["joining_existing_organization"])
+        self.assertEqual(start.call_args.kwargs["other_members"], ["Max"])
+
+        teaching = TeachingCanvas(channel_id=uuid4(), canvas_id=canvas_id)
+        with patch(
+            "products.tasks.backend.presentation.views.channels_api.ensure_teaching_canvas", return_value=teaching
+        ):
+            response = self.client.post(f"{self._channels_url()}teaching_canvas_test/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"canvas_id": str(canvas_id), "channel_id": str(teaching.channel_id)})
 
     @parameterized.expand(
         [
@@ -821,9 +860,10 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         [
             ("internal", {"internal": True}),
             ("archived", {"archived": True}),
+            ("scout", {"origin_product": Task.OriginProduct.SIGNALS_SCOUT}),
         ]
     )
-    def test_hidden_tasks_are_excluded_from_activity(self, _name, task_updates):
+    def test_tasks_outside_the_feed_are_excluded_from_activity(self, _name, task_updates):
         Task.objects.filter(id=self.task.id).update(**task_updates)
         self._awaiting_input()
 

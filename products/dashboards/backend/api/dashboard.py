@@ -32,6 +32,7 @@ from django.db.models import (
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
+from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
 
 import structlog
@@ -159,7 +160,8 @@ from products.notifications.backend.facade.api import (
     create_notification,
     has_been_dispatched,
 )
-from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.product_analytics.backend.facade.api import insight_variables_for_team
+from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
     INCLUDE_DASHBOARDS_PARAMETER,
     InsightBasicSerializer,
@@ -2449,7 +2451,9 @@ class DashboardsViewSet(
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        # Deferred: every insight and dashboard response carries this, but only payloads that
+        # hold variables read it, so resolving it eagerly costs a query on every list request.
+        context["insight_variables"] = SimpleLazyObject(lambda: insight_variables_for_team(self.team.pk))
         context["compute_surface"] = (
             ComputeSurface.DASHBOARD_MUTATE
             if self.action in {"create", "update", "partial_update"}

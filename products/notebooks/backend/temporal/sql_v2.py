@@ -10,12 +10,13 @@ its envelope in one un-retried POST, so a lost delivery would otherwise leave th
 RUNNING with nothing able to move it.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 from typing import Any
 
 from temporalio import activity, common, workflow
 
+from posthog.dataclasses import frozen
 from posthog.models.user import User
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -35,7 +36,7 @@ from products.notebooks.backend.sql_v2_runs import (
 _EXPIRY_MARGIN_SECONDS = 60
 
 
-@dataclass
+@frozen
 class SQLV2RunInput:
     run_id: str
     notebook_short_id: str
@@ -46,6 +47,9 @@ class SQLV2RunInput:
     output_name: str = ""
     # For a python node: [{name, kind, query, query_hash}] frames to materialize before running.
     inputs: list[dict[str, Any]] = field(default_factory=list)
+    # For a python node: notebook variables to bind as globals before the cell runs. Empty for
+    # every other node type — a duckdb run has its values already substituted into the SQL.
+    variables: dict[str, Any] = field(default_factory=dict)
 
 
 def _load_notebook_and_user(team_id: int, notebook_short_id: str, user_id: int | None) -> tuple[Notebook, User | None]:
@@ -67,6 +71,7 @@ def dispatch_sql_v2_run_activity(input: SQLV2RunInput) -> None:
             node_type=input.node_type,
             output_name=input.output_name,
             inputs=input.inputs,
+            variables=input.variables,
         )
     except SQLV2KernelNotRunning:
         # No running kernel: provision one and dispatch again — a kernel-lane run is the
@@ -82,6 +87,7 @@ def dispatch_sql_v2_run_activity(input: SQLV2RunInput) -> None:
             node_type=input.node_type,
             output_name=input.output_name,
             inputs=input.inputs,
+            variables=input.variables,
         )
 
 

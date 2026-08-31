@@ -167,6 +167,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    gong_url: str | None
     start_time: datetime
     end_time: datetime | None
     organizer_email: str
@@ -705,6 +706,7 @@ class FeatureRequestView:
     can_update: bool = False
     account: FeatureRequestAccountView | None = None
     account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
+    evidence_count: int = 0
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None
@@ -939,11 +941,16 @@ class CustomPropertySourceView:
 
 @stdlib_dataclass(frozen=True)
 class CustomPropertySyncRunView:
-    """One person-property sync/backfill run, as returned by the source ``runs`` endpoint and nested
-    on a source as ``latest_run``. The counts are the sync funnel (read -> changed -> existing (=
-    persons affected) -> produced; skipped_missing_person is changed rows with no matching person)."""
+    """One warehouse-backed custom property sync run."""
 
     id: UUID | None = None
+    job_id: str | None = None
+    account_segment: str | None = None
+    sync_phase: str | None = None
+    attempt: int | None = None
+    workflow_id: str | None = None
+    workflow_run_id: UUID | None = None
+    temporal_url: str | None = None
     trigger: str = ""
     status: str = ""
     started_at: datetime | None = None

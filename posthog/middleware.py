@@ -1372,6 +1372,31 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
+    # POST but read-only: the Logs product sends its queries as POST because the filter payload
+    # is too large for a query string. Action names are enumerated rather than allowing the whole
+    # `logs/` prefix, which also hosts writing CRUD viewsets (alerts, views, sampling_rules,
+    # retention_rules, metric_rules, anomalies).
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/logs/"
+            r"(query|sparkline|facet_values|count-ranges|count|services|patterns_diff|patterns|group-by)/?$"
+        ),
+    ),
+    # POST but read-only: same reasoning for the Traces (tracing spans) product
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/tracing/spans/"
+            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|aggregate|tree"
+            r"|attribute-breakdown|trace/[a-zA-Z0-9]+)/?$"
+        ),
+    ),
+    # POST but read-only: same reasoning for the Metrics product
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metrics/(query|samples|characterize|explain)/?$"),
+    ),
     # Allow upgrading from read-only to read-write impersonation
     ("POST", "/admin/impersonation/upgrade/"),
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),

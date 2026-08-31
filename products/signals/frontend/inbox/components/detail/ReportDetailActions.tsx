@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconCheckCircle, IconHide, IconPullRequest, IconReceipt, IconUndo } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconReceipt, IconUndo } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -10,9 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
-import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
-import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportDismiss } from '../cards/useReportDismiss'
@@ -58,27 +56,20 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions as data: Resolve, Dismiss/Restore, Refund, and Create PR. Discuss is rendered
- * separately as a standalone dropdown button (`DiscussReportButton`) since it opens a question
- * popover rather than firing on click; rating a report lives at the end of the body
- * (`ReportFeedbackFooter`). Task creation is owned by `inboxTaskKickoffLogic`; dismissing and
- * resolving reuse the shared `useReportDismiss` / `useReportResolve` dialog flows. Callers render
- * these inline or inside a menu.
+ * Detail-pane actions as data: Resolve, Dismiss/Restore, and Refund. Create PR and Discuss are each
+ * rendered separately as a standalone dropdown button (`CreatePrButton`, `DiscussReportButton`)
+ * since they open a note popover rather than firing on click; rating a report lives at the end of
+ * the body (`ReportFeedbackFooter`). Dismissing and resolving reuse the shared `useReportDismiss` /
+ * `useReportResolve` dialog flows. Callers render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
-    const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
-    // Already mounted by `ReportDetail` with these same props, so this reads the loaded value
-    // rather than starting a second fetch.
-    const { hasLiveImplementationTask } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
-    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportStateChanged } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
 
-    const showCreatePr = canCreateImplementationPr(report)
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
-    // Resolved reports are terminal – nothing to dismiss, restore, resolve, or kick off.
+    // Resolved reports are terminal – nothing to dismiss, restore, or resolve.
     const isResolved = report.status === SignalReportStatus.RESOLVED
     // Refund leaves a report in place only when a merged PR resolved it; anything else it dismisses
     // (so the open PR gets closed), which means the view has to navigate away. Mirrors the
@@ -223,25 +214,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         },
         ...(canRefund ? [refund] : []),
     ]
-
-    if (showCreatePr) {
-        actions.push({
-            key: 'create-pr',
-            label: 'Create PR',
-            icon: <IconPullRequest />,
-            loading: isCreatingPr,
-            tooltip: 'Have Self-driving open a pull request for this report',
-            disabledReason:
-                aiConsentDisabledReason ??
-                (hasLiveImplementationTask
-                    ? 'A PR task already exists for this report. Open it in the task log to continue.'
-                    : undefined),
-            onClick: () => {
-                captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
-                createPrFromReport(report)
-            },
-        })
-    }
 
     return actions
 }

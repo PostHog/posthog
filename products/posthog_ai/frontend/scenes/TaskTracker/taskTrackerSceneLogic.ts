@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -8,8 +9,9 @@ import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
-import { tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
+import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
+    type LegacyDesktopAccessResponseApi,
     type ModelChoiceApi,
     OriginProductEnumApi,
     ReasoningEffortEnumApi,
@@ -132,7 +134,10 @@ export interface taskTrackerSceneLogicValues {
     overrideHeadlines: string[] | null // welcomeOverrideLogic
     activeSuggestionGroup: SuggestionGroup | null
     consentBlocked: boolean
+    desktopAccess: LegacyDesktopAccessResponseApi | null
+    desktopAccessLoading: boolean
     displayHeadline: string
+    hasDesktopAccess: boolean
     headlineSeed: number
     isSubmittingTask: boolean
     newTaskData: TaskCreateForm
@@ -321,6 +326,21 @@ export interface taskTrackerSceneLogicActions {
     clearConsentBlock: () => {
         value: true
     }
+    loadDesktopAccess: () => any
+    loadDesktopAccessFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDesktopAccessSuccess: (
+        desktopAccess: LegacyDesktopAccessResponseApi,
+        payload?: any
+    ) => {
+        desktopAccess: LegacyDesktopAccessResponseApi
+        payload?: any
+    }
     maybeAutoSelectIntegration: () => {
         value: true
     }
@@ -360,6 +380,7 @@ export interface taskTrackerSceneLogicActions {
 export interface taskTrackerSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        hasDesktopAccess: (desktopAccess: LegacyDesktopAccessResponseApi | null) => boolean
         displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number) => string
     }
 }
@@ -495,7 +516,20 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         ],
     }),
 
+    loaders({
+        desktopAccess: [
+            null as LegacyDesktopAccessResponseApi | null,
+            {
+                loadDesktopAccess: async () => codeInvitesCheckAccessRetrieve(),
+            },
+        ],
+    }),
+
     selectors({
+        hasDesktopAccess: [
+            (s) => [s.desktopAccess],
+            (desktopAccess: LegacyDesktopAccessResponseApi | null): boolean => desktopAccess?.has_access ?? false,
+        ],
         // Contextual headlines registered by the active scene (welcomeOverrideLogic) win over the
         // generic defaults; the seed keeps the pick stable across re-renders.
         displayHeadline: [
@@ -748,6 +782,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
     events(({ actions, values, cache }) => ({
         afterMount: () => {
+            actions.loadDesktopAccess()
             actions.loadTasks(values.taskListParams)
             actions.loadRepositories()
             // Roll a headline seed once per mount (pickHeadline forces index 0 under Storybook for

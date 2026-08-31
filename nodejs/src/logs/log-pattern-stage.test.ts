@@ -1,6 +1,7 @@
 import type { Counter } from 'prom-client'
 
 import { DEFAULT_PATTERN_MAX_INPUT_CHARS } from './config'
+import { PATTERN_VERSION } from './log-pattern-mask'
 import {
     logsPatternBodyKindCounter,
     logsPatternInputCappedCounter,
@@ -40,7 +41,7 @@ describe('log-pattern-stage', () => {
         return Object.fromEntries(metric.values.map((v) => [Object.values(v.labels)[0] ?? '', v.value]))
     }
 
-    it('tallies body kinds, rule fires, and input caps across a batch without touching the records', async () => {
+    it('tallies body kinds, rule fires, and input caps across a batch without touching the body', async () => {
         const stage = makePatternMaskingStage(20, 1024)
         const records = [
             makeRecord(null),
@@ -60,6 +61,23 @@ describe('log-pattern-stage', () => {
         })
         expect(await counterValues(logsPatternRuleFiredCounter)).toEqual({ num: 1 })
         expect((await logsPatternInputCappedCounter.get()).values[0].value).toEqual(1)
+    })
+
+    it.each([
+        [
+            'the masked body, not the raw one',
+            'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 took 7141ms',
+            'request <UUID> took <N>ms',
+        ],
+        ['a plain body', 'retry 5', 'retry <N>'],
+        ['an empty body, which must still carry a version or it reads as written before masking', null, ''],
+    ])('stamps pattern and version onto the record: %s', async (_name, body, expected) => {
+        const stage = makePatternMaskingStage(1024, 1024)
+        const record = makeRecord(body)
+
+        await stage.run([record])
+
+        expect(record).toMatchObject({ pattern: expected, pattern_version: PATTERN_VERSION })
     })
 
     it('falls back to the default caps when a configured cap is not a positive integer', async () => {
