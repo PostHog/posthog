@@ -224,17 +224,23 @@ class CommunitySkillViewSet(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         except LLMSkillDuplicateNameConflictError:
-            # Only blame the new_name field when the caller actually supplied it — otherwise the
-            # conflicting name is the skill's own slug, so a generic message is accurate.
+            # The stable "duplicate_name" code lets a client offer a rename-and-retry path instead
+            # of dead-ending on the message. Only blame the new_name field when the caller actually
+            # supplied it — otherwise the conflicting name is the skill's own slug.
             if payload.validated_data.get("new_name"):
                 return Response(
-                    {"attr": "new_name", "detail": "A skill with this name already exists in your project."},
+                    {
+                        "attr": "new_name",
+                        "code": "duplicate_name",
+                        "detail": "A skill with this name already exists in your project.",
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             return Response(
                 {
+                    "code": "duplicate_name",
                     "detail": f"A skill named '{slug}' is already installed in your project. "
-                    "Pass new_name to install it under a different name."
+                    "Choose a different name to install another copy.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )

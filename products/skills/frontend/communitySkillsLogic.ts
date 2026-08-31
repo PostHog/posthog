@@ -13,6 +13,7 @@ import { urls } from '~/scenes/urls'
 import { communitySkillsInstallCreate, communitySkillsList, communitySkillsVoteCreate } from './generated/api'
 import { TrustTierEnumApi } from './generated/api.schemas'
 import type { CommunitySkillListApi, PaginatedCommunitySkillListListApi } from './generated/api.schemas'
+import { openInstallRenameDialog } from './installDialogs'
 
 export const COMMUNITY_SKILLS_PER_PAGE = 30
 
@@ -303,10 +304,19 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                 actions.installSkillSuccess(slug)
                 router.actions.push(urls.skill(newName || slug))
             } catch (e) {
+                actions.installSkillFailure(slug)
+                // A name collision is recoverable: prompt for a different name and retry, keeping
+                // any template variables the user already supplied.
+                if (e instanceof ApiError && e.code === 'duplicate_name') {
+                    openInstallRenameDialog({
+                        attemptedName: newName || slug,
+                        onRename: (renamed) => actions.installSkill(slug, renamed, variables),
+                    })
+                    return
+                }
                 console.error('Failed to install community skill', e)
                 const detail = e instanceof ApiError ? e.detail : null
                 lemonToast.error(detail || 'Could not install the skill. Try again in a moment.')
-                actions.installSkillFailure(slug)
             }
         },
 
