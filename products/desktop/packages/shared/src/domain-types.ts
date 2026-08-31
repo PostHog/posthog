@@ -6,7 +6,7 @@ import type { StoredLogEntry } from "./session-events";
 import type { UploadableSkillSource } from "./skills";
 
 // Execution mode schema and type - shared between main and renderer
-export const executionModeSchema = z.enum([
+const executionModeSchema = z.enum([
   "default",
   "acceptEdits",
   "plan",
@@ -92,6 +92,8 @@ export interface Task {
   json_schema?: Record<string, unknown> | null;
   signal_report?: string | null;
   internal?: boolean;
+  /** Key of the server-side flow that created the task, e.g. `desktop_onboarding_session:<user_id>`. */
+  origin_key?: string | null;
   runtime?: AgentRuntime;
   /** Backend channel (tasks product Channel UUID) this task is owned by. */
   channel?: string | null;
@@ -763,7 +765,7 @@ export interface SignalReportArtefactContent {
  * at most one is set — `created_by` for user writes, `task_id` for agent writes,
  * neither for system (pipeline) writes.
  */
-export interface SignalReportArtefactBase {
+interface SignalReportArtefactBase {
   id: string;
   created_at: string;
   updated_at?: string | null;
@@ -1074,9 +1076,11 @@ export interface SignalReportsQueryParams {
   suggested_reviewers?: string;
   /** Comma-separated `P0`–`P4` priorities — only returns reports with one of these priorities. */
   priority?: string;
+  /** Return the filtered total without fetching or enriching report rows. */
+  count_only?: boolean;
   /**
    * Filter by whether a shipped implementation pull request exists. `true` keeps only PR
-   * reports, `false` only non-PR reports. Pair with `limit: 1` to count PR reports cheaply.
+   * reports, `false` only non-PR reports.
    */
   has_implementation_pr?: boolean;
   /** A space (task channel) UUID — only returns reports assigned to that space. Omit for the general view, which returns every report. */
@@ -1133,5 +1137,3 @@ export interface SlackChannelsQueryParams {
   offset?: number;
   channelId?: string;
 }
-
-export type { NewTaskLinkPayload, NewTaskSharedParams } from "./deep-links";

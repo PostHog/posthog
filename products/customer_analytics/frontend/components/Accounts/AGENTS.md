@@ -28,7 +28,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
     └── AccountNotebooksExpansion   expanded row: sidebar (Useful links + active-relationships summary) + LemonTabs(Notes/Users/Relationships/Feature requests/Usage/Spend/Opportunities/Conversations/Meetings/Event stream)
         ├── (notes)         paginated/searchable/sortable LemonTable + "New note" button  (accountNotebooksLogic, keyed by accountId)
         ├── (users)         AccountRelatedUsersExpansion             (accountRelatedUsersLogic, keyed by externalId; staff get a compact, region-aware admin link)
-        ├── (relationships) AccountRelationshipsExpansion            (accountRelationshipsLogic, keyed by accountId — full assignment timeline, paginated; assign/end controls + definition filter, admin-only hard-delete controls with confirmation, current assignments sorted on top)
+        ├── (relationships) AccountRelationshipsExpansion            (accountRelationshipsLogic, keyed by accountId — full assignment timeline, paginated; assign/unassign controls + definition filter, admin-only hard-delete controls with confirmation, current assignments sorted on top)
         ├── (feature requests) AccountFeatureRequestsExpansion        (accountFeatureRequestsLogic, keyed by accountId — linked requests and link-existing flow)
         ├── (usage)         AccountBillingExpansion kind="usage"     (accountBillingLogic — a saved billing-usage insight)
         ├── (spend)         AccountBillingExpansion kind="spend"     (accountBillingLogic — saved billing-spend insights)

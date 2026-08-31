@@ -1,0 +1,12 @@
+name: system_memory
+description: Host memory and load from pg_proctab (values in kB).
+interval: 60s
+scope: cluster
+kind: gauge
+requires: { extension: pg_proctab }
+query: |
+  SELECT m.memused AS mem_used_kb, m.memfree AS mem_free_kb, m.memshared AS mem_shared_kb,
+         m.membuffers AS mem_buffers_kb, m.memcached AS mem_cached_kb,
+         m.swapused AS swap_used_kb, m.swapfree AS swap_free_kb, m.swapcached AS swap_cached_kb,
+         l.load1::float8 AS load1, l.load5::float8 AS load5, l.load15::float8 AS load15
+  FROM pg_memusage() m, pg_loadavg() l

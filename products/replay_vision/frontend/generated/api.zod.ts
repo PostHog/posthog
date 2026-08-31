@@ -11,6 +11,11 @@ import * as zod from 'zod'
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsCreateBodyNameMax = 255
 
@@ -197,6 +202,11 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsPartialUpdateBodyNameMax = 255
 
@@ -1287,7 +1297,7 @@ export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */
  */
 export const visionScannersScoutsCreateBodyNameMax = 64
 
-export const visionScannersScoutsCreateBodyDescriptionMax = 4096
+export const visionScannersScoutsCreateBodyDescriptionMax = 1024
 
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMax = 43200

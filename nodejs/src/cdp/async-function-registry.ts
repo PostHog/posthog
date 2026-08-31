@@ -6,12 +6,22 @@ import {
     HogFunctionInvocationGlobalsWithInputs,
     MinimalLogEntry,
 } from './types'
+import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 export type AsyncFunctionContext = {
     invocation: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>['invocation']
     globals: HogFunctionInvocationGlobalsWithInputs
     teamManager: TeamManager
     siteUrl: string
+    // In-cluster Django base URL for /api/projects/<team_id>/internal/... routes, which
+    // Contour blocks from the public internet. Only first-party handlers may call it.
+    internalApiBaseUrl: string
+    conversationsTicketsJwt: ScopedServiceJwt
+    // Handlers that do real inline I/O without ever setting queueParameters (so the executor's
+    // own queued-type counting never sees them, see internal-api-call.ts) must call this once
+    // per invocation to share the same per-dequeue async-work budget queued calls are capped by.
+    // Throws once the budget is exhausted. A no-op for callers that don't enforce a budget.
+    consumeInlineAsyncBudget: () => void
 }
 
 export type AsyncFunctionHandler = {
