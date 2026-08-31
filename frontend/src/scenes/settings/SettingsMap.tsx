@@ -2237,7 +2237,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Bind your Slack identity to this PostHog account so @PostHog mentions route to you even when your Slack email and PostHog email differ.',
                 component: <PersonalSlackIntegrations />,
                 keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
-                flag: 'SLACK_APP_OAUTH',
             },
             {
                 id: 'personal-integrations-posthog',

@@ -7381,9 +7381,9 @@ snapshots:
     scenes-app-max-ai-replay-vision-scan-widget--with-skipped--light:
         hash: v1.k794b7964.c543228b0f31abb2aae3b274819abdee4ba6a89fb3324fc6aaa2b18aefee5815.S9etTEY8oT2JhOgLO5hdc6VqvbvYhD-nU4P1WKh24yg
     scenes-app-mcp-analytics--activity--dark:
-        hash: v1.k794b7964.bca0d74d1b2639c6b1f979e341f71f07760a64f741ae2c8a52911b60dc1199c7.qXE1qgq9_TENwX5GUO2YnUiP4QcGqZlCPpGbL8cS_H4
+        hash: v1.k794b7964.0b4955189ddc9ad0cf917b5e0e3c22ae7b2c4cdfc6873dfbbee30ef73e8f92e5.2jq_QHK0JmQFsnlPwxz2530q8kG3gBm-3TLdefrRIGk
     scenes-app-mcp-analytics--activity--light:
-        hash: v1.k794b7964.473eea859bb71b592d4192301ff6b6f80d0b31bc60d992537d1f4c72ef5a54fa.TYyn1fQMICc0v0oJjArYuI8WHq9LrVDDeu8ECeEAFac
+        hash: v1.k794b7964.e15fa47e36d13e91df35f120207505907b20dfa6292cf5ded5ac7ab60772cd56.h7NkyFvlZKnQFvFk5fmltWi25sVeipMcoZt7THbqxGg
     scenes-app-mcp-analytics--dashboard--dark:
         hash: v1.k794b7964.28e8830f28c77c1815afd94747a5f8633a0ff6dff72e7e8a104a84e3d131730c.-r295uHlJ_mpxJzjEHlMP9iM4FsOwaWVrRcfaW-Q4zM
     scenes-app-mcp-analytics--dashboard--light:
@@ -7913,9 +7913,9 @@ snapshots:
     scenes-app-replay-vision--action-detail--light:
         hash: v1.k794b7964.fddd31bad32538bf10702607095b988829efd15e59cac6be49b6e66cd6195c7b.mPfMwarDBO9E3fSs_hJMQImG6fzXNdfFuPKDgeuhrgM
     scenes-app-replay-vision--action-editor-alert--dark:
-        hash: v1.k794b7964.3204d6ae31404bf3f33fcc79f4677be81f38de6f16e8ebd124996326a8030681.D8exff3-Oy2AM-UvFtlhRheKIOOOi162DVIgZcGviQE
+        hash: v1.k794b7964.fdcca15f6b37ce5ed856e06de143bc0e975cfe76f58d4070ca44e837e0a85ddf.oXZ8eDvCfC_A2YFw_WgTS6PuiXSaSUVWfF1kxrEeHKY
     scenes-app-replay-vision--action-editor-alert--light:
-        hash: v1.k794b7964.ee28763bea5b87190aa29033f4f606fced20ca3d7801a76ef54cd1c84bf06546.lDUEss5wCkOJco80RWv8QEAYh4cGfSBNZSdzqWTvs3A
+        hash: v1.k794b7964.82fa05fdbb2e3821359ad9746beccc030cf99f46b08c96067ed5fc59ec506763.igvaPjMHN5Z4BkkfgwXuHewly3vhQbWl1OjpTA8OI1E
     scenes-app-replay-vision--action-editor-digest--dark:
         hash: v1.k794b7964.483244eee8c1dcbfd3d897559b867fe8127151f78ec5b00a6ac4a9a39fa0219f.vyWDN2gFu2CWgMK3DCWigJEkLIIFzi3KCm73GY9bNvo
     scenes-app-replay-vision--action-editor-digest--light:
@@ -8705,13 +8705,13 @@ snapshots:
     scenes-other-integration-landing-page--connected--light:
         hash: v1.k794b7964.3db01e8e2c1f2a9c6b622e06bd5ac66345cdd92961f70349829cdce36cddd2a9.BjXhubo71g8DdCf1Eih4H-AnYpXQnxwL48JtTfIjHWM
     scenes-other-integration-landing-page--no-permission--dark:
-        hash: v1.k794b7964.674e5a613b6d3f2933862db144b0fab805875bfb9926e2f1f49e502c375363f5.HHRhYsPPj9lhRPMJvLxGHitZUPgG5-Zg9K3k26fM2kI
+        hash: v1.k794b7964.957e7be92050477838301517a8ebfdfd1f5b6c6ff3005dc35b505f553b6c58ea.CaFotiPrq8gJ5X6pzBmcsMuuURiBwLRHwihyFdPHZe8
     scenes-other-integration-landing-page--no-permission--light:
-        hash: v1.k794b7964.fe31b9b4308a40ebe93aaf37ac256bc1a21917798708dada68092982307706ac.GYO6l0kkFqPf9TA5o7k0AuLhY6WjXqxPCSUOI0ni8cA
+        hash: v1.k794b7964.1fe42b8b297343b0180998e98d5c4c68de32791266a856a07fcaf88765b71e93.Q4lksjM0TVv96VjUo69rldiUY3upQaDAW9-4ldbn0vA
     scenes-other-integration-landing-page--not-connected--dark:
-        hash: v1.k794b7964.674e5a613b6d3f2933862db144b0fab805875bfb9926e2f1f49e502c375363f5.KcBmjEDBWtXtN_WsV0TL9ePVzhfYEyfr4qrLBdoyGyM
+        hash: v1.k794b7964.957e7be92050477838301517a8ebfdfd1f5b6c6ff3005dc35b505f553b6c58ea.SoUeRmOD3bvKPv74k1UfUEArhSskLk6pVPDVlmUY_-g
     scenes-other-integration-landing-page--not-connected--light:
-        hash: v1.k794b7964.fe31b9b4308a40ebe93aaf37ac256bc1a21917798708dada68092982307706ac.AaXZuU22qSzLFz9K3r7uKn1dFqRUC5CwW2v3u3R-z6A
+        hash: v1.k794b7964.1fe42b8b297343b0180998e98d5c4c68de32791266a856a07fcaf88765b71e93.Q-NV49-iLDmtzX4egP_H3Ks6sjTRd2NRMz_-OEJ7NWk
     scenes-other-onboarding-legacy--ai-observability-sdk-install--dark:
         hash: v1.k794b7964.0c82a4b8b276a3f51b42dd3a20aed7672fbfb5f096e4bd9da51221b6eb52bbdc.iXUjftr_vTAULjZ_soSDjZ9o_RG2YPlJBCG4ZSuNTS0
     scenes-other-onboarding-legacy--ai-observability-sdk-install--light:
