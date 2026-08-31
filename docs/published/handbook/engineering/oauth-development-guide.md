@@ -353,7 +353,7 @@ curl -X POST http://localhost:8010/oauth/par/ \
 
 The client then starts the browser flow with just `client_id` and the returned `request_uri`:
 
-```
+```text
 GET /oauth/authorize/?client_id=your_client_id&request_uri=urn:ietf:params:oauth:request_uri:...
 ```
 
