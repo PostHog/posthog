@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 import datetime as dt
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final, Literal
 
 import psycopg
 import pyarrow as pa
@@ -58,16 +58,25 @@ BOTH_TABLE_MODE = "both"
 
 # The loader's write mode per lane, and the flag that tells the pipeline a run carries change
 # events rather than rows read from a table.
-CONSOLIDATED_WRITE_MODE = "incremental_merge"
-COMPANION_WRITE_MODE = SCD2_APPEND_MODE
+CDCWriteMode = Literal["incremental_merge", "scd2_append"]
+CONSOLIDATED_WRITE_MODE: Final = "incremental_merge"
+COMPANION_WRITE_MODE: Final = SCD2_APPEND_MODE
 
 # The tables each mode's change stream feeds, as the write mode the loader uses for each — in the
 # order the legacy extraction path writes them. A mode absent here is one this module cannot write.
-_LANE_WRITE_MODES: dict[str, tuple[str, ...]] = {
+_LANE_WRITE_MODES: dict[str, tuple[CDCWriteMode, ...]] = {
     CONSOLIDATED_TABLE_MODE: (CONSOLIDATED_WRITE_MODE,),
     CDC_ONLY_TABLE_MODE: (COMPANION_WRITE_MODE,),
     BOTH_TABLE_MODE: (CONSOLIDATED_WRITE_MODE, COMPANION_WRITE_MODE),
 }
+
+
+@frozen
+class CDCLane:
+    """One warehouse table this schema's change stream feeds, and how the loader writes it."""
+
+    resource_name: str
+    write_mode: CDCWriteMode
 
 
 # Slack when comparing an S3 mtime against a listing timestamp from our clock, so skew between the
@@ -123,22 +132,24 @@ def companion_resource_name(schema: ExternalDataSchema) -> str:
     return f"{schema.name}{CDC_COMPANION_SUFFIX}"
 
 
-def served_lanes(schema: ExternalDataSchema) -> list[tuple[str, str]]:
-    """The `(resource_name, cdc_write_mode)` outputs this schema's change stream feeds.
+def served_lanes(schema: ExternalDataSchema) -> list[CDCLane]:
+    """The tables this schema's change stream feeds.
 
     One entry per Delta table the mode writes, in the order the legacy extraction path writes them.
     An unrecognized mode returns nothing, which reads as "not a lane the buffer serves".
     """
     return [
-        (
-            companion_resource_name(schema) if mode == COMPANION_WRITE_MODE else consolidated_resource_name(schema),
-            mode,
+        CDCLane(
+            resource_name=(
+                companion_resource_name(schema) if mode == COMPANION_WRITE_MODE else consolidated_resource_name(schema)
+            ),
+            write_mode=mode,
         )
         for mode in _LANE_WRITE_MODES.get(schema.cdc_table_mode, ())
     ]
 
 
-def select_lane(schema: ExternalDataSchema) -> tuple[str, str]:
+def select_lane(schema: ExternalDataSchema) -> CDCLane:
     """The lane this run serves, alternating across runs when the schema feeds more than one.
 
     A pipeline run writes one table: its batches share a run id, a batch-index sequence, an S3
@@ -157,13 +168,13 @@ def select_lane(schema: ExternalDataSchema) -> tuple[str, str]:
 
     stamps = _listing_stamps(schema.sync_type_config)
     last_served, newest = None, None
-    for resource, _ in lanes:
-        listed_at = (stamps.get(resource) or {}).get("listed_at")
+    for lane in lanes:
+        listed_at = (stamps.get(lane.resource_name) or {}).get("listed_at")
         if isinstance(listed_at, str) and (newest is None or listed_at > newest):
-            last_served, newest = resource, listed_at
+            last_served, newest = lane.resource_name, listed_at
 
     for lane in lanes:
-        if lane[0] != last_served:
+        if lane.resource_name != last_served:
             return lane
     return lanes[0]
 

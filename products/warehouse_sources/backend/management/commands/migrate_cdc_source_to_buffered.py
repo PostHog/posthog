@@ -141,7 +141,9 @@ class Command(BaseCommand):
             for s in eligible
             if s.table is not None
             and CDC_SEQ_COLUMN in (s.table.columns or {})
-            and not any(read_load_position(s.sync_type_config, name) is not None for name, _ in served_lanes(s))
+            and not any(
+                read_load_position(s.sync_type_config, lane.resource_name) is not None for lane in served_lanes(s)
+            )
         ]
         if conflicted:
             raise CommandError(
@@ -314,7 +316,10 @@ class Command(BaseCommand):
                 # The slowest lane decides: a file the companion has not taken is not drained,
                 # however far ahead the consolidated lane is.
                 floor = min(
-                    (read_load_position(schema.sync_type_config, name) or 0 for name, _ in served_lanes(schema)),
+                    (
+                        read_load_position(schema.sync_type_config, lane.resource_name) or 0
+                        for lane in served_lanes(schema)
+                    ),
                     default=0,
                 )
                 prefix = strip_s3_protocol(get_buffer_prefix(team_id, str(schema.id)))

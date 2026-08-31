@@ -7,7 +7,7 @@ ordering and delete safety have to be settled on the batch rather than in merge 
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, Final
 
 import pyarrow as pa
 
@@ -31,7 +31,7 @@ MAX_VERIFIED_DELETE_ROWS = 1_000
 MAX_REPORTED_COLUMNS = 10
 
 # The companion lane. Its table is append-only history, so deduping it would delete versions.
-SCD2_APPEND_MODE = "scd2_append"
+SCD2_APPEND_MODE: Final = "scd2_append"
 
 
 @frozen

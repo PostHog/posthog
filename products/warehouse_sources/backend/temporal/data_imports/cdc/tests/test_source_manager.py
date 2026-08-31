@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+    CDCLane,
     CDCSourceManager,
     companion_resource_name,
     consumes_buffer,
@@ -277,9 +278,16 @@ class TestCDCSourceManager:
 class TestServedLanes:
     @parameterized.expand(
         [
-            ("consolidated", "consolidated", [("users", "incremental_merge")]),
-            ("cdc_only", "cdc_only", [("users_cdc", "scd2_append")]),
-            ("both", "both", [("users", "incremental_merge"), ("users_cdc", "scd2_append")]),
+            ("consolidated", "consolidated", [CDCLane(resource_name="users", write_mode="incremental_merge")]),
+            ("cdc_only", "cdc_only", [CDCLane(resource_name="users_cdc", write_mode="scd2_append")]),
+            (
+                "both",
+                "both",
+                [
+                    CDCLane(resource_name="users", write_mode="incremental_merge"),
+                    CDCLane(resource_name="users_cdc", write_mode="scd2_append"),
+                ],
+            ),
         ]
     )
     def test_a_table_mode_names_the_tables_its_changes_feed(self, _name, table_mode, expected):
@@ -304,7 +312,7 @@ class TestLaneSelection:
         assert select_lane(schema) == served_lanes(schema)[0]
 
     def test_both_starts_on_the_consolidated_lane(self):
-        assert select_lane(_schema(cdc_table_mode="both"))[0] == "users"
+        assert select_lane(_schema(cdc_table_mode="both")).resource_name == "users"
 
     @parameterized.expand(
         [
@@ -318,7 +326,7 @@ class TestLaneSelection:
             cdc_table_mode="both",
             sync_type_config={"cdc_buffer_listing": {last_served: {"listed_at": _NOW.isoformat(), "job_id": "j"}}},
         )
-        assert select_lane(schema)[0] == expected
+        assert select_lane(schema).resource_name == expected
 
     def test_the_newest_stamp_decides_when_both_lanes_have_run(self):
         schema = _schema(
@@ -330,7 +338,7 @@ class TestLaneSelection:
                 }
             },
         )
-        assert select_lane(schema)[0] == "users"
+        assert select_lane(schema).resource_name == "users"
 
 
 class TestBufferedGating:

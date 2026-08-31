@@ -1357,7 +1357,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
             )
 
-        resource_name, cdc_write_mode = select_lane(schema)
+        lane = select_lane(schema)
         primary_keys = schema.primary_key_columns
 
         if has_pending_legacy_backlog(schema):
@@ -1366,10 +1366,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # schedule alive, unlike CDCHandledExternally, which would pause it for good.
             inputs.logger.info("cdc_buffered_waiting_for_legacy_backlog", schema_name=schema.name)
             return SourceResponse(
-                name=resource_name,
+                name=lane.resource_name,
                 items=lambda: iter(()),
                 primary_keys=primary_keys,
-                cdc_write_mode=cdc_write_mode,
+                cdc_write_mode=lane.write_mode,
             )
 
         # The `_cdc` companion stores history rather than current state, so its rows carry the SCD2
@@ -1377,17 +1377,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # is the loader's business: it appends instead of merging, and resolves replays by position
         # without collapsing a key's history to one row.
         table_transformer = (
-            partial(build_scd2_table, pk_columns=primary_keys or []) if cdc_write_mode == COMPANION_WRITE_MODE else None
+            partial(build_scd2_table, pk_columns=primary_keys or [])
+            if lane.write_mode == COMPANION_WRITE_MODE
+            else None
         )
 
         manager = CDCSourceManager(
-            inputs, inputs.logger, lane_resource_names=[name for name, _ in served_lanes(schema)]
+            inputs, inputs.logger, lane_resource_names=[served.resource_name for served in served_lanes(schema)]
         )
         return SourceResponse(
-            name=resource_name,
-            items=lambda: manager.get_items(resource_name, table_transformer=table_transformer),
+            name=lane.resource_name,
+            items=lambda: manager.get_items(lane.resource_name, table_transformer=table_transformer),
             primary_keys=primary_keys,
-            cdc_write_mode=cdc_write_mode,
+            cdc_write_mode=lane.write_mode,
         )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
