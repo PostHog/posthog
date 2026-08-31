@@ -17,9 +17,9 @@ use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::{Dispatcher, EagerFlush, KeyOffset, SubBatch};
+use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::transport::SendError;
-use crate::transports::{PendingSend, Transport};
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
 
@@ -71,13 +71,13 @@ struct InFlightBatch {
 }
 
 /// A sub-batch whose send order is already established on its worker's stream
-/// (`Transport::begin_send`), plus the metadata the resolve protocol needs.
+/// (`GrpcTransport::begin_send`), plus the metadata the resolve protocol needs.
 struct PendingSubBatch {
     worker: WorkerId,
     routing_keys: Vec<String>,
     key_offsets: Vec<KeyOffset>,
     message_count: usize,
-    pending: PendingSend,
+    pending: PendingWorkerStreamSend,
 }
 
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
@@ -102,13 +102,13 @@ pub struct IngestionConsumerOptions {
     pub eager_deferred_flush: bool,
 }
 
-/// The main consumer loop: reads from Kafka, routes messages by distinct_id
+/// The main consumer loop: reads from Kafka, routes messages by Kafka key
 /// via the health-aware Dispatcher, dispatches sub-batches to workers over
-/// HTTP, and commits offsets only after all workers ACK.
+/// ordered gRPC streams, and commits offsets only after all workers ACK.
 pub struct IngestionConsumer {
     consumer: Arc<StreamConsumer<SentinelContext>>,
     dispatcher: Arc<Dispatcher>,
-    transport: Arc<Transport>,
+    transport: Arc<GrpcTransport>,
     worker_urls: Vec<String>,
     batch_size: usize,
     batch_size_bytes: usize,
@@ -132,7 +132,7 @@ impl IngestionConsumer {
     pub fn from_parts(
         consumer: StreamConsumer<SentinelContext>,
         dispatcher: Arc<Dispatcher>,
-        transport: Arc<Transport>,
+        transport: Arc<GrpcTransport>,
         worker_urls: Vec<String>,
         options: IngestionConsumerOptions,
         handle: Handle,
@@ -161,7 +161,7 @@ impl IngestionConsumer {
     pub fn new(
         config: &Config,
         dispatcher: Arc<Dispatcher>,
-        transport: Arc<Transport>,
+        transport: Arc<GrpcTransport>,
         handle: Handle,
         debug_recorder: Option<Arc<DebugRecorder>>,
     ) -> anyhow::Result<Self> {
@@ -189,9 +189,7 @@ impl IngestionConsumer {
         let key_sentinel = dispatcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let mut context = SentinelContext::new(Arc::clone(&commit_sentinel), key_sentinel);
-        if let Transport::Grpc(grpc) = &*transport {
-            context.set_assignment_epoch(grpc.assignment_epoch());
-        }
+        context.set_assignment_epoch(transport.assignment_epoch());
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
@@ -399,7 +397,7 @@ impl IngestionConsumer {
 
         // Flush this batch's deferred groups (keys whose worker was draining/dead)
         // in order, re-routing them to healthy workers. Doing it here — serialized,
-        // oldest batch first — preserves per-distinct_id order across batches. The
+        // oldest batch first — preserves per-key order across batches. The
         // batch isn't committable until all its messages are accepted.
         self.flush_deferred(&batch_id, &mut processed).await?;
 
@@ -532,7 +530,7 @@ impl IngestionConsumer {
     /// channel-receive order, before the awaiting task spawns.
     async fn run_eager_flush_loop(
         dispatcher: Arc<Dispatcher>,
-        transport: Arc<Transport>,
+        transport: Arc<GrpcTransport>,
         mut rx: mpsc::UnboundedReceiver<EagerFlush>,
     ) {
         while let Some(flush) = rx.recv().await {
@@ -623,7 +621,7 @@ impl IngestionConsumer {
     /// lock on the consumer loop, and in the eager flush loop), so a key's
     /// sub-batches enter its worker's stream in exactly that order.
     fn begin_send(
-        transport: &Transport,
+        transport: &GrpcTransport,
         batch_id: &str,
         sub_batch: SubBatch,
         replay: bool,

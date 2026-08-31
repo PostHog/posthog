@@ -58,15 +58,15 @@ export interface LoopFormValues {
   contextTarget: LoopContextTargetDraft | null;
 }
 
-export function emptyLoopScheduleTriggerConfig(): LoopSchemas.LoopScheduleTriggerConfig {
+function emptyLoopScheduleTriggerConfig(): LoopSchemas.LoopScheduleTriggerConfig {
   return { cron_expression: "0 9 * * 1", timezone: systemTimezone() };
 }
 
-export function emptyLoopGithubTriggerConfig(): LoopSchemas.LoopGithubTriggerConfig {
+function emptyLoopGithubTriggerConfig(): LoopSchemas.LoopGithubTriggerConfig {
   return { github_integration_id: 0, repository: "", events: [] };
 }
 
-export function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
+function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
   return {};
 }
 
@@ -163,7 +163,7 @@ export function withGithubTriggerFilters(
   return { ...config, filters };
 }
 
-export function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
+function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
   const off = { enabled: false, events: [], params: {} };
   return { push: { ...off }, email: { ...off }, slack: { ...off } };
 }
@@ -205,7 +205,7 @@ export function nextDraftTriggerKey(): string {
   return `draft-trigger-${draftKeySeq}`;
 }
 
-export function defaultLoopScheduleTrigger(): LoopTriggerDraft {
+function defaultLoopScheduleTrigger(): LoopTriggerDraft {
   return {
     key: nextDraftTriggerKey(),
     type: "schedule",

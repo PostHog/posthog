@@ -19,7 +19,7 @@ const webArchivedTaskSchema = z.object({
   checkpointId: z.string().nullable(),
 });
 
-export type WebArchivedTask = z.infer<typeof webArchivedTaskSchema>;
+type WebArchivedTask = z.infer<typeof webArchivedTaskSchema>;
 
 const store = createRecordStore(
   "posthog-code:web-archived-tasks",

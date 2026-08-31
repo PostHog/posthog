@@ -126,16 +126,15 @@ import {
   CONTEXT_WINDOW_1M_BETA,
   CONTEXT_WINDOW_200K_TOKENS,
   DEFAULT_EFFORT,
-  DEFAULT_MODEL,
   fastModeStateEnabled,
   getContextWindowOptions,
   getEffortOptions,
+  rerootedModelOptions,
   resolveEffortForModel,
   resolveModelPreference,
   supports1MContext,
   supportsFastMode,
   supportsMcpInjection,
-  toSdkModelId,
 } from "./session/models";
 import {
   buildSessionOptions,
@@ -1857,7 +1856,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...(session.modelId && { model: toSdkModelId(session.modelId) }),
+        ...rerootedModelOptions(session.modelId, rest.fallbackModel),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2081,9 +2080,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController,
         // `rest.model` is the creation-time value; the user may have
         // switched models since, so answer on the live session model.
-        ...(this.session.modelId && {
-          model: toSdkModelId(this.session.modelId),
-        }),
+        ...rerootedModelOptions(this.session.modelId, rest.fallbackModel),
       };
 
       const oneShot = query({
@@ -2193,7 +2190,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...(prev.modelId && { model: toSdkModelId(prev.modelId) }),
+        ...rerootedModelOptions(prev.modelId, rest.fallbackModel),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2363,8 +2360,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         },
       });
     } else if (params.configId === "model") {
-      const sdkModelId = toSdkModelId(resolvedValue);
-      await this.session.query.setModel(sdkModelId);
+      await this.session.query.setModel(resolvedValue);
       this.session.modelId = resolvedValue;
       this.session.lastContextWindowSize =
         this.getContextWindowForModel(resolvedValue);
@@ -2609,6 +2605,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       typeof meta?.taskOriginProduct === "string"
         ? meta.taskOriginProduct
         : undefined;
+    const endRunWhenDone = meta?.endRunWhenDone === true;
     const spokenNarration = resolveSpokenNarration(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
@@ -2632,6 +2629,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           background: meta?.mode === "background",
           peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
           taskOriginProduct,
+          endRunWhenDone,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -2924,14 +2922,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ? CONTEXT_WINDOW_200K_TOKENS
         : this.getContextWindowForModel(resolvedModelId);
 
-    const resolvedSdkModel = toSdkModelId(resolvedModelId);
-
-    // New sessions start with options.model = DEFAULT_MODEL, so only a
-    // non-default pick needs a setModel call. Resumed sessions always need
-    // it: the SDK does not carry the model across resume and would silently
-    // run its default otherwise.
-    if (isResume || resolvedSdkModel !== DEFAULT_MODEL) {
-      await this.session.query.setModel(resolvedSdkModel);
+    if (isResume || resolvedModelId !== options.model) {
+      await this.session.query.setModel(resolvedModelId);
     }
 
     // Keep thinking enabled by default for effort-capable models (see

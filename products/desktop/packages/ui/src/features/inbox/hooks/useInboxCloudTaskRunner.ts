@@ -35,7 +35,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
 /** Variant-specific copy used in the toasts/errors emitted by the runner. */
-export interface InboxCloudTaskCopy {
+interface InboxCloudTaskCopy {
   /** Toast shown while the task is being created. */
   loadingTitle: string;
   /** Toast title used for any failure (repo / integration / sign-in / mutation). */
