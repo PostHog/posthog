@@ -10,8 +10,6 @@ import type {
 
 export type CodeToolKind = AgentToolKind;
 export type ToolCallContent = AgentToolCallContent;
-export type ToolCallStatus = AgentToolCallStatus;
-export type ToolCallLocation = AgentToolCallLocation;
 export type { SessionUpdate };
 
 export interface ToolCall extends Omit<AgentToolCall, "id" | "parentId"> {
@@ -58,11 +56,6 @@ export type ConversationSessionUpdate =
   | ConversationToolCallUpdate;
 
 export type Plan = Extract<SessionUpdate, { sessionUpdate: "plan" }>;
-export type ConfigOptionUpdate = Extract<
-  SessionUpdate,
-  { sessionUpdate: "config_option_update" }
->;
-
 export interface CompactBoundaryMetadata {
   trigger?: "manual" | "auto";
   preTokens?: number;

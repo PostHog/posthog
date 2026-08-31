@@ -7,6 +7,7 @@ import {PullRequest, PushEvent} from '@octokit/webhooks-types'
 import {Filter, FilterResults} from './filter'
 import {File, ChangeStatus} from './file'
 import * as git from './git'
+import * as shadow from './shadow'
 import {backslashEscape, shellEscape} from './list-format/shell-escape'
 import {csvEscape} from './list-format/csv-escape'
 
@@ -83,7 +84,9 @@ async function getChangedFiles(token: string, base: string, ref: string, initial
       }
       const pr = github.context.payload.pull_request as PullRequest
       if (token) {
-        return await getChangedFilesFromApi(token, pr)
+        const apiFiles = await getChangedFilesFromApi(token, pr)
+        await shadow.report(apiFiles, pr)
+        return apiFiles
       }
       if (github.context.eventName === 'pull_request_target') {
         // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch

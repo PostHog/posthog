@@ -235,35 +235,24 @@ function actionabilityBreakdown(reports: SignalReport[]): Record<string, number>
     }
 }
 
-/** Which welcome takeover a user saw: the original stacked card or the redesigned hero. */
-export type InboxWelcomeVariant = 'control' | 'redesign'
-
 /** Where a wizard-command copy happened: the full welcome takeover or the re-enable banner. */
 export type InboxWelcomeCopySurface = 'takeover' | 'banner'
 
 /**
  * The self-driving welcome takeover rendered. `Inbox viewed` never fires for un-set-up teams (the
- * takeover replaces the report list), so this is the top-of-funnel event for setup conversion, and
- * the exposure marker for welcome-page experiments (`variant` mirrors the experiment arm).
+ * takeover replaces the report list), so this is the top-of-funnel event for setup conversion.
  */
-export function captureInboxWelcomeViewed(params: { variant: InboxWelcomeVariant }): void {
-    captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {
-        variant: params.variant,
-    })
+export function captureInboxWelcomeViewed(): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {})
 }
 
 /**
  * The wizard setup command was copied. Previously only recoverable from autocapture (and
  * unreliably: `$el_text` is null on about half of clicks), so the setup funnel's first
- * conversion step gets its own event. `variant` is null on the banner, which shows one
- * fixed layout regardless of the welcome experiment.
+ * conversion step gets its own event.
  */
-export function captureInboxWelcomeCommandCopied(params: {
-    variant: InboxWelcomeVariant | null
-    surface: InboxWelcomeCopySurface
-}): void {
+export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcomeCopySurface }): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
-        variant: params.variant,
         surface: params.surface,
     })
 }
@@ -273,12 +262,10 @@ export function captureInboxWelcomeCommandCopied(params: {
  * {@link captureInboxWelcomeCommandCopied} as the other exit from the welcome page, so the two
  * together say how a team chose to set self-driving up. Without it a manual setup is invisible:
  * the wizard copy never fires, and the sources and scouts that follow look like they came from
- * nowhere. `variant` mirrors the welcome experiment arm, so the split is readable per arm.
+ * nowhere.
  */
-export function captureInboxWelcomeManualSetupClicked(params: { variant: InboxWelcomeVariant }): void {
-    captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {
-        variant: params.variant,
-    })
+export function captureInboxWelcomeManualSetupClicked(): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {})
 }
 
 /**
