@@ -50,6 +50,7 @@ tools:
             summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt
             subscriptions are themselves AI-generated, so this does not apply to them.)
         exclude_params:
+            - contexts
             - deleted
             - next_delivery_date
             - resource_name
@@ -172,6 +173,7 @@ tools:
             it with `summary_prompt_guide`. Enabling a summary requires the organization to have approved AI data
             processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.
         exclude_params:
+            - contexts
             - deleted
             - next_delivery_date
             - resource_name

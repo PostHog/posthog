@@ -108,6 +108,11 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
     return logic.recently_viewed_insights(team_id=team_id, user_id=user_id, limit=limit)
 
 
+def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
+    """The requested insights that belong to this team, including soft-deleted rows."""
+    return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
+
+
 def recent_viewers_by_insight(
     *, team_id: int, insight_ids: Collection[int], since: datetime, max_per_insight: int
 ) -> dict[int, list["User"]]:
