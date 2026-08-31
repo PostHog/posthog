@@ -94,6 +94,18 @@ describe("canUseTool MCP approval enforcement", () => {
     }
   });
 
+  it("denies disabled web tools before a permission prompt", async () => {
+    const context = createContext("WebFetch", {
+      toolInput: { url: "https://example.com" },
+      disabledTools: ["WebFetch", "WebSearch"],
+    });
+
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("deny");
+    expect(context.client.requestPermission).not.toHaveBeenCalled();
+  });
+
   it("routes needs_approval MCP tools to permission dialog with descriptive title", async () => {
     setMcpToolApprovalStates({
       mcp__HubSpot__search_crm_objects: "needs_approval",

@@ -2011,6 +2011,7 @@ export class AgentServer {
       systemPrompt: sessionSystemPrompt,
       ...(this.config.model && { model: this.config.model }),
       allowedDomains: this.config.allowedDomains,
+      disabledTools: this.config.disabledTools,
       jsonSchema: preTask?.json_schema ?? null,
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),

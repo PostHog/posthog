@@ -169,6 +169,7 @@ program
     "--allowedDomains <domains>",
     "Comma-separated list of domains allowed for web tools (WebFetch, WebSearch)",
   )
+  .option("--disableWebTools <boolean>", "Disable WebFetch and WebSearch")
   .action(async (options) => {
     const envResult = envSchema.safeParse(process.env);
 
@@ -224,6 +225,12 @@ program
           .map((d: string) => d.trim())
           .filter(Boolean)
       : undefined;
+    const disabledTools = parseBooleanOption(
+      options.disableWebTools,
+      "--disableWebTools",
+    )
+      ? ["WebFetch", "WebSearch"]
+      : undefined;
 
     if (
       env.POSTHOG_CODE_RUNTIME_ADAPTER &&
@@ -271,6 +278,7 @@ program
       baseBranch: options.baseBranch,
       claudeCode,
       allowedDomains,
+      disabledTools,
       piRpcHostPath: fileURLToPath(
         new URL("../pi/rpc-host.js", import.meta.url),
       ),

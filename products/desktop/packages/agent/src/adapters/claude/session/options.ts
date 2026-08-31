@@ -91,6 +91,7 @@ export interface BuildOptionsParams {
   forkSession?: boolean;
   additionalDirectories?: string[];
   disableBuiltInTools?: boolean;
+  disabledTools?: string[];
   outputFormat?: OutputFormat;
   settingsManager: SettingsManager;
   onModeChange?: OnModeChange;
@@ -536,6 +537,10 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     allowDangerouslySkipPermissions: !IS_ROOT || !!process.env.IS_SANDBOX,
     permissionMode: toSdkPermissionMode(params.permissionMode),
     canUseTool: params.canUseTool,
+    disallowedTools: [
+      ...(params.userProvidedOptions?.disallowedTools ?? []),
+      ...(params.disabledTools ?? []),
+    ],
     tools,
     agents,
     extraArgs: {

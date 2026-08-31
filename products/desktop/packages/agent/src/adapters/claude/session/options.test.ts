@@ -49,6 +49,18 @@ function makeParams() {
 }
 
 describe("buildSessionOptions", () => {
+  it("structurally disallows server-owned web tool denials even in bypass mode", () => {
+    const options = buildSessionOptions({
+      ...makeParams(),
+      permissionMode: "bypassPermissions",
+      disabledTools: ["WebFetch", "WebSearch"],
+      userProvidedOptions: { disallowedTools: ["Read"] },
+    });
+
+    expect(options.disallowedTools).toEqual(
+      expect.arrayContaining(["Read", "WebFetch", "WebSearch"]),
+    );
+  });
   it("replaces unprocessable Read images before model delivery", async () => {
     const options = buildSessionOptions(makeParams());
     const hooks = (options.hooks?.PostToolUse ?? []).flatMap(
