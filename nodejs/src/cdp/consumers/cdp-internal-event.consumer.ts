@@ -47,12 +47,6 @@ function hasMatchingInternalEventFilter(filters: unknown, eventName: string): bo
     return getInternalEventFilterEventIds(filters)?.includes(eventName) ?? false
 }
 
-// Workflows stored before the rename name their event in the trigger type instead of in the
-// filters. Kept until the backfill has run everywhere, then dropped with the other legacy paths.
-function isLegacySlackMessageTrigger(triggerType: string, eventName: string): boolean {
-    return triggerType === 'slack-message' && eventName === SLACK_MESSAGE_RECEIVED_EVENT
-}
-
 export class CdpInternalEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpInternalEventsConsumer'
     // This type boundary is temporary; canonical stream selection is filters.source.
@@ -120,9 +114,8 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             }),
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
                 eligibilityFn: (flow, globals) =>
-                    (isLegacySlackMessageTrigger(flow.trigger.type, globals.event.event) ||
-                        (flow.trigger.type === 'internal-event' &&
-                            hasMatchingInternalEventFilter(flow.trigger.filters, globals.event.event))) &&
+                    flow.trigger.type === 'internal-event' &&
+                    hasMatchingInternalEventFilter(flow.trigger.filters, globals.event.event) &&
                     !ownSlackMessages.has(globals),
             }),
         ])
