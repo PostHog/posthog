@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { githubInstallRequestsLogic } from 'lib/integrations/githubInstallRequestsLogic'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { GitHubInstallRequestItemApi } from '~/generated/core/api.schemas'
 
@@ -25,9 +24,8 @@ export function GitHubInstallRequestsBanner({
     /** Alternative to `onFinishConnecting` for surfaces whose connect is a plain link. */
     finishConnectingUrl?: string
 }): JSX.Element | null {
-    const { pendingInstallRequests, approvedInstallRequests, installUrl, dismissingRequestIds } =
-        useValues(githubInstallRequestsLogic)
-    const { startPolling, stopPolling, dismissInstallRequest } = useActions(githubInstallRequestsLogic)
+    const { pendingInstallRequests, approvedInstallRequests, installUrl } = useValues(githubInstallRequestsLogic)
+    const { startPolling, stopPolling } = useActions(githubInstallRequestsLogic)
 
     useOnMountEffect(() => {
         startPolling()
@@ -48,72 +46,40 @@ export function GitHubInstallRequestsBanner({
                             <strong>{request.account_login || request.github_login || 'your organization'}</strong>.
                             Finish connecting to start using it.
                         </span>
-                        <div className="flex gap-2 shrink-0">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                to={finishConnectingUrl}
-                                disableClientSideRouting={!!finishConnectingUrl}
-                                onClick={onFinishConnecting}
-                            >
-                                Finish connecting
-                            </LemonButton>
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                loading={dismissingRequestIds.includes(request.id)}
-                                onClick={() => dismissInstallRequest(request.id)}
-                            >
-                                Dismiss
-                            </LemonButton>
-                        </div>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={finishConnectingUrl}
+                            disableClientSideRouting={!!finishConnectingUrl}
+                            onClick={onFinishConnecting}
+                        >
+                            Finish connecting
+                        </LemonButton>
                     </div>
                 </LemonBanner>
             ))}
             {pendingInstallRequests.map((request: GitHubInstallRequestItemApi) => (
                 <LemonBanner key={request.id} type="info" hideIcon>
-                    <div className="flex flex-col gap-2">
-                        <span className="text-sm font-normal">
-                            GitHub sent your request
-                            {request.github_login ? (
-                                <>
-                                    {' '}
-                                    (as <strong>{request.github_login}</strong>)
-                                </>
-                            ) : null}{' '}
-                            to your organization owners. Once an owner approves the PostHog app, we'll finish connecting
-                            here.
-                        </span>
+                    <span className="text-sm font-normal">
+                        GitHub sent your request
+                        {request.github_login ? (
+                            <>
+                                {' '}
+                                (as <strong>{request.github_login}</strong>)
+                            </>
+                        ) : null}{' '}
+                        to your organization owners. Once an owner approves the PostHog app, we'll finish connecting
+                        here.
                         {installUrl ? (
-                            <code className="text-xs whitespace-normal break-words">
-                                {buildOrgOwnerMessage(installUrl)}
-                            </code>
+                            <>
+                                {' '}
+                                <Link to={installUrl} target="_blank">
+                                    Open the approval page
+                                </Link>
+                                .
+                            </>
                         ) : null}
-                        <div className="flex flex-wrap gap-2">
-                            {installUrl ? (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() =>
-                                        void copyToClipboard(
-                                            buildOrgOwnerMessage(installUrl),
-                                            'message for your org owner'
-                                        )
-                                    }
-                                >
-                                    Copy message for your org owner
-                                </LemonButton>
-                            ) : null}
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                loading={dismissingRequestIds.includes(request.id)}
-                                onClick={() => dismissInstallRequest(request.id)}
-                            >
-                                Dismiss
-                            </LemonButton>
-                        </div>
-                    </div>
+                    </span>
                 </LemonBanner>
             ))}
         </div>
