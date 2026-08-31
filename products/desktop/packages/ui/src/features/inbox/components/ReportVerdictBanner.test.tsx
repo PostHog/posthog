@@ -171,4 +171,20 @@ describe("ReportVerdictBanner", () => {
 
     expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
   });
+
+  it("offers review and discussion for an existing fix without a continue action", () => {
+    render(
+      <ReportVerdictBanner
+        report={{
+          ...report,
+          implementation_pr_url: "https://github.com/PostHog/posthog/pull/1",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("View PR on GitHub")).toBeInTheDocument();
+    expect(screen.getByText("Ask about it")).toBeInTheDocument();
+    expect(screen.queryByText("Continue the task")).not.toBeInTheDocument();
+    expect(screen.queryByText("Fix & monitor")).not.toBeInTheDocument();
+  });
 });

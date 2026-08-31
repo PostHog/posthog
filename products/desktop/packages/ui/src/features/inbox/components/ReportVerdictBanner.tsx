@@ -127,6 +127,8 @@ export function ReportVerdictBanner({
   const existingPrUrl =
     livePrUrl ?? (continuableTask ? getTaskPrUrl(continuableTask) : null);
   const hasExistingPr = !!existingPrUrl || !!continuableTask;
+  const externalPrUrl =
+    existingPrUrl && parsePrUrl(existingPrUrl) ? existingPrUrl : null;
   const startedTaskId = useReportChatPanelStore(
     (state) => state.startedTaskIdByReport[report.id] ?? null,
   );
@@ -220,15 +222,11 @@ export function ReportVerdictBanner({
     void createPrReport(trimmed || undefined);
   }, [createPrReport, fireAction, prFeedback]);
 
-  const handleContinuePr = useCallback(() => {
-    if (!continuableTask) return;
+  const handleOpenPr = useCallback(() => {
+    if (!externalPrUrl) return;
     fireAction("open_pr");
-    // The conversation opens docked beside the report — the full task page
-    // stays one click away in the dock header.
-    setEngaged(true);
-    setChatOpen(true);
-    onEngaged?.();
-  }, [continuableTask, fireAction, setChatOpen, onEngaged]);
+    openExternalUrl(externalPrUrl);
+  }, [externalPrUrl, fireAction]);
 
   const handleAsk = useCallback(() => {
     if (isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading) {
@@ -263,10 +261,10 @@ export function ReportVerdictBanner({
     discussReport,
   ]);
 
-  // The banner carries the report's one action: create the PR, or continue the
-  // one in flight. Offer it whenever the report can start a PR (`canCreatePr`
+  // The banner carries the report's one action: create a PR, or review the one
+  // already in flight. Offer it whenever the report can start a PR (`canCreatePr`
   // already restricts that to ready-actionable and pending-input reports) or
-  // already holds live implementation work — matching the old decision block.
+  // already holds live implementation work.
   // Terminal reports (merged/archived) get no action; their verdict says so.
   const isTerminalReport =
     report.status === "resolved" ||
@@ -274,8 +272,8 @@ export function ReportVerdictBanner({
     report.status === "deleted";
   const showActions = !isTerminalReport;
 
-  // One key fires the primary action (triage mode passes "f"): continue the
-  // task when a PR exists, otherwise start the fix with no extra direction.
+  // One key fires the primary action (triage mode passes "f"): open the PR
+  // when one exists, otherwise start the fix with no extra direction.
   useEffect(() => {
     if (!actionHotkey) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -294,11 +292,12 @@ export function ReportVerdictBanner({
       if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
         return;
       }
-      event.preventDefault();
       if (report.status !== "ready" || isCreatingPr) return;
-      if (hasExistingPr) {
-        if (continuableTask) handleContinuePr();
+      if (externalPrUrl) {
+        event.preventDefault();
+        handleOpenPr();
       } else if (canCreatePr) {
+        event.preventDefault();
         handleCreatePr();
       }
     };
@@ -308,10 +307,9 @@ export function ReportVerdictBanner({
     actionHotkey,
     report.status,
     isCreatingPr,
-    hasExistingPr,
-    continuableTask,
+    externalPrUrl,
     canCreatePr,
-    handleContinuePr,
+    handleOpenPr,
     handleCreatePr,
   ]);
 
@@ -325,35 +323,17 @@ export function ReportVerdictBanner({
   const actionsRow = showActions ? (
     <div className="flex flex-wrap items-center gap-2.5">
       {report.status === "ready" && hasExistingPr ? (
-        <>
+        externalPrUrl && (
           <Button
             type="button"
             variant="primary"
-            disabled={isCreatingPr || isDiscussing || !continuableTask}
-            onClick={handleContinuePr}
+            onClick={handleOpenPr}
             className={buttonClass}
           >
-            {reportTasksLoading && !continuableTask ? (
-              <Spinner />
-            ) : (
-              <GitPullRequestIcon size={15} />
-            )}
-            Continue the task
+            <ArrowSquareOutIcon size={16} />
+            View PR on GitHub
           </Button>
-          {existingPrUrl && !compact && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                if (existingPrUrl) openExternalUrl(existingPrUrl);
-              }}
-              className={buttonClass}
-            >
-              <ArrowSquareOutIcon size={16} />
-              View PR on GitHub
-            </Button>
-          )}
-        </>
+        )
       ) : report.status === "ready" && canCreatePr ? (
         <Popover
           open={prOpen}
