@@ -23,11 +23,17 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.'
         ),
+    count_only: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.'
+        ),
     has_implementation_pr: zod
         .boolean()
         .optional()
         .describe(
-            "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply."
+            "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total."
         ),
     include_all_statuses: zod
         .boolean()
@@ -947,7 +953,7 @@ export const SignalsScoutConfigRunParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
  * @summary Sync scout configs
  */
 export const SignalsScoutConfigSyncParams = /* @__PURE__ */ zod.object({
@@ -1860,7 +1866,7 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe(
-                "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier."
+                "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost."
             ),
     })
     .describe('Request body for `remember`.')

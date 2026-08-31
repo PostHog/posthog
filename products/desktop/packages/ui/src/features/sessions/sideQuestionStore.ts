@@ -5,7 +5,7 @@ import { create } from "zustand";
 
 const log = logger.scope("side-question");
 
-export type SideQuestionEntry = {
+type SideQuestionEntry = {
   id: string;
   question: string;
   /** The run this question was asked against — a card must not outlive it. */

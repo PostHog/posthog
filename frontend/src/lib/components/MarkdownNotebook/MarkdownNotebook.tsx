@@ -5975,6 +5975,7 @@ function MarkdownNotebookEditor({
                     submitAIPrompt: (queryOverride) => submitAIPromptForNode(node.id, queryOverride),
                     handleSelectionChange,
                     startTextSelectionPointer,
+                    onInteractionStateChange,
                     restoreSelectionRef,
                     rootEditableInputHtmlByNodeIdRef,
                 })}
