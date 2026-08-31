@@ -236,6 +236,27 @@ class PgCDCStreamReader:
                 time.sleep(0.5 * 2**attempt)
                 self._conn = conn = self._open_streaming_connection()
 
+    def current_position(self) -> str | None:
+        """Read the source's current end-of-WAL LSN.
+
+        The caller takes this before it peeks, so a run that decodes nothing can still release the
+        WAL it examined. Returns None when the position cannot be read, which includes a source in
+        recovery, where pg_current_wal_lsn() is not callable. The caller then leaves the slot where
+        it is, so a failure here costs retention rather than data.
+        """
+        if self._conn is None:
+            return None
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute("SELECT pg_current_wal_lsn()::text")
+                row = cur.fetchone()
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            logger.warning("current_wal_lsn_read_failed", slot_name=self._params.slot_name, exc_info=True)
+            return None
+        return row[0] if row else None
+
     def confirm_position(self, position: str) -> None:
         """Advance the replication slot to the given LSN.
 

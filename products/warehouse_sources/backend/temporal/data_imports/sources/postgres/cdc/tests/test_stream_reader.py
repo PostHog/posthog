@@ -490,3 +490,30 @@ class TestPgCDCStreamReaderConfirmPosition:
                 reader.confirm_position("B4/C7327D08")
 
         conn.close.assert_called_once()
+
+
+class TestPgCDCStreamReaderCurrentPosition:
+    def test_current_position_returns_the_end_of_wal(self, params):
+        reader = PgCDCStreamReader(params)
+        reader._conn = mock.MagicMock()
+        reader._conn.cursor.return_value.__enter__.return_value.fetchone.return_value = ("B4/C7327D08",)
+
+        assert reader.current_position() == "B4/C7327D08"
+
+    @pytest.mark.parametrize(
+        "conn,expected_rollback",
+        [("missing", False), ("failing", True)],
+    )
+    def test_current_position_returns_none_instead_of_failing_the_run(self, params, conn, expected_rollback):
+        # A source in recovery cannot run pg_current_wal_lsn(). The caller only loses the quiet-run
+        # slot advance, so this must never propagate.
+        reader = PgCDCStreamReader(params)
+        if conn == "failing":
+            reader._conn = mock.MagicMock()
+            reader._conn.cursor.return_value.__enter__.return_value.execute.side_effect = (
+                psycopg.errors.ObjectNotInPrerequisiteState("recovery is in progress")
+            )
+
+        assert reader.current_position() is None
+        if expected_rollback:
+            reader._conn.rollback.assert_called_once()
