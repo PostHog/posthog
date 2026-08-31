@@ -119,7 +119,7 @@ from products.access_control.backend.presentation.access_control_settings import
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig
-from products.tracing.backend.models import TeamTracingConfig
+from products.tracing.backend.facade.team_extension import TeamTracingConfig
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)

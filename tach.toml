@@ -1155,6 +1155,7 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.facade.*",
     "backend\\.logic.*",
 ]
 from = [

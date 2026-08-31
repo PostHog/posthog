@@ -9,7 +9,7 @@ from posthog.api.team import TeamTracingConfigSerializer
 from posthog.models import OrganizationMembership, Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.tracing.backend.models import (
+from products.tracing.backend.facade.team_extension import (
     DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS,
     DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS,
     TeamTracingConfig,
