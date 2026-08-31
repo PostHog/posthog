@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
@@ -17,14 +17,12 @@ type TraceMetricScope = 'trace' | 'span'
 export function SpanMetricsTab({ span }: { span: Span }): JSX.Element {
     const [scope, setScope] = useState<TraceMetricScope>('trace')
 
-    // The samples endpoint needs a concrete ISO window; ±1h around the span covers any
-    // single trace's emissions (same window the logs tab and cold trace loads use).
-    const dateRange = useMemo(
-        () =>
-            dayjs(span.timestamp).isValid()
-                ? traceLookupDateRange(span.timestamp)
-                : traceLookupDateRange(dayjs().toISOString()),
-        [span.timestamp]
+    // The samples endpoint needs a concrete ISO window; ±1h around the trace covers any of
+    // its emissions (same window cold trace loads use). Computed once per mount: the drawer
+    // remounts this tab per trace, and pinning the window here keeps span selection from
+    // shifting it a few milliseconds and refetching for nothing.
+    const [dateRange] = useState(() =>
+        traceLookupDateRange(dayjs(span.timestamp).isValid() ? span.timestamp : dayjs().toISOString())
     )
 
     return (

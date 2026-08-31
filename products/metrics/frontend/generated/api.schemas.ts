@@ -691,6 +691,11 @@ export interface _MetricSamplesBodyApi {
      * @maxLength 255
      */
     traceId?: string
+    /**
+     * Restrict to emissions recorded on this span (hex span id). Requires traceId, since a span id is only unique within its trace.
+     * @maxLength 255
+     */
+    spanId?: string
     /** Constrain the emissions to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, emissions of every type sharing the name are listed together. Pass the same value used for the chart so both describe the same series.
      *
      * * `gauge` - gauge

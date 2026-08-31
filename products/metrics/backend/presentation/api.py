@@ -554,6 +554,12 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         max_length=255,
         help_text="Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.",
     )
+    spanId = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text="Restrict to emissions recorded on this span (hex span id). Requires traceId, since a span id is only unique within its trace.",
+    )
     metricType = serializers.ChoiceField(
         choices=[t.value for t in MetricType],
         required=False,
@@ -577,6 +583,8 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
     def validate(self, attrs: dict) -> dict:
         if not attrs.get("metricName") and not attrs.get("traceId"):
             raise serializers.ValidationError("metricName or traceId is required.")
+        if attrs.get("spanId") and not attrs.get("traceId"):
+            raise serializers.ValidationError("spanId requires traceId.")
         return attrs
 
 
@@ -991,6 +999,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_from=query_data["dateFrom"],
                 date_to=query_data.get("dateTo") or timezone.now(),
                 trace_id=query_data.get("traceId") or None,
+                span_id=query_data.get("spanId") or None,
                 filters=filters,
                 metric_type=MetricType(query_data["metricType"]) if query_data.get("metricType") else None,
                 limit=query_data.get("limit") or 100,

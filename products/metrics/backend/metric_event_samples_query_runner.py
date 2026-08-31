@@ -66,6 +66,7 @@ class MetricEventSamplesQueryRunner:
         date_from: dt.datetime,
         date_to: dt.datetime,
         trace_id: str | None = None,
+        span_id: str | None = None,
         filters: Sequence[MetricFilter] = (),
         metric_type: MetricType | None = None,
         limit: int = 100,
@@ -84,11 +85,17 @@ class MetricEventSamplesQueryRunner:
         if limit <= 0 or limit > 1000:
             raise ValueError("limit must be in [1, 1000]")
 
+        if span_id and not trace_id:
+            # A span id is only unique within its trace, so an unanchored span filter
+            # would silently mix emissions from unrelated traces.
+            raise ValueError("span_id requires trace_id")
+
         self.team = team
         self.metric_name = metric_name or ""
         self.date_from = date_from
         self.date_to = date_to
         self.trace_id = _normalise_to_base64((trace_id or "").strip())
+        self.span_id = _normalise_to_base64((span_id or "").strip())
         self.filters = tuple(filters)
         self.metric_type = metric_type
         self.limit = limit
@@ -155,6 +162,7 @@ class MetricEventSamplesQueryRunner:
                       AND timestamp >= {date_from}
                       AND timestamp < {date_to}
                       AND ({trace_id} = '' OR trace_id = {trace_id})
+                      AND ({span_id} = '' OR span_id = {span_id})
                       AND {series_scope}
                     ORDER BY timestamp DESC
                     LIMIT {limit}
@@ -185,6 +193,7 @@ class MetricEventSamplesQueryRunner:
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "trace_id": ast.Constant(value=self.trace_id),
+                "span_id": ast.Constant(value=self.span_id),
                 "series_scope": self._series_scope_expr(),
                 "limit": ast.Constant(value=self.limit),
             },

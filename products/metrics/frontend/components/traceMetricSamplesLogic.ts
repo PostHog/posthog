@@ -12,6 +12,8 @@ const TRACE_SAMPLES_LIMIT = 100
 export interface TraceMetricSamplesLogicProps {
     /** Hex trace id, as the tracing product uses. */
     traceId: string
+    /** Narrow to emissions recorded on this span (hex span id), filtered server-side. */
+    spanId?: string | null
     /** ISO lower bound for the sample window — the caller derives it from the trace's timestamp. */
     dateFrom: string
     /** ISO upper bound for the sample window. */
@@ -57,7 +59,10 @@ export type traceMetricSamplesLogicType = MakeLogicType<
 export const traceMetricSamplesLogic = kea<traceMetricSamplesLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'traceMetricSamplesLogic']),
     props({} as TraceMetricSamplesLogicProps),
-    key((props) => props.traceId),
+    // Keyed by every query input: kea updates a mounted logic's props in place without
+    // re-firing afterMount, so a scope or window change must mint a fresh instance to
+    // refetch rather than silently serving the previous query's samples.
+    key((props) => `${props.traceId}|${props.spanId ?? ''}|${props.dateFrom}|${props.dateTo}`),
     connect({ values: [teamLogic, ['currentTeamId']] }),
     loaders(({ values, props }) => ({
         samples: [
@@ -70,6 +75,7 @@ export const traceMetricSamplesLogic = kea<traceMetricSamplesLogicType>([
                     const response = await metricsSamplesCreate(String(values.currentTeamId), {
                         query: {
                             traceId: props.traceId,
+                            ...(props.spanId ? { spanId: props.spanId } : {}),
                             dateFrom: props.dateFrom,
                             dateTo: props.dateTo,
                             limit: TRACE_SAMPLES_LIMIT,

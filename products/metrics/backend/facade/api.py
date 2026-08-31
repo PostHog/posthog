@@ -297,6 +297,7 @@ def list_metric_event_samples(
     date_from: dt.datetime,
     date_to: dt.datetime,
     trace_id: str | None = None,
+    span_id: str | None = None,
     filters: Sequence[MetricFilter] = (),
     metric_type: MetricType | None = None,
     limit: int = 100,
@@ -307,7 +308,9 @@ def list_metric_event_samples(
     Samples view can render raw rows and pivot to the trace behind any one.
     Pass `trace_id` for the reverse pivot — every emission on a given trace,
     across all metric names when `metric_name` is omitted (the tracing
-    product's Metrics tab). At least one of the two is required.
+    product's Metrics tab); `metric_name` or `trace_id` is required. Pass
+    `span_id` (with `trace_id`) to narrow to one span's emissions, so the
+    result stays exact even when the trace has more emissions than `limit`.
     `filters` and `metric_type` narrow the emissions to the same series a
     `run_metric_query` call with those arguments charts, so a filtered view
     and its chart agree. Both are matched against the emission's series, so
@@ -323,6 +326,7 @@ def list_metric_event_samples(
         date_from=date_from,
         date_to=date_to,
         trace_id=trace_id,
+        span_id=span_id,
         filters=filters,
         metric_type=metric_type,
         limit=limit,

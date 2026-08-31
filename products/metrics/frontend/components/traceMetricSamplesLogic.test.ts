@@ -74,8 +74,21 @@ describe('traceMetricSamplesLogic', () => {
         const [, request] = mockSamplesCreate.mock.calls[0]
         expect(request.query.traceId).toBe(TRACE_ID)
         expect(request.query).not.toHaveProperty('metricName')
+        expect(request.query).not.toHaveProperty('spanId')
         expect(request.query.dateFrom).toBe(PROPS.dateFrom)
         expect(logic.values.samples).toEqual([SAMPLE])
+    })
+
+    // Span scope narrows server-side, so the result stays exact even when the trace has
+    // more emissions than the request limit — a client-side filter over a capped response
+    // would silently show "no metrics" for spans outside the newest page.
+    it('passes the span id through to the request in span scope', async () => {
+        logic = traceMetricSamplesLogic({ ...PROPS, spanId: SAMPLE.span_id })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+
+        const [, request] = mockSamplesCreate.mock.calls[0]
+        expect(request.query.spanId).toBe(SAMPLE.span_id)
     })
 
     it('skips the request without metrics view access', async () => {

@@ -105,6 +105,32 @@ class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual([s.trace_id for s in traced], [TRACE_A_HEX])
 
+    def test_filters_by_span_id(self):
+        # The span-scope toggle in the tracing drawer narrows server-side, so a span's
+        # emissions stay exact even when the trace has more emissions than the limit.
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric_event(
+            team_id=self.team.id, metric_name="m", points=[(anchor, 1.0)], trace_id=TRACE_A_B64, span_id=SPAN_A_B64
+        )
+        seed_metric_event(team_id=self.team.id, metric_name="n", points=[(anchor, 2.0)], trace_id=TRACE_A_B64)
+        frm, to = anchor - dt.timedelta(hours=1), anchor + dt.timedelta(hours=1)
+
+        spanned = list_metric_event_samples(
+            team=self.team, date_from=frm, date_to=to, trace_id=TRACE_A_HEX, span_id=SPAN_A_HEX
+        )
+        self.assertEqual([(s.metric_name, s.span_id) for s in spanned], [("m", SPAN_A_HEX)])
+
+    def test_span_id_requires_trace_id(self):
+        now = timezone.now()
+        with self.assertRaises(ValueError):
+            MetricEventSamplesQueryRunner(
+                team=self.team,
+                metric_name="m",
+                span_id=SPAN_A_HEX,
+                date_from=now - dt.timedelta(hours=1),
+                date_to=now,
+            )
+
     @parameterized.expand(
         [
             ("filters", [MetricFilter(key="env", op=FilterOp.EQ, value="prod", scope=AttributeScope.ATTRIBUTE)], None),
