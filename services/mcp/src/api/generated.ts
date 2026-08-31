@@ -9278,6 +9278,8 @@ export namespace Schemas {
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
+     * * `min` - min
+     * * `max` - max
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
@@ -9290,6 +9292,8 @@ export namespace Schemas {
       Sum: 'sum',
       Avg: 'avg',
       Count: 'count',
+      Min: 'min',
+      Max: 'max',
       P95: 'p95',
       Rate: 'rate',
       Increase: 'increase',
@@ -87720,6 +87724,8 @@ export namespace Schemas {
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
+       * * `min` - min
+       * * `max` - max
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
@@ -87992,6 +87998,8 @@ export namespace Schemas {
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
+       * * `min` - min
+       * * `max` - max
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
@@ -88085,6 +88093,8 @@ export namespace Schemas {
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
+       * * `min` - min
+       * * `max` - max
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
@@ -88150,11 +88160,13 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
        *
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
+       * * `min` - min
+       * * `max` - max
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
