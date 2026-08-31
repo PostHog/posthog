@@ -1,7 +1,16 @@
--- Snapshot pinned to products/cohorts/backend/migrations/0009_cohort_backfill_per_kind_uniqueness.py,
--- the last migration that changed this DDL. 0010 alters only `marker_watch`'s help_text, which emits
--- no SQL.
+-- Snapshot pinned to
+-- products/cohorts/backend/migrations/0012_cohortbackfillchunk_next_attempt_at_and_more.py, the last
+-- migration that changed this DDL. 0010 alters only `marker_watch`'s help_text, which emits no SQL,
+-- and 0011 touches posthog_cohort columns this projection does not carry.
 -- External Team/Cohort foreign keys are omitted so the contract test stays schema-local.
+--
+-- Nothing enforces this snapshot against Django. No test diffs it with `sqlmigrate`, and the
+-- filename appears at one call site, so a later migration that changes these tables and forgets
+-- this file passes CI and diverges from production. Re-derive it by hand when you touch the
+-- `cohort_backfill_*` DDL: `python manage.py sqlmigrate cohorts <number>` prints the statements the
+-- migration emits (CI runs the same command to post migration SQL on a PR). Fold them in, drop the
+-- external Team/Cohort foreign key lines to keep the projection schema-local, and rename this file
+-- and its `include_str!` to the new number.
 
 CREATE TABLE cohort_backfill_runs (
     id uuid PRIMARY KEY,
@@ -59,8 +68,13 @@ CREATE TABLE cohort_backfill_chunks (
     person_range_lo uuid,
     person_range_hi uuid,
     attempts integer NOT NULL DEFAULT 0,
+    next_attempt_at timestamptz,
     last_error text NOT NULL DEFAULT '',
     tiles_produced bigint NOT NULL DEFAULT 0,
+    -- 0012 scan-volume columns. The DEFAULT is the contract `plan_chunks` leans on: it inserts an
+    -- explicit column list that names neither, so dropping the default would break planning.
+    scan_received_bytes bigint NOT NULL DEFAULT 0,
+    scan_decoded_bytes bigint NOT NULL DEFAULT 0,
     produce_hwms jsonb,
     confirmed_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
