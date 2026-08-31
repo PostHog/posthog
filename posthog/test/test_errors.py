@@ -49,6 +49,28 @@ class TestWrapClickhouseQueryError:
                 "CANNOT_CONVERT_TYPE",
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
             ),
+            # Type-coercion parse family: exposed as a 400, but the fixed string keeps the failing
+            # data value the raw CH text embeds out of the response.
+            (
+                6,
+                "CANNOT_PARSE_TEXT",
+                "Cannot parse a value in the query as text. Check the types in your comparisons and IN clauses.",
+            ),
+            (
+                26,
+                "CANNOT_PARSE_QUOTED_STRING",
+                "Cannot parse a value in the query as a quoted string. Check the types in your comparisons and IN clauses.",
+            ),
+            (
+                72,
+                "CANNOT_PARSE_NUMBER",
+                "Cannot parse a value in the query as a number. Check the types in your comparisons and IN clauses.",
+            ),
+            (
+                130,
+                "CANNOT_READ_ARRAY_FROM_TEXT",
+                "Cannot parse a value in the query as an array. Check the types in your comparisons and IN clauses.",
+            ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
         ]
     )
@@ -67,10 +89,8 @@ class TestWrapClickhouseQueryError:
             # SYNTAX_ERROR (62) stays internal: HogQL validates syntax first, so a raw CH syntax error
             # signals a PostHog SQL-generation bug that belongs in error tracking.
             (62, "SYNTAX_ERROR"),
-            # These parse/convert codes embed the failing data value in the CH message, so they stay
+            # These parse codes embed the failing data value in the CH message, so they stay
             # internal to avoid leaking source values on public shared insights.
-            (6, "CANNOT_PARSE_TEXT"),
-            (72, "CANNOT_PARSE_NUMBER"),
             (675, "CANNOT_PARSE_IPV4"),
             (676, "CANNOT_PARSE_IPV6"),
             (691, "UNKNOWN_ELEMENT_OF_ENUM"),
