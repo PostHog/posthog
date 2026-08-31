@@ -77,7 +77,9 @@ class TestBestEffortCache(SimpleTestCase):
         self.addCleanup(patch.stopall)
         cache.return_value.set.side_effect = ReadOnlyError("read only replica")
 
-        self.assertIsNone(tasks_redis.best_effort_cache_set("k", "v", timeout=60))
+        # Must not raise — the failed write is swallowed.
+        tasks_redis.best_effort_cache_set("k", "v", timeout=60)
+        cache.return_value.set.assert_called_once()
 
 
 class _ThreadHungryAsyncClient:
