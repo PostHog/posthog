@@ -9,7 +9,7 @@ import clsx from 'clsx'
 export function inboxCardRowClassName(attached: boolean, opts?: { dashed?: boolean; success?: boolean }): string {
     return clsx(
         'group flex w-full flex-col gap-2.5 @lg:flex-row @lg:items-stretch @lg:gap-3 px-4 py-3.5 transition-all duration-150',
-        opts?.success ? 'bg-success-highlight' : 'bg-surface-primary hover:bg-surface-secondary',
+        opts?.success ? 'bg-fill-success-secondary' : 'bg-surface-primary hover:bg-surface-secondary',
         attached
             ? 'border-b border-primary last:border-b-0'
             : opts?.dashed

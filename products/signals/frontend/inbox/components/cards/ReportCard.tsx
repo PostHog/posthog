@@ -253,9 +253,10 @@ export function ReportCard({
                 inboxCardRowClassName(attached, { dashed: !hasPr, success: isResolved }),
                 // Closed rows recede so open work stands out in the mixed flat list; hover restores
                 // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
-                // Resolved rows also carry the success tint (see inboxCardRowClassName): finished
-                // work, not discarded work.
-                (isDismissed || isResolved) && 'opacity-65 hover:opacity-100'
+                // Resolved rows fade less and carry the success tint (see inboxCardRowClassName):
+                // finished work, not discarded work.
+                isDismissed && 'opacity-65 hover:opacity-100',
+                isResolved && 'opacity-80 hover:opacity-100'
             )}
         >
             <div className="relative flex min-w-0 flex-1">
