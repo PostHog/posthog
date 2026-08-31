@@ -8,11 +8,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_forking_enabled,
-    is_slack_app_home_enabled,
-    is_slack_app_model_classifier_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -147,7 +143,6 @@ class SlackThreadHandler:
         self._integration: Integration | None = None
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
-        self._footer_flag: bool | None = None
         self._fork_flag: bool | None = None
         self._code_access: bool | None = None
 
@@ -162,18 +157,6 @@ class SlackThreadHandler:
             integration = self._get_integration()
             self._client = SlackIntegration(integration).client
         return self._client
-
-    def footer_enabled(self) -> bool:
-        """Whether this workspace shows run provenance.
-
-        Shares the model-classifier flag: choosing a model in a mention and being told
-        which model ran are two halves of one feature. Public so a caller can skip the
-        work of describing a run nobody will be shown, and memoized because that caller
-        and the footer builder both ask.
-        """
-        if self._footer_flag is None:
-            self._footer_flag = is_slack_app_model_classifier_enabled(self._get_integration())
-        return bool(self._footer_flag)
 
     def viewer_can_open_code_links(self) -> bool:
         """Whether this reply's reader can open a PostHog Code link. Memoized: the cards
@@ -201,25 +184,13 @@ class SlackThreadHandler:
         return self.reader_footer().task_url
 
     def _footer_block(self, include_task_url: bool = True) -> dict[str, Any] | None:
-        """This handler's footer, or `None` when the workspace isn't in the rollout.
-
-        "Configure" points at the Home tab, so it only appears where that tab exists — a
-        workspace outside the Home rollout would land on an empty one. The Home flag is
-        only consulted once there is actually something to gate.
-        """
-        # A handler with nothing to describe can't produce a footer, so it never pays for
-        # the flag lookups.
+        """This handler's footer, or `None` when there is nothing to describe."""
         if not self.run_footer.has_content():
-            return None
-        if not self.footer_enabled():
             return None
         footer = self.reader_footer()
         if not include_task_url:
             footer = replace(footer, task_url=None)
-        integration = self._get_integration()
-        configure_url = app_home_url(integration)
-        if configure_url and not is_slack_app_home_enabled(integration):
-            configure_url = None
+        configure_url = app_home_url(self._get_integration())
         return reply_footer_block(footer, configure_url)
 
     def _fork_menu(self) -> dict[str, Any] | None:

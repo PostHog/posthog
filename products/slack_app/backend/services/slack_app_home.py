@@ -32,11 +32,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_home_enabled,
-    is_slack_app_oauth_enabled,
-    is_slack_app_untagged_thread_followups_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
 from products.slack_app.backend.services.integration_resolver import load_integrations
 from products.slack_app.backend.services.model_catalogue import (
@@ -1470,24 +1466,10 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
 
     The caller resolves the integration through the shared region gate, so this
     region owns the workspace by the time we get here.
-
-    Gated by the slack-app-home flag — when off, the publish is skipped so
-    installs without the manifest changes (and workspaces that haven't opted
-    in) keep getting Slack's default blank Home tab instead of seeing an
-    interactive UI for a feature that doesn't fire downstream.
     """
 
     slack_user_id = event.get("user")
     if not slack_user_id:
-        return
-
-    if not is_slack_app_home_enabled(integration):
-        logger.info(
-            "slack_app_home_publish_skipped",
-            reason="flag_off",
-            slack_team_id=slack_team_id,
-            slack_user_id=slack_user_id,
-        )
         return
 
     effective = resolve_ai_preferences(integration, slack_user_id)
@@ -1511,7 +1493,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
-        untagged_followup_mode=_resolve_untagged_followup_mode_for_card(integration, slack_user_id),
+        untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
         has_project_access=bool(accessible),
     )
     try:
@@ -1540,12 +1522,6 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
 
     integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
-        return HttpResponse(status=200)
-
-    # The flag is the kill-switch for the whole feature — writes and modal
-    # opens must respect it too, otherwise a flipped-off flag silently
-    # accumulates rows that the resolver will ignore.
-    if not is_slack_app_home_enabled(integration):
         return HttpResponse(status=200)
 
     # The Home tab keeps no server-side view state — every payload carries the whole
@@ -1585,18 +1561,15 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_UNTAGGED_FOLLOWUP_MODE:
-        # Same gate the card is rendered behind, so a stale view can't write a
-        # setting for a workspace that has since been switched off.
-        if is_slack_app_untagged_thread_followups_enabled(integration, integration.integration_id):
-            _apply_untagged_followup_mode_pick(integration, slack_user_id, action)
+        _apply_untagged_followup_mode_pick(integration, slack_user_id, action)
         republish()
         return HttpResponse(status=200)
 
     if action_id == ACTION_UNLINK_ACCOUNT:
-        # Only act when the OAuth-link feature is on for this workspace —
+        # Only act when the OAuth-link feature is available for this install —
         # otherwise the button shouldn't have been rendered, and a stale
         # cached view shouldn't be allowed to drive deletes.
-        if is_slack_app_oauth_enabled(integration, integration.integration_id):
+        if is_slack_app_oauth_enabled(integration):
             _unlink_user_account(integration, slack_user_id)
         republish()
         return HttpResponse(status=200)
@@ -1647,9 +1620,6 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
     integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return _modal_error_response("This Slack workspace is no longer connected to PostHog.")
-
-    if not is_slack_app_home_enabled(integration):
-        return _modal_error_response("AI preferences are not available for this workspace right now.")
 
     runtime_adapter, model, reasoning_effort = parse_modal_submission(view)
 
@@ -1833,19 +1803,6 @@ def _write_row(
     )
 
 
-def _resolve_untagged_followup_mode_for_card(
-    integration: Integration, slack_user_id: str
-) -> UntaggedFollowupMode | None:
-    """The picker's current value, or ``None`` to leave the card out entirely.
-
-    The setting only means anything where untagged follow-ups run at all, so the
-    card lives behind the same flag as the behaviour it configures.
-    """
-    if not is_slack_app_untagged_thread_followups_enabled(integration, integration.integration_id):
-        return None
-    return resolve_untagged_followup_mode(integration, slack_user_id)
-
-
 def _apply_untagged_followup_mode_pick(integration: Integration, slack_user_id: str, action: dict) -> None:
     """Persist the picked mode. An unrecognised value is ignored rather than stored."""
 
@@ -1923,7 +1880,7 @@ def _republish_home(
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
-        untagged_followup_mode=_resolve_untagged_followup_mode_for_card(integration, slack_user_id),
+        untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
         has_project_access=bool(accessible),
     )
     try:
@@ -2108,7 +2065,7 @@ def _format_relative(when: datetime | None, *, now: datetime) -> str:
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
     slack_team_id = integration.integration_id
-    if not is_slack_app_oauth_enabled(integration, slack_team_id):
+    if not is_slack_app_oauth_enabled(integration):
         return AccountState(enabled=False)
 
     candidate_org_ids = _workspace_org_ids(slack_team_id)
@@ -2154,7 +2111,7 @@ def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | N
     if not candidate_org_ids:
         return None
 
-    if is_slack_app_oauth_enabled(integration, slack_team_id):
+    if is_slack_app_oauth_enabled(integration):
         linked_user = find_linked_posthog_user(
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
