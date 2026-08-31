@@ -1,11 +1,12 @@
 import re
-from collections.abc import Callable
-from typing import ClassVar, NoReturn
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
+from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.printer.postgres import PostgresPrinter
@@ -17,6 +18,11 @@ from posthog.hogql.printer.trino_functions import (
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.visitor import clone_expr
+
+from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.models import Table
 
 _TRINO_SIMPLE_TYPES = {
     "bigint": "BIGINT",
@@ -150,6 +156,12 @@ _TRINO_DATE_PARSE_SPECIFIERS = frozenset(
 )
 
 
+@frozen
+class _BinaryArguments:
+    left: str
+    right: str
+
+
 class TrinoPrinter(PostgresPrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "trino"
     DIALECT_LABEL: ClassVar[str] = "Trino"
@@ -256,8 +268,8 @@ class TrinoPrinter(PostgresPrinter):
         if name in {"empty", "notempty"}:
             return self._visit_empty(node, negated=name == "notempty")
         if name in {"in", "notin"}:
-            left, right = self._visit_binary_args(node)
-            return f"({left} {'NOT IN' if name == 'notin' else 'IN'} {right})"
+            binary_args = self._visit_binary_args(node)
+            return f"({binary_args.left} {'NOT IN' if name == 'notin' else 'IN'} {binary_args.right})"
         if name == "mapfromarrays":
             return self._visit_map_from_arrays(node)
         if name == "length" and node.args and isinstance(self._resolve_type(node.args[0]), ast.ArrayType):
@@ -290,8 +302,8 @@ class TrinoPrinter(PostgresPrinter):
             if len(node.args) == 2:
                 return f"with_timezone(CAST({self.visit(value_expr)} AS TIMESTAMP), {self.visit(node.args[1])})"
         if name == "totimezone":
-            value, timezone = self._visit_binary_args(node)
-            return f"at_timezone(with_timezone(CAST({value} AS TIMESTAMP), 'UTC'), {timezone})"
+            binary_args = self._visit_binary_args(node)
+            return f"at_timezone(with_timezone(CAST({binary_args.left} AS TIMESTAMP), 'UTC'), {binary_args.right})"
         if name == "parsedatetime":
             return self._visit_parse_datetime(node)
         if name == "tolastdayofweek":
@@ -308,10 +320,10 @@ class TrinoPrinter(PostgresPrinter):
             rendered = [f"CAST({self.visit(arg)} AS VARCHAR)" for arg in node.args]
             return f"concat({', '.join(rendered)})"
         if name == "repeat":
-            value, count = self._visit_binary_args(node)
+            binary_args = self._visit_binary_args(node)
             return (
-                f"CASE WHEN {value} IS NULL OR {count} IS NULL THEN NULL "
-                f"ELSE array_join(repeat({value}, {count}), '') END"
+                f"CASE WHEN {binary_args.left} IS NULL OR {binary_args.right} IS NULL THEN NULL "
+                f"ELSE array_join(repeat({binary_args.left}, {binary_args.right}), '') END"
             )
         if name == "sum" and len(node.args) == 1 and self._is_dynamic_property(node.args[0]):
             lowered = clone_expr(node)
@@ -361,11 +373,11 @@ class TrinoPrinter(PostgresPrinter):
         if name == "has":
             return self._visit_binary_function(node, "contains")
         if name == "hasany":
-            left, right = self._visit_binary_args(node)
-            return f"(cardinality(array_intersect({left}, {right})) > 0)"
+            binary_args = self._visit_binary_args(node)
+            return f"(cardinality(array_intersect({binary_args.left}, {binary_args.right})) > 0)"
         if name == "hasall":
-            left, right = self._visit_binary_args(node)
-            return f"(cardinality(array_except({right}, {left})) = 0)"
+            binary_args = self._visit_binary_args(node)
+            return f"(cardinality(array_except({binary_args.right}, {binary_args.left})) = 0)"
         if name == "range":
             return self._visit_range(node)
         if name in {"argmax", "argmin"}:
@@ -399,8 +411,8 @@ class TrinoPrinter(PostgresPrinter):
         if name == "match":
             return self._visit_binary_function(node, "regexp_like")
         if name in {"splitbychar", "splitbystring"}:
-            left, right = self._visit_binary_args(node)
-            return f"split({right}, {left})"
+            binary_args = self._visit_binary_args(node)
+            return f"split({binary_args.right}, {binary_args.left})"
         if name == "md5":
             rendered_value = self._visit_unary_arg(node)
             return f"to_hex(md5(to_utf8(CAST({rendered_value} AS VARCHAR))))"
@@ -410,8 +422,8 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_quantile(node, filtered=name == "quantileif")
         if name in {"dateadd", "datesub"}:
             if len(node.args) == 2:
-                left, right = self._visit_binary_args(node)
-                return f"({left} {'+' if name == 'dateadd' else '-'} {right})"
+                binary_args = self._visit_binary_args(node)
+                return f"({binary_args.left} {'+' if name == 'dateadd' else '-'} {binary_args.right})"
             if len(node.args) == 3:
                 unit, amount, value = (self.visit(arg) for arg in node.args)
                 if name == "datesub":
@@ -764,19 +776,20 @@ class TrinoPrinter(PostgresPrinter):
         arg_type = self._resolve_type(value_expr)
         if isinstance(value_expr, ast.PropertyAccess):
             arg_type = ast.StringType(nullable=True)
+        conjunction = "AND" if negated else "OR"
         if isinstance(arg_type, (ast.ArrayType, ast.MapType)):
             comparison = "> 0" if negated else "= 0"
-            return f"({rendered} IS {'NOT ' if negated else ''}NULL AND cardinality({rendered}) {comparison})"
+            return f"({rendered} IS {'NOT ' if negated else ''}NULL {conjunction} cardinality({rendered}) {comparison})"
         if isinstance(arg_type, ast.StringType):
             comparison = "<> ''" if negated else "= ''"
-            return f"({rendered} IS {'NOT ' if negated else ''}NULL AND {rendered} {comparison})"
+            return f"({rendered} IS {'NOT ' if negated else ''}NULL {conjunction} {rendered} {comparison})"
         self._unsupported(
             "TRINO_EMPTY_ARGUMENT_TYPE_UNSUPPORTED",
             f"{node.name} requires a string, array, or map argument in Trino mode.",
             node,
         )
 
-    def _json_path(self, members: list[str | int]) -> str:
+    def _json_path(self, members: Iterable[str | int]) -> str:
         path = "$"
         for member in members:
             if isinstance(member, int):
@@ -799,14 +812,14 @@ class TrinoPrinter(PostgresPrinter):
             self._invalid_function_arguments(node, f"{node.name} expects exactly 1 argument in Trino mode.")
         return self.visit(node.args[0])
 
-    def _visit_binary_args(self, node: ast.Call) -> tuple[str, str]:
+    def _visit_binary_args(self, node: ast.Call) -> _BinaryArguments:
         if len(node.args) != 2:
             self._invalid_function_arguments(node, f"{node.name} expects exactly 2 arguments in Trino mode.")
-        return self.visit(node.args[0]), self.visit(node.args[1])
+        return _BinaryArguments(left=self.visit(node.args[0]), right=self.visit(node.args[1]))
 
     def _visit_binary_function(self, node: ast.Call, target: str) -> str:
-        left, right = self._visit_binary_args(node)
-        return f"{target}({left}, {right})"
+        binary_args = self._visit_binary_args(node)
+        return f"{target}({binary_args.left}, {binary_args.right})"
 
     def _visit_variadic_function(self, node: ast.Call, target: str, minimum: int) -> str:
         if len(node.args) < minimum:
@@ -988,13 +1001,13 @@ class TrinoPrinter(PostgresPrinter):
         path_literal = "'" + path_value.replace("'", "''") + "'"
         return f"json_value({self.visit(node.args[0])}, {path_literal})"
 
-    def _print_table_sql(self, table) -> str:
+    def _print_table_sql(self, table: "Table") -> str:
         return self._print_table(table)
 
-    def _print_table(self, table) -> str:
+    def _print_table(self, table: "Table") -> str:
         if isinstance(table, NumbersTable):
             return "UNNEST"
-        if hasattr(table, "to_printed_trino"):
+        if isinstance(table, TrinoUnnestTable):
             return table.to_printed_trino(self.context)
         locator = resolve_trino_table_locator(table, self.context)
         if locator is not None:
@@ -1238,7 +1251,7 @@ class TrinoPrinter(PostgresPrinter):
         parts.append(arguments[start:].strip())
         return parts
 
-    def _unsafe_json_extract_trim_quotes(self, unsafe_field, unsafe_args):
+    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
         if not unsafe_args:
             return unsafe_field
         if len(unsafe_args) != 1:
@@ -1248,7 +1261,7 @@ class TrinoPrinter(PostgresPrinter):
             )
         return f"json_extract_scalar({unsafe_field}, {unsafe_args[0]})"
 
-    def _json_property_args(self, chain) -> list[str]:
+    def _json_property_args(self, chain: Iterable[str | int]) -> list[str]:
         return [self._json_path(chain)]
 
     def _assert_qualify_supported(self) -> None:

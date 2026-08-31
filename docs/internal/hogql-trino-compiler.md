@@ -10,6 +10,8 @@ The returned SQL uses named placeholders, with values stored in `context.values`
 
 Query Editor capability changes, case-insensitive connection lookup, and parameter submission belong to a separate connection-integration change. They are not prerequisites for compilation.
 
+For supported string, array, and map arguments, `empty(x)` returns true when the value is NULL or has zero length. `notEmpty(x)` requires a non-NULL value with nonzero length. String predicates use an empty-string comparison; arrays and maps use `cardinality`.
+
 ## Why some shared integration is necessary
 
 The backend owns its function mappings, structural rewrites, validation, and table rendering. These shared extension points let it reuse the existing compiler without duplicating its semantic pipeline:

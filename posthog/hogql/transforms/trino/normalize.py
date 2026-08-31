@@ -149,7 +149,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
 
 
 class TrinoArrayJoinFunctionLowerer(CloningVisitor):
-    def __init__(self, context: HogQLContext):
+    def __init__(self, context: HogQLContext) -> None:
         super().__init__(clear_types=False)
         self.context = context
         self.pending_unnests: list[tuple[str, str, ast.Expr]] = []
@@ -199,7 +199,7 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
 
 
 class TrinoNormalizer(TraversingVisitor):
-    def __init__(self, context: HogQLContext):
+    def __init__(self, context: HogQLContext) -> None:
         self.context = context
         self.unnest_index = 0
 

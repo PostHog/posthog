@@ -1,3 +1,6 @@
+import sqlite3
+from contextlib import closing
+
 import pytest
 
 from posthog.hogql import ast
@@ -11,6 +14,7 @@ from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 
 def _context_with_trino_table() -> HogQLContext:
@@ -273,15 +277,51 @@ def test_lowers_clickhouse_select_alias_references_to_expressions() -> None:
     assert "ORDER BY count(*) ASC" in sql
 
 
-def test_prints_empty_according_to_resolved_argument_type() -> None:
+@pytest.mark.parametrize(
+    "expression, expected",
+    [
+        (
+            "''",
+            "(%(hogql_val_0)s IS NULL OR %(hogql_val_0)s = ''), "
+            "(%(hogql_val_1)s IS NOT NULL AND %(hogql_val_1)s <> '')",
+        ),
+        ("[]", "(ARRAY[] IS NULL OR cardinality(ARRAY[]) = 0), (ARRAY[] IS NOT NULL AND cardinality(ARRAY[]) > 0)"),
+        (
+            "[1]",
+            "(ARRAY[1] IS NULL OR cardinality(ARRAY[1]) = 0), (ARRAY[1] IS NOT NULL AND cardinality(ARRAY[1]) > 0)",
+        ),
+        (
+            "mapFromArrays([], [])",
+            "(map(ARRAY[], ARRAY[]) IS NULL OR cardinality(map(ARRAY[], ARRAY[])) = 0), "
+            "(map(ARRAY[], ARRAY[]) IS NOT NULL AND cardinality(map(ARRAY[], ARRAY[])) > 0)",
+        ),
+        (
+            "mapFromArrays([1], [2])",
+            "(map(ARRAY[1], ARRAY[2]) IS NULL OR cardinality(map(ARRAY[1], ARRAY[2])) = 0), "
+            "(map(ARRAY[1], ARRAY[2]) IS NOT NULL AND cardinality(map(ARRAY[1], ARRAY[2])) > 0)",
+        ),
+    ],
+)
+def test_prints_empty_according_to_resolved_argument_type(expression: str, expected: str) -> None:
     context = _context_with_trino_table()
 
-    sql, _ = prepare_and_print_ast(parse_select("SELECT empty(''), notEmpty([1])"), context, "trino")
-
-    assert sql == (
-        "SELECT (%(hogql_val_0)s IS NULL AND %(hogql_val_0)s = ''), "
-        "(ARRAY[1] IS NOT NULL AND cardinality(ARRAY[1]) > 0)"
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT empty({expression}), notEmpty({expression})"), context, "trino"
     )
+
+    assert sql == f"SELECT {expected}"
+
+
+@pytest.mark.parametrize("value, expected_empty", [("", True), ("hello", False), (None, True)])
+def test_empty_string_predicates_return_expected_results(value: str | None, expected_empty: bool) -> None:
+    context = HogQLContext()
+    argument = ast.Constant(value=value, type=ast.StringType(nullable=True))
+    empty_sql = print_prepared_ast(ast.Call(name="empty", args=[argument]), context, "trino")
+    not_empty_sql = print_prepared_ast(ast.Call(name="notEmpty", args=[argument]), context, "trino")
+    sql, values = convert_pyformat_placeholders(f"SELECT {empty_sql}, {not_empty_sql}", context.values)
+
+    with closing(sqlite3.connect(":memory:")) as connection:
+        assert connection.execute(sql, values).fetchone() == (expected_empty, not expected_empty)
 
 
 def test_rejects_empty_for_unsupported_types_with_stable_error() -> None:

@@ -1,9 +1,14 @@
+from typing import TYPE_CHECKING
+
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     FieldOrTable,
     FunctionCallTable,
     UnknownDatabaseField,
 )
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 
 class TrinoUnnestTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
@@ -15,5 +20,5 @@ class TrinoUnnestTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
     def to_printed_hogql(self) -> str:
         return self.name
 
-    def to_printed_trino(self, context) -> str:
+    def to_printed_trino(self, context: "HogQLContext") -> str:
         return "UNNEST"
