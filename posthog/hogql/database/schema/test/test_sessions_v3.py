@@ -9,12 +9,14 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.schema import FilterLogicalOperator, HogQLQueryModifiers, SessionTableVersion
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.sessions_v3 import (
     get_lazy_session_table_properties_v3,
     get_lazy_session_table_values_v3,
@@ -797,7 +799,10 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([(None,), ("tub",)])
     def test_values_query_samples_raw_rows(self, search_term):
-        with self.capture_select_queries() as queries:
+        with (
+            patch.object(Database, "_fetch_sources", side_effect=AssertionError("full database build")),
+            self.capture_select_queries() as queries,
+        ):
             get_lazy_session_table_values_v3(key="$entry_utm_source", team=self.team, search_term=search_term)
 
         assert len(queries) == 1

@@ -4,6 +4,7 @@ from typing import cast
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -880,7 +881,10 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([(None,), ("tub",)])
     def test_values_query_samples_raw_rows(self, search_term):
-        with self.capture_select_queries() as queries:
+        with (
+            patch.object(Database, "_fetch_sources", side_effect=AssertionError("full database build")),
+            self.capture_select_queries() as queries,
+        ):
             get_lazy_session_table_values_v2(key="$entry_utm_source", team=self.team, search_term=search_term)
 
         assert len(queries) == 1

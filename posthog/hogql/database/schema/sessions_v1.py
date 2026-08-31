@@ -552,6 +552,8 @@ def select_session_property_values(
     which is far too slow for autocomplete. Unmerged rows can count a session more than once;
     that does not matter for a popularity ranking."""
     # Deferred: posthog.hogql.query imports the database, which imports this module.
+    from posthog.hogql.context import HogQLContext  # noqa: PLC0415
+    from posthog.hogql.database.database import Database  # noqa: PLC0415
     from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
 
     def value() -> ast.Expr:
@@ -596,7 +598,15 @@ def select_session_property_values(
     modifiers = create_default_modifiers_for_team(team).model_copy(
         update={"sessionTableVersion": session_table_version}
     )
-    return execute_hogql_query(query, team=team, query_type=query_type, modifiers=modifiers).results
+    # The query touches only the raw sessions table, so skip the per-team warehouse schema build.
+    database = Database.create_for_posthog_tables(team, modifiers=modifiers)
+    return execute_hogql_query(
+        query,
+        team=team,
+        query_type=query_type,
+        modifiers=modifiers,
+        context=HogQLContext(team_id=team.pk, database=database),
+    ).results
 
 
 def get_lazy_session_table_values_v1(key: str, search_term: Optional[str], team: "Team"):
