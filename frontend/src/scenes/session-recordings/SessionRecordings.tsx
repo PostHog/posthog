@@ -20,7 +20,7 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -44,7 +44,7 @@ import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
-    const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+    const recordingsDisabled = isAuthenticatedTeam(currentTeam) && !currentTeam.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
     const [loading, setLoading] = useState(false)
     const handleNewPlaylist = async (): Promise<void> => {
@@ -154,65 +154,67 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
 
 function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+    const recordingsDisabled = isAuthenticatedTeam(currentTeam) && !currentTeam.session_recording_opt_in
 
     return (
         <>
             {recordingsDisabled ? (
-                <LemonBanner type="info" hideIcon={true}>
-                    <div className="flex gap-8 p-8 md:flex-row justify-center flex-wrap">
-                        <div className="flex justify-center items-center w-full md:w-50">
-                            <WarningHog className="w-full h-auto md:h-[200px] md:w-[200px] max-w-50" />
-                        </div>
-                        <div className="flex flex-col gap-2 flex-shrink max-w-180">
-                            <h2 className="text-lg font-semibold">
-                                Session recordings are not yet enabled for this project
-                            </h2>
-                            <p className="font-normal">Enabling session recordings will help you:</p>
-                            <ul className="list-disc list-inside font-normal">
-                                <li>
-                                    <strong>Understand user behavior:</strong> Get a clear view of how people navigate
-                                    and interact with your product.
-                                </li>
-                                <li>
-                                    <strong>Identify UI/UX issues:</strong> Spot friction points and refine your design
-                                    to increase usability.
-                                </li>
-                                <li>
-                                    <strong>Improve customer support:</strong> Quickly diagnose problems and provide
-                                    more accurate solutions.
-                                </li>
-                                <li>
-                                    <strong>Refine product decisions:</strong> Use real insights to prioritize features
-                                    and improvements.
-                                </li>
-                            </ul>
-                            <p className="font-normal">
-                                Enable session recordings to unlock these benefits and create better experiences for
-                                your users.
-                            </p>
-                            <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
-                                <LemonButton
-                                    className="hidden @md:flex"
-                                    type="primary"
-                                    icon={<IconGear />}
-                                    to={urls.replaySettings()}
-                                >
-                                    Configure
-                                </LemonButton>
-                                <LemonButton
-                                    type="tertiary"
-                                    sideIcon={<IconOpenSidebar className="w-4 h-4" />}
-                                    to="https://posthog.com/docs/session-replay?utm_medium=in-product&utm_campaign=empty-state-docs-link"
-                                    data-attr="product-introduction-docs-link"
-                                    targetBlank
-                                >
-                                    Learn more
-                                </LemonButton>
+                <PostHogCaptureOnViewed name="replay-not-enabled-empty-state-shown">
+                    <LemonBanner type="info" hideIcon={true}>
+                        <div className="flex gap-8 p-8 md:flex-row justify-center flex-wrap">
+                            <div className="flex justify-center items-center w-full md:w-50">
+                                <WarningHog className="w-full h-auto md:h-[200px] md:w-[200px] max-w-50" />
+                            </div>
+                            <div className="flex flex-col gap-2 flex-shrink max-w-180">
+                                <h2 className="text-lg font-semibold">
+                                    Session recordings are not yet enabled for this project
+                                </h2>
+                                <p className="font-normal">Enabling session recordings will help you:</p>
+                                <ul className="list-disc list-inside font-normal">
+                                    <li>
+                                        <strong>Understand user behavior:</strong> Get a clear view of how people
+                                        navigate and interact with your product.
+                                    </li>
+                                    <li>
+                                        <strong>Identify UI/UX issues:</strong> Spot friction points and refine your
+                                        design to increase usability.
+                                    </li>
+                                    <li>
+                                        <strong>Improve customer support:</strong> Quickly diagnose problems and provide
+                                        more accurate solutions.
+                                    </li>
+                                    <li>
+                                        <strong>Refine product decisions:</strong> Use real insights to prioritize
+                                        features and improvements.
+                                    </li>
+                                </ul>
+                                <p className="font-normal">
+                                    Enable session recordings to unlock these benefits and create better experiences for
+                                    your users.
+                                </p>
+                                <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
+                                    <LemonButton
+                                        className="hidden @md:flex"
+                                        type="primary"
+                                        icon={<IconGear />}
+                                        to={urls.replaySettings()}
+                                    >
+                                        Configure
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="tertiary"
+                                        sideIcon={<IconOpenSidebar className="w-4 h-4" />}
+                                        to="https://posthog.com/docs/session-replay?utm_medium=in-product&utm_campaign=empty-state-docs-link"
+                                        data-attr="product-introduction-docs-link"
+                                        targetBlank
+                                    >
+                                        Learn more
+                                    </LemonButton>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </LemonBanner>
+                    </LemonBanner>
+                </PostHogCaptureOnViewed>
             ) : null}
         </>
     )
