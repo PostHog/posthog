@@ -3576,6 +3576,20 @@
             "readOnlyHint": false
         }
     },
+    "error-tracking-issues-assign-partial-update": {
+        "description": "Assign an error tracking issue to an organization member or role. Provide the issue ID as `id` and set `assignee` to a user with a numeric ID or a role with a UUID. Set `assignee` to null to remove the current assignment.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Assign error tracking issue",
+        "title": "Assign error tracking issue",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-merge-create": {
         "description": "Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and the issues to merge into it as `ids`.",
         "category": "Error tracking",
@@ -3591,7 +3605,7 @@
         }
     },
     "error-tracking-issues-partial-update": {
-        "description": "Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or update description.",
+        "description": "Update an error tracking issue's status, severity, name, or description. Use `error-tracking-issues-assign-partial-update` to change its assignee.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Update error tracking issue",

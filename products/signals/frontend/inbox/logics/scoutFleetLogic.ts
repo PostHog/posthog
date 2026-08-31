@@ -44,6 +44,8 @@ import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, Scou
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 /** Roster order: A to Z by name, or by lifecycle group so scouts that need a decision lead. */
 export type ScoutRosterSort = 'name' | 'status'
+import { configMatchesScoutOwner, listScoutOwnerOptions } from '../utils/scoutOwners'
+import type { ScoutOwnerOption } from '../utils/scoutOwners'
 import {
     computeFleetSummary,
     computeScoutRollups,
@@ -112,6 +114,7 @@ interface RosterFilterState {
     scoutSearch: string
     scoutEnabledFilter: ScoutEnabledFilter
     selectedScoutTags: string[]
+    selectedScoutOwner: string | null
 }
 
 // Merge the roster filters into `base`, writing only params that differ from the default so the bare
@@ -133,6 +136,11 @@ function rosterFilterSearchParams(base: Record<string, any>, filters: RosterFilt
         params.scoutTags = filters.selectedScoutTags.join(',')
     } else {
         delete params.scoutTags
+    }
+    if (filters.selectedScoutOwner) {
+        params.scoutOwner = filters.selectedScoutOwner
+    } else {
+        delete params.scoutOwner
     }
     return params
 }
@@ -159,17 +167,20 @@ function parseRosterFilterSearchParams(searchParams: Record<string, any>): Roste
                 ? searchParams.scoutEnabled
                 : 'all',
         selectedScoutTags: tags ? tags.split(',').filter(Boolean) : [],
+        selectedScoutOwner: readTextParam(searchParams.scoutOwner) || null,
     }
 }
 
-// The URL mirrors what the tag control shows, and that control only lists tags the fleet still uses.
-// Until the configs load there is nothing to check a selection against, so the raw selection stands
-// and a shared link keeps its tags.
+// The URL mirrors what the tag and owner controls show, and those controls only list tags and owners
+// the fleet still uses. Until the configs load there is nothing to check a selection against, so the
+// raw selection stands and a shared link keeps what it carried.
 function rosterFilterUrlState(values: scoutFleetLogicValues): RosterFilterState {
+    const unresolvedFleet = values.scoutConfigs === null
     return {
         scoutSearch: values.scoutSearch,
         scoutEnabledFilter: values.scoutEnabledFilter,
-        selectedScoutTags: values.scoutConfigs === null ? values.selectedScoutTags : values.activeScoutTags,
+        selectedScoutTags: unresolvedFleet ? values.selectedScoutTags : values.activeScoutTags,
+        selectedScoutOwner: unresolvedFleet ? values.selectedScoutOwner : values.activeScoutOwner,
     }
 }
 
@@ -181,6 +192,7 @@ function sameTags(a: string[], b: string[]): boolean {
 export interface scoutFleetLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    activeScoutOwner: string | null
     activeScoutTags: string[]
     aiConsentDisabledReason: string | null
     customScoutCount: number
@@ -221,12 +233,14 @@ export interface scoutFleetLogicValues {
     scoutEnabledFilter: ScoutEnabledFilter
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    scoutOwnerOptions: ScoutOwnerOption[]
     scoutRosterSort: ScoutRosterSort
     scoutRuns: SignalScoutRunSummary[]
     scoutRunsLoadedOnce: boolean
     scoutRunsLoading: boolean
     scoutSearch: string
     scoutTagOptions: ScoutTagOption[]
+    selectedScoutOwner: string | null
     selectedScoutTags: string[]
     updatingScoutIds: string[]
 }
@@ -246,9 +260,11 @@ export interface scoutFleetLogicActions {
     hydrateRosterFilters: (
         search: string,
         filter: ScoutEnabledFilter,
-        tags: string[]
+        tags: string[],
+        owner: string | null
     ) => {
         filter: ScoutEnabledFilter
+        owner: string | null
         search: string
         tags: string[]
     }
@@ -355,6 +371,9 @@ export interface scoutFleetLogicActions {
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
     }
+    setScoutOwnerFilter: (owner: string | null) => {
+        owner: string | null
+    }
     setScoutRosterSort: (sort: ScoutRosterSort) => {
         sort: ScoutRosterSort
     }
@@ -412,11 +431,14 @@ export interface scoutFleetLogicMeta {
         lastRunAt: (scoutConfigs: SignalScoutConfigApi[] | null) => string | null
         scoutTagOptions: (scoutConfigs: SignalScoutConfigApi[] | null) => ScoutTagOption[]
         activeScoutTags: (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]) => string[]
+        scoutOwnerOptions: (scoutConfigs: SignalScoutConfigApi[] | null) => ScoutOwnerOption[]
+        activeScoutOwner: (selectedScoutOwner: string | null, scoutOwnerOptions: ScoutOwnerOption[]) => string | null
         rosterScouts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
             rosterEvaluatedAt: number,
             activeScoutTags: string[],
+            activeScoutOwner: string | null,
             scoutSearch: string,
             scoutEnabledFilter: ScoutEnabledFilter,
             scoutRosterSort: ScoutRosterSort
@@ -482,13 +504,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         setScoutSearch: (search: string) => ({ search }),
         setRosterEvaluatedAt: (evaluatedAt: number) => ({ evaluatedAt }),
         setScoutEnabledFilter: (filter: ScoutEnabledFilter) => ({ filter }),
+        setScoutOwnerFilter: (owner: string | null) => ({ owner }),
         setScoutRosterSort: (sort: ScoutRosterSort) => ({ sort }),
         // Bulk-applies the roster filters from the URL. Kept out of `actionToUrl` so hydrating from a
         // link does not echo the same URL back as a fresh history entry.
-        hydrateRosterFilters: (search: string, filter: ScoutEnabledFilter, tags: string[]) => ({
+        hydrateRosterFilters: (search: string, filter: ScoutEnabledFilter, tags: string[], owner: string | null) => ({
             search,
             filter,
             tags,
+            owner,
         }),
         runScoutNow: (configId: string) => ({ configId }),
         runScoutNowFinished: (configId: string) => ({ configId }),
@@ -691,6 +715,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 hydrateRosterFilters: (_, { filter }) => filter,
             },
         ],
+        selectedScoutOwner: [
+            null as string | null,
+            {
+                setScoutOwnerFilter: (_, { owner }) => owner,
+                hydrateRosterFilters: (_, { owner }) => owner,
+            },
+        ],
         scoutRosterSort: [
             'name' as ScoutRosterSort,
             {
@@ -813,10 +844,22 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]): string[] =>
                 selectedScoutTags.filter((tag) => scoutTagOptions.some((option) => option.tag === tag)),
         ],
+        scoutOwnerOptions: [
+            (s) => [s.scoutConfigs],
+            (scoutConfigs: SignalScoutConfig[] | null): ScoutOwnerOption[] => listScoutOwnerOptions(scoutConfigs ?? []),
+        ],
+        // Same rule as `activeScoutTags`: a selection the control no longer offers stops narrowing the
+        // roster, so handing a scout over leaves a visibly unfiltered list rather than an empty one.
+        activeScoutOwner: [
+            (s) => [s.selectedScoutOwner, s.scoutOwnerOptions],
+            (selectedScoutOwner: string | null, scoutOwnerOptions: ScoutOwnerOption[]): string | null =>
+                scoutOwnerOptions.some((option) => option.uuid === selectedScoutOwner) ? selectedScoutOwner : null,
+        ],
         /**
          * The roster as one alphabetical list, each row tagged with its lifecycle group and narrowed
-         * by the roster's own chrome (search and the tag filter). `rosterEvaluatedAt` advances only
-         * when time changes a lifecycle group, so settled polls keep this selector's output stable.
+         * by the roster's own chrome (search and the tag, owner, and on/off filters).
+         * `rosterEvaluatedAt` advances only when time changes a lifecycle group, so settled polls keep
+         * this selector's output stable.
          */
         rosterScouts: [
             (s) => [
@@ -824,6 +867,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 s.rollups,
                 s.rosterEvaluatedAt,
                 s.activeScoutTags,
+                s.activeScoutOwner,
                 s.scoutSearch,
                 s.scoutEnabledFilter,
                 s.scoutRosterSort,
@@ -833,6 +877,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 rollups: Map<string, ScoutRollup>,
                 rosterEvaluatedAt: number,
                 activeScoutTags: string[],
+                activeScoutOwner: string | null,
                 scoutSearch: string,
                 scoutEnabledFilter: ScoutEnabledFilter,
                 scoutRosterSort: ScoutRosterSort
@@ -841,6 +886,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 const now = new Date(rosterEvaluatedAt)
                 const rows = [...(scoutConfigs ?? [])]
                     .filter((config) => configMatchesScoutTags(config, activeScoutTags))
+                    .filter((config) => configMatchesScoutOwner(config, activeScoutOwner))
                     .filter(
                         (config) =>
                             scoutEnabledFilter === 'all' || config.enabled === (scoutEnabledFilter === 'enabled')
@@ -976,6 +1022,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 surface: 'fleet_list',
                 // `filter_match_count`: rows still shown after every filter.
                 extra: { filter, filter_match_count: values.rosterScouts.length },
+            })
+        },
+        // The owner's identity stays out of the payload: which teammate was picked answers no product
+        // question, and whether the filter is used at all does.
+        setScoutOwnerFilter: ({ owner }) => {
+            captureScoutAction({
+                actionType: 'filter_owner',
+                surface: 'fleet_list',
+                extra: { filter: owner ? 'owner' : 'all', filter_match_count: values.rosterScouts.length },
             })
         },
         // Debounced so a burst of keystrokes settles once, on pause. The URL is rewritten through
@@ -1250,8 +1305,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         },
     })),
 
-    // Enabled and tag filters push, so Back and Forward step through them. Search is written by its
-    // own debounced listener via `replace`, so it is not registered here.
+    // Enabled, tag, and owner filters push, so Back and Forward step through them. Search is written
+    // by its own debounced listener via `replace`, so it is not registered here.
     actionToUrl(({ values }) => {
         const toUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
             router.values.location.pathname,
@@ -1262,6 +1317,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         return {
             setScoutEnabledFilter: toUrl,
             setScoutTagFilter: toUrl,
+            setScoutOwnerFilter: toUrl,
         }
     }),
 
@@ -1273,7 +1329,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             { method }: { method: 'PUSH' | 'REPLACE' | 'POP' }
         ): void => {
             const hasRosterParams =
-                'scoutSearch' in searchParams || 'scoutEnabled' in searchParams || 'scoutTags' in searchParams
+                'scoutSearch' in searchParams ||
+                'scoutEnabled' in searchParams ||
+                'scoutTags' in searchParams ||
+                'scoutOwner' in searchParams
             if (!hasRosterParams) {
                 // Back or Forward onto a bare roster URL asks for the default, unfiltered view: reset
                 // the filters and leave the URL bare so a second Back can still reach the entries
@@ -1282,9 +1341,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     if (
                         values.scoutSearch !== '' ||
                         values.scoutEnabledFilter !== 'all' ||
-                        values.selectedScoutTags.length > 0
+                        values.selectedScoutTags.length > 0 ||
+                        values.selectedScoutOwner !== null
                     ) {
-                        actions.hydrateRosterFilters('', 'all', [])
+                        actions.hydrateRosterFilters('', 'all', [], null)
                     }
                     return
                 }
@@ -1312,11 +1372,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             if (
                 parsed.scoutSearch === values.scoutSearch &&
                 parsed.scoutEnabledFilter === values.scoutEnabledFilter &&
-                sameTags(parsed.selectedScoutTags, values.selectedScoutTags)
+                sameTags(parsed.selectedScoutTags, values.selectedScoutTags) &&
+                parsed.selectedScoutOwner === values.selectedScoutOwner
             ) {
                 return
             }
-            actions.hydrateRosterFilters(parsed.scoutSearch, parsed.scoutEnabledFilter, parsed.selectedScoutTags)
+            actions.hydrateRosterFilters(
+                parsed.scoutSearch,
+                parsed.scoutEnabledFilter,
+                parsed.selectedScoutTags,
+                parsed.selectedScoutOwner
+            )
         }
         return {
             [urls.inbox('scouts')]: applyFromUrl,
