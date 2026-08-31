@@ -32,7 +32,7 @@ tiles, or `FeaturePreviewSceneGate` rather than scene empty states.
 
 ## Adopted
 
-25 scenes. The 11 marked "in review" are the stack under PR #90607 and are not on `master` yet.
+Rows marked "in review" are not on `master` yet. See "Regenerating the lists" for a live count.
 
 | Product                | Scene                                                                               | Status                |
 | ---------------------- | ----------------------------------------------------------------------------------- | --------------------- |
@@ -50,7 +50,7 @@ tiles, or `FeaturePreviewSceneGate` rather than scene empty states.
 | Skills                 | `products/skills/frontend/LLMSkillsScene.tsx`                                       | on master             |
 | User interviews        | `products/user_interviews/frontend/UserInterviews.tsx`                              | on master             |
 | Web scripts            | `frontend/src/scenes/data-pipelines/WebScriptsScene.tsx`                            | on master             |
-| Error tracking         | `products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx` | in review             |
+| Error tracking         | `products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx` | on master             |
 | Logs                   | `products/logs/frontend/LogsScene.tsx`                                              | in review             |
 | Tracing                | `products/tracing/frontend/TracingScene.tsx`                                        | in review             |
 | Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | in review             |
@@ -61,6 +61,7 @@ tiles, or `FeaturePreviewSceneGate` rather than scene empty states.
 | Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | in review             |
 | Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`               | in review             |
 | Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                   | in review             |
+| Actions                | `products/actions/frontend/pages/Actions.tsx`                                       | on master             |
 
 Only four products resolve their status at app boot, via a `setupProbe` in their manifest:
 LLM analytics, error tracking, MCP analytics, web analytics.
@@ -81,7 +82,6 @@ These are the scenes a new user is most likely to land on before they have data.
 | Single empty dashboard | `frontend/src/scenes/dashboard/EmptyDashboardComponent.tsx` | `ProductIntroduction`                                                                  |
 | Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                   | `ProductIntroduction`, plus a second table-level empty state                           |
 | Annotations            | `frontend/src/scenes/annotations/Annotations.tsx`           | `ProductIntroduction`                                                                  |
-| Actions                | `products/actions/frontend/components/ActionsTable.tsx`     | `ProductIntroduction`                                                                  |
 
 ### Tier 2: cheap, or actively misleading today
 

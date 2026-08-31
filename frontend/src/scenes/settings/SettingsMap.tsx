@@ -898,7 +898,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
-                flag: LogsFeatureFlagKeys.metricRules,
+                flag: 'METRICS',
                 keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {
@@ -2237,7 +2237,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Bind your Slack identity to this PostHog account so @PostHog mentions route to you even when your Slack email and PostHog email differ.',
                 component: <PersonalSlackIntegrations />,
                 keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
-                flag: 'SLACK_APP_OAUTH',
             },
             {
                 id: 'personal-integrations-posthog',

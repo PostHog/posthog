@@ -13,10 +13,9 @@ import {
 
 import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
@@ -27,7 +26,6 @@ export function SlackNotConfiguredBanner({
     type = 'info',
     className,
 }: Partial<Pick<LemonBannerProps, 'type' | 'className'>>): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     return (
         <LemonBanner type={type} className={className}>
             <div className="flex flex-col gap-2">
@@ -51,12 +49,10 @@ export function SlackNotConfiguredBanner({
                         />
                     </Link>
                 </div>
-                {featureFlags[FEATURE_FLAGS.SLACK_APP_ASSISTANT] && (
-                    <span className="text-sm text-secondary">
-                        Adding PostHog creates a public #posthog-inbox channel in your Slack workspace, where PostHog
-                        posts what it finds.
-                    </span>
-                )}
+                <span className="text-sm text-secondary">
+                    Adding PostHog creates a public #posthog-inbox channel in your Slack workspace, where PostHog posts
+                    what it finds.
+                </span>
             </div>
         </LemonBanner>
     )

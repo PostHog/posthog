@@ -126,6 +126,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
+from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
 from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
 
@@ -255,6 +256,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="30"),
         reconcile_ses_tenant_states.s(),
         name="ses tenant reputation reconciliation",
+    )
+
+    # Workflow email trust tiers - daily at 7:15 AM UTC, after the tenant reconciliation above.
+    # Promotion is intentionally slow (a team must hold a tier for days), so a daily pass is enough.
+    # Demotions do not wait for it: the staff suspension action recomputes the team directly.
+    sender.add_periodic_task(
+        crontab(hour="7", minute="15"),
+        recompute_workflows_email_sending_tiers.s(),
+        name="workflows email sending tier recomputation",
     )
 
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :00
