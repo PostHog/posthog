@@ -882,6 +882,7 @@ function AccountsTableSkeleton({ expandable }: { expandable: boolean }): JSX.Ele
 
 export function AccountsTable(): JSX.Element {
     const { accountsDataTableQuery, accountsQuerySource, sortedRowsTransformer } = useValues(accountsLogic)
+    const { columnWidths } = useValues(accountsViewsLogic)
     const { responseLoading, response } = useValues(
         dataNodeLogic({
             key: ACCOUNTS_TABLE_DATA_NODE_KEY,
@@ -908,7 +909,7 @@ export function AccountsTable(): JSX.Element {
                 context={{
                     columns: contextColumns,
                     tableLayout: 'fixed',
-                    tableStyle: { width: 'max-content', minWidth: '100%' },
+                    tableStyle: Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
                     expandable,
                     dataTableRowsTransformer: sortedRowsTransformer,
                     dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
