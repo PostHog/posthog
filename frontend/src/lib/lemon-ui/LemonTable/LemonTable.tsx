@@ -21,6 +21,7 @@ import { BulkSelectionBar } from './BulkSelectionBar'
 import { determineColumnKey, getStickyColumnInfo } from './columnLayoutUtils'
 import { LemonTableLoader } from './LemonTableLoader'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
+import { TableColumnResizeHandle } from './TableColumnResizeHandle'
 import { TableRow } from './TableRow'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBulkSelection'
@@ -489,6 +490,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                 'LemonTable__header',
                                                                 column.sorter && 'LemonTable__header--actionable',
                                                                 columnIndex === 0 && 'LemonTable__boundary',
+                                                                column.resizable && 'relative',
                                                                 firstColumnSticky &&
                                                                     columnGroupIndex === 0 &&
                                                                     columnIndex === 0 &&
@@ -661,6 +663,12 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                         />
                                                                     ))}
                                                             </div>
+                                                            {column.resizable && column.onResize ? (
+                                                                <TableColumnResizeHandle
+                                                                    onResize={column.onResize}
+                                                                    onResizeEnd={column.onResizeEnd}
+                                                                />
+                                                            ) : null}
                                                         </th>
                                                     )
                                                 })

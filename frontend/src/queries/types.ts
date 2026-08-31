@@ -108,7 +108,10 @@ export interface QueryContextColumn {
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent
     align?: 'left' | 'right' | 'center' // default is left
-    width?: string
+    width?: string | number
+    resizable?: boolean
+    onResize?: (width: number) => void
+    onResizeEnd?: () => void
     hidden?: boolean // don't show this column in the table
     isRowFillFraction?: boolean // if true, this row will be filled with a background color based on the value (from 0 to 1)
 }
