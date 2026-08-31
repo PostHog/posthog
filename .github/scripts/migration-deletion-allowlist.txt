@@ -15,3 +15,16 @@
 # agent_platform product database, which is destroyed wholesale rather than
 # migrated down, so there is no table left behind and no fresh-DB divergence.
 products/agent_platform/backend/migrations/
+products/wizard/backend/migrations/0008_add_execution_failed_error_code.py
+products/wizard/backend/migrations/0009_add_dispatch_failed_error_code.py
+products/wizard/backend/migrations/0010_support_pull_request_artifacts.py
+products/wizard/backend/migrations/0011_add_wizard_run_program.py
+products/wizard/backend/migrations/0012_backfill_wizard_run_program_version.py
+products/wizard/backend/migrations/0013_add_run_idempotency.py
+products/wizard/backend/migrations/0014_add_run_idempotency_constraint.py
+products/wizard/backend/migrations/0015_add_run_dispatch_state.py
+products/wizard/backend/migrations/0016_create_wizard_worker.py
+products/wizard/backend/migrations/0017_add_run_diagnostics.py
+products/wizard/backend/migrations/0018_add_run_cancellation_state.py
+products/wizard/backend/migrations/0019_add_wizard_worker_usage.py
+products/wizard/backend/migrations/0020_add_run_dispatch_retry_time.py
