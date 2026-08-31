@@ -18,7 +18,7 @@ MAX_DIAGNOSTIC_MESSAGE_CHARS = 1_000
 MAX_SECURITY_FINDINGS = 20
 MAX_SECURITY_REVIEW_TEXT_CHARS = 2_000
 WIDGET_SECURITY_REVIEW_MODEL = "claude-haiku-4-5"
-WIDGET_SECURITY_REVIEW_VERSION = "1"
+WIDGET_SECURITY_REVIEW_VERSION = "2"
 WIDGET_SECURITY_REVIEW_TIMEOUT_SECONDS = 60.0
 WIDGET_SECURITY_REVIEW_MAX_TOKENS = 2_048
 
@@ -202,7 +202,9 @@ def _parse_generation(content: str) -> GeneratedWidgetSource:
 def _security_review_prompt(*, source: str, input_names: list[str]) -> str:
     return f"""Review this generated notebook widget for concrete browser security risks.
 
-The widget runs as arbitrary JavaScript in a sandboxed cross-origin iframe. It can use the `ph.readFrame` bridge only for {json.dumps(input_names)}. Static validation already rejects imports outside the approved package set, direct network APIs, dynamic imports, CommonJS require, inline scripts, and undeclared frame names.
+The widget runs as arbitrary JavaScript in a sandboxed cross-origin iframe. The trusted runtime removes `ph.state` and enforces {json.dumps(input_names)} as the exact `ph.readFrame` allow-list. Static validation rejects imports outside the approved package set, direct network APIs, dynamic imports, CommonJS require, and inline scripts.
+
+Runtime navigation interception is defense in depth, not proof that navigation is safe. The Navigation API guard works only in Chromium. Click, submit, and `window.open` guards cover common paths elsewhere, but programmatic self-navigation can remain possible in other browsers.
 
 Look for behavior that the static checks cannot reliably prove safe, including:
 - data exfiltration through navigation, forms, images, media, WebSockets, browser APIs, or parent-window messaging
