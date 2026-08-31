@@ -71,8 +71,8 @@ import {
   useSearchSections,
 } from "@posthog/ui/features/command/useSearchSections";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
 import {
@@ -221,8 +221,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     import.meta.env.DEV,
   );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
-  // With channel reports on, spaces own reports and the inbox entry goes away.
-  const channelReportsEnabled = useChannelReportsEnabled();
+  const inboxAvailable = useInboxAvailable();
   const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const { theme, setTheme } = useThemeStore();
@@ -366,9 +365,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         shortcut: SHORTCUTS.SETTINGS,
         onRun: () => openSettingsDialog(),
       },
-      ...(channelReportsEnabled
-        ? []
-        : [
+      ...(inboxAvailable
+        ? [
             {
               id: "inbox",
               label: "Self-driving",
@@ -381,7 +379,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                 navigateToInbox();
               },
             } satisfies Command,
-          ]),
+          ]
+        : []),
       {
         id: "archived",
         label: "Archived",
@@ -620,7 +619,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
-    channelReportsEnabled,
+    inboxAvailable,
     spendAnalysisEnabled,
   ]);
 
