@@ -1,5 +1,6 @@
 import {
   ArrowDownIcon,
+  ArrowsOutSimpleIcon,
   ArrowUpIcon,
   ChartLineUpIcon,
   FileTextIcon,
@@ -271,15 +272,11 @@ export function ReportTriageFocus({
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       switch (event.key) {
-        case "j":
         case "ArrowDown":
-        case "ArrowRight":
           event.preventDefault();
           goNext();
           break;
-        case "k":
         case "ArrowUp":
-        case "ArrowLeft":
           event.preventDefault();
           goPrev();
           break;
@@ -472,18 +469,20 @@ export function ReportTriageFocus({
               <div className="ml-auto flex items-center gap-2">
                 <Button
                   type="button"
-                  variant="default"
+                  variant="outline"
                   className="h-9 gap-2 px-4 text-[14px]"
                   onClick={handleOpenReport}
                 >
+                  <ArrowsOutSimpleIcon />
                   Open report
                 </Button>
                 <Button
                   type="button"
-                  variant="default"
+                  variant="outline"
                   className="h-9 gap-2 px-4 text-[14px]"
                   onClick={() => setExpanded((current) => !current)}
                 >
+                  <FileTextIcon />
                   {expanded ? "Hide summary" : "Read summary"}
                 </Button>
               </div>
@@ -509,8 +508,8 @@ export function ReportTriageFocus({
 
           <div className="flex flex-wrap items-center justify-center gap-4 text-[13px] text-gray-10">
             <span className="flex items-center gap-1">
-              <KeyHint>J</KeyHint>
-              <KeyHint>K</KeyHint>
+              <KeyHint>↑</KeyHint>
+              <KeyHint>↓</KeyHint>
               move
             </span>
             {prShortcut && (

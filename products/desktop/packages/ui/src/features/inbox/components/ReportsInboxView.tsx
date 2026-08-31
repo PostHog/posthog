@@ -402,41 +402,53 @@ function InboxSection({
   caption?: string;
   emptyNote?: string;
 }) {
+  const [open, setOpen] = useState(true);
   const [expanded, setExpanded] = useState(false);
   if (count === 0 && reports.length === 0 && !emptyNote) return null;
   const visible = expanded ? reports : reports.slice(0, SECTION_PREVIEW_LIMIT);
   const hidden = reports.length - visible.length;
   return (
-    <section className="flex flex-col gap-1.5">
-      <h2 className="flex items-baseline gap-2 border-(--gray-5) border-b pb-1 font-medium text-[12px] text-gray-10 uppercase tracking-wide">
-        {title}
-        <span className="tabular-nums">({count})</span>
+    <section className="flex flex-col gap-2">
+      <button
+        type="button"
+        className="flex w-full cursor-pointer items-center gap-2 rounded px-0.5 py-1 text-left"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-1 font-mono font-semibold text-[11px] text-gray-10 uppercase tracking-widest">
+          {title}
+          <span className="tabular-nums">({count})</span>
+        </span>
         {caption && (
-          <span className="font-normal normal-case tracking-normal">
-            · {caption}
-          </span>
+          <span className="text-[12px] text-gray-10">· {caption}</span>
         )}
-      </h2>
-      {count === 0 && reports.length === 0 ? (
-        <p className="px-1 py-2 text-[13.5px] text-gray-10">{emptyNote}</p>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {visible.map((report) => (
-            <InboxReportRow key={report.id} report={report} />
-          ))}
-          {hidden > 0 && (
-            <Button
-              type="button"
-              variant="link-muted"
-              size="sm"
-              className="self-center text-gray-10"
-              onClick={() => setExpanded(true)}
-            >
-              Show more ({hidden})
-            </Button>
-          )}
-        </div>
-      )}
+        <div className="h-px flex-1 bg-(--gray-5)" />
+        <CaretDownIcon
+          size={12}
+          className={`text-gray-9 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open &&
+        (count === 0 && reports.length === 0 ? (
+          <p className="px-1 py-2 text-[13.5px] text-gray-10">{emptyNote}</p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {visible.map((report) => (
+              <InboxReportRow key={report.id} report={report} />
+            ))}
+            {hidden > 0 && (
+              <Button
+                type="button"
+                variant="link-muted"
+                size="sm"
+                className="self-center text-gray-10"
+                onClick={() => setExpanded(true)}
+              >
+                Show more ({hidden})
+              </Button>
+            )}
+          </div>
+        ))}
     </section>
   );
 }
@@ -619,16 +631,20 @@ function ResolvedSection({
   }, [expanded, canAutoPageSearch, isFetchingNextPage, fetchNextPage]);
 
   return (
-    <section className="flex flex-col gap-1.5">
+    <section className="flex flex-col gap-2">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-baseline gap-2 border-(--gray-5) border-b pb-1 text-left font-medium text-[12px] text-gray-10 uppercase tracking-wide"
+        className="flex w-full cursor-pointer items-center gap-2 rounded px-0.5 py-1 text-left"
+        aria-expanded={expanded}
       >
-        Resolved & archived
+        <span className="font-mono font-semibold text-[11px] text-gray-10 uppercase tracking-widest">
+          Resolved
+        </span>
+        <div className="h-px flex-1 bg-(--gray-5)" />
         <CaretDownIcon
-          size={11}
-          className={expanded ? "rotate-180 self-center" : "self-center"}
+          size={12}
+          className={`text-gray-9 transition-transform ${expanded ? "rotate-180" : ""}`}
         />
       </button>
       {expanded &&

@@ -181,7 +181,7 @@ describe("ReportsInboxView", () => {
     mocks.activeReports = [activeReport("active-report", "Checkout summary")];
     render(<ReportsInboxView />);
 
-    await userEvent.click(screen.getByText("Resolved & archived"));
+    await userEvent.click(screen.getByText("Resolved"));
 
     expect(screen.getByText("Checkout errors")).toBeInTheDocument();
     expect(screen.queryByText("Slow dashboards")).not.toBeInTheDocument();
@@ -192,7 +192,7 @@ describe("ReportsInboxView", () => {
     render(<ReportsInboxView />);
 
     expect(screen.getByText("No reports match your filters")).toBeTruthy();
-    expect(screen.queryByText("Resolved & archived")).toBeNull();
+    expect(screen.queryByText("Resolved")).toBeNull();
   });
 
   it("opens a report on the first click without preloading its route", async () => {
