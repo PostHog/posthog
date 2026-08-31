@@ -94,15 +94,14 @@ export type ParsedTrackingCode = {
 // layout and no version. It can't collide with a real payload because segment 0 is a UUID.
 const VERSIONED_PAYLOAD_MARKER = 'v2'
 
-// Phase one of a two-phase rollout: `parse` understands the marker, `generate` does not yet emit it.
-// The layouts are only compatible in one direction — a marked code read by a pod still running the
-// old parser shifts every field (functionId becomes the literal marker), the flow lookup misses, and
-// the engagement metric is dropped. Emitting before the fleet can parse would lose metrics for the
-// length of the rolling deploy.
+// Phase two of a two-phase rollout. The layouts are only compatible in one direction — a marked code
+// read by a pod on the pre-marker parser shifts every field (functionId becomes the literal marker),
+// the flow lookup misses, and the engagement metric is dropped. So the marker-aware `parse` shipped
+// first and sat inert while the fleet rolled; only then did emitting become safe.
 //
-// Phase two flips this to `true` in a follow-up, once this parser is everywhere. Until then no
-// engagement metric carries a version, and they land in the version-agnostic series alone.
-const EMIT_VERSIONED_PAYLOAD = false
+// Codes minted before this flip carry no marker and keep parsing under the original layout, so
+// engagement events still in flight are unaffected.
+const EMIT_VERSIONED_PAYLOAD = true
 
 // Generates, signs, verifies and renders email tracking codes. Signing keys and the public
 // tracking URL are read once in the constructor so callers can be injected with a configured

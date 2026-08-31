@@ -254,20 +254,20 @@ describe('email tracking code', () => {
     })
 
     describe('versioned payload rollout', () => {
-        it('does not emit the marker by default, so pods on the old parser still read new codes', () => {
-            // Phase one ships the marker-aware parser only. Emitting the marker before the fleet can
-            // parse it shifts every field for an old pod — functionId becomes the literal marker, the
-            // flow lookup misses, and the engagement metric is dropped for the whole rolling deploy.
-            const decoded = Buffer.from(
-                signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 }).split('.')[0],
-                'base64'
-            ).toString('utf8')
+        it('emits the marker so the version reaches the engagement webhook', () => {
+            // Phase two: the marker-aware parser is fleet-wide, so minting a marked code is now safe
+            // and is what carries the sending version to an open/click/bounce arriving days later.
+            const code = signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 })
+            const decoded = Buffer.from(code.split('.')[0], 'base64').toString('utf8')
 
-            expect(decoded.startsWith('fn-1:')).toBe(true)
-            expect(
-                signer.parse(signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 }))
-                    ?.workflowVersion
-            ).toBeUndefined()
+            expect(decoded.startsWith('v2:fn-1:')).toBe(true)
+            expect(signer.parse(code)?.workflowVersion).toBe(3)
+        })
+
+        it('still mints an unmarked code for a send with no version, so hog functions are unchanged', () => {
+            const code = signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3 })
+
+            expect(signer.parse(code)?.workflowVersion).toBeUndefined()
         })
     })
 
