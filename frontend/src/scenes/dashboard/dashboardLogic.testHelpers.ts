@@ -43,9 +43,12 @@ export const dashboardResult = (
     tiles: DashboardTile<QueryBasedInsightModel>[],
     filters: Partial<DashboardFilter> = {}
 ): DashboardType<QueryBasedInsightModel> => {
+    const dashboardFilters = { ...dashboardJson.filters, ...filters }
     return {
         ...dashboardJson,
-        filters: { ...dashboardJson.filters, ...filters },
+        filters: dashboardFilters,
+        // The API serves the saved filters under both keys, and the frontend reads only this one.
+        persisted_filters: Object.keys(dashboardFilters).length ? dashboardFilters : null,
         id: dashboardId,
         tiles,
     }

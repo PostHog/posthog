@@ -506,3 +506,17 @@ export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | 
             source === DashboardEventSource.DashboardHeaderOverridesBanner)
     )
 }
+
+const SAVE_EDIT_MODE_EVENT_SOURCES = new Set<DashboardEventSource>([
+    DashboardEventSource.DashboardHeaderSaveDashboard,
+    DashboardEventSource.SceneCommonButtons,
+    DashboardEventSource.DashboardInsightColorsModal,
+])
+
+/**
+ * Sources that leave edit mode by saving. Reducers run before listeners, so edit-session state the
+ * save needs has to survive these and be cleared once the save has read it.
+ */
+export function isSaveEditModeEventSource(source: DashboardEventSource | null): boolean {
+    return source !== null && SAVE_EDIT_MODE_EVENT_SOURCES.has(source)
+}

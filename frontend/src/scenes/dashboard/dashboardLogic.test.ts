@@ -172,7 +172,7 @@ describe('dashboardLogic', () => {
                 ...dashboardResult(10, [tileFromInsight(insights['800'])]),
             },
             11: {
-                ...dashboardResult(11, [], { date_from: '-24h' }),
+                ...dashboardResult(11, [tileFromInsight(insights['175'])], { date_from: '-24h' }),
             },
             13: {
                 ...dashboardResult(13, []),
@@ -529,6 +529,52 @@ describe('dashboardLogic', () => {
                 expect.objectContaining({
                     filters: expect.objectContaining({ date_from: '-7d' }),
                 })
+            )
+        })
+
+        // Dashboard 11 has '-24h' saved; the URL below carries a different, temporary '-7d' override.
+        // A save that never touched the filter bar must leave the saved '-24h' alone, or a shared
+        // link plus any layout nudge silently rewrites the dashboard's filters for the whole team.
+        it.each([
+            ['a tile is moved', DashboardEventSource.SceneCommonButtons, { date_from: '-24h' }],
+            [
+                'edit mode is opened from the overrides banner',
+                DashboardEventSource.DashboardHeaderOverridesBanner,
+                { date_from: '-7d', date_to: null },
+            ],
+        ])('saving when %s persists the expected filters', async (_name, entrySource, expectedFilters) => {
+            logic.unmount()
+            router.actions.push('/dashboard/11', {
+                [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
+            })
+            logic = dashboardLogic({ id: 11 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, entrySource)
+            }).toFinishAllListeners()
+
+            const currentLayouts = logic.values.layouts
+            const movedTileId = String(logic.values.dashboard!.tiles[0].id)
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts({
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout) =>
+                        layout.i === movedTileId ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                } as any)
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/11`,
+                expect.objectContaining({ filters: expectedFilters })
             )
         })
 

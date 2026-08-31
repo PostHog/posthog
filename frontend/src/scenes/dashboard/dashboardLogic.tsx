@@ -149,6 +149,7 @@ import {
     getInsightWithRetry,
     isLayoutEditEventSource,
     isRefreshRejectionStub,
+    isSaveEditModeEventSource,
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
@@ -296,6 +297,7 @@ export interface dashboardLogicValues {
     dashboardWidgetsEnabled: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
+    editModeEntrySource: DashboardEventSource | null
     effectiveBreakdownColors: BreakdownColorConfig[]
     effectiveDashboardVariableOverrides: {
         [x: string]: HogQLVariable
@@ -310,6 +312,7 @@ export interface dashboardLogicValues {
     error404: boolean
     externalFilters: DashboardFilter
     filtersOverrideForLoad: DashboardFilter
+    filtersTouchedThisEditSession: boolean
     hasIntermittentFilters: boolean
     hasUnsavedColorChanges: boolean
     hasUnsavedLayoutChanges: boolean
@@ -372,6 +375,7 @@ export interface dashboardLogicValues {
         variables?: unknown
     } | null
     urlVariables: Record<string, HogQLVariable>
+    variablesTouchedThisEditSession: boolean
     widgetRefreshStatus: Record<
         number,
         {
@@ -1041,6 +1045,23 @@ export interface dashboardLogicMeta {
         ) => {
             [x: string]: HogQLVariable
         }
+        filtersTouchedThisEditSession: (
+            hasIntermittentFilters: boolean,
+            urlFilters: DashboardFilter,
+            urlSearchParamsAtEditModeEntry: {
+                filters?: unknown
+                variables?: unknown
+            } | null,
+            editModeEntrySource: any
+        ) => boolean
+        variablesTouchedThisEditSession: (
+            searchParams: Record<string, any>,
+            urlSearchParamsAtEditModeEntry: {
+                filters?: unknown
+                variables?: unknown
+            } | null,
+            editModeEntrySource: any
+        ) => boolean
         hasUnsavedLayoutChanges: (
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             dashboardLayouts: Record<
@@ -1528,11 +1549,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const persistedBreakdownColors = currentDashboard.breakdown_colors || []
                         const persistedThemeId = currentDashboard.data_color_theme_id ?? null
 
-                        const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
-                        const variablesChanged = !equal(
-                            persistedVariables,
-                            values.effectiveDashboardVariableOverrides || {}
-                        )
+                        // Only adopt what the bar shows when this edit session actually touched it —
+                        // otherwise keep what's saved, so URL overrides don't ride along on a save.
+                        const filtersToSave = values.filtersTouchedThisEditSession
+                            ? values.effectiveEditBarFilters || {}
+                            : persistedFilters
+                        const variablesToSave = values.variablesTouchedThisEditSession
+                            ? values.effectiveDashboardVariableOverrides || {}
+                            : persistedVariables
+
+                        const filtersChanged = !equal(persistedFilters, filtersToSave)
+                        const variablesChanged = !equal(persistedVariables, variablesToSave)
                         // While tiles are still loading, or an errored/aborted tile is missing its
                         // results, the visible breakdown values are incomplete, so fresh auto
                         // assignments and stale-entry pruning would both act on partial data.
@@ -1574,8 +1601,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const updatedDashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
-                                filters: values.effectiveEditBarFilters,
-                                variables: values.effectiveDashboardVariableOverrides,
+                                filters: filtersToSave,
+                                variables: variablesToSave,
                                 breakdown_colors: breakdownColorsToSave,
                                 data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
@@ -2230,12 +2257,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 setUrlSearchParamsAtEditModeEntry: (_, { snapshot }) => snapshot,
                 setDashboardMode: (snapshot, { mode, source }) => {
-                    if (mode === null && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
+                    if (
+                        mode === null &&
+                        source !== DashboardEventSource.DashboardHeaderDiscardChanges &&
+                        !isSaveEditModeEventSource(source)
+                    ) {
                         return null
                     }
                     return snapshot
                 },
                 restoreUrlStateAtEditModeEntry: () => null,
+                saveEditModeChangesSuccess: () => null,
+            },
+        ],
+        // Which control opened the current edit session. Save reads it to tell a deliberate "adopt
+        // these overrides" entry from the overrides banner apart from an edit that merely happens to
+        // have overrides in the URL.
+        editModeEntrySource: [
+            null as DashboardEventSource | null,
+            {
+                setDashboardMode: (state, { mode, source }) => {
+                    if (mode === DashboardMode.Edit) {
+                        return state ?? source
+                    }
+                    return isSaveEditModeEventSource(source) ? state : null
+                },
                 saveEditModeChangesSuccess: () => null,
             },
         ],
@@ -2624,6 +2670,39 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ...dashboard?.persisted_variables,
                 ...urlVariables,
             }),
+        ],
+        // Overrides arriving in the URL (a shared link, a bookmark) look exactly like saved filters in
+        // the edit bar, and the banner that says otherwise is hidden in edit mode. Compare against the
+        // URL as it stood when this edit session opened, so saving a layout or color change can't
+        // quietly adopt someone else's temporary view as the dashboard's saved one.
+        filtersTouchedThisEditSession: [
+            (s) => [s.hasIntermittentFilters, s.urlFilters, s.urlSearchParamsAtEditModeEntry, s.editModeEntrySource],
+            (
+                hasIntermittentFilters: boolean,
+                urlFilters: DashboardFilter,
+                snapshot: { filters?: unknown; variables?: unknown } | null,
+                entrySource: DashboardEventSource | null
+            ): boolean =>
+                hasIntermittentFilters ||
+                entrySource === DashboardEventSource.DashboardHeaderOverridesBanner ||
+                // No snapshot means the edit session didn't record a baseline, so fall back to saving
+                // whatever the bar shows rather than silently dropping a real edit.
+                snapshot === null ||
+                !equal(urlFilters, parseURLFilters({ [SEARCH_PARAM_FILTERS_KEY]: snapshot.filters })),
+        ],
+        variablesTouchedThisEditSession: [
+            (s) => [router.selectors.searchParams, s.urlSearchParamsAtEditModeEntry, s.editModeEntrySource],
+            (
+                searchParams: Record<string, any>,
+                snapshot: { filters?: unknown; variables?: unknown } | null,
+                entrySource: DashboardEventSource | null
+            ): boolean =>
+                entrySource === DashboardEventSource.DashboardHeaderOverridesBanner ||
+                snapshot === null ||
+                !equal(
+                    parseURLVariables(searchParams),
+                    parseURLVariables({ [SEARCH_PARAM_QUERY_VARIABLES_KEY]: snapshot.variables })
+                ),
         ],
         hasUnsavedLayoutChanges: [
             (s) => [s.dashboard, s.dashboardLayouts],
@@ -4436,12 +4515,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     action: RefreshDashboardItemsAction.Refresh,
                     forceRefresh: false,
                 })
-            } else if (
-                mode === null &&
-                (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
-                    source === DashboardEventSource.SceneCommonButtons ||
-                    source === DashboardEventSource.DashboardInsightColorsModal)
-            ) {
+            } else if (mode === null && isSaveEditModeEventSource(source)) {
                 // save edit mode changes when exiting via Save button, E key/Edit layout button,
                 // or the colors modal's Save button
                 // Pending name/description are included in the saveEditModeChanges PATCH
