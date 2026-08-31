@@ -1214,6 +1214,7 @@ class LLMSkillViewSet(
                 license=skill.license or "",
                 compatibility=skill.compatibility or "",
                 author_handle=payload.validated_data.get("author_handle", ""),
+                metadata=skill.metadata,
             )
         except CommunitySkillPublishNotConfiguredError:
             # The fail-safe is otherwise silent, so an instance that meant to have publishing on
