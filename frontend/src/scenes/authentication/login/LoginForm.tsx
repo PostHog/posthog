@@ -23,6 +23,7 @@ import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
+import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -57,6 +58,7 @@ export function LoginForm(): JSX.Element {
         isCodeVerificationSubmitting,
         isPasswordLoginUnavailable,
         codeVerificationEmail,
+        codeVerification,
         hasNoConfiguredLoginMethod,
         restrictToProviders,
         autoRedirectingToProvider,
@@ -212,6 +214,11 @@ export function LoginForm(): JSX.Element {
                             center
                             size="large"
                             loading={isCodeVerificationSubmitting}
+                            disabledReason={
+                                isValidVerificationCode(normalizeVerificationCode(codeVerification.code))
+                                    ? undefined
+                                    : 'Enter the 6-digit code from your email'
+                            }
                         >
                             Verify and log in
                         </LemonButton>

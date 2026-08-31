@@ -609,14 +609,9 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
         codeVerification: {
+            // No kea validator here: the submit button carries a disabledReason for an incomplete
+            // code, like the signup verify screen, so the only inline error is a server rejection
             defaults: { code: '' } as CodeVerificationForm,
-            errors: ({ code }) => ({
-                // Accept a code pasted with the whitespace/invisible characters an email client adds;
-                // reject anything that isn't 6 digits once that noise is stripped.
-                code: /^\d{6}$/.test(normalizeVerificationCode(code))
-                    ? undefined
-                    : 'Enter the 6-digit code from your email',
-            }),
             submit: async ({ code }, breakpoint) => {
                 breakpoint()
                 actions.clearGeneralError()
@@ -648,6 +643,13 @@ export const loginLogic = kea<loginLogicType>([
         },
         exitCodeVerification: () => {
             actions.resetCodeVerification()
+        },
+        // Manual errors persist until the next submit, so clear the invalid-code error as soon as
+        // the user edits the code, like the signup verify screen does
+        setCodeVerificationValue: () => {
+            if (Object.keys(values.codeVerificationManualErrors).length > 0) {
+                actions.setCodeVerificationManualErrors({})
+            }
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
