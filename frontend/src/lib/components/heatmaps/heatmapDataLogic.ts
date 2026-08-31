@@ -123,6 +123,13 @@ export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoi
     return `/api/heatmap/${endpoint}`
 }
 
+// A row added but not yet pointed at an event carries a null id. It selects nothing, and the API rejects
+// it, so leave those out of the request instead of failing the whole heatmap over a half-filled row.
+export function eventFilterParam(events: CommonFilters['events']): string | undefined {
+    const selected = events?.filter((event) => !!event.id)
+    return selected?.length ? JSON.stringify(selected) : undefined
+}
+
 export type HrefMatchType = 'exact' | 'pattern'
 
 export function isWithinBounds(
@@ -492,7 +499,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             aggregation,
                             filter_test_accounts,
                             cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
-                            events: events?.length ? JSON.stringify(events) : undefined,
+                            events: eventFilterParam(events),
                             limit: UNBOUNDED_HEATMAP_LIMIT,
                         },
                         '?'
@@ -532,7 +539,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_max: values.viewportRange.max,
                             filter_test_accounts,
                             cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
-                            events: events?.length ? JSON.stringify(events) : undefined,
+                            events: eventFilterParam(events),
                             points: JSON.stringify(area.points),
                         },
                         '?'
@@ -760,7 +767,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     viewport_width_max: values.viewportRange.max,
                     filter_test_accounts,
                     cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
-                    events: events?.length ? JSON.stringify(events) : undefined,
+                    events: eventFilterParam(events),
                     points: JSON.stringify(area.points),
                     offset: nextOffset,
                 },

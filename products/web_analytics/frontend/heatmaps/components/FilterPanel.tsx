@@ -216,6 +216,8 @@ export function FilterPanel({
                                             buttonCopy="Add event"
                                             mathAvailability={MathAvailability.None}
                                             actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                                            // "All events" matches every session, so as a filter it does nothing.
+                                            excludedProperties={{ [TaxonomicFilterGroupType.Events]: [null] }}
                                             propertiesTaxonomicGroupTypes={[
                                                 TaxonomicFilterGroupType.EventProperties,
                                                 TaxonomicFilterGroupType.EventFeatureFlags,

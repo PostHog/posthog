@@ -9,7 +9,8 @@ export type CommonFilters = {
 }
 
 export type HeatmapEventFilter = {
-    id: string
+    // Null while a freshly added row is waiting for the user to pick an event.
+    id: string | null
     name?: string
     type?: string
     order?: number

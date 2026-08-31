@@ -851,6 +851,18 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ),
             # Each entry adds an events-table subquery, so the count is capped (11 entries here).
             ("too_many_events", dumps([{"id": f"e{i}"} for i in range(11)])),
+            # Every property adds a predicate inside that subquery, so those are capped too (21 here).
+            (
+                "too_many_properties_on_one_event",
+                dumps(
+                    [
+                        {
+                            "id": "purchase",
+                            "properties": [{"type": "event", "key": f"p{i}", "value": "x"} for i in range(21)],
+                        }
+                    ]
+                ),
+            ),
         ]
     )
     def test_event_filter_rejects_malformed_or_disallowed_events(self, _name: str, events: str) -> None:

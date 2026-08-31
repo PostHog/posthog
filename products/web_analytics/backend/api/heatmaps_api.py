@@ -102,8 +102,10 @@ EVENT_FILTER_SESSION_BUFFER = timedelta(days=1)
 # project's HogQL database exposes. Accept only the types the heatmap filter offers.
 EVENT_FILTER_PROPERTY_TYPES = frozenset({"element", "event"})
 
-# Each selected event adds one events-table session subquery, so cap how many a request can stack.
+# Each selected event adds one events-table session subquery, and every property filter on it adds another
+# predicate inside that subquery, so cap both. Neither cap is reachable from the in-app filter bar.
 MAX_EVENT_FILTERS = 10
+MAX_PROPERTIES_PER_EVENT_FILTER = 20
 
 logger = structlog.get_logger(__name__)
 
@@ -130,6 +132,19 @@ def _heatmaps_event_filter_enabled(user: User, team: Team) -> bool:
         team_id=team.id,
         organization_id=str(team.organization_id),
     )
+
+
+def _requests_event_filter(request: request.Request) -> bool:
+    """Whether the request asks for an event filter, read before the serializer runs."""
+    raw = request.query_params.get("events")
+    if not raw:
+        return False
+    try:
+        return bool(loads(raw))
+    except JSONDecodeError:
+        # The serializer turns this into a 400 either way; treat it as asking rather than letting a
+        # malformed value walk past the access check.
+        return True
 
 
 def _reject_oversized_capture_image(image_bytes: bytes) -> None:
@@ -338,7 +353,9 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         "results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and "
         "may carry a 'properties' array of property filters applied to that event, each of type 'event' or "
         "'element'. Several entries are combined with AND: the session must contain a matching event for "
-        "every entry. "
+        f"every entry. At most {MAX_EVENT_FILTERS} entries, each with at most "
+        f"{MAX_PROPERTIES_PER_EVENT_FILTER} property filters. Requires project-wide heatmap access, since "
+        "the filter reads the project's events rather than one saved heatmap. "
         "Feature-flagged; ignored when the event filter is not enabled for the caller.",
     )
     limit = serializers.IntegerField(
@@ -403,6 +420,10 @@ class HeatmapsRequestSerializer(serializers.Serializer):
                 not isinstance(properties, list) or not all(isinstance(prop, dict) for prop in properties)
             ):
                 raise serializers.ValidationError("event 'properties' must be a JSON array of property objects")
+            if properties is not None and len(properties) > MAX_PROPERTIES_PER_EVENT_FILTER:
+                raise serializers.ValidationError(
+                    f"an event cannot have more than {MAX_PROPERTIES_PER_EVENT_FILTER} property filters"
+                )
             for prop in properties or []:
                 if prop.get("type") not in EVENT_FILTER_PROPERTY_TYPES:
                     raise serializers.ValidationError(
@@ -563,7 +584,10 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
     has at least the required access level on — the same value the in-app heatmap overlay always
     queries with (see heatmapDataLogic.ts). `url_pattern` requests always require resource-level
     access: the query matches the pattern against every row in the dataset, so an object grant for
-    one saved heatmap can't bound what a broad pattern is allowed to read.
+    one saved heatmap can't bound what a broad pattern is allowed to read. An `events` filter needs
+    resource-level access for the same reason, one table over: it selects sessions out of the project's
+    whole events table, so the counts it returns describe what the granted URL's visitors did away
+    from it.
     """
 
     def has_permission(self, request, view) -> bool:
@@ -598,6 +622,12 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
             # A url_pattern query matches every row whose current_url satisfies the pattern, not
             # just the granted SavedHeatmap's URL — an object grant can't bound that, so patterns
             # (and requests with no URL filter at all) require resource-level "heatmap" access.
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
+
+        if _requests_event_filter(request):
+            # The event subqueries read the project's events table, not the granted saved heatmap, so an
+            # object grant can't bound what they disclose either.
             self.message = f"You do not have {required_level} access to this resource."
             return False
 
