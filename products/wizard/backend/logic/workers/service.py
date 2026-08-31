@@ -47,6 +47,7 @@ from products.wizard.backend.logic.workers.config import (
 )
 from products.wizard.backend.logic.workers.contracts import (
     RepositoryPullRequest,
+    WizardWorkerProvisioning,
     WizardWorkerResourceUsage,
     WizardWorkerUsageMeasurement,
 )
@@ -64,12 +65,6 @@ class WizardWorkerProvisionRequest:
     team_id: int
     created_by_id: int
     run_id: UUID
-
-
-@frozen
-class WizardWorkerProvisioning:
-    sandbox_id: str
-    resource_usage: WizardWorkerResourceUsage
 
 
 @frozen
