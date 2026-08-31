@@ -333,8 +333,13 @@ describe('llmSkillLogic', () => {
                 { missing: false, accessDenied: true, loadError: false },
             ],
             [
-                'a 403 that is not about object access',
+                'a 403 without a DRF code',
                 new ApiError('Forbidden', 403),
+                { missing: false, accessDenied: true, loadError: false },
+            ],
+            [
+                'a 403 with a recovery-flow code',
+                new ApiError('Forbidden', 403, undefined, { code: 'two_factor_verification_required' }),
                 { missing: false, accessDenied: false, loadError: true },
             ],
             ['a 500', new ApiError('Server error', 500), { missing: false, accessDenied: false, loadError: true }],
