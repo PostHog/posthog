@@ -150,6 +150,45 @@ describe('ReportMetrics', () => {
         await act(async () => finishRequest?.([200, trendsResponse(10)]))
     })
 
+    it('settles a supporting metric to its saved value when the live query never runs', async () => {
+        let requests = 0
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => {
+                    requests += 1
+                    return [200, trendsResponse(42)]
+                },
+            },
+        })
+
+        // An invalid RE2 regex filter makes the frontend refuse to run the query, so the loader
+        // settles with a null response and no request. The card must leave the loading state.
+        const unrunnableQuery = {
+            ...query,
+            source: {
+                ...query.source,
+                series: [
+                    { ...query.source.series[0], properties: [{ key: '$current_url', operator: 'regex', value: '(' }] },
+                ],
+            },
+        }
+
+        render(
+            <ReportMetrics
+                reportId="unrunnable-supporting"
+                metrics={[makeMetric({ comparison, query: unrunnableQuery })]}
+            />
+        )
+
+        expect(await screen.findByText(/No current value/)).toHaveTextContent(
+            'No current value. Showing the latest saved value.'
+        )
+        expect(screen.getByText('9 users')).toBeInTheDocument()
+        expect(screen.queryByText('Refreshing current value')).not.toBeInTheDocument()
+        expect(screen.queryByText('Loading current value')).not.toBeInTheDocument()
+        expect(requests).toBe(0)
+    })
+
     it('explains when a supporting refresh failed and keeps its saved value', async () => {
         jest.spyOn(console, 'error').mockImplementation()
         useMocks({

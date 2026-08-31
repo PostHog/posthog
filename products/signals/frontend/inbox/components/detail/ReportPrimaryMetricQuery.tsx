@@ -43,7 +43,6 @@ export function ReportPrimaryMetricQuery({
     const snapshot = formatReportMetricValue(metric, metric.value)
     const formattedComparison = metric.comparison ? formatReportMetricValue(metric, metric.comparison.value) : null
     const responseResolved = response !== null && response !== undefined
-    const initialLoading = !responseResolved && !responseError
 
     return (
         <LemonCard
@@ -57,7 +56,7 @@ export function ReportPrimaryMetricQuery({
             </div>
             <div className="flex min-w-0 flex-col gap-4 @min-[36rem]/report-primary-metric:flex-row">
                 <div className="flex min-h-20 min-w-0 flex-col justify-center @min-[36rem]/report-primary-metric:w-48 @min-[36rem]/report-primary-metric:shrink-0">
-                    {initialLoading || (responseLoading && !responseResolved) ? (
+                    {responseLoading && !responseResolved ? (
                         <div className="flex items-center gap-2 text-xs text-tertiary">
                             <Spinner className="text-lg" />
                             <span>Loading current value</span>

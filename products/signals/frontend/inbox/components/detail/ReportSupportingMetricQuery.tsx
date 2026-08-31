@@ -23,15 +23,14 @@ export function ReportSupportingMetricQuery({
         dataNodeCollectionId: `report-metrics-${reportId}`,
         autoLoad: true,
     }
-    const { response, responseError } = useValues(dataNodeLogic(dataNodeProps))
-    const responseResolved = response !== null && response !== undefined
+    const { response, responseError, responseLoading } = useValues(dataNodeLogic(dataNodeProps))
 
     return (
         <ReportSupportingMetric
             metric={metric}
             liveState={{
                 value: reportMetricAggregate(response),
-                loading: !responseResolved && !responseError,
+                loading: responseLoading,
                 error: !!responseError,
             }}
         />
