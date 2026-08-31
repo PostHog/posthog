@@ -33,7 +33,12 @@ import {
 import { DEFAULT_APPEARANCE } from './constants'
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import { isAnnouncement, productToursLogic } from './productToursLogic'
-import { getUpdatedStepOrderHistory, hasIncompleteTargeting, resolveStepTranslation } from './stepUtils'
+import {
+    getUpdatedStepOrderHistory,
+    hasIncompleteTargeting,
+    normalizeStepOrderHistory,
+    resolveStepTranslation,
+} from './stepUtils'
 
 export const DEFAULT_TARGETING_FILTERS: FeatureFlagType['filters'] = {
     ...NEW_FLAG.filters,
@@ -140,10 +145,14 @@ const NEW_PRODUCT_TOUR: ProductTourForm = {
 
 function tourToFormValues(tour: ProductTour): ProductTourForm {
     const draft = tour.draft_content
+    const content = draft?.content ?? tour.content
     return {
         name: draft?.name ?? tour.name,
         description: draft?.description ?? tour.description,
-        content: draft?.content ?? tour.content,
+        content: {
+            ...content,
+            step_order_history: normalizeStepOrderHistory(content.step_order_history),
+        },
         auto_launch: draft?.auto_launch ?? tour.auto_launch,
         targeting_flag_filters: draft?.targeting_flag_filters ?? tour.targeting_flag_filters,
         linked_flag: tour.linked_flag,
@@ -152,17 +161,14 @@ function tourToFormValues(tour: ProductTour): ProductTourForm {
 }
 
 function buildDraftPayload(formValues: ProductTourForm): Record<string, any> {
-    const steps = formValues.content.steps ? prepareStepsForRender(formValues.content.steps) : []
+    const steps = formValues.content.steps ?? []
     return {
         name: formValues.name,
         description: formValues.description,
         content: {
             ...formValues.content,
-            steps,
-            step_order_history: getUpdatedStepOrderHistory(
-                formValues.content.steps,
-                formValues.content.step_order_history
-            ),
+            steps: prepareStepsForRender(steps),
+            step_order_history: getUpdatedStepOrderHistory(steps, formValues.content.step_order_history),
         },
         auto_launch: formValues.auto_launch,
         targeting_flag_filters: formValues.targeting_flag_filters,

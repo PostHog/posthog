@@ -240,23 +240,32 @@ function hasStepsChanged(currentSteps: ProductTourStep[], history: StepOrderVers
     if (!history || history.length === 0) {
         return true
     }
-    const latestVersion = history[history.length - 1]
-    if (currentSteps.length !== latestVersion.steps.length) {
+    const latestSteps = history[history.length - 1].steps
+    if (!latestSteps || currentSteps.length !== latestSteps.length) {
         return true
     }
-    return currentSteps.some((step, index) => step.id !== latestVersion.steps[index].id)
+    return currentSteps.some((step, index) => step.id !== latestSteps[index].id)
+}
+
+/** Drop history entries that lost their steps snapshot, so an already-broken tour heals on load. */
+export function normalizeStepOrderHistory(history: StepOrderVersion[] | undefined): StepOrderVersion[] | undefined {
+    if (!history) {
+        return history
+    }
+    return history.filter((version) => Array.isArray(version.steps))
 }
 
 export function getUpdatedStepOrderHistory(
     currentSteps: ProductTourStep[],
     existingHistory: StepOrderVersion[] | undefined
 ): StepOrderVersion[] {
+    const steps = currentSteps ?? []
     const history = existingHistory ? [...existingHistory] : []
 
-    if (hasStepsChanged(currentSteps, history)) {
+    if (hasStepsChanged(steps, history)) {
         history.push({
             id: uuid(),
-            steps: currentSteps,
+            steps,
             created_at: new Date().toISOString(),
         })
     }
