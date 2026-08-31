@@ -68,6 +68,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
     history_start_for_schema,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.proxy_errors import (
+    UnresolvableSourceHostError,
+    unresolvable_host_behind_proxy,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -663,6 +667,22 @@ async def _handle_import_error(
     if isinstance(error, UndecryptedIntegrationSecretError):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # The egress proxy resolves the destination for us, so a hostname that no longer exists comes
+    # back as a CONNECT failure rather than a resolver error. Sources list that gateway status in
+    # get_retryable_errors, which is right for a proxy that is briefly unwell and wrong for a host
+    # that is gone. Classify it here, ahead of those lists, so a deleted source host stops the sync
+    # instead of being retried on every scheduled run.
+    dead_host = await unresolvable_host_behind_proxy(error)
+    if dead_host is not None:
+        # The job's internal error is `str(cause.cause)`, so the stable message has to sit on the
+        # exception handed to handle_non_retryable_error for Any_Source_Errors to match it and
+        # disable the schema. Keep the original as __cause__ so the proxy detail stays debuggable.
+        dns_error = UnresolvableSourceHostError(dead_host)
+        dns_error.__cause__ = error
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(dns_error), logger, dns_error
         )
 
     # RESTClientRetryableError only escapes the shared REST engine's own tenacity retry loop once

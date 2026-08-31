@@ -1,4 +1,5 @@
 import uuid
+import socket
 import contextlib
 from datetime import datetime
 from typing import Any, cast
@@ -11,7 +12,7 @@ from django.db import InterfaceError, InternalError, OperationalError
 
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, ProxyError
 
 from posthog.integration_secrets.errors import (
     IntegrationServiceMisconfiguredError,
@@ -28,6 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.proxy_errors import (
+    UNRESOLVABLE_SOURCE_HOST_ERROR,
+    UnresolvableSourceHostError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
@@ -566,10 +571,82 @@ async def test_jsonpath_error_routes_through_handler_without_source_opt_in():
     logger.aexception.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_proxy_failure_for_a_dead_host_beats_the_sources_retryable_gateway_pattern():
+    # The egress proxy resolves the destination, so a hostname that no longer exists arrives as the
+    # same gateway status a briefly unwell proxy produces. Sources list that status in
+    # get_retryable_errors (clickhouse/source.py does), so without the DNS check the run is retried
+    # on every scheduled sync forever. The dead host has to win over the source's own pattern.
+    error = ProxyError(
+        "HTTPSConnectionPool(host='gone.example.com', port=443): Max retries exceeded with url: /? "
+        "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 502 Bad gateway')))"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = {"Tunnel connection failed: 502"}
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(socket, "getaddrinfo", side_effect=socket.gaierror(socket.EAI_NONAME, "not known")),
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    # The finalization activity reads `str(cause.cause)` to pick the customer-facing message and
+    # disable the schema, so the stable text has to reach it on this exception.
+    routed = handle_mock.await_args.args[5]
+    assert isinstance(routed, UnresolvableSourceHostError)
+    assert UNRESOLVABLE_SOURCE_HOST_ERROR in str(routed)
+    assert routed.__cause__ is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_proxy_failure_for_a_live_host_stays_retryable():
+    # The counterpart guard: a proxy that is briefly unwell talking to a host that still resolves
+    # must keep retrying, or a transient gateway blip would disable a working source.
+    error = ProxyError(
+        "HTTPSConnectionPool(host='live.example.com', port=443): Max retries exceeded with url: /? "
+        "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 502 Bad gateway')))"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = {"Tunnel connection failed: 502"}
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]),
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        with pytest.raises(NonReportableError):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_not_awaited()
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
 @parameterized.expand(
     [
         # Raised in shared pipeline code (delta merge) when a keyless table syncs incrementally.
         ("primary_key", "Primary key required for incremental syncs"),
+        # Raised by _handle_import_error when the egress proxy could not reach a source whose
+        # hostname returns NXDOMAIN.
+        ("unresolvable_host", f"{UNRESOLVABLE_SOURCE_HOST_ERROR}: gone.example.com"),
         # Raised by botocore when the object storage endpoint hostname is one it rejects (e.g. an
         # underscore in a self-hosted OBJECT_STORAGE_ENDPOINT). Deterministic for the deployment, so
         # it must stop retrying instead of looping the activity's budget and reporting every attempt.

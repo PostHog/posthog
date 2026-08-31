@@ -66,6 +66,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.proxy_errors import (
+    UNRESOLVABLE_SOURCE_HOST_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -134,6 +137,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "table replication, then re-enable the sync."
     ),
     "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
+    # Raised by `_handle_import_error` when the egress proxy could not reach the source and the
+    # hostname returns NXDOMAIN. The name is fixed config, so every retry resolves the same dead
+    # host. See sources/common/http/proxy_errors.py for why the proxy hides this from the sources
+    # that already classify a resolver failure themselves.
+    UNRESOLVABLE_SOURCE_HOST_ERROR: (
+        "We couldn't find the server for this source. Its address no longer exists, which usually "
+        "means the service was deleted or renamed. Check the connection settings, update the host "
+        "if it changed, then re-enable the sync."
+    ),
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
     # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
