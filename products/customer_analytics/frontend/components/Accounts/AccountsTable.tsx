@@ -720,14 +720,14 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
 function useContextColumns(): Record<string, QueryContextColumn> {
     const { visibleColumnNames, aliasToDefinition, aliasToRelationshipDefinition, displayByAlias } =
         useValues(accountsColumnConfigLogic)
-    const { columnWidths, currentViewId } = useValues(accountsViewsLogic)
+    const { columnWidths } = useValues(accountsViewsLogic)
     const { setColumnWidth, reportColumnResize } = useActions(accountsViewsLogic)
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
             const resizeHandlers = {
                 resizable: true,
-                onResize: (width: number) => setColumnWidth(currentViewId, key, width),
+                onResize: (width: number) => setColumnWidth(key, width),
                 onResizeEnd: reportColumnResize,
             }
             const definition = aliasToDefinition[key]
@@ -777,7 +777,6 @@ function useContextColumns(): Record<string, QueryContextColumn> {
         aliasToRelationshipDefinition,
         displayByAlias,
         columnWidths,
-        currentViewId,
         setColumnWidth,
         reportColumnResize,
     ])
@@ -908,6 +907,8 @@ export function AccountsTable(): JSX.Element {
                 }}
                 context={{
                     columns: contextColumns,
+                    tableLayout: 'fixed',
+                    tableStyle: { width: 'max-content', minWidth: '100%' },
                     expandable,
                     dataTableRowsTransformer: sortedRowsTransformer,
                     dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,

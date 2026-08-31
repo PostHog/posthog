@@ -55,6 +55,7 @@ describe('LemonTable', () => {
 
     it('resizes a column from its header handle', () => {
         const onResize = jest.fn()
+        const onSecondColumnResize = jest.fn()
         const onResizeEnd = jest.fn()
         render(
             <LemonTable
@@ -69,21 +70,32 @@ describe('LemonTable', () => {
                         onResize,
                         onResizeEnd,
                     },
+                    {
+                        title: 'Name',
+                        key: 'name',
+                        dataIndex: 'name',
+                        resizable: true,
+                        onResize: onSecondColumnResize,
+                    },
                 ]}
             />
         )
-        const header = screen.getByText('Value').closest('th')!
-        jest.spyOn(header, 'getBoundingClientRect').mockReturnValue({ width: 150 } as DOMRect)
+        jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+            function (this: HTMLElement): DOMRect {
+                return { width: this.textContent === 'Value' ? 150 : 100 } as DOMRect
+            }
+        )
         jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
             callback(0)
             return 1
         })
 
-        fireEvent.mouseDown(screen.getByRole('button', { name: 'Resize column' }), { button: 0, clientX: 100 })
+        fireEvent.mouseDown(screen.getAllByRole('button', { name: 'Resize column' })[0], { button: 0, clientX: 100 })
         fireEvent.mouseMove(window, { clientX: 175 })
         fireEvent.mouseUp(window)
 
         expect(onResize).toHaveBeenLastCalledWith(225)
+        expect(onSecondColumnResize).toHaveBeenCalledWith(100)
         expect(onResizeEnd).toHaveBeenCalledTimes(1)
     })
 

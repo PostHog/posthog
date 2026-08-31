@@ -7,10 +7,15 @@ const KEYBOARD_RESIZE_STEP = 20
 
 interface TableColumnResizeHandleProps {
     onResize: (width: number) => void
+    onResizeStart?: (header: HTMLTableCellElement) => void
     onResizeEnd?: () => void
 }
 
-export function TableColumnResizeHandle({ onResize, onResizeEnd }: TableColumnResizeHandleProps): JSX.Element {
+export function TableColumnResizeHandle({
+    onResize,
+    onResizeStart,
+    onResizeEnd,
+}: TableColumnResizeHandleProps): JSX.Element {
     const cleanupResizeRef = useRef<(() => void) | null>(null)
 
     useEffect(
@@ -49,6 +54,9 @@ export function TableColumnResizeHandle({ onResize, onResizeEnd }: TableColumnRe
         cleanupResizeRef.current?.()
 
         const header = event.currentTarget.closest('th')
+        if (header) {
+            onResizeStart?.(header)
+        }
         const startWidth = header?.getBoundingClientRect().width || MIN_COLUMN_WIDTH
         const startX = event.clientX
         let latestX = startX

@@ -1062,6 +1062,8 @@ export function DataTable({
                                 className="DataTable"
                                 loading={responseLoading && !nextDataLoading && !newDataLoading}
                                 columns={lemonColumns}
+                                tableLayout={context?.tableLayout}
+                                tableStyle={context?.tableStyle}
                                 embedded={embedded}
                                 key={
                                     [...(columnsInResponse ?? []), ...columnsInQuery].join(

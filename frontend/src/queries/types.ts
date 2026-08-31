@@ -1,4 +1,4 @@
-import { ComponentType, HTMLProps } from 'react'
+import { CSSProperties, ComponentType, HTMLProps } from 'react'
 
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 
@@ -20,6 +20,8 @@ import { DataTableRow } from './nodes/DataTable/dataTableLogic'
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
+    tableLayout?: 'auto' | 'fixed'
+    tableStyle?: CSSProperties
     /** used to override the value in the query */
     showOpenEditorButton?: boolean
     showQueryEditor?: boolean
