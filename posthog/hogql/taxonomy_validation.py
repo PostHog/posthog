@@ -3,8 +3,10 @@ from difflib import get_close_matches
 from logging import getLogger
 from typing import Literal
 
+from django.contrib.postgres.search import TrigramSimilarity
 from django.db import DatabaseError
-from django.db.models import QuerySet
+from django.db.models import BigIntegerField, F, QuerySet
+from django.db.models.functions import Coalesce
 
 from posthog.schema import HogQLNotice
 
@@ -20,6 +22,14 @@ logger = getLogger(__name__)
 # `string` → a quoted, escaped string literal (event `=`/`IN` values, `properties['key']` keys);
 # `property` → a `properties.<identifier>` field. Both escape the suggestion (see `_build_fix`).
 FixContext = Literal["string", "property"]
+
+# How many similar names one suggestion lookup reads. Postgres ranks candidates by trigram
+# similarity, so the best match is in the first rows, and difflib then picks the suggestion from this
+# bounded set instead of from every name in the project.
+SUGGESTION_CANDIDATE_LIMIT = 20
+
+# The `name` column of both definition models is `CharField(max_length=400)`.
+MAX_SUGGESTION_INPUT_LENGTH = 400
 
 # Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
 # never appear in PropertyDefinition and must not be flagged as unknown.
@@ -110,7 +120,7 @@ def validate_taxonomy_references(
         if visitor.event_literals:
             warnings.extend(
                 _warnings_for_unknown_references(
-                    "Event", visitor.event_literals, EventDefinition.objects.filter(team=team)
+                    "Event", visitor.event_literals, _project_scoped(EventDefinition.objects.all(), team)
                 )
             )
 
@@ -123,7 +133,7 @@ def validate_taxonomy_references(
                     _warnings_for_unknown_references(
                         "Property",
                         property_references,
-                        PropertyDefinition.objects.filter(team=team, type=PropertyDefinition.Type.EVENT),
+                        _project_scoped(PropertyDefinition.objects.filter(type=PropertyDefinition.Type.EVENT), team),
                     )
                 )
     except DatabaseError:
@@ -164,6 +174,28 @@ def _string_literals_from_array(node: ast.Expr) -> list[TaxonomyReference]:
     return references
 
 
+def _project_scoped(taxonomy: QuerySet, team: Team) -> QuerySet:
+    """Scope a definition queryset to the team's project through the indexed scope expression.
+
+    Definitions are project-scoped, so `team_id` is the wrong scope twice over. It reads a narrower
+    row set than the definitions API the taxonomic filter lists from, which makes validation call a
+    name unknown that the filter offers. It also matches no index that reaches `name`: the widest
+    index leading with `team_id` is `index_property_def_query`, where `name` sits behind
+    `coalesce(group_type_index, -1)` and `query_usage_30_day`, so a name lookup reads every
+    definition the team has of that type.
+
+    `coalesce(project_id, team_id)` is the leading expression of `event_definition_proj_uniq` and
+    `posthog_propdef_proj_uniq`, so scope and `name` are then seeked together in one index.
+    """
+    # `output_field` is required because the two columns resolve to different Django field types
+    # (the project key is a BigIntegerField, the team key an AutoField). It only settles the
+    # Python-side type, so the emitted SQL stays the bare `COALESCE(project_id, team_id)` that the
+    # index expression is defined on.
+    return taxonomy.alias(project_scope=Coalesce(F("project_id"), F("team_id"), output_field=BigIntegerField())).filter(
+        project_scope=team.project_id
+    )
+
+
 def _warnings_for_unknown_references(
     kind: str, references: list[TaxonomyReference], taxonomy: QuerySet
 ) -> list[HogQLNotice]:
@@ -175,24 +207,22 @@ def _warnings_for_unknown_references(
         references_by_name.setdefault(reference.name, reference)
     referenced_names = list(references_by_name.keys())
 
-    # Hot path: an indexed `name__in` existence check over only the referenced names (usually 1–5),
-    # not a materialization of the whole team taxonomy. When every name is valid we never load more.
+    # Hot path: one index seek over only the referenced names (usually 1-5). A query whose names are
+    # all valid ends here, so it never reaches the suggestion lookup below.
     found_names = set(taxonomy.filter(name__in=referenced_names).values_list("name", flat=True))
     unknown_names = [name for name in referenced_names if name not in found_names]
     if not unknown_names:
         return []
 
-    # Rare path (a name is unknown): load the full name set for fuzzy suggestions. This also doubles as
-    # the empty-taxonomy guard — a project with no definitions yet should not warn on anything.
-    known_names = _known_names(taxonomy)
-    if not known_names:
+    # A project with no definitions at all must not warn on every name, so an empty taxonomy stays an
+    # early return. Only ask when nothing was found, because a hit above already proves rows exist.
+    if not found_names and not taxonomy.exists():
         return []
-    sorted_known_names = sorted(known_names)
 
     warnings: list[HogQLNotice] = []
     for name in unknown_names:
         reference = references_by_name[name]
-        suggestion = _suggest_name(name, known_names, sorted_known_names)
+        suggestion = _suggest_name(taxonomy, name)
         message = f"{kind} '{name}' was not found in this project taxonomy."
         if suggestion:
             message += f" Did you mean '{suggestion}'?"
@@ -220,14 +250,41 @@ def _build_fix(fix_context: FixContext | None, suggestion: str) -> str | None:
     return None
 
 
-def _known_names(taxonomy: QuerySet) -> set[str]:
-    return set(taxonomy.values_list("name", flat=True))
-
-
-def _suggest_name(name: str, known_names: set[str], sorted_known_names: list[str]) -> str | None:
+def _suggest_name(taxonomy: QuerySet, name: str) -> str | None:
     dollar_prefixed = f"${name}"
-    if not name.startswith("$") and dollar_prefixed in known_names:
+    if not name.startswith("$") and taxonomy.filter(name=dollar_prefixed).exists():
         return dollar_prefixed
 
-    matches = get_close_matches(name, sorted_known_names, n=1, cutoff=0.6)
+    return _closest_name(name, _similar_names(taxonomy, name))
+
+
+def _similar_names(taxonomy: QuerySet, name: str) -> list[str]:
+    """Read the names most similar to `name`, ranked and capped by Postgres.
+
+    `name__trigram_similar` is the pg_trgm `%` operator, which the GIN trigram indexes
+    `index_event_definition_name` and `index_property_definition_name` answer directly. Ranking and
+    the row cap run in Postgres too, so one keystroke reads a few candidate names instead of every
+    name in the project. `name` breaks ties so equally similar candidates come back in a stable
+    order.
+
+    A name longer than the `name` column can never equal a definition, and pg_trgm cost grows with
+    the input, so an oversized literal gets no suggestion rather than a wasted comparison.
+    """
+    if len(name) > MAX_SUGGESTION_INPUT_LENGTH:
+        return []
+
+    return list(
+        taxonomy.filter(name__trigram_similar=name)
+        .annotate(name_similarity=TrigramSimilarity("name", name))
+        .order_by("-name_similarity", "name")
+        .values_list("name", flat=True)[:SUGGESTION_CANDIDATE_LIMIT]
+    )
+
+
+def _closest_name(name: str, candidates: list[str]) -> str | None:
+    # pg_trgm selects the candidates at the server's `pg_trgm.similarity_threshold` (0.3 by
+    # default), which is loose enough to return names a reader would not accept as a typo. difflib
+    # makes the final call at a stricter cutoff, so a suggestion is only offered when the two
+    # measures agree.
+    matches = get_close_matches(name, candidates, n=1, cutoff=0.6)
     return matches[0] if matches else None

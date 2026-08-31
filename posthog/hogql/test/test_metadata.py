@@ -22,7 +22,7 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 
-from posthog.models import EventDefinition, PropertyDefinition
+from posthog.models import EventDefinition, PropertyDefinition, Team
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.models import InsightVariable
@@ -291,6 +291,33 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(metadata.isValid)
         self.assertEqual(metadata.warnings, [])
 
+    @parameterized.expand([("event",), ("property",)])
+    def test_metadata_scopes_taxonomy_to_the_project(self, kind: str):
+        # Definitions carry the project they were ingested for, and the taxonomic filter lists them
+        # per project. A team-scoped lookup here reports a name as unknown that the filter offers,
+        # for every definition ingested through a sibling environment of the same project.
+        sibling = Team.objects.create(
+            organization=self.organization, project_id=self.team.project_id, name="sibling environment"
+        )
+        other_project = Team.objects.create(organization=self.organization, name="unrelated project")
+        model = EventDefinition if kind == "event" else PropertyDefinition
+        # Without a definition owned by this team the taxonomy reads as empty under a team-scoped
+        # lookup, and the empty-taxonomy early return would satisfy the first assertion for free.
+        model.objects.create(team=self.team, name="owned_by_this_team")
+        model.objects.create(team=sibling, project_id=self.team.project_id, name="in_this_project")
+        model.objects.create(team=other_project, project_id=other_project.project_id, name="in_another_project")
+
+        def taxonomy_warnings(name: str) -> list[str]:
+            query = (
+                f"SELECT count() FROM events WHERE event = '{name}'"
+                if kind == "event"
+                else f"SELECT properties.{name} FROM events"
+            )
+            return [w.message for w in self._select(query).warnings if "project taxonomy" in w.message]
+
+        self.assertEqual(taxonomy_warnings("in_this_project"), [])
+        self.assertEqual(len(taxonomy_warnings("in_another_project")), 1)
+
     def test_metadata_does_not_warn_for_dynamic_event_expression(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
@@ -313,14 +340,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
 
-    def test_metadata_skips_full_taxonomy_fetch_for_known_event(self):
+    def test_metadata_skips_suggestion_lookup_for_known_event(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
-        with patch("posthog.hogql.taxonomy_validation._known_names") as known_names:
+        with patch("posthog.hogql.taxonomy_validation._similar_names") as similar_names:
             metadata = self._select("SELECT count() FROM events WHERE event = 'paid_bill'")
 
         self.assertTrue(metadata.isValid)
-        known_names.assert_not_called()
+        similar_names.assert_not_called()
 
     def test_metadata_event_literal_fix_preserves_quotes(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")
@@ -366,7 +393,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
         with patch(
-            "posthog.hogql.taxonomy_validation.EventDefinition.objects.filter",
+            "posthog.hogql.taxonomy_validation._project_scoped",
             side_effect=DatabaseError("boom"),
         ):
             metadata = self._select("SELECT count() FROM events WHERE event = 'purchase'")
@@ -376,15 +403,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([w for w in metadata.warnings if "project taxonomy" in w.message], [])
 
     def test_metadata_does_not_query_taxonomy_without_taxonomy_references(self):
-        with (
-            patch("posthog.hogql.taxonomy_validation.EventDefinition.objects.filter") as event_filter,
-            patch("posthog.hogql.taxonomy_validation.PropertyDefinition.objects.filter") as property_filter,
-        ):
+        with patch("posthog.hogql.taxonomy_validation._project_scoped") as project_scoped:
             metadata = self._select("SELECT count() FROM events")
 
         self.assertTrue(metadata.isValid)
-        event_filter.assert_not_called()
-        property_filter.assert_not_called()
+        project_scoped.assert_not_called()
 
     def test_metadata_does_not_warn_for_event_column_outside_events_table(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
