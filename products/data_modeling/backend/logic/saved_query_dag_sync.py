@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, TypedDict
 
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -158,6 +159,23 @@ class ManagedDAGError(Exception):
     pass
 
 
+def _rollback_created_node(node: Node, created: bool) -> None:
+    """Keep a newly created node if another sync adds a dependent before rollback."""
+    if not created:
+        return
+    try:
+        with transaction.atomic():
+            locked = Node.objects.select_for_update().filter(pk=node.pk).first()
+            if locked is not None and not locked.outgoing_edges.exists():
+                locked.delete()
+    except IntegrityError:
+        logger.warning(
+            "Skipped rollback delete of DAG node claimed by a concurrent sync",
+            node_id=str(node.pk),
+            team_id=node.team_id,
+        )
+
+
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
@@ -201,7 +219,7 @@ def sync_saved_query_to_dag(
 
     node_type = node_type_for(saved_query)
 
-    target, _ = Node.objects.get_or_create(
+    target, created = Node.objects.get_or_create(
         team=team,
         saved_query=saved_query,
         dag=dag,
@@ -231,7 +249,7 @@ def sync_saved_query_to_dag(
                 properties=extra_properties,
             )
     except Exception:
-        target.delete()
+        _rollback_created_node(target, created)
         raise
 
     # resolution succeeded, so an edge-less adoption marker no longer describes this node

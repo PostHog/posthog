@@ -277,8 +277,9 @@ class TestSyncSavedQueryToDag(BaseTest):
         with self.assertRaises(ResolutionCycleError):
             sync_saved_query_to_dag(query_a)
 
-        # node for query_a should be cleaned up
-        self.assertFalse(Node.objects.filter(saved_query=query_a).exists())
+        # The failed sync must preserve query_a because view_b still depends on it.
+        node_a = Node.objects.get(saved_query=query_a)
+        self.assertTrue(Edge.objects.filter(source=node_a, target__saved_query=query_b).exists())
 
     def test_sync_raises_for_empty_or_null_query(self):
         empty_query, _ = DataWarehouseSavedQuery.objects.get_or_create(
@@ -315,6 +316,8 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         with pytest.raises(QueryError):
             sync_saved_query_to_dag(saved_query)
+
+        self.assertFalse(Node.objects.filter(saved_query=saved_query).exists())
 
 
 @pytest.mark.django_db
