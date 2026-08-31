@@ -45,7 +45,7 @@ _FEATURE_SUMMARY_LIMITS = {
     "user_experience": 360,
     "implementation": 400,
     "in_flight_work": 300,
-    "measurement_and_health": 400,
+    "measurement_and_health": 420,
     "next_steps": 220,
 }
 _FEATURE_SUMMARY_FIELDS = (
