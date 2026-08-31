@@ -26,6 +26,7 @@ from products.data_quality.backend.temporal.activities.cleanup import (
     SUITE_RUN_RETENTION_DAYS,
     _cleanup,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 BATCH_SIZE = "products.data_quality.backend.temporal.activities.cleanup.RETENTION_DELETE_BATCH_SIZE"
 
@@ -227,6 +228,32 @@ class TestRetentionSweep(BaseTest):
             referenced_subjects=[{"subject_type": "view", "subject_uuid": str(doomed.id)}],
         )
         doomed.delete()
+
+        outcome = _cleanup()
+
+        assert outcome.checks_deleted == 0
+        assert DataQualityCheck.objects.unscoped().filter(id=check.id).exists()
+
+    def test_a_check_declared_on_a_materialized_view_backing_table_survives(self) -> None:
+        backing_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders_backing",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://bucket/{self.view.folder_path}/{self.view.normalized_name}",
+        )
+        self.view.table = backing_table
+        self.view.is_materialized = True
+        self.view.save(update_fields=["table", "is_materialized"])
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.TABLE,
+            table=backing_table,
+            subject_name=backing_table.name,
+            check_type=CheckType.NOT_NULL,
+            column_name="customer_id",
+            fingerprint=uuid4().hex,
+        )
+        self._age(DataQualityCheck, check, 1)
 
         outcome = _cleanup()
 
