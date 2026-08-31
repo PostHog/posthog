@@ -29,6 +29,11 @@ class NodeRole(StrEnum):
     ALL = "all"
     DATA = "data"
     INGESTION_EVENTS = "events"
+    # Same macro, named for what the role holds rather than what writes to it. The nodes carrying
+    # this role run the events ingestion layer and are also the events cluster's shards, so a
+    # caller reasoning about stored data (deletion, squash) reads better against EVENTS while the
+    # migrations that create ingestion tables keep INGESTION_EVENTS.
+    EVENTS = "events"
     INGESTION_SMALL = "small"
     INGESTION_MEDIUM = "medium"
     ENDPOINTS = "endpoints"
