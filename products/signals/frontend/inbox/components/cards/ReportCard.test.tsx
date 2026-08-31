@@ -41,12 +41,12 @@ describe('ReportCard', () => {
     afterEach(cleanup)
 
     // The redesign gives a row one action and leaves the status / actionability chips to the section
-    // headers; the legacy list keeps Archive, the "Review" label, and the chips.
+    // headers; the legacy list keeps Dismiss, the "Review" label, and the chips.
     it.each([
         [true, 'View report', false],
         [false, 'Review', true],
     ])(
-        'with the redesign flag %p shows %p and archive=chips=%p on a report without a PR',
+        'with the redesign flag %p shows %p and dismiss=chips=%p on a report without a PR',
         (redesign, label, legacyChrome) => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
                 [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
@@ -57,7 +57,7 @@ describe('ReportCard', () => {
             })
             const { getByText, queryByText } = render(<ReportCard report={report} />)
             expect(getByText(label)).toBeInTheDocument()
-            expect(queryByText('Archive') !== null).toBe(legacyChrome)
+            expect(queryByText('Dismiss') !== null).toBe(legacyChrome)
             expect(queryByText('Queued') !== null).toBe(legacyChrome)
             expect(queryByText('Actionable') !== null).toBe(legacyChrome)
         }
