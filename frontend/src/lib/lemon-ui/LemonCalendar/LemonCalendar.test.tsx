@@ -119,6 +119,21 @@ describe('LemonCalendar', () => {
         expect(await within(calendar).findByText('May 2020')).toBeTruthy()
     })
 
+    test('keeps a navigated month when a same-month prop arrives with a new identity', async () => {
+        // A caller can pass a fresh Dayjs of the same month on any re-render (e.g. a time edit).
+        // That must not pull the calendar back from a month the user reached with the arrows.
+        const { container, rerender } = render(<LemonCalendar leftmostMonth={dayjs('2020-02-15')} months={1} />)
+        const calendar = getByDataAttr(container, 'lemon-calendar')
+        expect(await within(calendar).findByText('February 2020')).toBeTruthy()
+
+        await userEvent.click(getByDataAttr(container, 'lemon-calendar-month-previous'))
+        expect(await within(calendar).findByText('January 2020')).toBeTruthy()
+
+        // Same month, new object — the calendar stays on the navigated month.
+        rerender(<LemonCalendar leftmostMonth={dayjs('2020-02-15').hour(9)} months={1} />)
+        expect(await within(calendar).findByText('January 2020')).toBeTruthy()
+    })
+
     test('renders many months', async () => {
         const { container } = render(<LemonCalendar months={10} />)
         const lemonCalendarMonths = getAllByDataAttr(container, 'lemon-calendar-month')

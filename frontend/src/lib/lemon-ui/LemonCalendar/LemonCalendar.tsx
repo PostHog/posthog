@@ -142,11 +142,15 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
     const [leftmostMonth, setLeftmostMonth] = useState<dayjs.Dayjs>(() =>
         (props.leftmostMonth ?? today).startOf('month')
     )
+    // Depend on the prop's year-month, not its identity: a caller may pass a fresh Dayjs of the
+    // same month on any re-render (e.g. a time edit), which must not reset a month the user
+    // navigated to with the arrows. Only a real change of month moves the calendar.
+    const leftmostMonthKey = props.leftmostMonth?.format('YYYY-MM')
     useEffect(() => {
         if (props.leftmostMonth && !props.leftmostMonth.isSame(leftmostMonth, 'month')) {
             setLeftmostMonth(props.leftmostMonth.startOf('month'))
         }
-    }, [props.leftmostMonth]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [leftmostMonthKey]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const timeButtonProps = (opts: GetTimeStateOpts): LemonButtonProps | undefined => {
         const timeState = props.getTimeState?.(opts)
