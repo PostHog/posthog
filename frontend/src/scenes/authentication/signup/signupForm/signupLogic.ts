@@ -13,6 +13,7 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { setPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
@@ -528,6 +529,10 @@ export const signupLogic = kea<signupLogicType>([
                         posthog.capture('signup completed with passkey')
                     }
 
+                    if (res.redirect_url?.includes('/verify_email') && signupData.email) {
+                        // The verify page has no session yet, so store the address for its copy
+                        setPendingVerificationEmail(signupData.email)
+                    }
                     // it's ok to trust the url sent from the server
                     // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
                     location.href = res.redirect_url || '/'

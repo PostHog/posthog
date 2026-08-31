@@ -10,7 +10,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
-import { isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
 
@@ -165,9 +165,10 @@ export function VerifyEmailForm(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
     const notes = NOTES[view ?? 'pending'] ?? NOTES.pending
-    // The address that received the code: the new address if an email change is pending, else the account address.
-    // It is undefined when the visitor has no session, for example after a login attempt on an unverified account.
-    const verificationEmail = user?.pending_email ?? user?.email
+    // The address that received the code. This is the new address if an email change is pending,
+    // else the account address. Without a session, for example on a fresh signup, the page uses the
+    // address the signup or login form stored in this browser. It stays unset in a different browser.
+    const verificationEmail = user?.pending_email ?? user?.email ?? getPendingVerificationEmail() ?? undefined
 
     if (view === 'success') {
         return (
@@ -287,8 +288,9 @@ export function VerifyEmailForm(): JSX.Element {
                     <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
                         {verificationEmail ? (
                             <>
-                                We sent a 6-digit code to <strong>{verificationEmail}</strong>. It's valid for 30
-                                minutes.
+                                We sent a 6-digit code to <strong>{verificationEmail}</strong>.
+                                <br />
+                                It's valid for 30 minutes.
                             </>
                         ) : (
                             <>We sent you a 6-digit code. It's valid for 30 minutes.</>

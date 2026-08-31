@@ -20,3 +20,25 @@ export function verificationCodeErrorMessage(e: { code?: string; detail?: string
     }
     return e.detail || 'This code is invalid or has expired.'
 }
+
+// The verify-email page cannot always read the address from the session. A fresh signup and a
+// login attempt on an unverified account both land there without one. The form that knows the
+// address stores it here, in this browser only, so the page can show it. The helpers use
+// try/catch because sessionStorage can throw, for example in private windows with site data blocked.
+const PENDING_VERIFICATION_EMAIL_KEY = 'ph_pending_verification_email'
+
+export function setPendingVerificationEmail(email: string): void {
+    try {
+        sessionStorage.setItem(PENDING_VERIFICATION_EMAIL_KEY, email)
+    } catch {
+        // The page shows the generic copy instead
+    }
+}
+
+export function getPendingVerificationEmail(): string | null {
+    try {
+        return sessionStorage.getItem(PENDING_VERIFICATION_EMAIL_KEY)
+    } catch {
+        return null
+    }
+}
