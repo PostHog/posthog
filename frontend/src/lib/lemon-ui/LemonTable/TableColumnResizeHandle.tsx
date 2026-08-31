@@ -92,7 +92,7 @@ export function TableColumnResizeHandle({ onResize, onResizeEnd }: TableColumnRe
     return (
         <button
             type="button"
-            className="absolute top-0 right-0 h-full w-2 translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0 after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-border hover:bg-primary-highlight focus-visible:bg-primary-highlight focus-visible:outline-none"
+            className="absolute top-0 right-0 h-full w-2 translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0 after:absolute after:inset-y-1/4 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-border hover:bg-primary-highlight focus-visible:bg-primary-highlight focus-visible:outline-none"
             aria-label="Resize column"
             onClick={(event) => event.stopPropagation()}
             onKeyDown={resizeByKeyboard}
