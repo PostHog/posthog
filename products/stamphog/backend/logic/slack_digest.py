@@ -19,6 +19,8 @@ from slack_sdk.web import SlackResponse
 
 from posthog.models.integration import Integration, SlackIntegration
 
+from .digest import as_channel_paragraph
+
 if TYPE_CHECKING:
     from .channel_resolution import Destination
     from .digest import DigestSummary
@@ -87,15 +89,20 @@ def _scope_line(shown: int, considered: int) -> str:
 def _lead_change_line(summary: DigestSummary) -> str:
     """The first change's own line when it may stand in for a headline, otherwise "".
 
-    ``judged`` is the whole condition. On the model path that line was written to the digest's bar
+    ``judged`` is the first condition. On the model path that line was written to the digest's bar
     by something that read the diff, so promoting it to the channel promotes a sentence somebody
     stood behind. On the deterministic fallback it is the PR's raw title, and putting an author's
     unreviewed claim in the one slot the channel reads would present it as the digest's pick when
     nothing judged it. A fallback keeps the scope line and reads like the quiet day it is.
+
+    Clearing ``as_channel_paragraph`` is the second. A change line is only ever validated for the
+    thread, where it is the label of its own link, and a model that omitted a summary leaves the
+    contributor's raw PR title standing in for it. Promoting one unchecked would put a title's URL
+    in the channel as bare clickable text, in the slot that rejects a headline for carrying one.
     """
     if not summary.judged or not summary.prs:
         return ""
-    return summary.prs[0].summary
+    return as_channel_paragraph(summary.prs[0].summary)
 
 
 def _has_lead_line(summary: DigestSummary) -> bool:

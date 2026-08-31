@@ -409,6 +409,23 @@ def _strip_code_fence(content: str) -> str:
     return stripped.strip()
 
 
+def as_channel_paragraph(text: str) -> str:
+    """One paragraph carrying no link, or "" when the text may not be posted in the channel.
+
+    The contract for anything that leads the channel post, whichever candidate fills that slot. The
+    channel line is the only digest text posted without a link attached to it, so a bare URL there
+    renders as something to click with nothing saying where it goes. A link drops the whole string
+    rather than being cut out, because removing a URL from a sentence leaves the punctuation around
+    the hole behind. Whitespace collapses so an answer written as bullets still reads as prose.
+
+    The same text is safe in the thread, where it is the label of the link it opens. That is why
+    this belongs to the slot and not to the data: a change line promoted to the lead has to clear
+    it, and the identical line one message below does not.
+    """
+    paragraph = " ".join(text.split())
+    return "" if _HEADLINE_URL_RE.search(paragraph) else paragraph
+
+
 def _headline(data: dict[str, Any]) -> str:
     """The model's channel-level paragraph, or "" when it gave none or gave one we will not post.
 
@@ -423,10 +440,9 @@ def _headline(data: dict[str, Any]) -> str:
     headline = data.get("headline")
     if not isinstance(headline, str):
         return ""
-    paragraph = " ".join(headline.split())
-    if _HEADLINE_URL_RE.search(paragraph):
+    paragraph = as_channel_paragraph(headline)
+    if headline.strip() and not paragraph:
         logger.warning("stamphog_digest_headline_rejected_link")
-        return ""
     return paragraph
 
 

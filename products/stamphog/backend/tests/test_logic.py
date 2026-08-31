@@ -298,20 +298,43 @@ class SlackDigestEscapingTests(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("a_judged_run_promotes_its_first_change_line", True, "The widget opens on the first click."),
-            ("a_fallback_keeps_the_scope_line", False, "1 of 9 Stamphog-approved merges."),
+            (
+                "a_judged_run_promotes_its_first_change_line",
+                True,
+                "The widget opens on the first click.",
+                "The widget opens on the first click.",
+            ),
+            (
+                "a_fallback_never_promotes_an_unreviewed_title",
+                False,
+                "The widget opens on the first click.",
+                "1 of 9 Stamphog-approved merges.",
+            ),
+            (
+                "a_line_carrying_a_link_is_not_promoted",
+                True,
+                "See https://evil.example.com for the change.",
+                "1 of 9 Stamphog-approved merges.",
+            ),
+            (
+                "a_line_written_as_bullets_collapses_into_prose",
+                True,
+                "- The widget opens.\n- It also logs.",
+                "- The widget opens. - It also logs.",
+            ),
         ]
     )
-    def test_a_headline_less_digest_leads_with_a_line_only_when_something_judged_it(
-        self, _name: str, judged: bool, expected_lead: str
+    def test_a_headline_less_digest_leads_with_a_line_only_when_the_line_may_be_posted(
+        self, _name: str, judged: bool, body: str, expected_lead: str
     ) -> None:
         # A bare count in the one slot the channel reads is what made a digest look like it gave up,
-        # and a judged run always has a better line sitting in its own thread. The fallback does not:
-        # its lines are unreviewed PR titles, so promoting one would present an author's claim about
-        # their own change as the digest's pick.
-        summary = self._summary(
-            author="a", body="The widget opens on the first click.", considered=9, headline="", judged=judged
-        )
+        # and a judged run usually has a better line sitting in its own thread. Two things disqualify
+        # one. The fallback's lines are unreviewed PR titles, so promoting one presents an author's
+        # claim about their own change as the digest's pick. And a change line is only ever validated
+        # for the thread, where it is the label of its own link: a model that omitted a summary
+        # leaves the raw title standing in, so a URL in it would reach the channel as bare clickable
+        # text, in the slot that rejects a headline for carrying one.
+        summary = self._summary(author="a", body=body, considered=9, headline="", judged=judged)
         assert _lead_blocks(summary)[0]["text"]["text"] == expected_lead
 
     @parameterized.expand([("change_line", False), ("headline", True)])
