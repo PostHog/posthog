@@ -1045,7 +1045,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         ),
     )
     @action(methods=["GET"], url_path="kernel/compute_options", detail=False, required_scopes=["notebook:read"])
-    def kernel_compute_options(self, request: Request, **kwargs):
+    def kernel_compute_options(self, request: Request, **kwargs) -> Response:
         rates = get_compute_rates()
         return Response(
             {

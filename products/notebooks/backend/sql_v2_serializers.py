@@ -475,13 +475,18 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
     hourly_price = serializers.FloatField(
         help_text=(
             "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. "
-            "Charged on the sandbox's lifetime, not on how much of it a cell uses."
+            "Charged on the sandbox's lifetime, not on how much of it a cell uses. Prices the configured "
+            "shape, like cpu_cores and memory_gb above: a running kernel keeps the shape it started with "
+            "until it restarts, so this is what the next sandbox costs."
         )
     )
     preset_key = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Compute preset this shape matches, or null when the shape was tuned by hand.",
+        help_text=(
+            "Compute preset the configured shape matches, or null when it was tuned by hand. Describes the "
+            "configured shape, not necessarily the one a running kernel started with."
+        ),
     )
 
 

@@ -51391,10 +51391,10 @@ export namespace Schemas {
          * @nullable
          */
       idle_timeout_seconds?: number | null;
-      /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. Charged on the sandbox's lifetime, not on how much of it a cell uses. */
+      /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. Charged on the sandbox's lifetime, not on how much of it a cell uses. Prices the configured shape, like cpu_cores and memory_gb above: a running kernel keeps the shape it started with until it restarts, so this is what the next sandbox costs. */
       hourly_price: number;
       /**
-         * Compute preset this shape matches, or null when the shape was tuned by hand.
+         * Compute preset the configured shape matches, or null when it was tuned by hand. Describes the configured shape, not necessarily the one a running kernel started with.
          * @nullable
          */
       preset_key?: string | null;
