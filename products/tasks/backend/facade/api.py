@@ -5268,6 +5268,10 @@ def _list_tasks_queryset(
     if channel:
         qs = qs.filter(channel_id=channel)
 
+    hog_flow_id = filters.get("hog_flow_id")
+    if hog_flow_id:
+        qs = qs.filter(hog_flow_id=hog_flow_id)
+
     if search:
         search_term = search.strip()
         if search_term:
