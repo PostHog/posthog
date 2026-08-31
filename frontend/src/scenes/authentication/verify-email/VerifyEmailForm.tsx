@@ -160,11 +160,14 @@ function VerificationCodeEntry(): JSX.Element {
 }
 
 export function VerifyEmailForm(): JSX.Element {
-    const { view, uuid, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
+    const { view, uuid, newlyRequestedVerificationLinkLoading, user } = useValues(verifyEmailLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const notes = NOTES[view ?? 'pending'] ?? NOTES.pending
+    // The address the code went to: the new address while an email change is pending, else the account's.
+    // Unset when the visitor has no session, e.g. redirected here after a login attempt on an unverified account.
+    const verificationEmail = user?.pending_email ?? user?.email
 
     if (view === 'success') {
         return (
@@ -282,8 +285,14 @@ export function VerifyEmailForm(): JSX.Element {
                         Check your inbox
                     </h1>
                     <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                        We emailed you a 6-digit code. Enter it below to verify your email address. The code is valid
-                        for 30 minutes.
+                        {verificationEmail ? (
+                            <>
+                                We sent a 6-digit code to <strong>{verificationEmail}</strong>. It's valid for 30
+                                minutes.
+                            </>
+                        ) : (
+                            <>We sent you a 6-digit code. It's valid for 30 minutes.</>
+                        )}
                     </p>
                     <VerificationCodeEntry />
                     <div className="mt-3">
