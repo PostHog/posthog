@@ -53,7 +53,7 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | Error tracking         | `products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx` | on master             |
 | Logs                   | `products/logs/frontend/LogsScene.tsx`                                              | on master             |
 | Tracing                | `products/tracing/frontend/TracingScene.tsx`                                        | on master             |
-| Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | in review             |
+| Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | on master             |
 | Surveys                | `frontend/src/scenes/surveys/Surveys.tsx`                                           | in review             |
 | Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                      | in review             |
 | Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | in review             |
