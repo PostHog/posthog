@@ -22,20 +22,8 @@ def _is_gpt5_model(model: OpenAIModel) -> bool:
     return str(model).startswith("gpt-5")
 
 
-def build_summarization_messages(text_repr: str, mode: SummarizationMode) -> list[ChatCompletionMessageParam]:
-    """Assemble the system and user prompts for one summarization call.
-
-    Shared with the model benchmark command so that a benchmark measures the prompt production
-    actually sends, instead of a copy that drifts.
-    """
-    return [
-        {"role": "system", "content": load_summarization_template(f"prompts/system_{mode}.djt", {})},
-        {"role": "user", "content": load_summarization_template("prompts/user.djt", {"text_repr": text_repr})},
-    ]
-
-
 # Strict json_schema keeps the model's output parseable by SummarizationResponse without a
-# repair step. Shared with the benchmark command for the same reason as the prompts above.
+# repair step.
 SUMMARIZATION_RESPONSE_FORMAT: Any = cast(
     Any,
     {
@@ -66,7 +54,10 @@ def summarize_with_openai(
         distinct_id=resolved_distinct_id,
     )
 
-    messages = build_summarization_messages(text_repr, mode)
+    messages: list[ChatCompletionMessageParam] = [
+        {"role": "system", "content": load_summarization_template(f"prompts/system_{mode}.djt", {})},
+        {"role": "user", "content": load_summarization_template("prompts/user.djt", {"text_repr": text_repr})},
+    ]
 
     extra: dict[str, Any] = {}
     if _is_gpt5_model(model):
