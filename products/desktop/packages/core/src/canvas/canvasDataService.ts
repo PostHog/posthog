@@ -17,6 +17,7 @@ import type {
 import {
   fetchCurrentUser,
   fetchInsightByShortId,
+  readCachedQuery,
   runQuery,
 } from "./posthogApi";
 
@@ -25,6 +26,9 @@ import {
 const FALLBACK_DISTINCT_ID = "freeform-canvas";
 const MAX_CANVAS_RESULT_ROWS = 1_000;
 const MAX_CANVAS_RESULT_BYTES = 2 * 1024 * 1024;
+// Floor between background recomputes of one stale query (see `revalidate`).
+const REVALIDATE_MIN_INTERVAL_MS = 30_000;
+const MAX_REVALIDATION_ENTRIES = 512;
 
 const utf8Encoder = new TextEncoder();
 
@@ -107,6 +111,8 @@ export class CanvasDataService {
   // The signed-in user's distinct_id, the default attribution in edit mode.
   // Per-user (not per-project), so a single cached value is correct.
   private userDistinctId: string | undefined;
+  // Epoch ms of each query's last background-recompute kickoff (see `revalidate`).
+  private readonly revalidatedAt = new Map<string, number>();
 
   constructor(
     @inject(AUTH_SERVICE)
@@ -120,31 +126,87 @@ export class CanvasDataService {
   async query(input: CanvasDataQueryInput): Promise<CanvasDataResult> {
     try {
       // A typed query node (TrendsQuery/etc.) runs as-is so the numbers match the
-      // PostHog UI; an inline HogQL string is the escape hatch. Cache-first
-      // execution (the insights avenue): serve a fresh cached result if present,
-      // otherwise compute it now.
+      // PostHog UI; an inline HogQL string is the escape hatch.
       const isTyped = input.query != null;
       const node = isTyped
         ? (input.query as Record<string, unknown>)
         : { kind: "HogQLQuery", query: input.hogql as string };
+      // Shape handling: HogQL returns rows (normalise a bare scalar row to a
+      // 1-cell array); typed nodes return SERIES OBJECTS, passed through
+      // untouched (wrapping them in arrays is what made every value read as 0).
+      const shaped = (results: unknown[]): unknown[] =>
+        isTyped ? results : results.map((r) => (Array.isArray(r) ? r : [r]));
+
+      // A canvas that declared a refresh window is a live surface: it re-reads
+      // on its own cadence, so it gets dashboard semantics. Any cached result
+      // paints immediately, and one older than the window is revalidated in the
+      // background so the NEXT read is fresh. A canvas with no window keeps the
+      // one-shot semantics: a fresh-enough cached result, else a blocking
+      // compute.
+      if (input.refresh != null) {
+        // The cache probe is an optimization; a transient failure on it must
+        // not fail a read that the blocking path below could still serve.
+        const cached = await readCachedQuery(this.authService, node).catch(
+          (err) => {
+            this.log.warn("Canvas cached-read probe failed", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+            return null;
+          },
+        );
+        if (cached) {
+          const age =
+            cached.lastRefresh != null
+              ? Date.now() - Date.parse(cached.lastRefresh)
+              : Number.POSITIVE_INFINITY;
+          const stale = !(age <= input.refresh * 1_000);
+          if (stale) this.revalidate(node);
+          return boundedResult({
+            columns: cached.columns,
+            results: shaped(cached.results),
+            ...(stale ? { stale: true } : {}),
+          });
+        }
+      }
+      // Cache-first execution (the insights avenue): serve a fresh cached
+      // result if present, otherwise compute it now.
       const { columns, results } = await runQuery(this.authService, node, {
         refresh: "blocking",
       });
-      return boundedResult({
-        columns,
-        // HogQL returns rows; normalise a bare scalar row to a 1-cell array.
-        // Typed nodes return SERIES OBJECTS — pass them through untouched (wrapping
-        // them in arrays is what made every value read as 0).
-        results: isTyped
-          ? results
-          : results.map((r) => (Array.isArray(r) ? r : [r])),
-      });
+      return boundedResult({ columns, results: shaped(results) });
     } catch (err) {
       this.log.warn("Canvas query failed", {
         error: err instanceof Error ? err.message : String(err),
       });
       throw err;
     }
+  }
+
+  // Fire-and-forget background recompute of a stale cached result.
+  // force_async recomputes unconditionally, so kickoffs are rate-limited per
+  // query: a canvas polling faster than the compute finishes must not stack
+  // ClickHouse runs behind it.
+  private revalidate(node: Record<string, unknown>): void {
+    const key = JSON.stringify(node);
+    const last = this.revalidatedAt.get(key);
+    if (last != null && Date.now() - last < REVALIDATE_MIN_INTERVAL_MS) return;
+    // Delete first so a re-set refreshes the key's Map position and the size
+    // cap below always evicts the least recently refreshed query.
+    this.revalidatedAt.delete(key);
+    this.revalidatedAt.set(key, Date.now());
+    // The map only ever holds queries some canvas is actively re-reading;
+    // still, cap it so a long session can't grow it without bound.
+    if (this.revalidatedAt.size > MAX_REVALIDATION_ENTRIES) {
+      const oldest = this.revalidatedAt.keys().next().value;
+      if (oldest !== undefined) this.revalidatedAt.delete(oldest);
+    }
+    void runQuery(this.authService, node, { refresh: "force_async" }).catch(
+      (err) => {
+        this.log.warn("Canvas background refresh failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      },
+    );
   }
 
   // The preferred data avenue: load a SAVED insight by short id and return its

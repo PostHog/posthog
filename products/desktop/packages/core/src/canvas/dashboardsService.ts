@@ -5,16 +5,18 @@ import {
   type CanvasBuildRecord,
   canvasBuildRecordSchema,
 } from "./canvasBuildSchemas";
-import type {
-  CanvasActionDefinition,
-  CanvasActionResult,
-  CanvasDraft,
-  CanvasSource,
-  CanvasSourceProject,
-  CanvasStateEntry,
-  CanvasStateScope,
-  CanvasVersion,
-  DashboardRecord,
+import {
+  type CanvasActionDefinition,
+  type CanvasActionResult,
+  type CanvasDraft,
+  type CanvasSource,
+  type CanvasSourceProject,
+  type CanvasStateEntry,
+  type CanvasStateScope,
+  type CanvasVersion,
+  type CanvasView,
+  canvasSourceProjectSchema,
+  type DashboardRecord,
 } from "./dashboardSchemas";
 import {
   type CanvasAgentRequestResult,
@@ -140,6 +142,33 @@ function tryToBuildRecord(
   return parsed.success ? parsed.data : null;
 }
 
+// One placed component's renderable build, as the layout/view endpoints return it.
+interface ApiComponentLifecycle {
+  canvas_id: string;
+  requested_version_id: string | null;
+  published_build_id: string | null;
+  current_version_id: string | null;
+  builds: Record<string, unknown>[];
+}
+
+function toComponentLifecycleSeed(entry: ApiComponentLifecycle): {
+  canvasId: string;
+  requestedVersionId: string | null;
+  lifecycle: CanvasBuildLifecycle;
+} {
+  return {
+    canvasId: entry.canvas_id,
+    requestedVersionId: entry.requested_version_id,
+    lifecycle: {
+      publishedBuildId: entry.published_build_id,
+      currentVersionId: entry.current_version_id,
+      builds: entry.builds
+        .map(tryToBuildRecord)
+        .filter((build): build is CanvasBuildRecord => build !== null),
+    },
+  };
+}
+
 /**
  * Canvases backed by the PostHog canvases API. A canvas is a first-class row
  * filed into a backend channel; its source is versioned per publish
@@ -167,6 +196,36 @@ export class DashboardsService {
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`Failed to load canvas (${res.status})`);
     return toRecord((await res.json()) as ApiCanvas);
+  }
+
+  // Everything needed to open a canvas, in one round trip: the record, the
+  // live build (signed artifact URL included), and, when there is nothing
+  // built to render, the head source (freeform/component) or layout (grid).
+  async view(id: string): Promise<CanvasView> {
+    const body = await this.api.revalidatedJson<{
+      canvas: ApiCanvas;
+      published_build: Record<string, unknown> | null;
+      current_version_id: string | null;
+      has_active_build: boolean;
+      source?: unknown;
+      layout?: CanvasLayout | null;
+      component_lifecycles?: ApiComponentLifecycle[];
+    }>(`canvases/${encodeURIComponent(id)}/view/`, "load canvas view");
+    const publishedBuild = body.published_build
+      ? tryToBuildRecord(body.published_build)
+      : null;
+    const source = canvasSourceProjectSchema.nullish().safeParse(body.source);
+    return {
+      record: toRecord(body.canvas),
+      publishedBuild,
+      currentVersionId: body.current_version_id ?? null,
+      hasActiveBuild: body.has_active_build ?? false,
+      source: source.success ? (source.data ?? null) : null,
+      layout: body.layout ?? null,
+      componentLifecycles: body.component_lifecycles?.map(
+        toComponentLifecycleSeed,
+      ),
+    };
   }
 
   // The component store: component-kind canvases across every channel visible
@@ -221,21 +280,34 @@ export class DashboardsService {
   }
 
   // Read a grid canvas's layout document — the head, or a historical version.
+  // The head read also asks for the placed components' renderable builds, so a
+  // grid renders from this one call instead of one builds fetch per placement.
+  // Version browsing skips them: nothing consumes an old layout's lifecycles,
+  // and an unpinned placement would resolve to TODAY's build anyway.
   async getLayout(input: {
     id: string;
     versionId?: string;
   }): Promise<CanvasLayoutResult> {
     const suffix = input.versionId
       ? `?version_id=${encodeURIComponent(input.versionId)}`
-      : "";
-    const body = await this.api.json<{
+      : "?include_components=true";
+    const body = await this.api.revalidatedJson<{
       layout: CanvasLayout;
       current_version_id: string | null;
+      component_lifecycles?: ApiComponentLifecycle[];
     }>(
       `canvases/${encodeURIComponent(input.id)}/layout/${suffix}`,
       "load canvas layout",
     );
-    return { layout: body.layout, currentVersionId: body.current_version_id };
+    return {
+      layout: body.layout,
+      currentVersionId: body.current_version_id,
+      // Absent on servers that predate include_components; tiles then fall
+      // back to their own builds fetch.
+      componentLifecycles: body.component_lifecycles?.map(
+        toComponentLifecycleSeed,
+      ),
+    };
   }
 
   // Publish a complete layout document as the grid canvas's new head. Live
@@ -574,10 +646,13 @@ export class DashboardsService {
     id: string;
     versionId?: string;
   }): Promise<CanvasBuildLifecycle> {
+    // slim keeps the payload to render state (live + head + in-flight builds)
+    // because this endpoint is polled every couple of seconds during builds.
+    // Servers that predate the param ignore it and answer in full.
     const suffix = input.versionId
-      ? `?version_id=${encodeURIComponent(input.versionId)}`
-      : "";
-    const body = await this.api.json<{
+      ? `?version_id=${encodeURIComponent(input.versionId)}&scope=slim`
+      : "?scope=slim";
+    const body = await this.api.revalidatedJson<{
       published_build_id: string | null;
       current_version_id: string | null;
       builds: Record<string, unknown>[];

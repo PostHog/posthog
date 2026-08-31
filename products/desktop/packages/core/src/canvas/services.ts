@@ -12,6 +12,7 @@ import type {
   CanvasStateEntry,
   CanvasStateScope,
   CanvasVersion,
+  CanvasView,
   DashboardRecord,
 } from "./dashboardSchemas";
 import type {
@@ -44,6 +45,8 @@ export interface IDashboardsService {
   listComponents(input: { search?: string }): Promise<DashboardRecord[]>;
   listAll(): Promise<DashboardRecord[]>;
   get(id: string): Promise<DashboardRecord | null>;
+  // Everything needed to open a canvas, in one round trip.
+  view(id: string): Promise<CanvasView>;
   create(input: {
     channelId: string;
     name: string;

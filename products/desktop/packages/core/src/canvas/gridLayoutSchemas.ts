@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canvasBuildLifecycleSchema } from "./canvasBuildSchemas";
 
 // A grid canvas's layout document — its entire "source". Layout is data:
 // publishes and patches are live immediately, with no build. The server
@@ -58,10 +59,27 @@ export const canvasLayoutSchema = z.object({
 });
 export type CanvasLayout = z.infer<typeof canvasLayoutSchema>;
 
+// The renderable build of one component the layout places, shaped as a build
+// lifecycle so placement tiles reuse the same readers the builds endpoint
+// feeds. One entry per distinct (component, pinned version) pair.
+export const componentLifecycleSeedSchema = z.object({
+  canvasId: z.string(),
+  // The source version the placement pins, or null when it follows the latest.
+  requestedVersionId: z.string().nullable(),
+  lifecycle: canvasBuildLifecycleSchema,
+});
+export type ComponentLifecycleSeed = z.infer<
+  typeof componentLifecycleSeedSchema
+>;
+
 export const canvasLayoutResultSchema = z.object({
   layout: canvasLayoutSchema,
   // The head layout version — pass as expectedCurrentVersionId on writes.
   currentVersionId: z.string().nullish(),
+  // Renderable component builds delivered with the layout, so a grid opens on
+  // one round trip instead of one builds fetch per placement. Absent on
+  // servers that predate it.
+  componentLifecycles: z.array(componentLifecycleSeedSchema).optional(),
 });
 export type CanvasLayoutResult = z.infer<typeof canvasLayoutResultSchema>;
 

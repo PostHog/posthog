@@ -49,9 +49,16 @@ import {
   type DragEvent,
   type ReactNode,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+
+// Pointer-rest delay before a canvas row warms its open-path caches. Matches
+// the space tree's hover-prefetch convention, so arrowing/scrolling rows under
+// a stationary cursor doesn't fire a request per row.
+const CANVAS_HOVER_PRIME_REST_MS = 250;
 
 /**
  * What a row can do. One object per channel rather than closures per item, so
@@ -66,6 +73,8 @@ export interface ChannelItemActions {
   /** Canvases only — a task is archived, not deleted. */
   remove: (item: ChannelItemModel) => void;
   fileCanvas: (item: ChannelItemModel, channelId: string) => void;
+  /** Canvases only — warm the canvas's open-path caches ahead of a click. */
+  primeCanvas?: (id: string) => void;
 }
 
 // The channel sidebar's own chrome. Deliberately not shared with the Code
@@ -185,6 +194,8 @@ export function ChannelItemRowView({
   onClick,
   onDragStart,
   onDragEnd,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   item: ChannelItemModel;
   status: TaskStatusInput | null;
@@ -197,10 +208,14 @@ export function ChannelItemRowView({
   onClick?: (e: React.MouseEvent) => void;
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   const pinBadge = item.pinned && showPinBadge;
   return (
     <SidebarItem
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       // The space's lists follow web conventions — every clickable row shows a
       // pointer, like the feed and activity rows — unlike the Code sidebar,
       // which keeps SidebarItem's native cursor-default.
@@ -295,6 +310,12 @@ export function ChannelItemRow({
 }) {
   const status = useChannelTaskStatus(item);
   const subtitle = useChannelItemMetadata(item);
+  // Warm a canvas's open-path caches once the pointer RESTS on its row (250ms,
+  // the tree's prefetch convention) so the click opens against hot caches.
+  const hoverPrimeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(hoverPrimeTimer.current), []);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const handoffMounted = useMountedOnceOpened(handoffOpen);
@@ -406,6 +427,22 @@ export function ChannelItemRow({
         onDragStart={handleDragStart}
         onDragEnd={onDragEnd}
         onClick={(e) => (onClick ? onClick(e) : actions.open(item))}
+        onMouseEnter={
+          item.kind === "canvas" && actions.primeCanvas
+            ? () => {
+                clearTimeout(hoverPrimeTimer.current);
+                hoverPrimeTimer.current = setTimeout(
+                  () => actions.primeCanvas?.(item.id),
+                  CANVAS_HOVER_PRIME_REST_MS,
+                );
+              }
+            : undefined
+        }
+        onMouseLeave={
+          item.kind === "canvas"
+            ? () => clearTimeout(hoverPrimeTimer.current)
+            : undefined
+        }
       />
     </ChannelItemHoverCard>
   );

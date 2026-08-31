@@ -18,6 +18,7 @@ import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTas
 import {
   useDashboardMutations,
   useDashboards,
+  usePrimeCanvasView,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarSessionMap } from "@posthog/ui/features/sidebar/useSidebarSessionMap";
@@ -100,6 +101,7 @@ export function useChannelItems(channelId: string): {
     fileDashboard,
     invalidateDashboards,
   } = useDashboardMutations();
+  const primeCanvasView = usePrimeCanvasView();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
     client,
@@ -243,6 +245,7 @@ export function useChannelItems(channelId: string): {
           invalidate: invalidateDashboards,
         });
       },
+      primeCanvas: primeCanvasView,
     }),
     [
       channelId,
@@ -254,6 +257,7 @@ export function useChannelItems(channelId: string): {
       fileDashboard,
       channels,
       invalidateDashboards,
+      primeCanvasView,
     ],
   );
 

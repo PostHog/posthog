@@ -3,8 +3,13 @@ import {
   canvasBuildStatusSchema,
 } from "@posthog/shared";
 import { z } from "zod";
+import { canvasBuildRecordSchema } from "./canvasBuildSchemas";
 import { canvasAgentRequestInputSchema } from "./freeformSchemas";
-import { componentMetaSchema } from "./gridLayoutSchemas";
+import {
+  canvasLayoutSchema,
+  componentLifecycleSeedSchema,
+  componentMetaSchema,
+} from "./gridLayoutSchemas";
 
 // A canvas record from the PostHog canvases API, normalized to camelCase and
 // epoch-ms timestamps. Source code and version history are NOT part of the
@@ -88,6 +93,23 @@ export const canvasSourceSchema = z.object({
   currentVersionId: z.string().nullish(),
 });
 export type CanvasSource = z.infer<typeof canvasSourceSchema>;
+
+// Everything the app needs to open a canvas, in one round trip (the `view`
+// endpoint): the record, the live build with its signed artifact URL, and,
+// only when there is nothing built to render, the head source (freeform/
+// component) or layout (grid).
+export const canvasViewSchema = z.object({
+  record: dashboardRecordSchema,
+  publishedBuild: canvasBuildRecordSchema.nullable(),
+  currentVersionId: z.string().nullable(),
+  hasActiveBuild: z.boolean(),
+  source: canvasSourceProjectSchema.nullable(),
+  layout: canvasLayoutSchema.nullable(),
+  // For grids: the placed components' renderable builds, so a primed grid
+  // renders without a builds fetch per placement.
+  componentLifecycles: z.array(componentLifecycleSeedSchema).optional(),
+});
+export type CanvasView = z.infer<typeof canvasViewSchema>;
 
 export const listDashboardsInput = z.object({ channelId: z.string().min(1) });
 
