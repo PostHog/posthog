@@ -1513,6 +1513,27 @@ def team_api_test_factory():
 
         @patch("posthog.api.project.is_email_available", return_value=True)
         @patch("posthog.tasks.email.send_project_moved.apply_async")
+        def test_change_organization_to_same_organization_is_rejected(self, mock_apply_async, _mock_email_available):
+            # organization_id arrives from the request body as a string, so a same-org request must
+            # still be caught by the guard, or it writes false move entries and emails peer admins.
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            logs_before = ActivityLog.objects.count()
+
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/",
+                {"organization_id": str(self.organization.id)},
+            )
+
+            assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+            assert res.json()["detail"] == "Project is already in the target organization."
+            # A no-op move must not write audit rows or email anyone
+            assert ActivityLog.objects.count() == logs_before
+            mock_apply_async.assert_not_called()
+
+        @patch("posthog.api.project.is_email_available", return_value=True)
+        @patch("posthog.tasks.email.send_project_moved.apply_async")
         def test_change_organization_notifies_source_organization(self, mock_apply_async, _mock_email_available):
             source_org = self.organization
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)

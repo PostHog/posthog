@@ -1836,7 +1836,9 @@ class ProjectViewSet(
         except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
             raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
 
-        if project.organization_id == target_organization_id:
+        # Compare resolved UUIDs: target_organization_id comes off the request body as a string, so
+        # comparing it to the UUID organization_id never matches and would let a same-org request through.
+        if project.organization_id == target_organization.id:
             raise exceptions.ValidationError("Project is already in the target organization.")
 
         teams = list(project.teams.all())
