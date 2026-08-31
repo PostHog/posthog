@@ -1,0 +1,193 @@
+"""Argparse entrypoint wiring the plan/emit/install/uninstall/retire subcommands."""
+
+from __future__ import annotations
+
+import sys
+import argparse
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from . import cyclebreak, emit, install, loading, planning, retire
+
+
+def _run_plan(args: argparse.Namespace) -> None:
+    tree = loading.MigrationTree.load(loading.REPO_ROOT)
+    squasher = planning.Squasher(tree, args.cutoff, include_prior_squashes=args.include_prior_squashes)
+    rendered = planning.TreeRenderer(squasher).render()
+    text = yaml.safe_dump(rendered, sort_keys=False, default_flow_style=False, width=200)
+    if args.output:
+        args.output.write_text(text)
+        sys.stderr.write(f"Wrote {args.output} ({len(text):,} bytes)\n")
+    else:
+        sys.stdout.write(text)
+
+
+def _run_emit(args: argparse.Namespace) -> None:
+    tree = loading.MigrationTree.load(loading.REPO_ROOT)
+    squasher = planning.Squasher(tree, args.cutoff, include_prior_squashes=args.include_prior_squashes)
+    state = planning.Snapshotter(squasher).final_state()
+    cycle_breaker = cyclebreak.CycleBreaker(state)
+
+    sys.stderr.write(
+        f"cycle apps: {sorted(cycle_breaker.cycle_apps) or '(none)'}\n"
+        f"apply order: {' -> '.join(cycle_breaker.apply_order[:12])}{' ...' if len(cycle_breaker.apply_order) > 12 else ''}\n"
+        f"deferred FK fields: {len(cycle_breaker.deferred)}\n"
+    )
+    for fk in sorted(cycle_breaker.deferred, key=lambda f: (f.from_app, f.from_model, f.field_name)):
+        sys.stderr.write(f"  defer  {fk.from_app}.{fk.from_model}.{fk.field_name} -> {fk.to_app}.{fk.to_model}\n")
+
+    # Cross-app dependency entries to surgically remove from old migration files
+    # so Django's `replaces` redirect doesn't carry them into our squash.
+    cycle_edges = cycle_breaker.cycle_break_edges(squasher)
+    if cycle_edges:
+        sys.stderr.write(f"\ncycle-break edge removals ({len(cycle_edges)}):\n")
+        for frm_app, frm_name, to_app, to_name in cycle_edges:
+            sys.stderr.write(f"  rewrite  {frm_app}.{frm_name}: drop dep ({to_app!r}, {to_name!r})\n")
+
+    if args.app:
+        apps = [args.app]
+    else:
+        apps = sorted({m.ref.app for m in squasher.old.values()})
+
+    writer = emit.FileWriter(args.output_dir)
+    written: list[Path] = []
+    dropped_runsql: list[str] = []
+    # Retire manifest collected as we emit. Each replaced name maps to its owning
+    # app; per-app we record both the pre-finalize leaf (where models are CREATED)
+    # and the post-finalize leaf (where deferred FKs / indexes are wired). The
+    # retire pass uses pre-finalize for cross-app references and post-finalize
+    # for same-app references — using post-finalize cross-app would re-introduce
+    # the cycle that finalize_fks itself depends on.
+    retire_manifest: dict[str, Any] = {
+        "cutoff": args.cutoff.isoformat(),
+        "leaves": {},  # app -> post-finalize leaf name
+        "initials": {},  # app -> pre-finalize (initial) squash name
+        "replaced": {},  # "app/name" -> app  (every name claimed by a squash)
+    }
+    for app in apps:
+        emitter = emit.Emitter(state, squasher, app, cycle_breaker)
+        squashes = emitter.build()
+        dropped_runsql.extend(emitter.dropped_runsql)
+        # The initial squash is the second entry in `squashes` (after the stub).
+        # If THAT has no operations, the app has no models to squash.
+        initial = next((sq for sq in squashes if sq.name == emitter.INITIAL_NAME), None)
+        if initial is None or not initial.operations:
+            sys.stderr.write(f"skip {app}: no models in final state\n")
+            continue
+        for sq in squashes:
+            path = writer.write(sq)
+            written.append(path)
+            sys.stderr.write(
+                f"wrote {path}  ({len(sq.operations)} ops, replaces {len(sq.replaces)}, deps {len(sq.dependencies)})\n"
+            )
+        # Manifest entries
+        finalize = next((sq for sq in squashes if sq.name == emitter.FINALIZE_NAME), None)
+        addons = next((sq for sq in squashes if sq.name == emitter.SCHEMA_ADDONS_NAME), None)
+        retire_manifest["initials"][app] = emitter.INITIAL_NAME
+        if addons is not None:
+            retire_manifest["leaves"][app] = emitter.SCHEMA_ADDONS_NAME
+        elif finalize is not None:
+            retire_manifest["leaves"][app] = emitter.FINALIZE_NAME
+        else:
+            retire_manifest["leaves"][app] = emitter.INITIAL_NAME
+        for replaced_app, replaced_name in initial.replaces:
+            retire_manifest["replaced"][f"{replaced_app}/{replaced_name}"] = replaced_app
+    # Save cycle-break edge-removal list as a sidecar for `install` to act on.
+    if cycle_edges:
+        edges_file = args.output_dir / "CYCLE_EDGE_REMOVALS.txt"
+        edges_file.write_text("\n".join(f"{fa}/{fn} -> {ta}/{tn}" for (fa, fn, ta, tn) in cycle_edges) + "\n")
+        sys.stderr.write(f"\nwrote cycle-break edge-removal list to {edges_file}\n")
+
+    # Save (app, first_young) entries that need a dep added so the latest
+    # squash in the app (finalize_fks and/or schema_addons) runs before any
+    # young migration in the same app. The install step looks up the actual
+    # leaf via the manifest, so we don't store the squash name here.
+    first_young_edits: list[tuple[str, str]] = []
+    for app in apps:
+        emitter = emit.Emitter(state, squasher, app, cycle_breaker)
+        leaf = retire_manifest["leaves"].get(app)
+        if leaf in (None, emitter.INITIAL_NAME):
+            continue  # plain initial chains in via replaces redirect already
+        first_young = emitter.first_young_in_app()
+        if first_young:
+            first_young_edits.append((app, first_young))
+    if first_young_edits:
+        adds_file = args.output_dir / "FIRST_YOUNG_DEP_ADDITIONS.txt"
+        adds_file.write_text("\n".join(f"{a}/{n}" for (a, n) in first_young_edits) + "\n")
+        sys.stderr.write(f"wrote first-young dep-addition list to {adds_file}\n")
+
+    if dropped_runsql:
+        dropped_path = args.output_dir / "DROPPED_RUNSQL.txt"
+        dropped_path.write_text("\n".join(dropped_runsql) + "\n")
+        sys.stderr.write(f"wrote {len(dropped_runsql)} dropped-RunSQL entries to {dropped_path} — audit them\n")
+
+    import json as _json
+
+    manifest_path = args.output_dir / "RETIRE_MANIFEST.json"
+    manifest_path.write_text(_json.dumps(retire_manifest, indent=2, sort_keys=True) + "\n")
+    sys.stderr.write(
+        f"wrote retire manifest ({len(retire_manifest['replaced'])} replaced names, "
+        f"{len(retire_manifest['leaves'])} apps) to {manifest_path}\n"
+    )
+
+    sys.stderr.write(f"\ntotal: {len(written)} files emitted to {args.output_dir}\n")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
+    subparsers = parser.add_subparsers(dest="command", required=False)
+
+    def _add_phase_args(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--cutoff", type=date.fromisoformat, default=loading.DEFAULT_CUTOFF)
+        p.add_argument(
+            "--include-prior-squashes",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Treat existing nextgensquash output (stub/initial/finalize_fks/schema_addons) as old "
+            "regardless of cutoff date, so a stacked phase-N can fold them into its own replaces list. "
+            "Default on. Disable for a clean from-scratch (re-)squash that ignores prior phases.",
+        )
+
+    parser_plan = subparsers.add_parser("plan", help="Emit the YAML description of the proposed squash tree.")
+    _add_phase_args(parser_plan)
+    parser_plan.add_argument("--output", type=Path, default=None)
+
+    parser_emit = subparsers.add_parser("emit", help="Emit real .py migration files for the squashed apps.")
+    _add_phase_args(parser_emit)
+    parser_emit.add_argument("--output-dir", type=Path, required=True)
+    parser_emit.add_argument("--app", default=None, help="Only emit this app (testing).")
+
+    parser_install = subparsers.add_parser("install", help="Copy emitted files into the real migration dirs.")
+    parser_install.add_argument("--input-dir", type=Path, required=True)
+
+    parser_uninstall = subparsers.add_parser(
+        "uninstall", help="Remove installed squash files; restore max_migration.txt."
+    )
+    parser_uninstall.add_argument("--input-dir", type=Path, required=True)
+
+    parser_retire = subparsers.add_parser(
+        "retire",
+        help="Canonical Django retirement: rewrite young-migration deps to squash leaves, "
+        "empty replaces=[], and delete the replaced files on disk.",
+    )
+    parser_retire.add_argument("--input-dir", type=Path, required=True)
+
+    # Backward-compat: bare invocation defaults to `plan`.
+    parser.add_argument("--cutoff", type=date.fromisoformat, default=loading.DEFAULT_CUTOFF)
+    parser.add_argument("--include-prior-squashes", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--output", type=Path, default=None)
+    args = parser.parse_args()
+
+    if args.command == "emit":
+        _run_emit(args)
+    elif args.command == "install":
+        install._run_install(args)
+    elif args.command == "uninstall":
+        install._run_uninstall(args)
+    elif args.command == "retire":
+        retire._run_retire(args)
+    else:
+        _run_plan(args)
