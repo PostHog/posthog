@@ -161,6 +161,42 @@ describe('inboxReportDetailLogic', () => {
         })
     })
 
+    describe('diff fetching', () => {
+        let logic: ReturnType<typeof inboxReportDetailLogic.build>
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': [],
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/:artefact_id/diff/': () => [
+                        404,
+                        { error: "Branch 'fix-checkout' was not found on GitHub." },
+                    ],
+                },
+            })
+            initKeaTests()
+            silenceKeaLoadersErrors()
+            logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            resumeKeaLoadersErrors()
+        })
+
+        // The endpoint returns its reason under `error`, not DRF's `detail`, so a reducer that reads
+        // the wrong key falls back to guessing at a cause the response already stated.
+        it('surfaces what the endpoint says it could not find', async () => {
+            logic.actions.loadReportDiff({ artefactId: 'artefact-1' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.reportDiffError).toBe("Branch 'fix-checkout' was not found on GitHub.")
+        })
+    })
+
     describe('report task polling', () => {
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
         let artefactRequests: number

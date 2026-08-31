@@ -51,6 +51,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadSelfDrivingEvaluationReports', // The self-driving eval table renders its own retry state
     'loadToolDataEvents',
     'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
+    'loadReportDiff', // The Inbox report detail's diff panel renders its own error state
     'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
     'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state

@@ -851,15 +851,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setFeedbackNoteSubmitting: (_, { submitting }) => submitting,
             },
         ],
-        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
-        // compare usually means the branch was merged, deleted, or force-rewritten away.
+        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). The
+        // endpoint says which branch or repository GitHub could not find, so prefer its message and
+        // keep the guess for a failure that carried none (a network drop, a gateway error page).
         reportDiffError: [
             null as string | null,
             {
                 loadReportDiff: () => null,
                 loadReportDiffSuccess: () => null,
-                loadReportDiffFailure: () =>
-                    "Couldn't load the diff. The branch may have been merged, deleted, or rewritten.",
+                loadReportDiffFailure: (_state: string | null, { errorObject }: { errorObject?: any }) =>
+                    typeof errorObject?.data?.error === 'string' && errorObject.data.error
+                        ? errorObject.data.error
+                        : "Couldn't load the diff. The branch may have been merged, deleted, or rewritten.",
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
