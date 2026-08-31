@@ -19,19 +19,19 @@ from posthog.hogql import ast
 from products.engineering_analytics.backend.facade.contracts import MasterFailureGroup, RepoRef
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    DECISIVE_FAILURE_CONCLUSIONS_SQL,
     run_windowed_job_created_floor_constant,
 )
 
 # Failed default-branch runs in the window is a triage view, not an archive — cap it.
 _RUN_CAP = 500
-_DECISIVE_FAILURE_CONCLUSIONS_SQL = "'failure', 'timed_out', 'startup_failure', 'stale'"
 
 _FAILED_RUNS_SELECT = f"""
     SELECT id, repo_owner, repo_name, workflow_name, run_started_at
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__
         AND head_branch = {{branch}}
-        AND status = 'completed' AND conclusion IN ({_DECISIVE_FAILURE_CONCLUSIONS_SQL})
+        AND status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
     ORDER BY run_started_at DESC
     LIMIT {_RUN_CAP}
 """
@@ -39,7 +39,7 @@ _FAILED_RUNS_SELECT = f"""
 _FAILED_JOBS_SELECT = f"""
     SELECT run_id, name
     FROM __JOBS_SOURCE__ AS j
-    WHERE run_id IN {{run_ids}} AND conclusion IN ({_DECISIVE_FAILURE_CONCLUSIONS_SQL})
+    WHERE run_id IN {{run_ids}} AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
 """
 
 # Trailing "(G/N)" shard suffix, incl. nested parens ("Product tests (experiments (1/2))") —
