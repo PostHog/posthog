@@ -263,7 +263,10 @@ def relative_date_parse_with_delta_mapping(
     except (ValueError, TypeError, OverflowError):
         # A magnitude that overflows datetime's range (e.g. "7301y"), or a numeral
         # too long to convert, becomes a 400 that names the bad input, not a 500.
-        raise serializers.ValidationError(f"Relative date '{input}' is out of range")
+        # Keep quotes out of the message: on async query paths the frontend parses
+        # the ErrorDetail repr, whose delimiter flips to double quotes when the
+        # message itself contains a single quote.
+        raise serializers.ValidationError(f"Relative date {input} is out of range")
 
     if match_group_dict["kind"] == "q":
         # Quarter boundaries depend on the resulting month, so they can't be expressed

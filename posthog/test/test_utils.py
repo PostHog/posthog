@@ -486,8 +486,11 @@ class TestRelativeDateParse(TestCase):
     def test_out_of_range_magnitude_raises_validation_error(self, _name, input):
         # A magnitude that pushes the date outside datetime's range must surface as a
         # 400 (ValidationError), not the bare ValueError dateutil raises (a 500).
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError) as ctx:
             relative_date_parse(input, ZoneInfo("UTC"))
+        # A single quote in the message flips the ErrorDetail repr delimiter to double
+        # quotes, which the frontend async-query parser cannot read.
+        self.assertNotIn("'", str(ctx.exception.detail[0]))
 
 
 class TestDefaultEventName(BaseTest):
