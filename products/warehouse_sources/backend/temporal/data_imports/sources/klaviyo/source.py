@@ -111,6 +111,7 @@ The campaign and flow performance tables (campaign_values_reports, flow_values_r
                         required=False,
                         placeholder="RESQ6t",
                         secret=False,
+                        caption="Paste the ID of a value-tracking metric such as Placed Order from [your Klaviyo metrics](https://www.klaviyo.com/analytics/metrics). Engagement metrics such as opens and clicks are not eligible. Leave blank to auto-select one. Only the campaign and flow performance tables use it.",
                     ),
                 ],
             ),
