@@ -173,7 +173,7 @@ export const BillingProductPostHogCodeLimitEditing: Story = {
         }),
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByTestId(`default-billing-limit-${POSTHOG_CODE_USAGE_PRODUCT_KEY}`))
+        await userEvent.click(await canvas.findByText(/default initial billing limit/i))
     },
 }
 
