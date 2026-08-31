@@ -3,6 +3,7 @@ import {
   type ChannelContextWikiPage,
   type ContextWikiDreamDetail,
   type ContextWikiDreamList,
+  type ContextWikiHealthReport,
   type ContextWikiPage,
   type ContextWikiTree,
   ContextWikiUnavailableError,
@@ -14,6 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 const CONTEXT_WIKI_TREE_KEY = ["context-wiki", "tree"] as const;
 const CONTEXT_WIKI_PAGE_KEY = (path: string) =>
   ["context-wiki", "page", path] as const;
+const CONTEXT_WIKI_REPORT_KEY = ["context-wiki", "report"] as const;
 const CONTEXT_WIKI_DREAMS_KEY = ["context-wiki", "dreams"] as const;
 const CONTEXT_WIKI_DREAM_KEY = (sha: string) =>
   ["context-wiki", "dream", sha] as const;
@@ -127,6 +129,14 @@ export function useContextWikiDream(sha: string | null) {
     CONTEXT_WIKI_DREAM_KEY(sha ?? ""),
     (client) => client.getContextWikiDream(sha as string),
     { enabled: sha !== null, staleTime: Infinity },
+  );
+}
+
+export function useContextWikiHealthReport() {
+  return useAuthenticatedQuery<ContextWikiHealthReport | null>(
+    CONTEXT_WIKI_REPORT_KEY,
+    (client) => client.getContextWikiHealthReport(),
+    { staleTime: 30_000, refetchOnMount: "always" },
   );
 }
 
