@@ -237,36 +237,26 @@ export function ReportDetailActions({
           <TooltipContent>Copy link</TooltipContent>
         </Tooltip>
         {refund.canRefund && (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-xs"
-                        aria-label="More report actions"
-                      >
-                        <DotsThreeIcon size={13} weight="bold" />
-                      </Button>
-                    }
-                  />
-                }
-              />
-              <TooltipContent>More report actions</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
-              <DropdownMenuItem
-                disabled={refund.disabledReason !== null}
-                onClick={() => setRefundOpen(true)}
-              >
-                <ReceiptIcon size={13} />
-                Refund…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-xs"
+                  className="h-7 w-7"
+                  aria-label="Refund"
+                  disabled={refund.disabledReason !== null}
+                  onClick={() => setRefundOpen(true)}
+                />
+              }
+            >
+              <ReceiptIcon />
+            </TooltipTrigger>
+            <TooltipContent>
+              {refund.disabledReason ?? "Refund this PR and archive the report"}
+            </TooltipContent>
+          </Tooltip>
         )}
         {refund.canRefund && (
           <RefundReportDialog
