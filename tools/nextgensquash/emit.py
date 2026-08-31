@@ -551,18 +551,38 @@ class Emitter:
                     if "CREATE EXTENSION" in sql_text.upper():
                         continue  # handled by stub
                     sql_upper = sql_text.upper()
-                    # Composite-key FK constraints live only in raw SQL (a
-                    # Django field can't express them), so their ADD must be
-                    # forwarded — the paired ValidateForeignKey ops rely on it.
+                    # FK constraints added via raw SQL (composite keys, or
+                    # NOT VALID adds beside a state-only AddField) must be
+                    # forwarded — paired ValidateForeignKey ops and the final
+                    # schema rely on them. Forward per STATEMENT: the same
+                    # RunSQL often also carries an ADD COLUMN the squash's
+                    # CreateModel already bakes in. Each forwarded add is
+                    # wrapped in a pg_constraint existence guard so the
+                    # non-atomic addons file survives partial re-runs.
                     if (
                         "ADD CONSTRAINT" in sql_upper
                         and "FOREIGN KEY" in sql_upper
                         and "CREATE TABLE" not in sql_upper
                         and "DROP TABLE" not in sql_upper
                     ):
-                        kept.append(dj_migrations.RunSQL(sql=op.sql, reverse_sql=op.reverse_sql, hints=op.hints))
-                        for cname in re.findall(r"ADD\s+CONSTRAINT\s+\"?([a-zA-Z0-9_]+)\"?", sql_text, re.IGNORECASE):
-                            self._forwarded_fk_constraint_names.add(cname)
+                        forwarded_stmts: list[str] = []
+                        for stmt in sql_text.split(";"):
+                            s = stmt.strip()
+                            if not s:
+                                continue
+                            s_upper = s.upper()
+                            cmatch = re.search(r"ADD\s+CONSTRAINT\s+\"?([a-zA-Z0-9_]+)\"?", s, re.IGNORECASE)
+                            if cmatch and "FOREIGN KEY" in s_upper and "ADD COLUMN" not in s_upper:
+                                cname = cmatch.group(1)
+                                self._forwarded_fk_constraint_names.add(cname)
+                                forwarded_stmts.append(
+                                    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+                                    f"WHERE conname = '{cname}') THEN\n{s};\nEND IF; END $$"
+                                )
+                            else:
+                                self.dropped_runsql.append(f"{self.app}.{mig_name} [table-ddl]: {s[:160]}")
+                        if forwarded_stmts:
+                            kept.append(dj_migrations.RunSQL(sql=";\n".join(forwarded_stmts) + ";"))
                         continue
                     # Skip any RunSQL that mixes table/column DDL with index
                     # creation. Our squash's CreateModel + finalize_fks already
