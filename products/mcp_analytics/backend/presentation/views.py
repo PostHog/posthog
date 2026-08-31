@@ -19,7 +19,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
-from products.mcp_analytics.backend.facade import api, constants, contracts, enums
+from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from .serializers import (
@@ -359,18 +359,9 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
-    user_action_name = constants.MCP_MISSING_CAPABILITY_EVENT
-
-    def _submission_event_properties(self, submission: contracts.Submission) -> dict[str, Any]:
-        return {
-            **super()._submission_event_properties(submission),
-            "$mcp_intent": submission.summary,
-            "$mcp_intent_source": "context_parameter",
-            "$mcp_resource_name": "mcp-missing-capability-report",
-            "missing_capability_goal": submission.goal,
-            "missing_capability_blocked": submission.blocked,
-            "missing_capability_attempted_tool": submission.attempted_tool,
-        }
+    def _report_submission_created(self, request: Request, submission: contracts.Submission) -> None:
+        distinct_id = str(getattr(request.user, "distinct_id", "") or f"mcp-missing-capability-{self.team.id}")
+        api.capture_missing_capability_event(self.team, distinct_id, submission)
 
     @validated_request(
         request_serializer=MCPMissingCapabilityCreateSerializer,
