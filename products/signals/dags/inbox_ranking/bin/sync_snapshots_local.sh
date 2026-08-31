@@ -21,7 +21,7 @@ set -euo pipefail
 SECRETS_PROFILE="${SECRETS_PROFILE:-prod-us-secrets}"
 PROD_BUCKET="${INBOX_RANKING_PROD_BUCKET:-posthog-inbox-ranking-dataset-prod-us}"
 PREFIX="${INBOX_RANKING_DATASET_S3_PREFIX:-inbox_ranking}"
-LOCAL_ENDPOINT="${INBOX_RANKING_LOCAL_ENDPOINT:-http://localhost:19000}"
+LOCAL_ENDPOINT="${INBOX_RANKING_LOCAL_ENDPOINT:-${OBJECT_STORAGE_ENDPOINT:-http://localhost:19000}}"
 LOCAL_BUCKET="${OBJECT_STORAGE_BUCKET:-posthog}"
 LOCAL_KEY="${OBJECT_STORAGE_ACCESS_KEY_ID:-object_storage_root_user}"
 LOCAL_SECRET="${OBJECT_STORAGE_SECRET_ACCESS_KEY:-object_storage_root_password}"
@@ -53,6 +53,9 @@ for attempt in 1 2 3 4 5 6; do
     sleep 5
 done
 
+# An inherited xtrace (bash -x) would print the SecretString and every later expansion of the
+# reader keys; force it off before the credential enters the shell.
+{ set +x; } 2>/dev/null
 secret_json=$(aws --profile "$SECRETS_PROFILE" secretsmanager get-secret-value \
     --secret-id "$INBOX_RANKING_READER_SECRET_ID" \
     --query SecretString --output text)
@@ -74,6 +77,13 @@ for table in "${TABLES[@]}"; do
 done
 
 echo "==> partitions present in both tables locally:"
-comm -12 \
-    <(ls "$CACHE_DIR/${TABLES[0]}/v1" | sort) \
-    <(ls "$CACHE_DIR/${TABLES[1]}/v1" | sort)
+# aws s3 sync --delete removes the parquet of a scrubbed partition but leaves its empty dt=
+# directory, so enumerate the files, not the directories.
+list_partitions() {
+    local f
+    for f in "$CACHE_DIR/$1/v1"/dt=*/part-00000.parquet; do
+        [ -e "$f" ] || continue
+        basename "$(dirname "$f")"
+    done | sort
+}
+comm -12 <(list_partitions "${TABLES[0]}") <(list_partitions "${TABLES[1]}")
