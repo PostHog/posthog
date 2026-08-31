@@ -6,7 +6,6 @@ import { Counter } from 'prom-client'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
-    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionType,
@@ -23,7 +22,11 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService } from './email-suppression.service'
-import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
+import {
+    addTrackingToEmail,
+    resolveEmailEngagementDistinctId,
+    resolveEmailSendingVersion,
+} from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
@@ -229,12 +232,26 @@ export class EmailService {
         let trackingEnabled = true
 
         try {
-            // Team-level kill switch: staff suspend all workflow email for a team whose sender
-            // reputation endangers shared SES deliverability. Same choke-point placement as the
-            // suppression check below so no upstream route can bypass it. Test sends are blocked
-            // too — they hit SES and count against the tenant all the same.
-            if (await this.teamWorkflowsConfigService.isEmailSendingSuspended(invocation.teamId)) {
-                addLog('warn', 'Skipping send: email sending is suspended for this project')
+            // Team-level kill switches: staff suspend all workflow email for a team whose sender
+            // reputation endangers shared SES deliverability, and AWS pauses the team's SES tenant
+            // for the same underlying reason. Same choke-point placement as the suppression check
+            // below so no upstream route can bypass either. Test sends are blocked too — they hit
+            // SES and count against the tenant all the same. A paused tenant rejects every send, so
+            // gating here turns wasted invocations into one clear skip.
+            const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
+            if (suspensionCause) {
+                addLog(
+                    'warn',
+                    suspensionCause === 'staff'
+                        ? 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.'
+                        : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
+                )
+                logger.warn('Skipping email send for a suspended team', {
+                    teamId: invocation.teamId,
+                    cause: suspensionCause,
+                })
+                // One metric for both causes: from the project's side sending is off either way, so
+                // the cause belongs in the log lines above and not in a second metric name.
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -668,12 +685,7 @@ export class EmailService {
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        // A flow's email runs as a hog function invocation built by spreading the flow invocation, so
-        // `hogFlow` is present at runtime even though the type is the narrower hog function shape.
-        const workflowVersion =
-            'hogFlow' in result.invocation
-                ? (result.invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
-                : undefined
+        const workflowVersion = resolveEmailSendingVersion(result.invocation)
         const trackingCode = this.trackingCodeSigner.generate(
             { ...result.invocation, distinctId, workflowVersion },
             isTest

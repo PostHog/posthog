@@ -210,7 +210,7 @@ export interface PermissionCheckResult {
   source?: "allow" | "deny" | "ask";
 }
 
-export function getManagedSettingsPath(): string {
+function getManagedSettingsPath(): string {
   switch (process.platform) {
     case "darwin":
       return "/Library/Application Support/ClaudeCode/managed-settings.json";

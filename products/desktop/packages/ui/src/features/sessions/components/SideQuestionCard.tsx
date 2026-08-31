@@ -1,5 +1,6 @@
-import { ChatCircleDots, Spinner, X } from "@phosphor-icons/react";
+import { ChatCircleDots, X } from "@phosphor-icons/react";
 import { useSideQuestionStore } from "@posthog/ui/features/sessions/sideQuestionStore";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Box, Flex, IconButton, Text, Tooltip } from "@radix-ui/themes";
 import { MarkdownRenderer } from "../../editor/components/MarkdownRenderer";
 
@@ -45,7 +46,7 @@ export function SideQuestionCard({ taskId, taskRunId }: SideQuestionCardProps) {
       <Box className="mt-1 pl-6" role="status" aria-live="polite">
         {entry.status === "pending" && (
           <Flex align="center" gap="2">
-            <Spinner size={14} className="animate-spin text-gray-9" />
+            <Spinner size={14} className="text-gray-9" />
             <Text className="text-[13px] text-gray-9">Answering…</Text>
           </Flex>
         )}

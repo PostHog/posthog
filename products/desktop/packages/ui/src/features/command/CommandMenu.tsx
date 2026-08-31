@@ -35,6 +35,7 @@ import {
   type CommandMenuAction,
 } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { useTaskArchive } from "@posthog/ui/features/archive/useTaskArchive";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import {
   EDITOR_TEXT_CLASS,
@@ -70,8 +71,8 @@ import {
   useSearchSections,
 } from "@posthog/ui/features/command/useSearchSections";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
 import {
@@ -220,8 +221,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     import.meta.env.DEV,
   );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
-  // With channel reports on, spaces own reports and the inbox entry goes away.
-  const channelReportsEnabled = useChannelReportsEnabled();
+  const inboxAvailable = useInboxAvailable();
   const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const { theme, setTheme } = useThemeStore();
@@ -292,6 +292,13 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     }
   }, [reviewTaskId, getReviewMode, setReviewMode]);
 
+  // Archiving acts on the open task, so the command needs the task itself and
+  // drops out of the list when the palette can't find it.
+  const openedTask = tasks.find((task) => task.id === reviewTaskId);
+  const { requestArchive, dialog: archiveDialog } = useTaskArchive(openedTask, {
+    navigateUnscoped: !openedTask?.channel,
+  });
+
   useEffect(() => {
     if (open) {
       track(ANALYTICS_EVENTS.COMMAND_MENU_OPENED);
@@ -358,9 +365,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         shortcut: SHORTCUTS.SETTINGS,
         onRun: () => openSettingsDialog(),
       },
-      ...(channelReportsEnabled
-        ? []
-        : [
+      ...(inboxAvailable
+        ? [
             {
               id: "inbox",
               label: "Self-driving",
@@ -373,7 +379,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                 navigateToInbox();
               },
             } satisfies Command,
-          ]),
+          ]
+        : []),
       {
         id: "archived",
         label: "Archived",
@@ -487,6 +494,19 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             },
           ]
         : []),
+      ...(openedTask
+        ? [
+            {
+              id: "archive-task",
+              label: "Archive task",
+              keywords: "archive close remove",
+              icon: <ArchiveIcon size={12} className="text-gray-11" />,
+              action: "archive-task" as CommandMenuAction,
+              shortcut: SHORTCUTS.ARCHIVE_TASK,
+              onRun: requestArchive,
+            },
+          ]
+        : []),
       // Last, because the first row is what a stray Enter runs.
       ...themeOptions,
     ];
@@ -594,10 +614,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     toggleLeftSidebar,
     openReviewPanel,
     reviewTaskId,
+    openedTask,
+    requestArchive,
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
-    channelReportsEnabled,
+    inboxAvailable,
     spendAnalysisEnabled,
   ]);
 
@@ -1009,6 +1031,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         surface="command_menu"
         onCreated={(feed) => navigateToFeed(feed.id)}
       />
+      {/* Outlives the palette, which closes as the command runs. */}
+      {archiveDialog}
     </>
   );
 }

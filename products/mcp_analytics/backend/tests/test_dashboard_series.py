@@ -239,7 +239,12 @@ class TestMCPDashboardSeriesGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTes
     @parameterized.expand(
         [
             (kind, scopes, expected_status)
-            for kind in ("MCPToolCallsAndErrorsQuery", "MCPToolCallBreakdownQuery", "MCPToolCategoryMapQuery")
+            for kind in (
+                "MCPToolCallsAndErrorsQuery",
+                "MCPToolCallBreakdownQuery",
+                "MCPToolCategoryMapQuery",
+                "MCPToolQualityRowsQuery",
+            )
             for scopes, expected_status in (
                 (["query:read"], 403),
                 (["mcp_analytics:read"], 403),

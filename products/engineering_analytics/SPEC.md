@@ -7,7 +7,7 @@ Sibling doc: [README.md](./README.md), read that first for the product picture a
 
 The product surfaces PR + CI data through **named, typed endpoints** that run curated HogQL privately over the warehouse (`github_*` tables), Logs, and Traces. Two first-class surfaces consume the same endpoints: the in-app UI and **MCP tools**. Nothing is registered as a global HogQL view, so the product stays isolated and off the per-query catalog hot path; core imports only the viewset, exactly like `visual_review`.
 
-Reads are the product. The one write is the test-health sidecar (quarantine: issue plus PR through the team's GitHub App), carved out here because this UI is the fastest surface to iterate on it.
+Reads are the product. The one write is the test-health sidecar (quarantine: issue plus PR through the team's GitHub App), reachable via the API and MCP tool; the test-health UI itself is the Trunk quarantine debt scoreboard.
 
 The goal is Signals for PostHog Desktop (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
 
