@@ -62,7 +62,7 @@ class MetricEventSamplesQueryRunner:
         self,
         team: Team,
         *,
-        metric_name: str,
+        metric_name: str | None = None,
         date_from: dt.datetime,
         date_to: dt.datetime,
         trace_id: str | None = None,
@@ -70,15 +70,22 @@ class MetricEventSamplesQueryRunner:
         metric_type: MetricType | None = None,
         limit: int = 100,
     ) -> None:
-        if not metric_name:
-            raise ValueError("metric_name is required")
+        # A trace-only query (the trace->metrics pivot) spans every metric name; it stays
+        # bounded because trace_id carries a bloom-filter index (idx_trace_id_bf).
+        if not metric_name and not trace_id:
+            raise ValueError("metric_name or trace_id is required")
+        if not metric_name and (filters or metric_type is not None):
+            # Label filters and the type constraint scope series of ONE metric; without a
+            # name there is no series set to scope, so honoring them would silently drop
+            # every orphan emission across all metrics.
+            raise ValueError("filters and metric_type require metric_name")
         if date_to <= date_from:
             raise ValueError("date_to must be after date_from")
         if limit <= 0 or limit > 1000:
             raise ValueError("limit must be in [1, 1000]")
 
         self.team = team
-        self.metric_name = metric_name
+        self.metric_name = metric_name or ""
         self.date_from = date_from
         self.date_to = date_to
         self.trace_id = _normalise_to_base64((trace_id or "").strip())
@@ -144,7 +151,7 @@ class MetricEventSamplesQueryRunner:
                 FROM (
                     SELECT team_id, metric_name, series_fingerprint, timestamp, value, count, trace_id, span_id
                     FROM posthog.metric_samples
-                    WHERE metric_name = {metric_name}
+                    WHERE ({metric_name} = '' OR metric_name = {metric_name})
                       AND timestamp >= {date_from}
                       AND timestamp < {date_to}
                       AND ({trace_id} = '' OR trace_id = {trace_id})
@@ -165,7 +172,7 @@ class MetricEventSamplesQueryRunner:
                         any(attributes) AS attributes,
                         any(resource_attributes) AS resource_attributes
                     FROM posthog.metric_series
-                    WHERE metric_name = {metric_name}
+                    WHERE ({metric_name} = '' OR metric_name = {metric_name})
                     GROUP BY team_id, metric_name, series_fingerprint
                 ) AS ser
                     ON s.team_id = ser.team_id

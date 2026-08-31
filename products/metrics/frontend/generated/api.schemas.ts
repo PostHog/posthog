@@ -678,10 +678,10 @@ export interface _MetricQueryResponseApi {
 
 export interface _MetricSamplesBodyApi {
     /**
-     * Exact metric name to list raw emissions for (e.g. 'http.server.duration').
+     * Exact metric name to list raw emissions for (e.g. 'http.server.duration'). Omit to list emissions across all metric names — allowed only with traceId (the trace->metrics pivot).
      * @maxLength 255
      */
-    metricName: string
+    metricName?: string
     /** Lower bound (inclusive) for the sample window. ISO 8601. */
     dateFrom: string
     /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */

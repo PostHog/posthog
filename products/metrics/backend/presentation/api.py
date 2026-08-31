@@ -532,8 +532,14 @@ class _MetricAttributeValuesResponseSerializer(serializers.Serializer):
 
 class _MetricSamplesBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
         max_length=255,
-        help_text="Exact metric name to list raw emissions for (e.g. 'http.server.duration').",
+        help_text=(
+            "Exact metric name to list raw emissions for (e.g. 'http.server.duration'). "
+            "Omit to list emissions across all metric names — allowed only with traceId "
+            "(the trace->metrics pivot)."
+        ),
     )
     dateFrom = serializers.DateTimeField(
         help_text="Lower bound (inclusive) for the sample window. ISO 8601.",
@@ -567,6 +573,11 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max emissions to return, newest first. Defaults to 100, capped at 1000.",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("metricName") and not attrs.get("traceId"):
+            raise serializers.ValidationError("metricName or traceId is required.")
+        return attrs
 
 
 class _MetricSamplesRequestSerializer(serializers.Serializer):
@@ -976,7 +987,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             samples = list_metric_event_samples(
                 team=self.team,
-                metric_name=query_data["metricName"],
+                metric_name=query_data.get("metricName") or None,
                 date_from=query_data["dateFrom"],
                 date_to=query_data.get("dateTo") or timezone.now(),
                 trace_id=query_data.get("traceId") or None,

@@ -490,7 +490,10 @@ export const MetricsSamplesCreateBody = /* @__PURE__ */ zod.object({
             metricName: zod
                 .string()
                 .max(metricsSamplesCreateBodyQueryOneMetricNameMax)
-                .describe("Exact metric name to list raw emissions for (e.g. 'http.server.duration')."),
+                .optional()
+                .describe(
+                    "Exact metric name to list raw emissions for (e.g. 'http.server.duration'). Omit to list emissions across all metric names — allowed only with traceId (the trace->metrics pivot)."
+                ),
             dateFrom: zod.iso
                 .datetime({ offset: true })
                 .describe('Lower bound (inclusive) for the sample window. ISO 8601.'),
