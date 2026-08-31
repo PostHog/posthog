@@ -45,6 +45,11 @@ const SAMPLE_NUMBERS = [1284, 1327, 1291, 1362, 1408, 1373]
 const LINE_CONFIG: LineChartConfig = { showGrid: true, showCrosshair: true }
 const BAR_CONFIG: BarChartConfig = { barCornerRadius: 2 }
 
+// Where the "Sample data" tag sends people who have no wizard command (self-hosted, or setup already
+// running): a real next step for getting events flowing, instead of a hover-only tooltip.
+const SAMPLE_DATA_DOCS_URL =
+    'https://posthog.com/docs/getting-started/install?utm_medium=in-product&utm_campaign=insight-sample-data'
+
 function SampleNumber({ animate }: { animate: boolean }): JSX.Element {
     const [valueIndex, setValueIndex] = useState(0)
 
@@ -180,7 +185,7 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
             data-attr="insight-sample-data-state"
             className={clsx('SampleDataState', isStatic && 'SampleDataState--static')}
         >
-            <div className="SampleDataState__tag flex items-center gap-1">
+            <div className="SampleDataState__tag flex flex-wrap items-center justify-end gap-1">
                 {setupStatus?.kind === 'pull_request' && !setupStatus.pullRequest.merged && (
                     <LemonButton size="xsmall" type="primary" to={setupStatus.pullRequest.url} targetBlank>
                         Merge setup PR
@@ -214,7 +219,9 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
                         </LemonTag>
                     </Tooltip>
                 )}
-                {variant === 'line' && !setupStatus && !setupStatusLoading && isCloudOrDev && (
+                {/* Every placeholder except the tiny BigNumber tile has room for the command; the
+                    number variant still gets the docs-link tag below. */}
+                {variant !== 'number' && !setupStatus && !setupStatusLoading && isCloudOrDev && (
                     <Tooltip
                         title={
                             <div className="max-w-72 space-y-1.5 p-0.5">
@@ -243,9 +250,16 @@ export function SampleDataState({ variant = 'line' }: { variant?: SampleDataVari
                     </Tooltip>
                 )}
                 <Tooltip title={<SampleDataTooltipContent />} interactive delayMs={100} placement="bottom">
-                    <LemonTag className="cursor-help" type="muted">
-                        Sample data
-                    </LemonTag>
+                    <Link
+                        to={SAMPLE_DATA_DOCS_URL}
+                        target="_blank"
+                        data-attr="insight-sample-data-docs-link"
+                        className="flex"
+                    >
+                        <LemonTag className="cursor-pointer" type="muted">
+                            Sample data
+                        </LemonTag>
+                    </Link>
                 </Tooltip>
             </div>
             <div className="SampleDataState__viz">

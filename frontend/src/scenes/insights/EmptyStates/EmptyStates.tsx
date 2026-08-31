@@ -101,10 +101,17 @@ export function InsightEmptyState({
     const showingSampleData =
         shouldShowSampleData && sampleDataVariant !== null && (sampleDataVariant !== undefined || !hasCustomCopy)
 
-    // This empty state used to fire no telemetry at all, so a broken query and a genuinely empty
-    // result were indistinguishable. Capture it so both are measurable.
+    // This empty state used to fire no telemetry at all, so a broken query, a genuinely empty
+    // result, and the pre-ingestion sample-data placeholder were indistinguishable. Capture each so
+    // all three are measurable.
     useOnMountEffect(() => {
         if (showingSampleData) {
+            posthog.capture('insight sample data shown', {
+                variant: sampleDataVariant ?? 'line',
+                dashboard_id: insightProps?.dashboardId ?? null,
+                insight_short_id:
+                    typeof insightProps?.dashboardItemId === 'string' ? insightProps.dashboardItemId : null,
+            })
             return
         }
         posthog.capture('insight empty state shown', {
