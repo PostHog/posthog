@@ -39,8 +39,6 @@ export class SecureStoreService {
       }
       const plaintext = decrypt(this.store.get(key) as string);
       if (plaintext === null) {
-        // A null read hydrates the caller with defaults, whose next write then
-        // overwrites the stored value. Without this line that reset is invisible.
         log.error("Stored value failed to decrypt; treating as missing", {
           key,
         });

@@ -74,10 +74,8 @@ describe("TeachingTip", () => {
     await expectNoTip();
   });
 
-  // A lesson nobody answers must still end: the artifacts occasion recurs on
-  // every restart, so a tip that only "Hide" could stop would nag forever.
-  // The final allowed showing must still run in full, so recording a showing
-  // must not count against the occasion it belongs to.
+  // A lesson nobody answers must still end, or a recurring occasion (the
+  // artifacts mark returns on every restart) nags forever.
   it("stops offering itself once it runs out of showings", async () => {
     const { rerender } = render(tip("tip-counted", true, 1));
     for (let occasion = 1; occasion <= DEFAULT_HINT_MAX; occasion++) {

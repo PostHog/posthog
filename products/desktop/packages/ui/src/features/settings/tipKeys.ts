@@ -23,13 +23,7 @@ export const TIP_KEYS = {
 
 export type TipKey = (typeof TIP_KEYS)[keyof typeof TIP_KEYS];
 
-/**
- * How a lesson stops offering itself: answering it ends it at once, and
- * running out of showings ends it on its own. Every lesson must be able to
- * run out. The artifacts tip used to wait for an answer forever, and its
- * occasion recurs on every restart, so a missed "Hide" press meant it came
- * back for good.
- */
+/** How a lesson stops offering itself: answered, or out of showings. */
 type TipShowings = { max: number };
 
 /**
