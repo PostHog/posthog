@@ -639,6 +639,11 @@ def personal_integrations_url(team_id: int) -> str:
     return _public_url(f"/project/{team_id}/settings/user-personal-integrations")
 
 
+def project_web_url(team_id: int) -> str:
+    """Absolute ``/project/<id>`` base for links into this project's PostHog app."""
+    return _public_url(f"/project/{team_id}")
+
+
 def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
     # says what the card would, right next to the link.

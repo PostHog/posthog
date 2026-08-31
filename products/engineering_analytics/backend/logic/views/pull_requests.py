@@ -69,6 +69,7 @@ def build_query(table_name: str) -> str:
             updated_at,
             merged_at,
             closed_at,
+            merge_commit_sha,
             head_sha,
             head_branch,
             base_branch,
@@ -99,7 +100,10 @@ def build_query(table_name: str) -> str:
                 parseDateTimeBestEffort(created_at) AS created_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,
                 parseDateTimeBestEffort(merged_at) AS merged_at,
-                parseDateTimeBestEffort(closed_at) AS closed_at
+                parseDateTimeBestEffort(closed_at) AS closed_at,
+                -- Terminal only on a merged PR; on an open PR GitHub fills it with a throwaway
+                -- test-merge commit, so every read joining on it must gate on merged_at.
+                ifNull(merge_commit_sha, '') AS merge_commit_sha
             FROM {table_name}
         )
         WHERE NOT {merge_queue_branch_expr("head_branch", queue_actor_column="author_handle")}

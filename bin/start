@@ -35,6 +35,27 @@ cleanup_lock() {
     rm -f "$LOCK_FILE"
 }
 
+PREVIEW_STATE_DIR=/tmp/posthog-preview
+PREVIEW_LOCK_FILE="$PREVIEW_STATE_DIR/lock"
+launched_by_preview() {
+    [[ "$(readlink /proc/self/fd/9 2>/dev/null)" == "$PREVIEW_LOCK_FILE" ]]
+}
+if [[ -z "${HOGLI_SKIP_PREVIEW_CHECK:-}" && -e "$PREVIEW_LOCK_FILE" ]] && ! launched_by_preview; then
+    if ! flock -n "$PREVIEW_LOCK_FILE" true 2>/dev/null; then
+        echo "ℹ️  The sandbox backend is already starting the dev stack."
+        echo "   Poll $PREVIEW_STATE_DIR/status.json until \"state\" is \"ready\" (or \"failed\"), then run 'hogli wait'."
+        echo "   'hogli wait' reports 'not reachable' while the backend is still installing dependencies; that is expected, retry it."
+        echo "   To force a start anyway: HOGLI_SKIP_PREVIEW_CHECK=1 hogli start -y -d"
+        exit 0
+    fi
+    if grep -qE '"state"[[:space:]]*:[[:space:]]*"ready"' "$PREVIEW_STATE_DIR/status.json" 2>/dev/null \
+        && curl -sf --max-time 5 http://localhost:8010/_health >/dev/null 2>&1; then
+        echo "ℹ️  The dev stack started by the sandbox backend is already running. Run 'hogli wait' to confirm it is ready."
+        echo "   To force a start anyway: HOGLI_SKIP_PREVIEW_CHECK=1 hogli start -y -d"
+        exit 0
+    fi
+fi
+
 # Acquire exclusive lock using flock (atomic, no race condition)
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then

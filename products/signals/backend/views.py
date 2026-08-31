@@ -70,6 +70,7 @@ from products.signals.backend.artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
     SIGNALS_PRODUCT,
     ArtefactContentValidationError,
+    ChannelAssignment,
     Dismissal,
     SuggestedReviewers,
     SummaryChange,
@@ -178,6 +179,14 @@ tracer = trace.get_tracer(__name__)
 # old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
 REVIEWER_PAGINATION_THRESHOLD = 1200
 PR_GITHUB_CACHE_SECONDS = 15
+
+
+def classify_report_list_client(user_agent: str | None) -> str:
+    if user_agent and user_agent.startswith("posthog/desktop.hog.dev;"):
+        return "desktop"
+    if user_agent and user_agent.startswith("Mozilla/"):
+        return "web"
+    return "other"
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -796,6 +805,14 @@ class SignalReportViewSet(
             qs = queryset.filter(team=self.team)
             qs = self._exclude_deleted_signal_reports(qs)
             return self._apply_signal_report_status_filter(qs)
+        if self.action in {"retrieve", "signals"}:
+            qs = self._scope_signal_report_queryset(queryset)
+            qs = self._exclude_deleted_signal_reports(qs)
+            qs = self._apply_signal_report_status_filter(qs)
+            qs = self._annotate_latest_actionability_value(qs)
+            qs = self._prefetch_signal_report_priority_artefacts(qs)
+            qs = self._annotate_is_suggested_reviewer(qs)
+            return annotate_first_billable_pr_run_at(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
         qs = self._exclude_deleted_signal_reports(qs)
@@ -806,6 +823,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_scout_filter(qs)
         qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
+        qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
@@ -831,12 +849,29 @@ class SignalReportViewSet(
             .values("count"),
             output_field=IntegerField(),
         )
+        channel_id_subquery = Subquery(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.CHANNEL_ASSIGNMENT,
+            )
+            .annotate(
+                live_channel_id=Case(
+                    When(channel__deleted=False, then=F("channel_id")),
+                    default=Value(None),
+                    output_field=models.UUIDField(),
+                )
+            )
+            .order_by("-created_at")
+            .values("live_channel_id")[:1],
+            output_field=models.UUIDField(),
+        )
         # select_related("refund"): the serializer renders the reverse OneToOne inline.
         return (
             queryset.filter(team=self.team)
             .select_related("refund")
             .annotate(
                 artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
+                channel_id=channel_id_subquery,
             )
         )
 
@@ -914,6 +949,17 @@ class SignalReportViewSet(
         if value in ("0", "false", "no"):
             return False
         raise serializers.ValidationError({"include_all_statuses": f"Invalid value: {raw!r}. Allowed: true, false."})
+
+    def _count_only_requested(self) -> bool:
+        raw = self.request.query_params.get("count_only")
+        if raw is None or not raw.strip():
+            return False
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes"):
+            return True
+        if value in ("0", "false", "no"):
+            return False
+        raise serializers.ValidationError({"count_only": f"Invalid value: {raw!r}. Allowed: true, false."})
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
@@ -1038,6 +1084,18 @@ class SignalReportViewSet(
             )
         pr_filter = self._implementation_pr_report_filter()
         return queryset.filter(pr_filter) if wants_pr else queryset.exclude(pr_filter)
+
+    def _apply_signal_report_channel_filter(self, queryset):
+        # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty
+        # leaves the list unchanged (the general view lists every report); a non-UUID is a 400.
+        raw = self.request.query_params.get("channel_id")
+        if raw is None or not raw.strip():
+            return queryset
+        try:
+            channel_id = uuid.UUID(raw.strip())
+        except (ValueError, AttributeError):
+            raise serializers.ValidationError({"channel_id": f"Invalid value: {raw!r}. Expected a UUID."})
+        return queryset.filter(channel_id=channel_id)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
@@ -1276,9 +1334,10 @@ class SignalReportViewSet(
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
-        if self.action == "viewed":
-            # The lightweight viewed queryset skips the annotations the default ordering sorts
-            # by, and a by-ID lookup has nothing to order anyway.
+        if self.action != "list":
+            # A by-ID lookup has nothing to order. More importantly, keeping list ordering here
+            # forces every detail request to compute status/priority/reviewer annotations that
+            # cannot affect which primary-key row is returned.
             return queryset
         return self._apply_signal_report_ordering(queryset)
 
@@ -1455,6 +1514,16 @@ class SignalReportViewSet(
                 description="Case-insensitive substring match against report title and summary.",
             ),
             OpenApiParameter(
+                name="channel_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow to reports assigned to one space (channel). Absent or empty means all "
+                    "reports regardless of assignment."
+                ),
+            ),
+            OpenApiParameter(
                 name="source_product",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -1545,7 +1614,17 @@ class SignalReportViewSet(
                 description=(
                     "Filter reports by whether a shipped implementation pull request exists. "
                     "'true' keeps only reports with a PR; 'false' keeps only those without. "
-                    "Pair with limit=1 to count PR reports cheaply."
+                    "Pair with count_only=true to return only the filtered total."
+                ),
+            ),
+            OpenApiParameter(
+                name="count_only",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return the filtered total with an empty results page. Skips report ordering, "
+                    "serialization, and decorative metadata lookups. Defaults to false."
                 ),
             ),
         ],
@@ -1555,13 +1634,41 @@ class SignalReportViewSet(
         # The reports list is the primary inbox-load endpoint. Each phase gets its own child span
         # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
         # products), the task facade (PR urls), or serialization, rather than one opaque request.
+        count_only = self._count_only_requested()
+        list_span = trace.get_current_span()
+        list_span.set_attribute(
+            "signals.reports.list.client", classify_report_list_client(request.headers.get("user-agent"))
+        )
+        list_span.set_attribute("signals.reports.list.count_only", count_only)
+
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
-            page = self.paginate_queryset(queryset)
-            reports = list(page if page is not None else queryset)
+            if count_only:
+                total_count = queryset.count()
+            else:
+                page = self.paginate_queryset(queryset)
+                reports = list(page if page is not None else queryset)
+
+        if count_only:
+            list_span.set_attribute("signals.reports.list.total_count", total_count)
+            return Response({"count": total_count, "next": None, "previous": None, "results": []})
 
         report_ids = [str(r.id) for r in reports]
-        trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))
+        list_span.set_attribute("signals.reports.list.count", len(report_ids))
+        if page is not None:
+            page_limit = getattr(self.paginator, "limit", None)
+            page_offset = getattr(self.paginator, "offset", None)
+            total_count = getattr(self.paginator, "count", None)
+            if isinstance(page_limit, int):
+                list_span.set_attribute("signals.reports.list.page_limit", page_limit)
+            if isinstance(page_offset, int):
+                list_span.set_attribute("signals.reports.list.page_offset", page_offset)
+            if isinstance(total_count, int):
+                list_span.set_attribute("signals.reports.list.total_count", total_count)
+                if isinstance(page_offset, int):
+                    list_span.set_attribute(
+                        "signals.reports.list.has_next_page", page_offset + len(report_ids) < total_count
+                    )
 
         # Both lookups are best-effort decorative metadata (source-product badges, scout names, PR
         # urls). The serializer degrades to empty values when a map is missing, so a ClickHouse or
@@ -3197,7 +3304,7 @@ class SignalReportArtefactViewSet(
       artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
       merging commits/names forward from the current reviewers. Other types return 400.
     - POST / PATCH / DELETE manage artefacts of *any* type — no type is writer-restricted.
-      Log entries accumulate; status types (judgments, repo selection, suggested reviewers)
+      Log entries accumulate; status types (judgments, repo selection, suggested reviewers, channel assignments)
       are latest-wins, so appending a new version supersedes the previous one as the report's
       canonical status. Content is validated against the type's schema. Team scoping is
       enforced by `safely_get_queryset`, so an artefact id from another team / a deleted
@@ -3225,6 +3332,12 @@ class SignalReportArtefactViewSet(
         except (ValueError, TypeError):
             raise NotFound()
         return report_id
+
+    def _validate_channel_assignment(self, assignment: ChannelAssignment, request: Request) -> None:
+        if assignment.channel_id is not None and not tasks_facade.channel_exists(
+            self.team.id, assignment.channel_id, request.user.id
+        ):
+            raise serializers.ValidationError({"content": {"channel_id": "Unknown or inaccessible channel."}})
 
     def safely_get_queryset(self, queryset):
         # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
@@ -3356,7 +3469,7 @@ class SignalReportArtefactViewSet(
             "Append an artefact to a report (see artefact_type for the writable types). Everything "
             "is append-only: log entries (code reference, commit, task run, note) accumulate, while "
             "status types (safety / actionability / priority judgments, repo selection, suggested "
-            "reviewers) are latest-wins — appending a new version supersedes the previous one as the "
+            "reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the "
             "report's canonical status. Content is validated against the type's schema."
         ),
         operation_id="signals_report_artefacts_create",
@@ -3453,6 +3566,8 @@ class SignalReportArtefactViewSet(
                 {"error": f"content does not match the '{artefact_type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if isinstance(parsed_content, ChannelAssignment):
+            self._validate_channel_assignment(parsed_content, request)
         artefact = SignalReportArtefact.append(
             team_id=self.team.id,
             report_id=report_id,
@@ -3540,6 +3655,9 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
+            parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
+            if isinstance(parsed_content, ChannelAssignment):
+                self._validate_channel_assignment(parsed_content, request)
             artefact.update_content(request.validated_data["content"])
         except ArtefactContentValidationError as e:
             return Response(

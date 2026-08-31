@@ -17,7 +17,6 @@ import type {
     ChannelInstructionsWriteApi,
     ChannelStarWriteApi,
     ChannelWriteApi,
-    CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
     DesktopAccessResponseApi,
     DesktopBetaTermsAcceptanceDTOApi,
@@ -36,6 +35,8 @@ import type {
     LoopsTriggerCreateBodyTwo,
     ModelCatalogueResponseApi,
     OnboardingSessionApi,
+    OnboardingSessionTestApi,
+    OnboardingSessionTestResponseApi,
     PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
@@ -143,6 +144,7 @@ import type {
     TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
     TasksThreadMessagesListParams,
+    TeachingCanvasApi,
     WarmTaskRequestApi,
     WarmTaskResponseApi,
     WarmTaskResumeRequestApi,
@@ -155,8 +157,8 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
 }
 
 /**
- * Check whether the authenticated user has legacy PostHog Desktop access and Loops access.
- * @summary Check access
+ * Compatibility endpoint for released PostHog Desktop clients.
+ * @summary Check PostHog Desktop access
  */
 export const codeInvitesCheckAccessRetrieve = async (
     options?: RequestInit
@@ -164,26 +166,6 @@ export const codeInvitesCheckAccessRetrieve = async (
     return apiMutator<LegacyDesktopAccessResponseApi>(getCodeInvitesCheckAccessRetrieveUrl(), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getCodeInvitesRedeemCreateUrl = () => {
-    return `/api/code/invites/redeem/`
-}
-
-/**
- * Redeem a PostHog Desktop invite code to enable legacy access.
- * @summary Redeem invite code
- */
-export const codeInvitesRedeemCreate = async (
-    codeInviteRedeemRequestApi: CodeInviteRedeemRequestApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getCodeInvitesRedeemCreateUrl(), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(codeInviteRedeemRequestApi),
     })
 }
 
@@ -1157,6 +1139,27 @@ export const taskChannelsOnboardingSessionCreate = async (
     })
 }
 
+export const getTaskChannelsOnboardingSessionTestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/onboarding_session_test/`
+}
+
+/**
+ * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs, in the requester's personal space.
+ * @summary Start a test first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionTestCreate = async (
+    projectId: string,
+    onboardingSessionTestApi?: OnboardingSessionTestApi,
+    options?: RequestInit
+): Promise<OnboardingSessionTestResponseApi> => {
+    return apiMutator<OnboardingSessionTestResponseApi>(getTaskChannelsOnboardingSessionTestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(onboardingSessionTestApi),
+    })
+}
+
 export const getTaskChannelsProvisionDefaultsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/task_channels/provision_defaults/`
 }
@@ -1170,6 +1173,24 @@ export const taskChannelsProvisionDefaultsCreate = async (
     options?: RequestInit
 ): Promise<ProvisionedChannelsApi> => {
     return apiMutator<ProvisionedChannelsApi>(getTaskChannelsProvisionDefaultsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTaskChannelsTeachingCanvasTestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/teaching_canvas_test/`
+}
+
+/**
+ * Feature-flagged test path that resolves or creates the teaching canvas in the requester's personal space.
+ * @summary Create the teaching canvas for testing
+ */
+export const taskChannelsTeachingCanvasTestCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TeachingCanvasApi> => {
+    return apiMutator<TeachingCanvasApi>(getTaskChannelsTeachingCanvasTestCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -2001,7 +2022,7 @@ export const getTasksRunsClearConversationCreateUrl = (projectId: string, taskId
 }
 
 /**
- * Record a `/clear` boundary in a finished run's log so the next run in the chain starts with an empty conversation. Its checkpoints, artifacts, and visible history are unaffected. Only for a finished run: an active one has an agent that owns the clear, so send `/clear` to it as an ordinary message instead.
+ * Record a `/clear` boundary in a finished run's log so the next run in the chain starts with an empty conversation. Its artifacts and visible history are unaffected. Only for a finished run: an active one has an agent that owns the clear, so send `/clear` to it as an ordinary message instead.
  * @summary Clear conversation history
  */
 export const tasksRunsClearConversationCreate = async (
@@ -2109,6 +2130,26 @@ export const tasksRunsPeersMessageCreate = async (
             body: JSON.stringify(taskRunPeerMessageRequestApi),
         }
     )
+}
+
+export const getTasksRunsPreviewRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/`
+}
+
+/**
+ * Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox access token is minted on every request and carried only in the redirect target, so it is never persisted or returned in a response body. When the run has no preview, or its sandbox has stopped, this renders a short HTML page instead.
+ * @summary Open the dev stack preview for a task run
+ */
+export const tasksRunsPreviewRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsPreviewRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {

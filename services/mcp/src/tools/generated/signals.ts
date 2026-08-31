@@ -56,6 +56,7 @@ import {
     SignalsSourceConfigsUpdateBody,
     SignalsSourceConfigsUpdateParams,
 } from '@/generated/signals/api'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     executeConfirmedAction,
@@ -232,6 +233,8 @@ const inboxReportsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
             query: {
+                channel_id: params.channel_id,
+                count_only: params.count_only,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
                 limit: params.limit,
@@ -287,7 +290,10 @@ const inboxReportsList = (): ToolBase<
     },
 })
 
-const InboxReportsRetrieveSchema = SignalsReportsRetrieveParams.omit({ project_id: true })
+const InboxReportsRetrieveSchema = z.preprocess(
+    normalizeParamAliases({ id: ['report_id'] }),
+    SignalsReportsRetrieveParams.omit({ project_id: true })
+)
 
 const inboxReportsRetrieve = (): ToolBase<
     typeof InboxReportsRetrieveSchema,

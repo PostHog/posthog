@@ -12,15 +12,13 @@ Shortcuts taken to ship the first version. Revisit when they bite.
 
 ## Custom property view sync
 
-- **Two bulk paths during rollout.** The legacy Celery task still re-queries the live view, records
-  source status, and has no retry. A flagged successful materialization starts an isolated Temporal
-  workflow that reads its committed Delta snapshot and writes job-scoped Parquet. Staging failures
-  remain visible in Temporal and logs without failing the materialized view. Keep the legacy recorder
-  until the staged path can aggregate both segment outcomes without double-counting failures. Source
-  create and re-enable still use Celery until the staged path gains manual recovery.
-- **Staged runs have no run-level UI yet.** Temporal shows the staging workflow and both segment
-  workflows, while logs carry the job and view identifiers. The job-scoped Parquet stays until both
-  segments succeed. A bounded sweep removes abandoned staging prefixes.
+- **Two bulk paths during rollout.** The legacy Celery task still re-queries the live view and has no
+  retry. A flagged successful materialization starts an isolated Temporal workflow that reads its
+  committed Delta snapshot and writes job-scoped Parquet. Staging failures remain visible without
+  failing the materialized view. Source create and re-enable still use Celery until the staged path
+  gains manual recovery.
+- **Run history is per source and segment.** Each source gets tracked and ignored records before
+  staging starts. After both segments finish, their combined outcome updates the source status once.
 - **Tracked and ignored segments are independent.** They use separate snapshots, retries, and
   completion markers. Churned accounts are excluded from both. Only staged-file cleanup waits for
   both markers.

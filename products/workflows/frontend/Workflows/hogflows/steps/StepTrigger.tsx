@@ -983,7 +983,6 @@ function ConversionGoalSection(): JSX.Element {
 function SendingRateLimitSection(): JSX.Element | null {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const rateLimit = workflow.email_sending_rate_limit ?? null
     // Mirror the count locally so clearing the field doesn't snap back to the committed value
@@ -992,12 +991,6 @@ function SendingRateLimitSection(): JSX.Element | null {
     useEffect(() => {
         setDisplayCount(rateLimit?.count)
     }, [rateLimit?.count])
-
-    // Flag-gated rollout, but a workflow that already carries a limit keeps the section after a
-    // flag dial-down so the limit stays visible and removable.
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_RATE_LIMIT] && !rateLimit) {
-        return null
-    }
 
     const hasEmailAction = workflow.actions.some((action) => action.type === 'function_email')
     // Stay visible while a limit is set even without an email step, so it can still be removed.

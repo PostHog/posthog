@@ -6,6 +6,7 @@ import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -46,7 +47,11 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
-from posthog.api.email_verification import EmailVerifier, email_verification_token_generator
+from posthog.api.email_verification import (
+    EmailVerifier,
+    email_verification_code_verifier,
+    email_verification_token_generator,
+)
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -60,7 +65,7 @@ from posthog.api.oauth.toolbar_service import (
 )
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
-from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
+from posthog.api.shared import OrganizationBasicSerializer, OrganizationNotificationLockSerializer, TeamBasicSerializer
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
     action,
@@ -92,7 +97,11 @@ from posthog.helpers.email_utils import (
 )
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.session_cache import SessionCache
-from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
+from posthog.helpers.two_factor_session import (
+    has_passkeys,
+    normalize_verification_code,
+    set_two_factor_verified_in_session,
+)
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
@@ -104,6 +113,7 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_notification_lock import GovernedSetting, notification_locks_for_users
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import (
     NOTIFICATION_DEFAULTS,
@@ -119,6 +129,8 @@ from posthog.rate_limit import (
     ToolbarOAuthRefreshThrottle,
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
+    UserVerifyEmailThrottle,
+    VerifyEmailIPThrottle,
 )
 from posthog.session.activity import (
     list_user_sessions,
@@ -154,6 +166,42 @@ MAX_PIPELINE_NOTIFICATIONS = 1000
 _PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
 
 
+def _reject_locked_notification_settings(user: User, incoming: Notifications, current: Mapping[str, Any]) -> None:
+    """Stop a member changing a setting their organization enforces.
+
+    The settings page disables these controls, but the disabling has to be enforced here too, or
+    the rule is only a suggestion to anyone using the API directly. Only a changed value is
+    refused: the page submits the whole map on every save, so an untouched governed setting has
+    to pass through.
+
+    Deliberately not scoped to one organization: a value the member stores is the one every
+    organization that has no rule of its own falls back to, so any single rule freezes it.
+    """
+    locks = notification_locks_for_users([user.id]).get(user.id, {})
+    if not locks:
+        return
+
+    for key, value in incoming.items():
+        if isinstance(value, dict):
+            stored: dict = current.get(key) or {}
+            blocked = [
+                scope_id
+                for scope_id, scoped_value in value.items()
+                if GovernedSetting(setting=key, scope_id=str(scope_id)) in locks
+                and stored.get(scope_id) != scoped_value
+            ]
+            if blocked:
+                raise serializers.ValidationError(
+                    f"{key} is set by your organization for {', '.join(sorted(blocked))} and cannot be changed here",
+                    code="permission_denied",
+                )
+        elif GovernedSetting(setting=key, scope_id="") in locks and current.get(key) != value:
+            raise serializers.ValidationError(
+                f"{key} is set by your organization and cannot be changed here",
+                code="permission_denied",
+            )
+
+
 def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
     for pipeline_id in incoming:
         if not isinstance(pipeline_id, str) or not _PIPELINE_ID_PATTERN.match(pipeline_id):
@@ -186,6 +234,40 @@ class PendingInviteSerializer(serializers.Serializer):
     organization_id = serializers.CharField()
     organization_name = serializers.CharField()
     created_at = serializers.DateTimeField()
+
+
+class VerifyEmailRequestSerializer(serializers.Serializer):
+    """Request body for POST /api/users/verify_email/. Exactly one of token or code is required."""
+
+    # A string, not a UUIDField: the E2E test sentinel is not a UUID, and an unknown uuid must
+    # answer the same way as a wrong credential rather than as a shape error.
+    uuid = serializers.CharField(help_text="UUID of the user whose email is being verified.")
+    token = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Verification token from the emailed link. Required unless a code is provided.",
+    )
+    code = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="The 6-digit verification code emailed at signup. Whitespace, invisible characters, "
+        "and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.",
+    )
+
+    def validate_code(self, value: str) -> str:
+        if not value:
+            return value
+        # Same rule as the login code: exactly 6 digits after normalization, so malformed input is
+        # rejected here and never reaches the attempt budget.
+        cleaned = normalize_verification_code(value)
+        if not re.fullmatch(r"\d{6}", cleaned):
+            raise serializers.ValidationError("Enter the 6-digit code from your email.")
+        return cleaned
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs.get("token") and not attrs.get("code"):
+            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
+        return attrs
 
 
 class OnboardingSkipRequestSerializer(serializers.Serializer):
@@ -289,6 +371,13 @@ class UserSerializer(serializers.ModelSerializer):
             "once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
+    notification_locks = serializers.SerializerMethodField(
+        help_text=(
+            "Notification settings an organization admin enforces on this user. The matching "
+            "controls are read-only, and `notification_settings` still holds the user's own "
+            "choice underneath. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -302,6 +391,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_email",
             "is_email_verified",
             "notification_settings",
+            "notification_locks",
             "anonymize_data",
             "allow_impersonation",
             "toolbar_mode",
@@ -344,6 +434,7 @@ class UserSerializer(serializers.ModelSerializer):
             "active_realtime_notification_types",
             "pending_invites",
             "requires_credential_review",
+            "notification_locks",
         ]
 
         read_only_fields = [
@@ -522,6 +613,17 @@ class UserSerializer(serializers.ModelSerializer):
     def get_active_realtime_notification_types(self, _: User) -> list[str]:
         return [t.value for t in NotificationType]
 
+    @extend_schema_field(OrganizationNotificationLockSerializer(many=True))
+    def get_notification_locks(self, instance: User) -> list[dict]:
+        """Every rule that reaches this person, across all the organizations they belong to."""
+        if not self._is_self_request(instance):
+            return []
+        locks = notification_locks_for_users([instance.id]).get(instance.id, {})
+        return [
+            {"setting": governed.setting, "scope_id": governed.scope_id, "locked_value": value}
+            for governed, value in sorted(locks.items(), key=lambda item: (item[0].setting, item[0].scope_id))
+        ]
+
     @extend_schema_field(PendingInviteSerializer(many=True))
     @tracer.start_as_current_span("user_serializer.pending_invites")
     def get_pending_invites(self, instance: User) -> list[dict]:
@@ -596,6 +698,8 @@ class UserSerializer(serializers.ModelSerializer):
             **NOTIFICATION_DEFAULTS,
             **(instance.partial_notification_settings or {}),
         }
+
+        _reject_locked_notification_settings(instance, notification_settings, current_settings)
 
         _dict_notification_keys = (
             "project_weekly_digest_disabled",
@@ -802,8 +906,13 @@ class UserSerializer(serializers.ModelSerializer):
                 token = email_verification_token_generator.make_token(instance)
             # Send after the transaction commits (never inside the atomic block), pinning the
             # recipient to the captured address so a later pending_email change can't redirect
-            # this token's verification email.
-            EmailVerifier.send_verification_email(instance, token, target_email=new_email)
+            # this verification email. The code path stores that address as the code's target,
+            # so a stale code stops verifying once a different address is staged.
+            if not (
+                EmailVerifier.use_verification_code(instance)
+                and email_verification_code_verifier.send_code(instance, target_email=new_email)
+            ):
+                EmailVerifier.send_verification_email(instance, token, target_email=new_email)
 
         if validated_data.get("notification_settings"):
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
@@ -1136,13 +1245,19 @@ class UserViewSet(
         revoked_count = revoke_other_sessions(user, request.session.session_key)
         return Response({"revoked_count": revoked_count})
 
-    @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
+    @extend_schema(request=VerifyEmailRequestSerializer)
+    @action(
+        methods=["POST"],
+        detail=False,
+        permission_classes=[AllowAny],
+        throttle_classes=[UserVerifyEmailThrottle, VerifyEmailIPThrottle],
+    )
     def verify_email(self, request, **kwargs):
-        token = request.data["token"] if "token" in request.data else None
-        user_uuid = request.data["uuid"]
-
-        if not token:
-            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
+        body = VerifyEmailRequestSerializer(data=request.data if isinstance(request.data, dict) else {})
+        body.is_valid(raise_exception=True)
+        token = body.validated_data.get("token") or None
+        code = body.validated_data.get("code") or None
+        user_uuid = body.validated_data["uuid"]
 
         # Special handling for E2E tests
         if settings.E2E_TESTING and user_uuid == "e2e_test_user" and token == "e2e_test_token":
@@ -1153,13 +1268,41 @@ class UserViewSet(
         except User.DoesNotExist:
             user = None
 
-        if not user or not EmailVerifier.check_token(user, token):
+        # A replay of a spent token or code (double click, scanner prefetch) is not a failure:
+        # the address is verified. Do not create a session - no valid credential was presented.
+        if user and user.is_email_verified is True and not user.pending_email:
+            return Response({"success": True, "requires_login": True})
+
+        if code and not token:
+            if not user:
+                raise serializers.ValidationError(
+                    {"code": ["This verification code is invalid or has expired."]},
+                    code="invalid_code",
+                )
+            attempts = email_verification_code_verifier.reserve_attempt(user)
+            if email_verification_code_verifier.attempts_exceeded(attempts):
+                # Refuse until the budget expires, but keep the code: anyone with the uuid can
+                # reach this endpoint, and deleting the code here would let them block the user.
+                raise serializers.ValidationError(
+                    {"code": ["Too many incorrect attempts. Try again later."]},
+                    code="too_many_attempts",
+                )
+            if not email_verification_code_verifier.check_code(user, code):
+                raise serializers.ValidationError(
+                    {"code": ["This verification code is invalid or has expired."]},
+                    code="invalid_code",
+                )
+            email_verification_code_verifier.invalidate(user)
+        elif not user or not token or not EmailVerifier.check_token(user, token):
             raise serializers.ValidationError(
                 {"token": ["This verification token is invalid or has expired."]},
                 code="invalid_token",
             )
 
-        if user.pending_email:
+        # The swap needs a credential issued for the staged address. A token always is (its hash
+        # includes pending_email). A code is only for a verified user; an unverified user's code
+        # proves the account address, so their staged change stays pending.
+        if user.pending_email and (token or user.is_email_verified):
             old_email = user.email
             with transaction.atomic():
                 user.email = user.pending_email
@@ -1237,6 +1380,9 @@ class UserViewSet(
 
         instance.pending_email = None
         instance.save()
+        # The target binding already rejects the code once pending_email clears. Delete the
+        # state so no dead code or attempt counter waits out its TTL.
+        email_verification_code_verifier.invalidate(instance)
 
         return Response(self.get_serializer(instance=instance).data)
 

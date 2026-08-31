@@ -25,13 +25,10 @@ const meta = {
     currentProjectId: 1,
     isSwitching: false,
     isRetrying: false,
-    isRedeemingInviteCode: false,
     isLoggingOut: false,
     switchError: null,
-    redemptionError: null,
     onSelectOrganization: fn(),
     onSelectProject: fn(),
-    onRedeemInviteCode: fn(),
     onRetry: fn(),
     onLogout: fn(),
     onOpenSupport: fn(),
@@ -46,12 +43,6 @@ export const StartupProgram: Story = {};
 export const PrepaidCredits: Story = {
   args: {
     access: { projectId: 1, status: "blocked", reason: "prepaid_credits" },
-  },
-};
-
-export const LegacyInviteCode: Story = {
-  args: {
-    access: { projectId: 1, status: "blocked", reason: null },
   },
 };
 

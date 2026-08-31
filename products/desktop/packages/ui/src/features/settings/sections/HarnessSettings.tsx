@@ -1,6 +1,11 @@
 import { ArrowSquareOut, Check, Copy, Warning } from "@phosphor-icons/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import {
+  SettingsCard,
+  SettingsCardRow,
+  SettingsSection,
+} from "@posthog/ui/features/settings/components/SettingsCard";
+import { CodexSubscriptionSettings } from "@posthog/ui/features/settings/sections/CodexSubscriptionSettings";
 import { PermissionsSettings } from "@posthog/ui/features/settings/sections/PermissionsSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
@@ -30,9 +35,9 @@ function CopyableCommand({ command }: { command: string }) {
     <Flex
       align="center"
       gap="2"
-      className="rounded border border-gray-6 bg-gray-2 px-2 py-1"
+      className="rounded border border-border bg-gray-2 px-2 py-1"
     >
-      <Text className="text-[13px] text-gray-11">{command}</Text>
+      <Text className="text-[13px] text-muted-foreground">{command}</Text>
       <Tooltip content={copied ? "Copied!" : "Copy"}>
         <IconButton
           variant="ghost"
@@ -103,152 +108,158 @@ export function HarnessSettings() {
   }, [setAllowBypassPermissions]);
 
   return (
-    <Flex direction="column">
-      {/* Claude Code */}
-      <Text className="mt-1 mb-2 font-medium text-sm">Claude Code</Text>
-
-      <SettingRow
-        label="MCP servers"
-        description={
-          <SettingDescription
-            text="Extend Claude's capabilities with MCP servers"
-            docsUrl="https://docs.anthropic.com/en/docs/claude-code/mcp"
-          />
-        }
+    <div className="flex flex-col gap-7">
+      <SettingsSection
+        label="Claude Code"
+        description="Configuration that lives with the Claude Code harness; run these commands in a terminal to change it"
       >
-        <CopyableCommand command="claude mcp" />
-      </SettingRow>
+        <SettingsCard>
+          <SettingsCardRow
+            label="MCP servers"
+            description={
+              <SettingDescription
+                text="Extend Claude's capabilities with MCP servers"
+                docsUrl="https://docs.anthropic.com/en/docs/claude-code/mcp"
+              />
+            }
+          >
+            <CopyableCommand command="claude mcp" />
+          </SettingsCardRow>
 
-      <SettingRow
-        label="Skills"
-        description={
-          <SettingDescription
-            text="Create custom slash commands in ~/.claude/skills/"
-            docsUrl="https://docs.anthropic.com/en/docs/claude-code/slash-commands"
-          />
-        }
+          <SettingsCardRow
+            label="Skills"
+            description={
+              <SettingDescription
+                text="Create custom slash commands in ~/.claude/skills/"
+                docsUrl="https://docs.anthropic.com/en/docs/claude-code/slash-commands"
+              />
+            }
+          >
+            <span />
+          </SettingsCardRow>
+
+          <SettingsCardRow
+            label="Memory"
+            description={
+              <SettingDescription
+                text="Persistent context stored in CLAUDE.md files"
+                docsUrl="https://docs.anthropic.com/en/docs/claude-code/memory"
+              />
+            }
+          >
+            <CopyableCommand command="claude /memory" />
+          </SettingsCardRow>
+
+          <SettingsCardRow
+            label="Hooks"
+            description={
+              <SettingDescription
+                text="Execute commands at specific points in Claude's lifecycle"
+                docsUrl="https://docs.anthropic.com/en/docs/claude-code/hooks"
+              />
+            }
+          >
+            <CopyableCommand command="claude /hooks" />
+          </SettingsCardRow>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection
+        label="Codex"
+        description="Configuration that lives with the Codex harness"
       >
-        <span />
-      </SettingRow>
+        <SettingsCard>
+          <CodexSubscriptionSettings />
+          <SettingsCardRow
+            label="MCP servers"
+            description={
+              <SettingDescription
+                text="Extend Codex's capabilities with MCP servers"
+                docsUrl="https://learn.chatgpt.com/docs/extend/mcp"
+              />
+            }
+          >
+            <CopyableCommand command="codex mcp" />
+          </SettingsCardRow>
 
-      <SettingRow
-        label="Memory"
-        description={
-          <SettingDescription
-            text="Persistent context stored in CLAUDE.md files"
-            docsUrl="https://docs.anthropic.com/en/docs/claude-code/memory"
-          />
-        }
+          <SettingsCardRow
+            label="Skills"
+            description={
+              <SettingDescription
+                text="Reusable instructions in .agents/skills/, mentioned with $skill-name"
+                docsUrl="https://learn.chatgpt.com/docs/build-skills"
+              />
+            }
+          >
+            <span />
+          </SettingsCardRow>
+
+          <SettingsCardRow
+            label="Memory"
+            description={
+              <SettingDescription
+                text="Persistent context stored in AGENTS.md files"
+                docsUrl="https://learn.chatgpt.com/docs/agent-configuration/agents-md"
+              />
+            }
+          >
+            <span />
+          </SettingsCardRow>
+
+          <SettingsCardRow
+            label="Hooks"
+            description={
+              <SettingDescription
+                text="Execute commands at specific points in Codex's lifecycle, defined in .codex/hooks.json or config.toml; review them with /hooks inside a session"
+                docsUrl="https://learn.chatgpt.com/docs/hooks"
+              />
+            }
+          >
+            <span />
+          </SettingsCardRow>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection
+        label="Permissions"
+        description="What agents can do without asking you first"
       >
-        <CopyableCommand command="claude /memory" />
-      </SettingRow>
+        <SettingsCard>
+          <SettingsCardRow
+            label="Claude permission rules"
+            description="Tool permissions from your Claude settings. Allowed tools run without prompting. Denied tools are always blocked. Codex keeps its own rules in config.toml"
+          >
+            <CopyableCommand command="claude config" />
+          </SettingsCardRow>
 
-      <SettingRow
-        label="Hooks"
-        description={
-          <SettingDescription
-            text="Execute commands at specific points in Claude's lifecycle"
-            docsUrl="https://docs.anthropic.com/en/docs/claude-code/hooks"
-          />
-        }
-        noBorder
-      >
-        <CopyableCommand command="claude /hooks" />
-      </SettingRow>
+          <PermissionsSettings />
 
-      {/* Codex */}
-      <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
-        Codex
-      </Text>
-
-      <SettingRow
-        label="MCP servers"
-        description={
-          <SettingDescription
-            text="Extend Codex's capabilities with MCP servers"
-            docsUrl="https://learn.chatgpt.com/docs/extend/mcp"
-          />
-        }
-      >
-        <CopyableCommand command="codex mcp" />
-      </SettingRow>
-
-      <SettingRow
-        label="Skills"
-        description={
-          <SettingDescription
-            text="Reusable instructions in .agents/skills/, mentioned with $skill-name"
-            docsUrl="https://learn.chatgpt.com/docs/build-skills"
-          />
-        }
-      >
-        <span />
-      </SettingRow>
-
-      <SettingRow
-        label="Memory"
-        description={
-          <SettingDescription
-            text="Persistent context stored in AGENTS.md files"
-            docsUrl="https://learn.chatgpt.com/docs/agent-configuration/agents-md"
-          />
-        }
-      >
-        <span />
-      </SettingRow>
-
-      <SettingRow
-        label="Hooks"
-        description={
-          <SettingDescription
-            text="Execute commands at specific points in Codex's lifecycle, defined in .codex/hooks.json or config.toml. Review them with /hooks inside a session"
-            docsUrl="https://learn.chatgpt.com/docs/hooks"
-          />
-        }
-        noBorder
-      >
-        <span />
-      </SettingRow>
-
-      {/* Permissions */}
-      <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
-        Permissions
-      </Text>
-
-      <SettingRow
-        label="Claude permission rules"
-        description="Tool permissions from your Claude settings. Allowed tools run without prompting. Denied tools are always blocked. Codex keeps its own rules in config.toml"
-      >
-        <CopyableCommand command="claude config" />
-      </SettingRow>
-
-      <PermissionsSettings />
-
-      <SettingRow
-        label="Allow bypass permissions mode"
-        description="Adds bypass permissions to the mode menu so you can pick it per session. Sessions keep asking for approval until you pick it. This also unlocks Full access in Codex"
-        noBorder
-      >
-        <Switch
-          checked={allowBypassPermissions}
-          onCheckedChange={handleBypassPermissionsChange}
-          size="1"
-          color="red"
-        />
-      </SettingRow>
-      {allowBypassPermissions && (
-        <Callout.Root size="1" color="red" mb="3">
-          <Callout.Icon>
-            <Warning weight="fill" />
-          </Callout.Icon>
-          <Callout.Text>
-            Bypass permissions, and Full access in Codex, are now available in
-            the mode menu in the prompt input. Pick one per session when you
-            want that session to run shell commands, file edits and web requests
-            without approval. Other sessions are unaffected.
-          </Callout.Text>
-        </Callout.Root>
-      )}
+          <SettingsCardRow
+            label="Allow bypass permissions mode"
+            description="Adds bypass permissions to the mode menu so you can pick it per session. Sessions keep asking for approval until you pick it. This also unlocks Full access in Codex"
+          >
+            <Switch
+              checked={allowBypassPermissions}
+              onCheckedChange={handleBypassPermissionsChange}
+              size="1"
+              color="red"
+            />
+          </SettingsCardRow>
+        </SettingsCard>
+        {allowBypassPermissions && (
+          <Callout.Root size="1" color="red" mb="3">
+            <Callout.Icon>
+              <Warning weight="fill" />
+            </Callout.Icon>
+            <Callout.Text>
+              Bypass permissions, and Full access in Codex, are now available in
+              the mode menu in the prompt input. Pick one per session when you
+              want that session to run shell commands, file edits and web
+              requests without approval. Other sessions are unaffected.
+            </Callout.Text>
+          </Callout.Root>
+        )}
+      </SettingsSection>
 
       <AlertDialog.Root
         open={showBypassWarning}
@@ -303,6 +314,6 @@ export function HarnessSettings() {
           </Flex>
         </AlertDialog.Content>
       </AlertDialog.Root>
-    </Flex>
+    </div>
   );
 }

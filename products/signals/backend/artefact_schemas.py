@@ -22,6 +22,7 @@ import re
 from collections.abc import Mapping
 from enum import Enum
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
@@ -251,6 +252,12 @@ class SuggestedReviewerEntry(BaseModel):
 
 class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
     """Content schema for a `suggested_reviewers` artefact — the content root is a JSON list."""
+
+
+class ChannelAssignment(BaseModel):
+    """The space that currently owns a report. The latest assignment wins."""
+
+    channel_id: UUID | None = Field(description="Channel UUID, or null to leave the report unassigned.")
 
 
 class Dismissal(BaseModel):
@@ -617,6 +624,7 @@ StatusArtefactContent = (
     | RepoSelectionResult
     | SuggestedReviewers
     | FeatureLifecycle
+    | ChannelAssignment
 )
 LogArtefactContent = (
     CodeReference
@@ -643,6 +651,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
     "feature_lifecycle": FeatureLifecycle,
+    "channel_assignment": ChannelAssignment,
     "dismissal": Dismissal,
     "code_reference": CodeReference,
     "commit": Commit,
