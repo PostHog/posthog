@@ -17,6 +17,45 @@ MAX_PROMPTS = 10
 # practice), but the row is streamed over SSE and republished on every later upsert, so cap it well
 # below anything a hostile push could use to balloon the channel. The CLI truncates to the same cap.
 MAX_HANDOFF_TEXT_LENGTH = 64 * 1024
+DEFAULT_LIST_LIMIT = 50
+MAX_LIST_LIMIT = 200
+
+
+class WizardSessionListQuerySerializer(serializers.Serializer):
+    workflow_id = serializers.CharField(
+        required=False,
+        help_text="Return sessions for this workflow only.",
+    )
+    skill_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Return sessions for this skill only.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of sessions to skip.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=DEFAULT_LIST_LIMIT,
+        min_value=0,
+        max_value=MAX_LIST_LIMIT,
+        help_text="Maximum number of sessions to return.",
+    )
+
+
+class WizardSessionLookupQuerySerializer(serializers.Serializer):
+    workflow_id = serializers.CharField(
+        required=True,
+        help_text="Workflow to inspect.",
+    )
+    skill_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional skill within the workflow.",
+    )
 
 
 class PendingInputSerializer(serializers.Serializer):

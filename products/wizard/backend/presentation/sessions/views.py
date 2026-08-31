@@ -15,7 +15,7 @@ from django.http.response import HttpResponseBase
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -37,9 +37,10 @@ from products.wizard.backend.facade.contracts import (
 from products.wizard.backend.facade.enums import WizardSessionRunPhase
 from products.wizard.backend.facade.errors import WizardSessionOwnershipError
 from products.wizard.backend.presentation.sessions import config as session_config
-from products.wizard.backend.presentation.sessions.pagination import pagination_window
 from products.wizard.backend.presentation.sessions.serializers import (
     UpsertWizardSessionRequestSerializer,
+    WizardSessionListQuerySerializer,
+    WizardSessionLookupQuerySerializer,
     WizardSessionSerializer,
 )
 
@@ -144,33 +145,19 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "This should only be called by the PostHog Wizard. "
             "Optional filters: ?workflow_id=<id> and ?skill_id=<id>."
         ),
-        parameters=[
-            OpenApiParameter(
-                name="workflow_id",
-                required=False,
-                type=str,
-                location=OpenApiParameter.QUERY,
-                description="Filter to a single workflow (e.g. 'onboarding').",
-            ),
-            OpenApiParameter(
-                name="skill_id",
-                required=False,
-                type=str,
-                location=OpenApiParameter.QUERY,
-                description="Filter to a single skill within the workflow (e.g. 'nextjs').",
-            ),
-        ],
+        parameters=[WizardSessionListQuerySerializer],
         responses={200: WizardSessionSerializer(many=True)},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # GET /projects/:projectId/wizard/sessions
-        page_offset, page_limit = pagination_window(request)
+        query = WizardSessionListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         sessions = wizard_facade.list_for_team(
             self.team_id,
-            workflow_id=request.query_params.get("workflow_id"),
-            skill_id=request.query_params.get("skill_id") or None,
-            offset=page_offset,
-            limit=page_limit,
+            workflow_id=query.validated_data.get("workflow_id"),
+            skill_id=query.validated_data.get("skill_id") or None,
+            offset=query.validated_data["offset"],
+            limit=query.validated_data["limit"],
         )
         page = self.paginate_queryset(sessions)
         if page is not None:
@@ -214,22 +201,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "rather than a 404 so clients don't conflate it with a missing "
             "endpoint."
         ),
-        parameters=[
-            OpenApiParameter(
-                name="workflow_id",
-                required=True,
-                type=str,
-                location=OpenApiParameter.QUERY,
-                description="Filter to a single workflow (e.g. 'posthog-integration').",
-            ),
-            OpenApiParameter(
-                name="skill_id",
-                required=False,
-                type=str,
-                location=OpenApiParameter.QUERY,
-                description="Filter to a single skill within the workflow (e.g. 'nextjs').",
-            ),
-        ],
+        parameters=[WizardSessionLookupQuerySerializer],
         responses={
             200: WizardSessionSerializer,
             204: OpenApiResponse(description="No session for this workflow/skill in this project."),
@@ -245,11 +217,13 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if self._killswitch_active(request):
             wizard_facade.record_latest_session_poll(poll_source, "killswitch")
             return Response(status=status.HTTP_204_NO_CONTENT)
-        workflow_id = request.query_params.get("workflow_id")
-        if not workflow_id:
-            raise ValidationError({"detail": "workflow_id is required."})
-        skill_id = request.query_params.get("skill_id") or None
-        dto = wizard_facade.get_latest(self.team_id, workflow_id, skill_id)
+        query = WizardSessionLookupQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        dto = wizard_facade.get_latest(
+            self.team_id,
+            query.validated_data["workflow_id"],
+            query.validated_data.get("skill_id") or None,
+        )
         if dto is None:
             wizard_facade.record_latest_session_poll(poll_source, "empty")
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -313,20 +287,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "URL builder (`getWizardSessionsStreamRetrieveUrl`) with the "
             "browser's `EventSource` API instead."
         ),
-        parameters=[
-            OpenApiParameter(
-                name="workflow_id",
-                required=True,
-                type=str,
-                location=OpenApiParameter.QUERY,
-            ),
-            OpenApiParameter(
-                name="skill_id",
-                required=False,
-                type=str,
-                location=OpenApiParameter.QUERY,
-            ),
-        ],
+        parameters=[WizardSessionLookupQuerySerializer],
         responses={
             (200, "text/event-stream"): {
                 "type": "string",
@@ -342,10 +303,10 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if self._killswitch_active(request):
             return HttpResponse(status=204)
 
-        workflow_id = request.query_params.get("workflow_id")
-        skill_id = request.query_params.get("skill_id") or None
-        if not workflow_id:
-            raise ValidationError({"detail": "workflow_id is required."})
+        query = WizardSessionLookupQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        workflow_id = query.validated_data["workflow_id"]
+        skill_id = query.validated_data.get("skill_id") or None
 
         # The generator is `async def` — WSGI can't consume an async iterator.
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":

@@ -8,7 +8,15 @@ from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.wizard.backend.models import WizardSession
+from products.wizard.backend.presentation.sessions.serializers import WizardSessionListQuerySerializer
 from products.wizard.backend.presentation.sessions.views import _wizard_sync_killswitch_enabled
+
+
+def test_list_query_rejects_invalid_pagination() -> None:
+    serializer = WizardSessionListQuerySerializer(data={"limit": "invalid"})
+
+    assert not serializer.is_valid()
+    assert serializer.errors["limit"][0].code == "invalid"
 
 
 class TestWizardSessionViewSet(APIBaseTest):
