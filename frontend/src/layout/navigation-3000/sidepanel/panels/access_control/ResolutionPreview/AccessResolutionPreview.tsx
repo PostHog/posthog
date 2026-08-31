@@ -16,9 +16,10 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { urls } from 'scenes/urls'
 
 import { objectRuleUrl } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/accessDetailLogic'
+import { humanizeAccessControlLevel } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/helpers'
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
-import { describeResolutionChange, humanLevel } from './describeResolutionChange'
+import { describeResolutionChange } from './describeResolutionChange'
 import { ResolutionChange, resolutionPreviewLogic } from './resolutionPreviewLogic'
 
 function WhyExplainer(): JSX.Element {
@@ -81,10 +82,10 @@ function SubjectCell({ change }: { change: ResolutionChange }): JSX.Element {
 function LevelChangeCell({ change }: { change: ResolutionChange }): JSX.Element {
     return (
         <div className="flex items-center gap-2 whitespace-nowrap">
-            <LemonTag>{humanLevel(change.current.level)}</LemonTag>
+            <LemonTag>{humanizeAccessControlLevel(change.current.level as AccessControlLevel)}</LemonTag>
             <span aria-hidden="true">→</span>
             <LemonTag type={change.direction === 'gains' ? 'warning' : 'danger'}>
-                {humanLevel(change.proposed.level)}
+                {humanizeAccessControlLevel(change.proposed.level as AccessControlLevel)}
             </LemonTag>
         </div>
     )

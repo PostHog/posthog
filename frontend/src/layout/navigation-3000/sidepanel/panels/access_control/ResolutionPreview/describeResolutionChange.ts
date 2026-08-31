@@ -1,8 +1,7 @@
-import { ResolutionChange, ResolutionChangeLevel } from './resolutionPreviewLogic'
+import { humanizeAccessControlLevel } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/helpers'
+import { AccessControlLevel } from '~/types'
 
-export function humanLevel(level: string): string {
-    return level === 'none' ? 'No access' : level.charAt(0).toUpperCase() + level.slice(1)
-}
+import { ResolutionChange, ResolutionChangeLevel } from './resolutionPreviewLogic'
 
 function scopePhrase(change: ResolutionChange, resolved: ResolutionChangeLevel): string {
     switch (resolved.source) {
@@ -20,7 +19,7 @@ function scopePhrase(change: ResolutionChange, resolved: ResolutionChangeLevel):
 }
 
 function describeResolved(change: ResolutionChange, resolved: ResolutionChangeLevel): string {
-    const level = humanLevel(resolved.level)
+    const level = humanizeAccessControlLevel(resolved.level as AccessControlLevel)
     const phrase = scopePhrase(change, resolved)
     if (resolved.source_subject === 'member') {
         const owner = change.subject.type === 'member' ? 'their own' : `${resolved.subject_name ?? 'a member'}'s`
