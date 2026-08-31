@@ -77,7 +77,7 @@ describe('BillingLimit', () => {
                 </Provider>
             )
 
-            await userEvent.click(await screen.findByText('Set a billing limit'))
+            await userEvent.click(await screen.findByTestId('billing-limit-not-set-product_analytics'))
             const input = screen.getByTestId('billing-limit-input-product_analytics')
             await userEvent.clear(input)
             await userEvent.type(input, entered)
@@ -98,7 +98,7 @@ describe('BillingLimit', () => {
             </Provider>
         )
 
-        await userEvent.click(await screen.findByText('Edit limit'))
+        await userEvent.click(await screen.findByTestId('billing-limit-set-product_analytics'))
         await userEvent.click(screen.getByTestId('remove-billing-limit-product_analytics'))
 
         expect(await screen.findByTestId('billing-limit-not-set-product_analytics')).toHaveTextContent(
