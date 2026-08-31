@@ -53,6 +53,11 @@ import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
+import { BENJAMIN_UPSTREAM_COMMIT } from "../adapters/benjamin/instruction";
+import {
+  appendBenjaminGuidance,
+  isBenjaminEnabled,
+} from "../adapters/benjamin-guidance";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
 import {
   getSessionJsonlPath,
@@ -2251,6 +2256,9 @@ export class AgentServer {
     this.posthogAPI
       .updateTaskRun(payload.task_id, payload.run_id, {
         status: "in_progress",
+        ...(isBenjaminEnabled() && {
+          state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
+        }),
       })
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
@@ -3850,7 +3858,7 @@ export class AgentServer {
       typeof systemPrompt === "string" ? systemPrompt : systemPrompt.append;
     // Codex has no command-rewrite hook (see rtk-guidance.ts), so RTK is
     // adopted through the developer instructions instead.
-    return appendRtkGuidanceForCodex(instructions);
+    return appendBenjaminGuidance(appendRtkGuidanceForCodex(instructions));
   }
 
   /**

@@ -77210,7 +77210,7 @@ export namespace Schemas {
          * @nullable
          */
       slack_notification_channel?: string | null;
-      /** Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority (and reports without a priority judgment).
+      /** Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority. When set, reports without a priority judgment do not notify.
        *
        * * `P0` - P0
        * * `P1` - P1
