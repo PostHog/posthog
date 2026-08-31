@@ -1,14 +1,25 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconCheck, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import ViewRecordingButton, {
+    RecordingPlayerType,
+    ViewRecordingButtonVariant,
+} from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+// The key-matching helpers and their convention lists are shared with Logs — both products
+// resolve the same SDK-emitted attribute keys (posthogDistinctId, sessionId, ...).
+import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
+import { tracingCorrelationConfigLogic } from 'products/tracing/frontend/tracingCorrelationConfigLogic'
 import { tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLogic'
 
 const APPLIED_INDICATOR_MS = 2000
@@ -41,8 +52,15 @@ export function SpanAttributes({
     propertyType,
 }: SpanAttributesProps): JSX.Element {
     const { addFilter } = useActions(tracingFiltersLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(tracingCorrelationConfigLogic)
     const [appliedFilter, setAppliedFilter] = useState<{ key: string; direction: FilterDirection } | null>(null)
     const appliedFilterTimeoutRef = useRef<number | null>(null)
+
+    // Person/replay links only apply to real OTel attribute tables (propertyType set) — the
+    // synthetic "Span details" table repeats span metadata under conventional-looking keys.
+    const correlationLinksEnabled =
+        !!featureFlags[FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS] && propertyType !== undefined
 
     useEffect(
         () => () => {
@@ -136,7 +154,21 @@ export function SpanAttributes({
                         selectable
                         className="gap-1 font-mono text-xs"
                     >
-                        {record.value}
+                        {correlationLinksEnabled && isDistinctIdKey(record.key, configuredDistinctIdKeys) ? (
+                            <span onClick={(e) => e.stopPropagation()}>
+                                <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
+                            </span>
+                        ) : correlationLinksEnabled && isSessionIdKey(record.key, configuredSessionIdKeys) ? (
+                            <ViewRecordingButton
+                                sessionId={record.value}
+                                openPlayerIn={RecordingPlayerType.Modal}
+                                label={record.value}
+                                variant={ViewRecordingButtonVariant.Link}
+                                checkRecordingExists
+                            />
+                        ) : (
+                            <span>{record.value}</span>
+                        )}
                     </CopyToClipboardInline>
                 )
             },
