@@ -73,37 +73,42 @@ const trackCostOutcome = (totalCost: number): void => {
     }
 }
 
-// Every token count the cost calculators read. Presence is what matters, not
-// value: `0` is a usage report that says the model consumed nothing, while an
-// absent property means the provider never reported usage at all.
+// Every token count each cost calculator reads, split by the side it prices.
+// Presence is what matters, not value: `0` is a usage report that says the
+// model consumed nothing, while an absent property means the provider never
+// reported usage at all. The sides gate independently, because an interrupted
+// stream often reports one side only — Anthropic sends input tokens on
+// message_start and the output count in the final delta.
 //
 // Hand-maintained, so a calculator that starts reading a new token property has
-// to add it here too. Leave it out and an event carrying only that property
-// prices as unknown. Properties that modality extraction writes but no
-// calculator reads, such as `$ai_text_input_tokens`, do not belong here.
+// to add it to its side's list too. Leave it out and an event carrying only
+// that property prices as unknown. Properties that modality extraction writes
+// but no calculator reads, such as `$ai_text_input_tokens`, do not belong here.
 //
-// The validation step (steps/validate-ai-event-tokens.ts) sanitizes only the
-// core subset of these, not the full list. That is safe: every calculator read
-// goes through finiteNumberOrUndefined, which treats an unusable value as
-// absent.
-const TOKEN_COUNT_PROPERTIES = [
+// The validation step (steps/validate-ai-event-tokens.ts) sanitizes only a
+// core subset of these. That is safe: every calculator read goes through
+// finiteNumberOrUndefined, which treats an unusable value as absent.
+const INPUT_TOKEN_COUNT_PROPERTIES = [
     '$ai_input_tokens',
-    '$ai_output_tokens',
-    '$ai_text_output_tokens',
-    '$ai_reasoning_tokens',
     '$ai_cache_read_input_tokens',
     '$ai_cache_creation_input_tokens',
     '$ai_cache_creation_5m_input_tokens',
     '$ai_cache_creation_1h_input_tokens',
     '$ai_audio_input_tokens',
-    '$ai_audio_output_tokens',
     '$ai_image_input_tokens',
-    '$ai_image_output_tokens',
     '$ai_cache_read_audio_tokens',
 ] as const
 
-const hasAnyTokenCount = (properties: Properties): boolean => {
-    return TOKEN_COUNT_PROPERTIES.some((key) => finiteNumberOrUndefined(properties[key]) !== undefined)
+const OUTPUT_TOKEN_COUNT_PROPERTIES = [
+    '$ai_output_tokens',
+    '$ai_text_output_tokens',
+    '$ai_reasoning_tokens',
+    '$ai_audio_output_tokens',
+    '$ai_image_output_tokens',
+] as const
+
+const hasAnyTokenCount = (properties: Properties, keys: readonly string[]): boolean => {
+    return keys.some((key) => finiteNumberOrUndefined(properties[key]) !== undefined)
 }
 
 const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
@@ -120,7 +125,8 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
     // output, so they have to be caught here.
     const hasClientCost = PRECALCULATED_COST_PROPERTIES.some((key) => typeof event.properties[key] === 'number')
 
-    const hasTokenCount = hasAnyTokenCount(event.properties)
+    const hasInputTokenCount = hasAnyTokenCount(event.properties, INPUT_TOKEN_COUNT_PROPERTIES)
+    const hasOutputTokenCount = hasAnyTokenCount(event.properties, OUTPUT_TOKEN_COUNT_PROPERTIES)
 
     // A token rate multiplied by no usage is 0, which reads as "this call was
     // free" rather than "we never learned what this call used". The two are
@@ -128,18 +134,20 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
     // billed for the tokens it consumed, we just never received the count. Leave
     // the costs unset so downstream can say it does not know — but only when
     // nothing at all priced this call.
-    if (!hasTokenCount && !hasNonTokenCost && !hasClientCost) {
+    if (!hasInputTokenCount && !hasOutputTokenCount && !hasNonTokenCost && !hasClientCost) {
         aiCostTotalOutcomeCounter.labels({ outcome: 'unknown' }).inc()
         return
     }
 
-    // Input and output costs are token rates times token counts, so without
-    // token counts they are unknown, not zero. The other two components stay
-    // known either way.
-    if (hasTokenCount) {
+    // Each side's cost is a token rate times that side's counts, so a side
+    // without counts is unknown, not zero. One reported side must not fabricate
+    // a $0 for the other. The other two components stay known either way.
+    if (hasInputTokenCount) {
         const inputCost = calculateInputCost(event, cost)
-        const outputCost = calculateOutputCost(event, cost)
         setPropertyIfValidOrMissing(event.properties, '$ai_input_cost_usd', parseFloat(inputCost))
+    }
+    if (hasOutputTokenCount) {
+        const outputCost = calculateOutputCost(event, cost)
         setPropertyIfValidOrMissing(event.properties, '$ai_output_cost_usd', parseFloat(outputCost))
     }
     setPropertyIfValidOrMissing(event.properties, '$ai_request_cost_usd', parseFloat(requestCost))

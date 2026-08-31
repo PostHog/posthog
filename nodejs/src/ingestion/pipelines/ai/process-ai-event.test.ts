@@ -487,12 +487,12 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBe(expected)
         })
 
-        // Both properties are named here rather than read from
-        // TOKEN_COUNT_PROPERTIES, so narrowing that list to the plain
-        // input/output counts fails these. Iterating the list itself would only
-        // drop the case. Neither catches the opposite drift: a calculator that
-        // starts reading a token property nobody added to the list.
-        it.each(['$ai_cache_read_input_tokens', '$ai_audio_input_tokens'])(
+        // The properties are named here rather than read from the token count
+        // lists, so narrowing either list to the plain input/output counts fails
+        // these. Iterating the lists themselves would only drop the case. Neither
+        // catches the opposite drift: a calculator that starts reading a token
+        // property nobody added to its list.
+        it.each(['$ai_cache_read_input_tokens', '$ai_audio_input_tokens', '$ai_reasoning_tokens'])(
             'treats %s on its own as a usage report',
             (property) => {
                 delete event.properties!.$ai_input_tokens
@@ -502,6 +502,38 @@ describe('processAiEvent()', () => {
                 const result = processAiEvent(event)
 
                 expect(result.properties!.$ai_total_cost_usd).toBeDefined()
+            }
+        )
+
+        // Each side is a rate times its own counts, so one reported side must
+        // not fabricate a $0 for the other. Interrupted streams commonly report
+        // input only: Anthropic sends input tokens on message_start and the
+        // output count in the final delta.
+        it.each([
+            {
+                reported: 'input',
+                tokens: { $ai_input_tokens: 100 },
+                pricedProperty: '$ai_input_cost_usd',
+                absentProperty: '$ai_output_cost_usd',
+            },
+            {
+                reported: 'output',
+                tokens: { $ai_output_tokens: 50 },
+                pricedProperty: '$ai_output_cost_usd',
+                absentProperty: '$ai_input_cost_usd',
+            },
+        ])(
+            'prices only the $reported side when only it reported usage',
+            ({ tokens, pricedProperty, absentProperty }) => {
+                delete event.properties!.$ai_input_tokens
+                delete event.properties!.$ai_output_tokens
+                Object.assign(event.properties!, tokens)
+
+                const result = processAiEvent(event)
+
+                expect(result.properties![pricedProperty]).toBeGreaterThan(0)
+                expect(result.properties![absentProperty]).toBeUndefined()
+                expect(result.properties!.$ai_total_cost_usd).toBe(result.properties![pricedProperty])
             }
         )
 
