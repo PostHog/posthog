@@ -27,18 +27,19 @@ def reverse_accessor_edges() -> list[str]:
 
     Requires a populated Django app registry (`django.setup()` has run).
     """
-    from django.apps import (
-        apps,  # noqa: PLC0415 — Django is only importable after setup; hogli loads this module without it
-    )
+    # noqa comments: Django is only importable after setup; hogli loads this module without it.
+    from django.apps import apps  # noqa: PLC0415
+    from django.db.models import Model  # noqa: PLC0415
+    from django.db.models.fields.related import RelatedField  # noqa: PLC0415
 
-    def boundary(model) -> str:
+    def boundary(model: type[Model]) -> str:
         # Ownership comes from the defining module, not _meta.app_label: product models that keep a
         # legacy label ("ee" on access_control's Role) would otherwise read as core and bypass the
         # ratchet, and relations between two such models would read as cross-product.
         module = model.__module__
         return module.split(".")[1] if module.startswith("products.") else "core"
 
-    def label(model) -> str:
+    def label(model: type[Model]) -> str:
         # Rows carry the module-derived product name, not _meta.app_label, so a product's rows
         # survive the per-product filter even when the model keeps a legacy label (ee.Role).
         # Core models keep their app label (posthog/ee) — "core" would erase real information.
@@ -52,14 +53,19 @@ def reverse_accessor_edges() -> list[str]:
         if model._meta.proxy:
             continue  # a proxy shares its parent's fields and creates no accessor of its own
         for field in model._meta.get_fields(include_hidden=False):
-            if not (field.is_relation and field.concrete and field.related_model):
+            # RelatedField narrows the get_fields() union to the concrete relation fields
+            # (FK, O2O, M2M) that install a reverse descriptor.
+            if not isinstance(field, RelatedField) or field.related_model is None:
                 continue
             if field.model is not model:
                 continue  # a concrete parent's field — only the parent installs the reverse descriptor
+            related_model = field.related_model
+            if related_model == "self":
+                continue  # self-referential — never cross-boundary
             # A proxy target installs its reverse descriptor on the concrete model, so the
             # boundary check must see the concrete model, not the proxy.
-            target = field.related_model._meta.concrete_model
-            if not target.__module__.startswith(FIRST_PARTY):
+            target = related_model._meta.concrete_model
+            if target is None or not target.__module__.startswith(FIRST_PARTY):
                 continue
             if boundary(model) == boundary(target):
                 continue
