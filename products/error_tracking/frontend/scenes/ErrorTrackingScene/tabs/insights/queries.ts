@@ -266,6 +266,37 @@ export function buildCrashFreeSessionsQuery(
     }
 }
 
+/**
+ * Exception volume per app, grouped by namespace alone.
+ *
+ * This cannot be folded out of the release breakdown: that query caps its rows, so past the cap an
+ * app whose releases are all low-volume would vanish from the fold and the surviving apps' totals
+ * and shares would be short by the dropped rows, with nothing saying so. Grouping by namespace here
+ * keeps the app figures exact, and the row count is the number of apps rather than of releases.
+ * Column order is the contract `parseReleaseRows` reads, with the release columns left empty.
+ */
+export function buildAppBreakdownQuery(interval: IntervalType, maxRows: number): string {
+    return `
+        SELECT
+            namespace,
+            '' AS version,
+            '' AS build,
+            groupArray(tuple(bucket, occurrences)) AS series
+        FROM (
+            SELECT
+                ${bucketExpr(interval)} AS bucket,
+                ${RELEASE_NAMESPACE} AS namespace,
+                count() AS occurrences
+            FROM events
+            WHERE event = '$exception' AND {filters}
+            GROUP BY bucket, namespace
+        )
+        GROUP BY namespace
+        ORDER BY sum(occurrences) DESC
+        LIMIT ${maxRows}
+    `
+}
+
 export function insightNewUrl(query: InsightVizNode<TrendsQuery>): string {
     const editorQuery: InsightVizNode<TrendsQuery> = {
         ...query,

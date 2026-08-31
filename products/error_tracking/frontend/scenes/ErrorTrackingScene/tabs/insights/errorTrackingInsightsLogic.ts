@@ -39,6 +39,7 @@ import {
 } from './insightsMetrics'
 import {
     buildAffectedUsersQuery,
+    buildAppBreakdownQuery,
     buildComparisonTotalsQuery,
     buildCrashFreeSessionsQuery,
     buildExceptionVolumeQuery,
@@ -92,6 +93,8 @@ export interface errorTrackingInsightsLogicValues {
     loadFailed: boolean
     metrics: InsightsMetrics
     metricsLoading: boolean
+    appRows: ReleaseRow[]
+    appRowsLoading: boolean
     releaseRows: ReleaseRow[]
     releaseRowsLoading: boolean
     summaryBuckets: SummaryBucket[]
@@ -146,6 +149,21 @@ export interface errorTrackingInsightsLogicActions {
         payload?: void
     ) => {
         comparisonTotals: ComparisonTotals
+        payload?: void
+    }
+    loadAppRows: (_: void) => void
+    loadAppRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAppRowsSuccess: (
+        appRows: ReleaseRow[],
+        payload?: void
+    ) => {
+        appRows: ReleaseRow[]
         payload?: void
     }
     loadInsights: () => void
@@ -264,6 +282,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                 loadComparisonTotalsFailure: () => true,
                 loadSummaryBucketsFailure: () => true,
                 loadReleaseRowsFailure: () => true,
+                loadAppRowsFailure: () => true,
             },
         ],
     }),
@@ -312,6 +331,26 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                     })) as HogQLQueryResponse
                     breakpoint()
                     return parseSummaryBuckets((response?.results as unknown[][]) ?? [])
+                },
+            },
+        ],
+        appRows: [
+            [] as ReleaseRow[],
+            {
+                loadAppRows: async (_: void, breakpoint): Promise<ReleaseRow[]> => {
+                    await breakpoint(10)
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: buildAppBreakdownQuery(values.interval, MAX_RELEASE_ROWS),
+                        filters: {
+                            dateRange: values.effectiveDateRange,
+                            filterTestAccounts: values.filterTestAccounts,
+                            properties: values.effectiveProperties,
+                        },
+                        tags: { productKey: ProductKey.ERROR_TRACKING },
+                    })) as HogQLQueryResponse
+                    breakpoint()
+                    return parseReleaseRows((response?.results as unknown[][]) ?? [], values.bucketKeys)
                 },
             },
         ],
@@ -431,6 +470,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
             actions.loadComparisonTotals()
             actions.loadSummaryBuckets()
             actions.loadReleaseRows()
+            actions.loadAppRows()
         },
         setDateRange: () => {
             actions.loadInsights()

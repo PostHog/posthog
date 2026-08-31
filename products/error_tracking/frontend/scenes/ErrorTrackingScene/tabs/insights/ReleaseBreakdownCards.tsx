@@ -8,19 +8,20 @@ import { ExceptionBreakdownCard } from './ExceptionBreakdownCard'
 import { buildAppBreakdown, buildReleaseBreakdown } from './releaseBreakdown'
 
 export function ReleaseBreakdownCards(): JSX.Element {
-    const { releaseRows, releaseRowsLoading, bucketKeys, interval, timezone, incompleteTail } =
+    const { releaseRows, releaseRowsLoading, appRows, appRowsLoading, bucketKeys, interval, timezone, incompleteTail } =
         useValues(errorTrackingInsightsLogic)
     const { filterByBand } = useActions(errorTrackingInsightsLogic)
     const theme = useChartTheme()
 
-    // Both panels fold the same rows, so the two can never disagree about the period's totals.
     const releases = useMemo(
         () => buildReleaseBreakdown(releaseRows, bucketKeys, theme.colors),
         [releaseRows, bucketKeys, theme.colors]
     )
+    // Folded from its own query rather than from the release rows: those are capped, so past the cap
+    // an app would lose the releases that were dropped and report a total short of its real one.
     const apps = useMemo(
-        () => buildAppBreakdown(releaseRows, bucketKeys, theme.colors),
-        [releaseRows, bucketKeys, theme.colors]
+        () => buildAppBreakdown(appRows, bucketKeys, theme.colors),
+        [appRows, bucketKeys, theme.colors]
     )
 
     // A chart and a table side by side need real width, and the nav sidebar plus an open side panel
@@ -48,7 +49,7 @@ export function ReleaseBreakdownCards(): JSX.Element {
                     countNoun="app"
                     columnLabel="App"
                     labels={bucketKeys}
-                    loading={releaseRowsLoading}
+                    loading={appRowsLoading}
                     theme={theme}
                     timezone={timezone}
                     interval={interval}

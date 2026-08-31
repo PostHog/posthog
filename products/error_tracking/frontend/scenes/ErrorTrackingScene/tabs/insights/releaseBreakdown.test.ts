@@ -103,7 +103,8 @@ describe('releaseBreakdown', () => {
     })
 
     describe('buildAppBreakdown', () => {
-        // Both panels fold the same rows, so an app's band has to be the sum of its releases' bands.
+        // The app query groups by namespace, but the fold still has to merge several rows per app:
+        // the release-shaped rows below are the shape parseReleaseRows produces for either query.
         it('merges every release of an app into one band, filtering on the namespace alone', () => {
             const rows = parseReleaseRows(
                 [
