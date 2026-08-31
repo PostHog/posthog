@@ -101,8 +101,7 @@ if (inputs.debug) {
             label: 'Signing secret',
             secret: true,
             required: false,
-            description:
-                'Signs each request following the Standard Webhooks spec. Paste the secret from the receiving service, with or without the whsec_ prefix.',
+            description: 'Signs each request following the [Standard Webhooks](https://www.standardwebhooks.com) spec.',
         },
         {
             key: 'debug',
