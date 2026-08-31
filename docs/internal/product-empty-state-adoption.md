@@ -51,7 +51,7 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | User interviews        | `products/user_interviews/frontend/UserInterviews.tsx`                              | on master             |
 | Web scripts            | `frontend/src/scenes/data-pipelines/WebScriptsScene.tsx`                            | on master             |
 | Error tracking         | `products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx` | on master             |
-| Logs                   | `products/logs/frontend/LogsScene.tsx`                                              | in review             |
+| Logs                   | `products/logs/frontend/LogsScene.tsx`                                              | on master             |
 | Tracing                | `products/tracing/frontend/TracingScene.tsx`                                        | in review             |
 | Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | in review             |
 | Surveys                | `frontend/src/scenes/surveys/Surveys.tsx`                                           | in review             |

@@ -228,6 +228,11 @@ class AccountTableAssignedToFilter:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AccountTableAssignedFilter:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
 class AccountTableUnassignedFilter:
     pass
 
@@ -285,6 +290,7 @@ AccountTableFilter = (
     AccountTableSearchFilter
     | AccountTableTagsFilter
     | AccountTableAssignedToFilter
+    | AccountTableAssignedFilter
     | AccountTableUnassignedFilter
     | AccountTableAccountIdFilter
     | AccountTableFieldFilter
