@@ -68,6 +68,18 @@ re-discovering things you already know.
 - **parallel** — `tasks: [...]`, up to 4 concurrent tasks. Use for independent work
   that can run at once, e.g. `Explore`ing two unrelated parts of a codebase together.
 
+For every subagent, supply a brief `description` with 2 to 5 words. It states the purpose
+shown in the tool call. Keep the full instructions in `task`.
+
+```text
+single: { agent: "Explore", task: "Find where authentication starts.", description: "Finding auth entrypoint" }
+parallel: { tasks: [
+  { agent: "Explore", task: "Find authentication entrypoints.", description: "Finding auth entrypoints" },
+  { agent: "Explore", task: "Find session persistence code.", description: "Finding session storage" }
+] }
+```
+
+For parallel work, put every agent in `tasks`. Do not use top-level `agent` or `task`.
 There is no chain mode. For a fixed pipeline (e.g. explore then plan), just call
 `subagent` twice in sequence yourself and pass the first call's output back in as the
 second call's `context` — you are already the orchestrator holding both results.

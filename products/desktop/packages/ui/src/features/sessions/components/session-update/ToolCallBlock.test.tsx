@@ -1,8 +1,8 @@
 import { ServiceProvider } from "@posthog/di/react";
-import { posthogToolMeta } from "@posthog/shared";
+import { createPiToolCallRecord, posthogToolMeta } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { Container } from "inversify";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -88,6 +88,19 @@ describe("ToolCallBlock routing", () => {
     expect(screen.getByText("exec")).toBeInTheDocument();
   });
 
+  it("renders a directory listing as a list, not a read", () => {
+    renderBlock({
+      toolCallId: "tc-list",
+      title: "List files",
+      kind: "list",
+      status: "completed",
+      locations: [{ path: "/repo" }],
+    });
+
+    expect(screen.getByText("List files in")).toBeInTheDocument();
+    expect(screen.queryByText("Read")).toBeNull();
+  });
+
   it("routes a codex edit tool call (no _meta) to the edit view with diff stats", () => {
     renderBlock({
       toolCallId: "tc-edit",
@@ -138,8 +151,8 @@ describe("ToolCallBlock routing", () => {
           },
         ],
       },
-      expectedTitle: "Workflow · Release check",
-      expectedSummary: "2 agents running in parallel",
+      expectedTitle: "Running workflow: Release check",
+      expectedSummary: undefined,
       expectedStep: "Review API",
     },
     {
@@ -155,8 +168,8 @@ describe("ToolCallBlock routing", () => {
           },
         ],
       },
-      expectedTitle: "Subagent · Explore",
-      expectedSummary: "1 agent running",
+      expectedTitle: "Running 1 subagent",
+      expectedSummary: undefined,
       expectedStep: "Explore",
     },
   ])(
@@ -175,7 +188,9 @@ describe("ToolCallBlock routing", () => {
       );
 
       expect(screen.getByText(expectedTitle)).toBeInTheDocument();
-      expect(screen.getByText(`· ${expectedSummary}`)).toBeInTheDocument();
+      if (expectedSummary) {
+        expect(screen.getByText(`· ${expectedSummary}`)).toBeInTheDocument();
+      }
       expect(screen.getByText(expectedStep)).toBeInTheDocument();
     },
   );
@@ -210,9 +225,8 @@ describe("ToolCallBlock routing", () => {
       false,
     );
 
-    expect(
-      screen.getByText("· 1 agent running · 1 failed"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Running 2 subagents")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Explore"));
     expect(screen.getByText(/Authentication failed/)).toBeInTheDocument();
   });
 
@@ -244,15 +258,14 @@ describe("ToolCallBlock routing", () => {
       },
     });
 
-    expect(screen.getByText("· 2 agents completed")).toBeInTheDocument();
+    expect(
+      screen.getByText("Ran workflow: Authorization review"),
+    ).toBeInTheDocument();
   });
 
-  it.each([
-    ["in_progress" as const, "No agents started"],
-    ["completed" as const, "No agents started"],
-  ])(
+  it.each(["in_progress" as const, "completed" as const])(
     "explains a %s workflow with no agent details in its collapsed header",
-    (status, expectedSummary) => {
+    (status) => {
       renderBlock({
         toolCallId: `tc-empty-${status}-workflow`,
         title: "workflow",
@@ -264,9 +277,250 @@ describe("ToolCallBlock routing", () => {
         },
       });
 
-      expect(screen.getByText(`· ${expectedSummary}`)).toBeInTheDocument();
+      expect(
+        screen.getByText("Ran workflow: Authorization review"),
+      ).toBeInTheDocument();
     },
   );
+
+  it("explains a rejected subagent call instead of 'No agents started' when the tool resolves without spawning an agent", () => {
+    renderBlock({
+      toolCallId: "tc-subagent-rejected",
+      title: "subagent",
+      kind: "other",
+      status: "completed",
+      details: {
+        mode: "single",
+        results: [],
+      },
+      content: [
+        {
+          type: "content",
+          content: {
+            type: "text",
+            text: 'Unknown agent "Researcher". Available agents: Explore (bundled), Plan (bundled), General (bundled)',
+          },
+        },
+      ],
+    });
+
+    expect(screen.getByText(/Unknown agent "Researcher"/)).toBeInTheDocument();
+    expect(screen.queryByText("· No agents started")).toBeNull();
+  });
+
+  it("marks a rejected subagent call as failed rather than completed once expanded", () => {
+    const { container } = renderBlock({
+      toolCallId: "tc-subagent-rejected-step",
+      title: "subagent",
+      kind: "other",
+      status: "completed",
+      details: {
+        mode: "single",
+        results: [],
+      },
+      content: [
+        {
+          type: "content",
+          content: { type: "text", text: 'Unknown agent "Researcher".' },
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button"));
+
+    expect(container.querySelector(".text-red-9")).not.toBeNull();
+    expect(container.querySelector(".text-green-9")).toBeNull();
+  });
+
+  it("keeps a per-agent step detail short instead of the full task sentence", () => {
+    const longTask =
+      "Find project-local Pi agent definitions under .pi/agents, if any. List each file and summarize its declared role and capabilities from its frontmatter or content in detail.";
+    renderBlock(
+      {
+        toolCallId: "tc-subagent-long-task",
+        title: "subagent",
+        kind: "other",
+        status: "in_progress",
+        details: {
+          mode: "single",
+          results: [
+            {
+              runId: "run-1",
+              agent: "Explore",
+              task: longTask,
+              state: "running",
+            },
+          ],
+        },
+      },
+      undefined,
+      false,
+    );
+
+    expect(screen.queryByText(longTask)).toBeNull();
+    expect(screen.getByText(/Find project-local Pi agent/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["running", "in_progress" as const, false],
+    ["completed", "completed" as const, true],
+    ["canceled", "completed" as const, true],
+  ])(
+    "shows the intended work and completed actions for a %s subagent",
+    (_state, status, turnComplete) => {
+      const task =
+        "List files in the repository root directory only. Return a concise inventory.";
+      renderBlock(
+        {
+          toolCallId: `tc-subagent-description-${status}`,
+          title: "subagent",
+          kind: "other",
+          status,
+          details: {
+            mode: "single",
+            results: [
+              {
+                runId: "run-1",
+                agent: "Explore",
+                task,
+                description: "Listing root files",
+                toolCalls: [
+                  createPiToolCallRecord(
+                    {
+                      id: "call-read-1",
+                      name: "read",
+                      arguments: { path: "/repo/one.ts" },
+                    },
+                    "completed",
+                  ),
+                  createPiToolCallRecord(
+                    {
+                      id: "call-read-2",
+                      name: "read",
+                      arguments: { path: "/repo/two.ts" },
+                    },
+                    _state === "running" ? "in_progress" : "completed",
+                  ),
+                ],
+                state: _state === "canceled" ? "aborted" : _state,
+              },
+            ],
+          },
+        },
+        undefined,
+        turnComplete,
+      );
+
+      if (status !== "in_progress") {
+        fireEvent.click(screen.getByRole("button"));
+      }
+      fireEvent.click(screen.getByText("Explore"));
+
+      expect(screen.getAllByText(/Listing root files/)).toHaveLength(1);
+      expect(screen.getAllByText("Read")).toHaveLength(2);
+      expect(screen.queryByText(task)).toBeNull();
+    },
+  );
+
+  it("expands each completed subagent independently", () => {
+    renderBlock({
+      toolCallId: "tc-parallel-subagent-tool-calls",
+      title: "subagent",
+      kind: "other",
+      status: "completed",
+      details: {
+        mode: "parallel",
+        results: [
+          {
+            runId: "run-1",
+            agent: "Explore",
+            task: "Read the root files",
+            description: "Reading root files",
+            toolCalls: [
+              createPiToolCallRecord(
+                {
+                  id: "call-read",
+                  name: "read",
+                  arguments: { path: "/repo/root.ts" },
+                },
+                "completed",
+              ),
+            ],
+            state: "completed",
+          },
+          {
+            runId: "run-2",
+            agent: "Explore",
+            task: "Run a dependency check",
+            description: "Checking dependencies",
+            toolCalls: [
+              createPiToolCallRecord(
+                {
+                  id: "call-bash",
+                  name: "bash",
+                  arguments: { command: "pnpm why dependency" },
+                },
+                "completed",
+              ),
+            ],
+            state: "completed",
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText("Ran 2 subagents")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Ran 2 subagents"));
+    fireEvent.click(screen.getAllByText("Explore")[0]);
+
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.queryByText("Bash")).toBeNull();
+
+    fireEvent.click(screen.getAllByText("Explore")[1]);
+
+    expect(screen.getByText(/pnpm why dependency/)).toBeInTheDocument();
+  });
+
+  it("shows a canceled workflow through the structured view instead of the raw script fallback", () => {
+    renderBlock({
+      toolCallId: "tc-canceled-workflow",
+      title: "workflow",
+      kind: "other",
+      status: "completed",
+      rawInput: { script: "export const meta = { name: 'demo' }" },
+      details: {
+        name: "demo",
+        done: true,
+        cancelled: true,
+        agents: [
+          {
+            id: 1,
+            label: "Local agent discovery",
+            agent: "Explore",
+            status: "done",
+          },
+          {
+            id: 2,
+            label: "Orchestration usage discovery",
+            agent: "Explore",
+            status: "aborted",
+          },
+        ],
+      },
+      content: [
+        {
+          type: "content",
+          content: { type: "text", text: "Workflow was canceled" },
+        },
+      ],
+    });
+
+    expect(
+      screen.getByText("Ran workflow: Demo, canceled"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("(Failed)")).toBeNull();
+    expect(screen.queryByText(/export const meta/)).toBeNull();
+  });
 
   it("shows the workflow failure in its collapsed header", () => {
     renderBlock({
@@ -291,7 +545,7 @@ describe("ToolCallBlock routing", () => {
     });
 
     expect(
-      screen.getByText("· Workflow failed: Missing synthesis output"),
+      screen.getByText("Workflow failed: Missing synthesis output"),
     ).toBeInTheDocument();
   });
 

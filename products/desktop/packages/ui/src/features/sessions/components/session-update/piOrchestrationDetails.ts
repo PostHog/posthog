@@ -1,4 +1,5 @@
 import {
+  type PiSubagentToolCall,
   type PiSubagentToolDetails,
   type PiWorkflowToolDetails,
   piSubagentToolDetailsSchema,
@@ -15,13 +16,21 @@ interface OrchestrationCounts {
   failed: number;
 }
 
+export interface PiOrchestrationAgentRunViewModel {
+  key: string;
+  agent: string;
+  description: string;
+  status: Step["status"];
+  toolCalls: PiSubagentToolCall[];
+  errorMessage?: string;
+}
+
 export interface PiOrchestrationViewModel {
   kind: "subagent" | "workflow";
-  title: string;
-  phase?: string;
-  plannedPhaseCount: number;
+  workflowName?: string;
   counts: OrchestrationCounts;
-  steps: Step[];
+  agentRuns: PiOrchestrationAgentRunViewModel[];
+  cancelled: boolean;
 }
 
 export interface PiOrchestrationDisplayState {
@@ -38,16 +47,6 @@ export function compactOrchestrationText(
     return compacted;
   }
   return `${compacted.slice(0, maxLength - 1)}…`;
-}
-
-function truncateTask(task: string | undefined): string | undefined {
-  if (!task) {
-    return undefined;
-  }
-  if (task.length <= TASK_PREVIEW_LENGTH) {
-    return task;
-  }
-  return `${task.slice(0, TASK_PREVIEW_LENGTH - 1)}…`;
 }
 
 function readWorkflowStatus(
@@ -90,12 +89,14 @@ function formatWorkflowName(name: string): string {
   return `${readableName.charAt(0).toUpperCase()}${readableName.slice(1)}`;
 }
 
-function countSteps(steps: Step[]): OrchestrationCounts {
+function countAgentRuns(
+  agentRuns: PiOrchestrationAgentRunViewModel[],
+): OrchestrationCounts {
   return {
-    total: steps.length,
-    running: steps.filter((step) => step.status === "in_progress").length,
-    completed: steps.filter((step) => step.status === "completed").length,
-    failed: steps.filter((step) => step.status === "failed").length,
+    total: agentRuns.length,
+    running: agentRuns.filter((run) => run.status === "in_progress").length,
+    completed: agentRuns.filter((run) => run.status === "completed").length,
+    failed: agentRuns.filter((run) => run.status === "failed").length,
   };
 }
 
@@ -107,31 +108,22 @@ function readWorkflowDetails(
     return undefined;
   }
 
-  const { name, phases, currentPhase, agents } = parsed.data;
-  const steps = agents.map((agent): Step => {
-    const completedDetail =
-      agent.resultPreview ?? agent.objective ?? agent.produces;
-    const activeDetail = agent.objective ?? agent.produces;
-    return {
+  const { name, agents } = parsed.data;
+  const agentRuns = agents.map(
+    (agent): PiOrchestrationAgentRunViewModel => ({
       key: String(agent.id),
-      label: agent.label,
+      agent: agent.label,
+      description: agent.objective ?? agent.produces ?? agent.agent,
       status: readWorkflowStatus(agent.status),
-      detail: [
-        agent.agent,
-        agent.status === "done" ? completedDetail : activeDetail,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    };
-  });
-
+      toolCalls: agent.toolCalls ?? [],
+    }),
+  );
   return {
     kind: "workflow",
-    title: name ? `Workflow · ${formatWorkflowName(name)}` : "Workflow",
-    phase: currentPhase,
-    plannedPhaseCount: phases?.length ?? 0,
-    counts: countSteps(steps),
-    steps,
+    workflowName: name ? formatWorkflowName(name) : undefined,
+    counts: countAgentRuns(agentRuns),
+    agentRuns,
+    cancelled: parsed.data.cancelled ?? false,
   };
 }
 
@@ -143,90 +135,68 @@ function readSubagentDetails(
     return undefined;
   }
 
-  const steps = parsed.data.results.map((result, index): Step => {
-    const firstTaskLine = result.task.trim().split("\n")[0];
-    const task = truncateTask(firstTaskLine);
-    return {
+  const subagentRuns = parsed.data.results.map(
+    (result, index): PiOrchestrationAgentRunViewModel => ({
       key: result.runId ?? String(index),
-      label: result.agent,
+      agent: result.agent,
+      description: result.description ?? result.task.trim().split("\n")[0],
       status: readSubagentStatus(result),
-      detail: [result.model, task, result.errorMessage ?? result.resultText]
-        .filter((value): value is string => Boolean(value))
-        .map((value) => compactOrchestrationText(value))
-        .join(" · "),
-    };
-  });
-  const singleAgent = parsed.data.results[0]?.agent;
-
+      toolCalls: result.toolCalls ?? [],
+      errorMessage: result.errorMessage,
+    }),
+  );
   return {
     kind: "subagent",
-    title:
-      steps.length === 1 && singleAgent
-        ? `Subagent · ${singleAgent}`
-        : "Subagents",
-    plannedPhaseCount: 0,
-    counts: countSteps(steps),
-    steps,
+    counts: countAgentRuns(subagentRuns),
+    agentRuns: subagentRuns,
+    cancelled: false,
   };
 }
 
-function agentCount(count: number): string {
-  return count === 1 ? "1 agent" : `${count} agents`;
+function subagentCount(count: number): string {
+  return count === 1 ? "1 subagent" : `${count} subagents`;
 }
 
-function activeSummary(view: PiOrchestrationViewModel): string {
-  const { running, completed, failed } = view.counts;
-  const finished: string[] = [];
-  if (completed > 0) {
-    finished.push(`${completed} completed`);
+function summarizeWorkflowRun(
+  view: PiOrchestrationViewModel,
+  state: PiOrchestrationDisplayState,
+): string {
+  const name = view.workflowName ? `: ${view.workflowName}` : "";
+  if (state.isLoading) {
+    return `Running workflow${name}`;
   }
-  if (failed > 0) {
-    finished.push(`${failed} failed`);
+  if (view.cancelled) {
+    return `Ran workflow${name}, canceled`;
   }
-  const finishedSuffix =
-    finished.length > 0 ? ` · ${finished.join(" · ")}` : "";
-  if (running > 1) {
-    return `${running} agents running in parallel${finishedSuffix}`;
+  if (state.isComplete && view.counts.failed > 0) {
+    return `Ran workflow${name}, ${view.counts.failed} failed`;
   }
-  if (running === 1) {
-    return `1 agent running${finishedSuffix}`;
-  }
-  if (view.phase) {
-    return `Running ${view.phase}`;
-  }
-  if (view.plannedPhaseCount > 0) {
-    return `Preparing ${view.plannedPhaseCount} phases`;
-  }
-  return "Preparing";
+  return `Ran workflow${name}`;
 }
 
-function completedSummary(view: PiOrchestrationViewModel): string {
+function summarizeSubagentRun(
+  view: PiOrchestrationViewModel,
+  state: PiOrchestrationDisplayState,
+): string {
+  const count = subagentCount(view.counts.total);
+  if (state.isLoading) {
+    return `Running ${count}`;
+  }
+  if (view.cancelled) {
+    return `Ran ${count}, canceled`;
+  }
+  if (state.isComplete) {
+    return view.counts.failed > 0
+      ? `Ran ${count}, ${view.counts.failed} failed`
+      : `Ran ${count}`;
+  }
+  return `Ran ${count}, ${formatStoppedCounts(view)}`;
+}
+
+function formatStoppedCounts(view: PiOrchestrationViewModel): string {
   const { total, completed, failed } = view.counts;
   if (total === 0) {
-    return view.phase ? `Reached ${view.phase}` : "No agents started";
-  }
-  if (failed === 0 && completed === total) {
-    return `${agentCount(completed)} completed`;
-  }
-
-  const summaries: string[] = [];
-  if (completed > 0) {
-    summaries.push(`${completed} completed`);
-  }
-  if (failed > 0) {
-    summaries.push(`${failed} failed`);
-  }
-  const notCompleted = total - completed - failed;
-  if (notCompleted > 0) {
-    summaries.push(`${notCompleted} not completed`);
-  }
-  return summaries.join(" · ");
-}
-
-function stoppedSummary(view: PiOrchestrationViewModel): string {
-  const { total, completed, failed } = view.counts;
-  if (total === 0) {
-    return view.phase ? `Stopped in ${view.phase}` : "No agents started";
+    return "";
   }
 
   const stopped = total - completed - failed;
@@ -247,13 +217,9 @@ export function summarizePiOrchestration(
   view: PiOrchestrationViewModel,
   state: PiOrchestrationDisplayState,
 ): string {
-  if (state.isLoading) {
-    return activeSummary(view);
-  }
-  if (state.isComplete) {
-    return completedSummary(view);
-  }
-  return stoppedSummary(view);
+  return view.kind === "workflow"
+    ? summarizeWorkflowRun(view, state)
+    : summarizeSubagentRun(view, state);
 }
 
 export function readPiOrchestrationDetails(

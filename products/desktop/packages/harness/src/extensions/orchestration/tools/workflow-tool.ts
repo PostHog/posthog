@@ -176,6 +176,14 @@ export function registerWorkflowTool(pi: ExtensionAPI): void {
             },
           });
         };
+        const recordAgentResult = (id: number, result: SingleRunResult) => {
+          agentResults.set(id, result);
+          const entry = snapshot.agents.find((agent) => agent.id === id);
+          if (entry) {
+            entry.toolCalls = result.toolCalls;
+          }
+          publish();
+        };
         publish();
 
         try {
@@ -209,13 +217,9 @@ export function registerWorkflowTool(pi: ExtensionAPI): void {
                   signal: taskSignal,
                   useAutoContext: false,
                   publishStatus: false,
-                  onUpdate: (partial) => {
-                    agentResults.set(request.id, partial);
-                    publish();
-                  },
+                  onUpdate: (partial) => recordAgentResult(request.id, partial),
                 });
-                agentResults.set(request.id, result);
-                publish();
+                recordAgentResult(request.id, result);
                 if (isFailedResult(result))
                   throw new Error(getResultOutput(result));
                 const output = getResultOutput(result);
@@ -307,8 +311,9 @@ export function registerWorkflowTool(pi: ExtensionAPI): void {
         } catch (error) {
           snapshot.done = true;
           if (signal?.aborted) {
+            snapshot.cancelled = true;
             publish();
-            throw new Error("Workflow was canceled");
+            return workflowCancelled(snapshot);
           }
           return workflowError(
             snapshot,
@@ -330,5 +335,12 @@ function workflowError(
     content: [{ type: "text", text }],
     details: { ...snapshot, done: true },
     isError: true,
+  };
+}
+
+function workflowCancelled(snapshot: WorkflowSnapshot): WorkflowToolResult {
+  return {
+    content: [{ type: "text", text: "Workflow was canceled" }],
+    details: { ...snapshot, done: true, cancelled: true },
   };
 }

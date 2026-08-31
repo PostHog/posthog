@@ -223,7 +223,14 @@ return { count: inv.files.length }`,
     await vi.waitFor(() => expect(runAgentMock).toHaveBeenCalledOnce());
     controller.abort();
 
-    await expect(execution).rejects.toThrow("Workflow was canceled");
+    const result = (await execution) as {
+      content: Array<{ text: string }>;
+      details: { cancelled?: boolean; done: boolean };
+      isError?: boolean;
+    };
+    expect(result.content[0].text).toBe("Workflow was canceled");
+    expect(result.details).toMatchObject({ done: true, cancelled: true });
+    expect(result.isError).toBeUndefined();
     expect(onUpdate).toHaveBeenCalledWith({
       content: [],
       details: expect.objectContaining({

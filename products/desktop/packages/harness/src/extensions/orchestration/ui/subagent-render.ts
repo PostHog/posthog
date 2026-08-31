@@ -117,9 +117,11 @@ function callLine(
   theme: Theme,
   agent: string,
   task: string,
+  description: string | undefined,
   index: number | undefined,
 ): string {
-  const preview = task.length > 60 ? `${task.slice(0, 60)}…` : task;
+  const value = description ?? task;
+  const preview = value.length > 60 ? `${value.slice(0, 60)}…` : value;
   const prefix = index !== undefined ? theme.fg("dim", `${index + 1}. `) : "";
   return `${prefix}${theme.fg("toolTitle", theme.bold(agent))}${theme.fg("dim", `(${preview})`)}`;
 }
@@ -128,18 +130,27 @@ export function renderSubagentCall(
   args: {
     agent?: string;
     task?: string;
-    tasks?: Array<{ agent: string; task: string }>;
+    description?: string;
+    tasks?: Array<{ agent: string; task: string; description?: string }>;
   },
   theme: Theme,
 ): Component {
   if (args.tasks && args.tasks.length > 0) {
-    const lines = args.tasks.map((t, i) => callLine(theme, t.agent, t.task, i));
+    const lines = args.tasks.map((t, i) =>
+      callLine(theme, t.agent, t.task, t.description, i),
+    );
     return widthSafe(new Text(lines.join("\n"), 0, 0));
   }
 
   return widthSafe(
     new Text(
-      callLine(theme, args.agent ?? "...", args.task ?? "...", undefined),
+      callLine(
+        theme,
+        args.agent ?? "...",
+        args.task ?? "...",
+        args.description,
+        undefined,
+      ),
       0,
       0,
     ),

@@ -115,6 +115,21 @@ describe("renderSubagentCall", () => {
     expect(lines.join("\n")).toContain("find the auth code");
   });
 
+  it("renders the supplied description instead of the task", () => {
+    const component = renderSubagentCall(
+      {
+        agent: "scout",
+        task: "Find every authentication boundary and report its owner.",
+        description: "Inspecting auth boundaries",
+      },
+      theme,
+    );
+    const text = component.render(80).join("\n");
+
+    expect(text).toContain("Inspecting auth boundaries");
+    expect(text).not.toContain("Find every authentication boundary");
+  });
+
   it("renders parallel mode with a task count", () => {
     const component = renderSubagentCall(
       {

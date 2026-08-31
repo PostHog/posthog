@@ -1,5 +1,6 @@
 export type AgentToolKind =
   | "read"
+  | "list"
   | "edit"
   | "delete"
   | "move"

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createPiToolCallRecord } from "@posthog/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { runAgentMock } = vi.hoisted(() => ({
@@ -82,20 +83,39 @@ describe("subagent tool", () => {
       content: Array<{ text: string }>;
     };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(/Provide exactly one of/);
+    expect(result.content[0].text).toMatch(/Provide agent and task/);
     expect(runAgentMock).not.toHaveBeenCalled();
   });
 
-  it("errors when both single and parallel params are provided", async () => {
+  it("runs parallel tasks when top-level single-task fields are also present", async () => {
+    runAgentMock.mockResolvedValue(successResult());
     const execute = await getExecute();
     const result = (await execute(
       "id",
-      { agent: "Explore", task: "x", tasks: [{ agent: "Explore", task: "y" }] },
+      {
+        agent: "Explore",
+        task: "x",
+        description: "Ignored task",
+        tasks: [
+          {
+            agent: "Explore",
+            task: "y",
+            description: "Listing root files",
+          },
+        ],
+      },
       undefined,
       undefined,
       fakeCtx,
     )) as { isError?: boolean };
-    expect(result.isError).toBe(true);
+
+    expect(result.isError).toBeUndefined();
+    expect(runAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "y",
+        description: "Listing root files",
+      }),
+    );
   });
 
   it("errors on an unknown agent name in single mode", async () => {
@@ -157,16 +177,26 @@ describe("subagent tool", () => {
   it("dispatches single mode to runAgent and streams its state", async () => {
     const activeResult = successResult({ state: "running" });
     runAgentMock.mockImplementation(
-      async ({ onUpdate }: { onUpdate: (result: SingleRunResult) => void }) => {
-        onUpdate(activeResult);
-        return successResult();
+      async ({
+        description,
+        onUpdate,
+      }: {
+        description?: string;
+        onUpdate: (result: SingleRunResult) => void;
+      }) => {
+        onUpdate({ ...activeResult, description });
+        return successResult({ description });
       },
     );
     const onUpdate = vi.fn();
     const execute = await getExecute();
     const result = (await execute(
       "id",
-      { agent: "Explore", task: "find auth code" },
+      {
+        agent: "Explore",
+        task: "find auth code",
+        description: "Finding auth code",
+      },
       undefined,
       onUpdate,
       fakeCtx,
@@ -176,6 +206,9 @@ describe("subagent tool", () => {
       details: { results: SingleRunResult[] };
     };
     expect(runAgentMock).toHaveBeenCalledTimes(1);
+    expect(runAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ description: "Finding auth code" }),
+    );
     expect(onUpdate).toHaveBeenCalledWith({
       content: [],
       details: {
@@ -183,6 +216,7 @@ describe("subagent tool", () => {
         results: [
           expect.objectContaining({
             agent: "Explore",
+            description: "Finding auth code",
             state: "running",
             messages: [],
           }),
@@ -193,8 +227,41 @@ describe("subagent tool", () => {
     expect(result.content[0].text).toBe("done");
     expect(result.details.results[0]).toMatchObject({
       messages: [],
+      description: "Finding auth code",
       resultText: "done",
     });
+  });
+
+  it("preserves each subagent tool call in order", async () => {
+    const toolCalls = [
+      createPiToolCallRecord(
+        { id: "call-read-1", name: "read", arguments: {} },
+        "completed",
+      ),
+      createPiToolCallRecord(
+        { id: "call-bash", name: "bash", arguments: {} },
+        "completed",
+      ),
+      createPiToolCallRecord(
+        { id: "call-read-2", name: "read", arguments: {} },
+        "completed",
+      ),
+    ];
+    runAgentMock.mockResolvedValue(successResult({ toolCalls }));
+    const execute = await getExecute();
+    const result = (await execute(
+      "id",
+      {
+        agent: "Explore",
+        task: "Inspect the project files",
+        description: "Inspecting project files",
+      },
+      undefined,
+      undefined,
+      fakeCtx,
+    )) as { details: { results: SingleRunResult[] } };
+
+    expect(result.details.results[0].toolCalls).toEqual(toolCalls);
   });
 
   it("reports failure when runAgent returns a failed result", async () => {

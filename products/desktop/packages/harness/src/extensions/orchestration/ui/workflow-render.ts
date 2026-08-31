@@ -18,6 +18,7 @@ import {
   truncateToWidth,
 } from "@earendil-works/pi-tui";
 import type {
+  PiSubagentToolCall,
   PiWorkflowToolDetails,
   WorkflowAgentState,
 } from "@posthog/shared";
@@ -47,6 +48,7 @@ export interface WorkflowAgentStatus {
   schema?: Record<string, unknown>;
   status: WorkflowAgentState;
   resultPreview?: string;
+  toolCalls?: PiSubagentToolCall[];
 }
 
 export interface WorkflowSnapshot extends PiWorkflowToolDetails {

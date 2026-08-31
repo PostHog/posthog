@@ -11,7 +11,11 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentRunState } from "@posthog/shared";
+import {
+  type AgentRunState,
+  createPiToolCallRecord,
+  type PiSubagentToolCall,
+} from "@posthog/shared";
 import { createWebAccessExtension } from "../web-access/extension";
 import type { AgentConfig } from "./agents";
 import {
@@ -75,6 +79,8 @@ export interface SingleRunResult {
   runId: string;
   agent: string;
   task: string;
+  description?: string;
+  toolCalls?: PiSubagentToolCall[];
   state: AgentRunState;
   messages: Message[];
   resultText?: string;
@@ -110,6 +116,7 @@ export interface RunAgentOptions {
   ctx: ExtensionContext;
   agent: AgentConfig;
   task: string;
+  description?: string;
   cwd?: string;
   step?: number;
   signal?: AbortSignal;
@@ -130,6 +137,22 @@ function finalRunState(result: SingleRunResult): Exclude<RunState, "running"> {
   return "completed";
 }
 
+function finalizeToolCalls(
+  toolCalls: PiSubagentToolCall[],
+  state: AgentRunState,
+): PiSubagentToolCall[] {
+  if (state === "running") {
+    return toolCalls;
+  }
+
+  const unfinishedStatus = state === "completed" ? "completed" : "failed";
+  return toolCalls.map((toolCall) =>
+    toolCall.status === "in_progress"
+      ? { ...toolCall, status: unfinishedStatus }
+      : toolCall,
+  );
+}
+
 function errorMessage(error: unknown, aborted: boolean): string {
   if (aborted) {
     return "Subagent was aborted";
@@ -142,12 +165,25 @@ function errorMessage(error: unknown, aborted: boolean): string {
 
 function recordMessage(
   result: SingleRunResult,
+  toolCallsById: Map<string, PiSubagentToolCall>,
   message: Message,
   emitUpdate: () => void,
 ): void {
   result.messages.push(message);
 
   if (message.role === "assistant") {
+    for (const block of message.content) {
+      if (block.type === "toolCall") {
+        const toolCall: PiSubagentToolCall = createPiToolCallRecord(
+          { id: block.id, name: block.name, arguments: block.arguments },
+          "in_progress",
+        );
+        result.toolCalls ??= [];
+        result.toolCalls.push(toolCall);
+        toolCallsById.set(toolCall.id, toolCall);
+      }
+    }
+
     result.usage.turns++;
     const usage = message.usage;
     if (usage) {
@@ -164,7 +200,13 @@ function recordMessage(
     if (message.errorMessage) {
       result.errorMessage = message.errorMessage;
     }
+  } else if (message.role === "toolResult") {
+    const toolCall = toolCallsById.get(message.toolCallId);
+    if (toolCall) {
+      toolCall.status = message.isError ? "failed" : "completed";
+    }
   }
+
   emitUpdate();
 }
 
@@ -184,8 +226,10 @@ export async function runAgent(
     runId,
     agent: agent.name,
     task,
+    description: options.description,
     state: "running",
     messages: [],
+    toolCalls: [],
     usage: emptyUsage(),
     step,
     startedAt: lifecycleStatus.startedAt,
@@ -209,7 +253,9 @@ export async function runAgent(
     });
   };
 
+  const toolCallsById = new Map<string, PiSubagentToolCall>();
   const emitUpdate = () => {
+    result.toolCalls = finalizeToolCalls(result.toolCalls ?? [], result.state);
     onUpdate?.({
       ...result,
       messages: [...result.messages],
@@ -305,7 +351,7 @@ export async function runAgent(
         (event.message.role === "assistant" ||
           event.message.role === "toolResult")
       ) {
-        recordMessage(result, event.message, emitUpdate);
+        recordMessage(result, toolCallsById, event.message, emitUpdate);
       }
     });
 
@@ -336,7 +382,6 @@ export async function runAgent(
     } else {
       result.state = "completed";
     }
-    result.endedAt = Date.now();
     emitUpdate();
     return result;
   } catch (error) {

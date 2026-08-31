@@ -194,6 +194,29 @@ describe("createPiMessageTranslator", () => {
     ]);
   });
 
+  it("classifies ls as a directory listing", () => {
+    const translator = createPiMessageTranslator();
+    const message = makeAssistant([
+      {
+        id: "ls-1",
+        type: "toolCall",
+        name: "ls",
+        arguments: { path: "src" },
+      } as never,
+    ]);
+
+    expect(translator.translate(message)).toMatchObject([
+      {
+        type: "tool_call_started",
+        toolCall: {
+          id: "ls-1",
+          kind: "list",
+          locations: [{ path: "src" }],
+        },
+      },
+    ]);
+  });
+
   it("keeps built-in tool translation and raw output", () => {
     const translator = createPiMessageTranslator();
     const content: ToolResultMessage["content"] = [

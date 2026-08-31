@@ -25,9 +25,13 @@ const MAX_CONCURRENT_TASKS = 4;
 const CONTEXT_FIELD_DESCRIPTION =
   "Context the agent needs beyond the task itself: file paths already found, decisions already made, constraints. Falls back to a short auto-digest of recent parent turns when omitted, but explicit context is more reliable — prefer passing it.";
 
+const TASK_DESCRIPTION =
+  "Brief 2-5-word purpose shown in the tool call, for example: Listing root files. Do not repeat the task.";
+
 const TaskItem = Type.Object({
   agent: Type.String({ description: "Name of the agent to invoke" }),
   task: Type.String({ description: "Task to delegate to the agent" }),
+  description: Type.Optional(Type.String({ description: TASK_DESCRIPTION })),
   context: Type.Optional(
     Type.String({ description: CONTEXT_FIELD_DESCRIPTION }),
   ),
@@ -44,17 +48,25 @@ const AgentScopeSchema = StringEnum(["bundled", "project", "both"] as const, {
 
 const SubagentParams = Type.Object({
   agent: Type.Optional(
-    Type.String({ description: "Name of the agent to invoke (single mode)" }),
+    Type.String({
+      description:
+        "Name of the agent for one subagent. Omit when using tasks for parallel work.",
+    }),
   ),
   task: Type.Optional(
-    Type.String({ description: "Task to delegate (single mode)" }),
+    Type.String({
+      description:
+        "Task for one subagent. Omit when using tasks for parallel work.",
+    }),
   ),
+  description: Type.Optional(Type.String({ description: TASK_DESCRIPTION })),
   context: Type.Optional(
     Type.String({ description: `${CONTEXT_FIELD_DESCRIPTION} (single mode)` }),
   ),
   tasks: Type.Optional(
     Type.Array(TaskItem, {
-      description: "Tasks to run concurrently (parallel mode)",
+      description:
+        "Tasks to run concurrently. Use this one field for parallel work. Include a brief description in each item.",
     }),
   ),
   agentScope: Type.Optional(AgentScopeSchema),
@@ -112,7 +124,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
       label: "Subagent",
       description: [
         "Delegate a task to a focused subagent running in its own isolated Pi session and context window.",
-        "Modes: single ({agent, task}) or parallel ({tasks:[...]}, max 4 concurrent tasks).",
+        "For one subagent, pass agent, task, and a brief description. For parallel work, pass tasks with agent, task, and description in each item.",
         "Bundled agents: Explore (focused read-only recon using Sol), Plan (read-only implementation planning), General (read-write implementation — actually makes the requested edits). Only General edits; Explore and Plan never do.",
         'Set agentScope: "both" to also allow project-local .pi/agents/*.md (gated by trust + confirmation).',
       ].join(" "),
@@ -123,6 +135,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
         "Use subagent's parallel mode to run several independent tasks concurrently rather than sequentially.",
         "For a fixed pipeline (e.g. explore then plan then implement), just call subagent multiple times in sequence and pass each result back in as context on the next call — there is no chain mode.",
         "Explore and Plan are read-only and never edit. General has the same read-write capability as you do — use it to delegate actual code changes, especially several independent ones you'd otherwise want to parallelize.",
+        "For one subagent, use {agent, task, description}. For parallel work, use {tasks: [{agent, task, description}, ...]}. If top-level agent or task is also present, tasks takes precedence.",
         "Always pass subagent's context field with file paths already found, decisions already made, and constraints — a subagent otherwise only sees its bare task text plus a small auto-generated digest of recent turns.",
         "Subagents cannot themselves call subagent; keep orchestration in the parent session.",
       ],
@@ -140,14 +153,13 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
 
         const hasTasks = (params.tasks?.length ?? 0) > 0;
         const hasSingle = Boolean(params.agent && params.task);
-        const modeCount = Number(hasTasks) + Number(hasSingle);
         const mode: SubagentToolDetails["mode"] = hasTasks
           ? "parallel"
           : "single";
 
-        if (modeCount !== 1) {
+        if (!hasTasks && !hasSingle) {
           return errorResult(
-            `Provide exactly one of agent+task or tasks. Available agents: ${listAvailable()}`,
+            `Provide agent and task for one subagent, or a tasks array for parallel subagents. Available agents: ${listAvailable()}`,
             "single",
           );
         }
@@ -172,7 +184,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           }
         }
         const singleAgent = params.agent ? findAgent(params.agent) : undefined;
-        if (hasSingle && !singleAgent) {
+        if (!hasTasks && hasSingle && !singleAgent) {
           return errorResult(
             `Unknown agent "${params.agent}". Available agents: ${listAvailable()}`,
             "single",
@@ -183,7 +195,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
         for (const task of params.tasks ?? []) {
           requestedNames.add(task.agent);
         }
-        if (params.agent) {
+        if (!hasTasks && params.agent) {
           requestedNames.add(params.agent);
         }
         const requestedAgents = Array.from(requestedNames)
@@ -231,6 +243,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
                   ctx,
                   agent,
                   task: task.task,
+                  description: task.description,
                   cwd: task.cwd,
                   context: task.context,
                   signal: dispatchSignal,
@@ -266,6 +279,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             ctx,
             agent: singleAgent,
             task: params.task,
+            description: params.description,
             cwd: params.cwd,
             context: params.context,
             signal: dispatchSignal,

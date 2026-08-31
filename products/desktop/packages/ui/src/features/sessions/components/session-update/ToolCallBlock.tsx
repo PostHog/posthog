@@ -5,6 +5,7 @@ import { DeleteToolView } from "@posthog/ui/features/sessions/components/session
 import { EditToolView } from "@posthog/ui/features/sessions/components/session-update/EditToolView";
 import { ExecuteToolView } from "@posthog/ui/features/sessions/components/session-update/ExecuteToolView";
 import { FetchToolView } from "@posthog/ui/features/sessions/components/session-update/FetchToolView";
+import { ListToolView } from "@posthog/ui/features/sessions/components/session-update/ListToolView";
 import { MoveToolView } from "@posthog/ui/features/sessions/components/session-update/MoveToolView";
 import { PiOrchestrationToolView } from "@posthog/ui/features/sessions/components/session-update/PiOrchestrationToolView";
 import { PlanApprovalView } from "@posthog/ui/features/sessions/components/session-update/PlanApprovalView";
@@ -141,6 +142,8 @@ export function ToolCallBlock({
         return <ExecuteToolView {...props} />;
       case "read":
         return <ReadToolView {...props} />;
+      case "list":
+        return <ListToolView {...props} />;
       case "edit":
         return <EditToolView {...props} />;
       case "delete":
