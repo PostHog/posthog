@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     HogLanguage,
+    HogQLFixAction,
+    HogQLFixEdit,
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLNotice,
@@ -14,6 +16,7 @@ from posthog.schema import (
     PredicateIndexUsage,
     PredicateIndexVerdict,
     PredicateScope,
+    UnprunedTableScan,
 )
 
 from posthog.hogql import ast
@@ -35,6 +38,14 @@ from posthog.hogql.observability import (
     INDEX_ELIGIBILITY_VERDICT_TOTAL,
 )
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
+from posthog.hogql.partition_pruning import (
+    EVENTS_PARTITION_KEY,
+    EVENTS_TABLE_NAME,
+    UNPRUNED_SCAN_FIX,
+    UNPRUNED_SCAN_FIX_TITLE,
+    UNPRUNED_SCAN_MESSAGE,
+    find_unpruned_events_scans,
+)
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.taxonomy_validation import validate_taxonomy_references
@@ -125,7 +136,7 @@ def get_hogql_metadata(
                     )
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
-            heuristic_warnings.extend(run_metadata_heuristics(hogql_ast))
+            heuristic_warnings.extend(run_metadata_heuristics(hogql_ast, is_posthog_source=source is None))
             hogql_table_names = get_table_names(hogql_ast)
             heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
             response.table_names = hogql_table_names
@@ -146,6 +157,7 @@ def get_hogql_metadata(
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
+                _attach_unpruned_scans(response, hogql_ast)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
     except Exception as e:
@@ -266,6 +278,37 @@ def _attach_index_usage(
                 end=predicate.end,
                 fix=f"ai_prompt:{predicate.ai_fix_prompt}" if predicate.ai_fix_prompt else None,
             )
+
+
+def _attach_unpruned_scans(
+    response: HogQLMetadataResponse,
+    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
+) -> None:
+    """Report every events scan the query cannot narrow to a subset of partitions.
+
+    The per-filter index report says nothing about the time range, so a query with no bound on
+    timestamp can show every filter as covered while it opens every partition. This is the row that
+    stops the summary above the results grid reading as an all-clear.
+    """
+    response.unpruned_scans = [
+        UnprunedTableScan(
+            table_name=EVENTS_TABLE_NAME,
+            partition_key=EVENTS_PARTITION_KEY,
+            message=UNPRUNED_SCAN_MESSAGE,
+            fix=UNPRUNED_SCAN_FIX,
+            fix_action=(
+                HogQLFixAction(
+                    title=UNPRUNED_SCAN_FIX_TITLE,
+                    edits=[HogQLFixEdit(start=edit.start, end=edit.end, text=edit.text) for edit in scan.bound_edits],
+                )
+                if scan.bound_edits
+                else None
+            ),
+            start=scan.start,
+            end=scan.end,
+        )
+        for scan in find_unpruned_events_scans(hogql_ast)
+    ]
 
 
 def enrich_hogql_validation_error(

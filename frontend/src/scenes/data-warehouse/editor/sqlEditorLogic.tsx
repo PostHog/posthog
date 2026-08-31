@@ -41,6 +41,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
+import { codePointOffsetToUtf16 } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { objectsEqual } from 'lib/utils/objects'
@@ -66,6 +67,7 @@ import {
     HogLanguage,
     HogQLFilters,
     HogQLMetadata,
+    HogQLFixEdit,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
@@ -516,6 +518,42 @@ export function tabModelPath(tabId: string): string {
 // suggestion: @monaco-editor/react reuses the existing model on remount without re-applying
 // the `value` prop, so the content has to be written onto the model directly. No-ops when the
 // editor isn't mounted yet or the content already matches.
+function applyUndoableRangedEdits(
+    monaco: Monaco | null | undefined,
+    uri: Uri | undefined,
+    edits: HogQLFixEdit[],
+    offset: number,
+    queryText: string
+): void {
+    if (!monaco || !uri || edits.length === 0) {
+        return
+    }
+    const model = monaco.editor.getModel(uri)
+    if (!model) {
+        return
+    }
+    model.pushStackElement()
+    model.pushEditOperations(
+        [],
+        edits.map((edit) => {
+            // Offsets index the metadata query, which is one statement of a multi-statement script.
+            const start = model.getPositionAt(codePointOffsetToUtf16(queryText, edit.start) + offset)
+            const end = model.getPositionAt(codePointOffsetToUtf16(queryText, edit.end) + offset)
+            return {
+                range: {
+                    startLineNumber: start.lineNumber,
+                    startColumn: start.column,
+                    endLineNumber: end.lineNumber,
+                    endColumn: end.column,
+                },
+                text: edit.text,
+            }
+        }),
+        () => null
+    )
+    model.pushStackElement()
+}
+
 function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | undefined, text: string): void {
     if (!monaco || !uri) {
         return
@@ -811,6 +849,9 @@ export interface sqlEditorLogicActions {
     } // outputPaneLogic
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
+    }
+    applyQueryFix: (edits: HogQLFixEdit[]) => {
+        edits: HogQLFixEdit[]
     }
     closeAccessControlModal: () => {
         value: true
@@ -1445,6 +1486,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
+        applyQueryFix: (edits: HogQLFixEdit[]) => ({ edits }),
         runSubquery: true,
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         enforceConnectionRawQueryMode: true,
@@ -1877,6 +1919,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     source: values.suggestedSource,
                 })
                 actions._setSuggestionPayload(null)
+            },
+            applyQueryFix: ({ edits }) => {
+                applyUndoableRangedEdits(
+                    props.monaco,
+                    values.activeTab?.uri,
+                    edits,
+                    values.activeQueryOffset,
+                    values.activeQueryText ?? values.queryInput ?? ''
+                )
             },
             onRejectSuggestedQueryInput: () => {
                 values.suggestionPayload?.onReject(actions, values, props)

@@ -1,9 +1,15 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
-from posthog.schema import HogQLNotice
+from posthog.schema import HogQLFixAction, HogQLFixEdit, HogQLNotice
 
 from posthog.hogql import ast
+from posthog.hogql.partition_pruning import (
+    UNPRUNED_SCAN_FIX,
+    UNPRUNED_SCAN_FIX_TITLE,
+    UNPRUNED_SCAN_MESSAGE,
+    find_unpruned_events_scans,
+)
 
 
 @dataclass(frozen=True)
@@ -53,8 +59,45 @@ class SimilarSubqueryHeuristic(MetadataHeuristic):
         return warnings
 
 
-def run_metadata_heuristics(query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
+class UnprunedEventsScanHeuristic(MetadataHeuristic):
+    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
+        warnings: list[HogQLNotice] = []
+        for scan in find_unpruned_events_scans(query):
+            if scan.start is None:
+                continue
+            warnings.append(
+                HogQLNotice(
+                    start=scan.start,
+                    end=scan.end,
+                    message=f"{UNPRUNED_SCAN_MESSAGE} {UNPRUNED_SCAN_FIX}",
+                    fix_action=(
+                        HogQLFixAction(
+                            title=UNPRUNED_SCAN_FIX_TITLE,
+                            edits=[
+                                HogQLFixEdit(start=edit.start, end=edit.end, text=edit.text)
+                                for edit in scan.bound_edits
+                            ],
+                        )
+                        if scan.bound_edits
+                        else None
+                    ),
+                )
+            )
+        return warnings
+
+
+def run_metadata_heuristics(
+    query: ast.SelectQuery | ast.SelectSetQuery, *, is_posthog_source: bool = True
+) -> list[HogQLNotice]:
+    """Run the metadata heuristics over `query`.
+
+    `is_posthog_source` is False for a direct external connection, where a table named `events` is the
+    customer's own Postgres or Snowflake table. The partition heuristic reasons about PostHog's
+    `sharded_events` schema, so it would describe a partition key that table does not have.
+    """
     heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
+    if is_posthog_source:
+        heuristics.append(UnprunedEventsScanHeuristic())
     warnings: list[HogQLNotice] = []
 
     for heuristic in heuristics:

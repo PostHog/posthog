@@ -755,11 +755,27 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     user_modified_filters?: Record<string, any>
 }
 
+/** One replacement in the query text, as offsets into the query the notice came from. */
+export interface HogQLFixEdit {
+    start: integer
+    end: integer
+    text: string
+}
+
+/** A quick fix the editor can apply. Unlike `HogQLNotice.fix`, its edits are not confined to the marked range. */
+export interface HogQLFixAction {
+    /** Shown as the quick-fix title. */
+    title: string
+    /** Applied together as a single undoable edit. */
+    edits: HogQLFixEdit[]
+}
+
 export interface HogQLNotice {
     start?: integer
     end?: integer
     message: string
     fix?: string
+    fix_action?: HogQLFixAction
 }
 
 export enum QueryIndexUsage {
@@ -811,12 +827,28 @@ export interface PredicateIndexUsage {
     end?: integer
 }
 
+/** A table scan the query cannot narrow to a subset of partitions, decided before the query runs. */
+export interface UnprunedTableScan {
+    table_name: string
+    /** Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`. */
+    partition_key: string
+    message: string
+    /** Advice naming a predicate that would bound the partition key. Prose, not replacement text. */
+    fix: string
+    /** Absent when the query shape has no unambiguous place to write the bound. */
+    fix_action?: HogQLFixAction
+    start?: integer
+    end?: integer
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsage[]
+    /** One entry per table scan with no bound on its partition key. Empty when every scan is bounded. */
+    unpruned_scans?: UnprunedTableScan[]
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]

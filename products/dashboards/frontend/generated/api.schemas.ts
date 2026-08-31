@@ -4490,9 +4490,23 @@ export interface Response2Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
+export interface HogQLFixEditApi {
+    end: number
+    start: number
+    text: string
+}
+
+export interface HogQLFixActionApi {
+    /** Applied together as a single undoable edit. */
+    edits: HogQLFixEditApi[]
+    /** Shown as the quick-fix title. */
+    title: string
+}
+
 export interface HogQLNoticeApi {
     end?: number | null
     fix?: string | null
+    fix_action?: HogQLFixActionApi | null
     message: string
     start?: number | null
 }
@@ -4546,6 +4560,19 @@ export const QueryIndexUsageApi = {
     Yes: 'yes',
 } as const
 
+export interface UnprunedTableScanApi {
+    end?: number | null
+    /** Advice naming a predicate that would bound the partition key. Prose, not replacement text. */
+    fix: string
+    /** Absent when the query shape has no unambiguous place to write the bound. */
+    fix_action?: HogQLFixActionApi | null
+    message: string
+    /** Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`. */
+    partition_key: string
+    start?: number | null
+    table_name: string
+}
+
 export interface HogQLMetadataResponseApi {
     ch_table_names?: string[] | null
     errors: HogQLNoticeApi[]
@@ -4556,6 +4583,8 @@ export interface HogQLMetadataResponseApi {
     notices: HogQLNoticeApi[]
     query?: string | null
     table_names?: string[] | null
+    /** One entry per table scan with no bound on its partition key. Empty when every scan is bounded. */
+    unpruned_scans?: UnprunedTableScanApi[] | null
     warnings: HogQLNoticeApi[]
 }
 

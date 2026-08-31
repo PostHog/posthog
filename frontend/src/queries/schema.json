@@ -29181,6 +29181,42 @@
             },
             "type": "object"
         },
+        "HogQLFixAction": {
+            "additionalProperties": false,
+            "description": "A quick fix the editor can apply. Unlike `HogQLNotice.fix`, its edits are not confined to the marked range.",
+            "properties": {
+                "edits": {
+                    "description": "Applied together as a single undoable edit.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLFixEdit"
+                    },
+                    "type": "array"
+                },
+                "title": {
+                    "description": "Shown as the quick-fix title.",
+                    "type": "string"
+                }
+            },
+            "required": ["title", "edits"],
+            "type": "object"
+        },
+        "HogQLFixEdit": {
+            "additionalProperties": false,
+            "description": "One replacement in the query text, as offsets into the query the notice came from.",
+            "properties": {
+                "end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "text": {
+                    "type": "string"
+                }
+            },
+            "required": ["start", "end", "text"],
+            "type": "object"
+        },
         "HogQLMathType": {
             "const": "hogql",
             "type": "string"
@@ -29292,6 +29328,13 @@
                     },
                     "type": "array"
                 },
+                "unpruned_scans": {
+                    "description": "One entry per table scan with no bound on its partition key. Empty when every scan is bounded.",
+                    "items": {
+                        "$ref": "#/definitions/UnprunedTableScan"
+                    },
+                    "type": "array"
+                },
                 "warnings": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -29310,6 +29353,9 @@
                 },
                 "fix": {
                     "type": "string"
+                },
+                "fix_action": {
+                    "$ref": "#/definitions/HogQLFixAction"
                 },
                 "message": {
                     "type": "string"
@@ -40769,6 +40815,13 @@
                         "table_names": {
                             "items": {
                                 "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "unpruned_scans": {
+                            "description": "One entry per table scan with no bound on its partition key. Empty when every scan is bounded.",
+                            "items": {
+                                "$ref": "#/definitions/UnprunedTableScan"
                             },
                             "type": "array"
                         },
@@ -54915,6 +54968,38 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "UnprunedTableScan": {
+            "additionalProperties": false,
+            "description": "A table scan the query cannot narrow to a subset of partitions, decided before the query runs.",
+            "properties": {
+                "end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "fix": {
+                    "description": "Advice naming a predicate that would bound the partition key. Prose, not replacement text.",
+                    "type": "string"
+                },
+                "fix_action": {
+                    "$ref": "#/definitions/HogQLFixAction",
+                    "description": "Absent when the query shape has no unambiguous place to write the bound."
+                },
+                "message": {
+                    "type": "string"
+                },
+                "partition_key": {
+                    "description": "Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`.",
+                    "type": "string"
+                },
+                "start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "table_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["table_name", "partition_key", "message", "fix"],
             "type": "object"
         },
         "UsageMetric": {
