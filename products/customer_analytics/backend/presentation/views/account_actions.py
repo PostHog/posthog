@@ -68,7 +68,12 @@ _UPDATE_ERROR_RESPONSES = {
         "Invalid account properties",
         status.HTTP_400_BAD_REQUEST,
     ),
-    contracts.ExternalAccountUpdateError.UPDATE_FAILED: ("Failed to update account", status.HTTP_400_BAD_REQUEST),
+    # A server fault (the facade's blanket except), not a client error: 500 keeps the CDP
+    # fetch layer retrying instead of failing the workflow permanently.
+    contracts.ExternalAccountUpdateError.UPDATE_FAILED: (
+        "Failed to update account",
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+    ),
 }
 
 

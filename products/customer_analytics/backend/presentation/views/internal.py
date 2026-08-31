@@ -112,8 +112,13 @@ def _check_account_access(request: Request, external_id: str) -> tuple[Team, Non
     """
     claims = cast(dict[str, Any], request.auth or {})
     # No str() on the claim: a missing claim would stringify to "None" and match an account
-    # literally named "None" — direct comparison keeps an absent claim failing closed.
-    if not external_id or claims.get("external_id") != external_id:
+    # literally named "None" — only a real string passes, keeping an absent claim failing
+    # closed. Stripped to mirror the request-side normalization, so a padded id behaves the
+    # same here as on the legacy route.
+    claim_external_id = claims.get("external_id")
+    if not isinstance(claim_external_id, str):
+        claim_external_id = None
+    if not external_id or claim_external_id is None or claim_external_id.strip() != external_id:
         return None, Response(
             {"error": "Service token does not grant access to this account"}, status=status.HTTP_403_FORBIDDEN
         )

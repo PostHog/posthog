@@ -14,6 +14,7 @@ from posthog.jwt import PosthogJwtAudience
 from posthog.models.utils import generate_random_token_secret
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
+from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import CustomPropertyValue
 from products.customer_analytics.backend.presentation.views.internal import CUSTOMER_ANALYTICS_ACCOUNTS_PURPOSE
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
@@ -141,6 +142,29 @@ class TestInternalAccountAPI(APIBaseTest):
         create_account(team_id=self.team.id, name="Edge", external_id="None")
         response = self.client.get(self.url, data={"external_id": "None"}, **self._headers({"team_id": self.team.id}))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_whitespace_padded_claim_matches_like_the_legacy_route(self):
+        # The request id is stripped before comparison; the claim must be stripped the same
+        # way or a padded id would 403 here while succeeding on the legacy route.
+        response = self.client.get(
+            self.url,
+            data={"external_id": " acme-1 "},
+            **self._headers({"team_id": self.team.id, "external_id": " acme-1 "}),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_unexpected_update_failure_returns_500(self):
+        # UPDATE_FAILED only comes from the facade's blanket except (server fault); a 400
+        # would stop the CDP fetch layer from retrying a transient database error.
+        failed = contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.UPDATE_FAILED)
+        with patch(
+            "products.customer_analytics.backend.presentation.views.account_actions.facade.update_external_account",
+            return_value=failed,
+        ):
+            response = self.client.patch(
+                self.url, {"external_id": "acme-1", "tags": ["vip"]}, format="json", **self._headers()
+            )
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def test_request_external_id_must_match_the_claim(self):
         # A token pinned to one account must not read or write another, even in the same team.
