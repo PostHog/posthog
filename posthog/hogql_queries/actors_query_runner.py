@@ -77,7 +77,12 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         cache_age_seconds: Optional[int] = None,
         analytics_props: Optional["AnalyticsProps"] = None,
     ):
-        self.user = user
+        # This runner takes the run() user verbatim, including None. A bare assignment would
+        # hide the change from the base run(), leaving the shared database and access-control
+        # snapshot scoped to the previous user.
+        if user is not self.user:
+            self.user = user
+            self._on_user_changed()
         return super().run(
             execution_mode,
             user,

@@ -21,6 +21,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActorsQuery,
+    ActorsQueryResponse,
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
@@ -61,6 +62,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_failure_handling import classify_failure
@@ -79,6 +81,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
+from posthog.models.user import User
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
     BUDGET_EXTENDED,
@@ -266,6 +269,24 @@ class TestQueryRunner(BaseTest):
         snapshot = runner.user_access_control
         assert snapshot is not None
         assert runner.shared_database.user_access_control is snapshot
+
+    def test_actors_run_rebuilds_shared_state_on_user_change(self):
+        other_user = User.objects.create_and_join(self.organization, "other-user@example.com", None)
+        runner = ActorsQueryRunner(query=ActorsQuery(select=["properties.email"]), team=self.team)
+        seen: list[tuple[Any, Any]] = []
+
+        def capture(self_runner: ActorsQueryRunner) -> ActorsQueryResponse:
+            seen.append((self_runner.shared_database, self_runner.user_access_control))
+            return ActorsQueryResponse(results=[], columns=[], hogql="", limit=100, offset=0)
+
+        with mock.patch.object(ActorsQueryRunner, "_calculate", autospec=True, side_effect=capture):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=other_user)
+
+        (first_database, first_snapshot), (second_database, second_snapshot) = seen
+        assert first_database is not second_database
+        assert first_snapshot is not second_snapshot
+        assert second_database.user_access_control is second_snapshot
 
     def test_shared_database_kill_switch_disables_sharing(self):
         TestQueryRunner = self.setup_test_query_runner_class()
