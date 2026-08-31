@@ -9,7 +9,7 @@ const log = logger.scope("clear-storage");
 
 export function clearApplicationStorage(): void {
   const confirmed = window.confirm(
-    "Are you sure you want to clear all application storage?\n\nThis will remove:\n• All registered folders\n• UI state (sidebar preferences, etc.)\n• Task directory mappings\n\nYour files will not be deleted from your computer.",
+    "Are you sure you want to clear all application storage?\n\nThis will remove:\n• All registered folders\n• UI state (sidebar preferences, etc.)\n• Task directory mappings\n• Cached images\n\nYour files will not be deleted from your computer.",
   );
 
   if (!confirmed) return;
@@ -19,6 +19,7 @@ export function clearApplicationStorage(): void {
   Promise.allSettled([
     client.folders.clearAllData.mutate(),
     client.secureStore.clear.query(),
+    client.diskCache.clear.mutate(),
   ]).then((results) => {
     const rejected = results.filter(
       (result): result is PromiseRejectedResult => result.status === "rejected",

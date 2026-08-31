@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { MergeToDeployBoxPlot } from '../components/MergeToDeployBoxPlot'
+import { LeadTimeBoxPlot } from '../components/LeadTimeBoxPlot'
 import { MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
@@ -24,6 +24,8 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
         environment,
         githubTeam,
         boxPlotBuckets,
+        openToMergeBuckets,
+        openToDeployBuckets,
         frequencyCounts,
         frequencyIsoLabels,
         environmentScopeLabel,
@@ -36,6 +38,32 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
         () => [{ key: 'deployments', label: 'Deployments', data: frequencyCounts }],
         [frequencyCounts]
     )
+    const leadTimeStages = [
+        {
+            title: 'Open to deploy',
+            seriesKey: 'open_to_deploy',
+            seriesLabel: 'Open to deploy',
+            buckets: openToDeployBuckets,
+            dataAttr: 'open-to-deploy-box-plot',
+            wrapperDataAttr: 'engineering-analytics-dora-open-to-deploy-box-plot',
+        },
+        {
+            title: 'Open to merge',
+            seriesKey: 'open_to_merge',
+            seriesLabel: 'Open to merge',
+            buckets: openToMergeBuckets,
+            dataAttr: 'open-to-merge-box-plot',
+            wrapperDataAttr: 'engineering-analytics-dora-open-to-merge-box-plot',
+        },
+        {
+            title: 'Merge to deploy',
+            seriesKey: 'merge_to_deploy',
+            seriesLabel: 'Merge to deploy',
+            buckets: boxPlotBuckets,
+            dataAttr: 'merge-to-deploy-box-plot',
+            wrapperDataAttr: 'engineering-analytics-dora-box-plot',
+        },
+    ]
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -170,8 +198,8 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
             </div>
             <Section
                 id="merge-to-deploy"
-                title="Merge to deploy distribution"
-                note="Box per bucket: whisker min to max, box p25 to p75, line at the median, dot at the mean. Buckets key on deploy time."
+                title="Lead time distributions"
+                note="Box per bucket: whisker min to max, box p25 to p75, line at the median, dot at the mean. All three stages cover the same deployed PRs, so they compare bucket by bucket. Buckets key on deploy time."
                 busy={doraLoading && !!dora}
             >
                 {firstLoad ? (
@@ -184,8 +212,19 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                     </div>
                 ) : (
                     <>
-                        <div data-attr="engineering-analytics-dora-box-plot">
-                            <MergeToDeployBoxPlot buckets={boxPlotBuckets} formatSeconds={compactAgeLabel} />
+                        <div className="flex flex-col gap-4">
+                            {leadTimeStages.map((stage) => (
+                                <div key={stage.seriesKey} data-attr={stage.wrapperDataAttr}>
+                                    <h3 className="m-0 mb-1 text-xs font-semibold text-secondary">{stage.title}</h3>
+                                    <LeadTimeBoxPlot
+                                        seriesKey={stage.seriesKey}
+                                        seriesLabel={stage.seriesLabel}
+                                        buckets={stage.buckets}
+                                        formatSeconds={compactAgeLabel}
+                                        dataAttr={stage.dataAttr}
+                                    />
+                                </div>
+                            ))}
                         </div>
                         {dora?.unattributed_merged_pr_share != null && dora.unattributed_merged_pr_share > 0 && (
                             <div

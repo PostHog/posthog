@@ -6125,7 +6125,7 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
 class TestIntegrationMembershipPermissions(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # A plain project member: allowed to add integrations, but not edit or remove them.
+        # A plain project member can add integrations and manage only Google accounts they connected.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -6150,6 +6150,79 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
+
+    def test_member_can_delete_own_google_calendar_integration(self) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-1",
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not Integration.objects.filter(id=integration.id).exists()
+
+    def test_member_cannot_delete_another_members_google_calendar_integration(self) -> None:
+        creator = User.objects.create_and_join(self.organization, "calendar-owner@example.com", "test")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-2",
+            created_by=creator,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert Integration.objects.filter(id=integration.id).exists()
+
+    @override_settings(
+        GOOGLE_CALENDAR_APP_CLIENT_ID="google-calendar-client-id",
+        GOOGLE_CALENDAR_APP_CLIENT_SECRET="google-calendar-client-secret",
+    )
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_member_can_reconnect_own_google_calendar_integration(self, mock_oauth_response: MagicMock) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-3",
+            created_by=self.user,
+        )
+        mock_oauth_response.return_value = integration
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": Integration.IntegrationKind.GOOGLE_CALENDAR, "config": {"state": "state", "code": "code"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["id"] == integration.id
+
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_member_cannot_reconnect_another_members_google_calendar_integration(
+        self, mock_oauth_response: MagicMock
+    ) -> None:
+        creator = User.objects.create_and_join(self.organization, "other-calendar-owner@example.com", "test")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-4",
+            created_by=creator,
+        )
+        mock_oauth_response.return_value = integration
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": Integration.IntegrationKind.GOOGLE_CALENDAR, "config": {"state": "state", "code": "code"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        integration.refresh_from_db()
+        assert integration.created_by_id == creator.id
 
     @parameterized.expand(["required", "disabled"])
     def test_member_cannot_set_push_identity_verification(self, mode):
