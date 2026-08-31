@@ -343,11 +343,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                         left=ast.Field(chain=["timestamp"]),
                         right=ast.Constant(value=date_to_buffered),
                     ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.NotEq,
-                        left=ast.Call(name="empty", args=[_event_session_id_field()]),
-                        right=ast.Constant(value=1),
-                    ),
+                    # notEmpty, not `empty(...) != 1`: an absent session id reads as NULL, and
+                    # HogQL prints `!=` as ifNull(notEquals(...), 1), so the NULL would compare
+                    # true and reach the GROUP BY. The caller matches this against the replay
+                    # table's non-nullable session_id, which rejects a NULL in the set.
+                    ast.Call(name="notEmpty", args=[_event_session_id_field()]),
                 ]
             ),
             group_by=[_event_session_id_field()],  # DISTINCT session_id

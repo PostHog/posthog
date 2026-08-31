@@ -101,6 +101,10 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
                 properties={"$session_id": session_id_after},
             )
 
+            # Carries no $session_id, so it reads as NULL. It must not reach the session id
+            # set the replay table is matched against, which rejects a NULL.
+            create_event(identified_id, self.an_hour_ago, team=self.team)
+
             self._assert_query_matches_session_ids(
                 {
                     "properties": [
