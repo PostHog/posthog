@@ -3,7 +3,7 @@ import hashlib
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
@@ -126,6 +126,28 @@ class TestPushedAuthorizationRequest(APIBaseTest):
 
         mock_provision.assert_called_once_with(cimd_client_id)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_first_use_cimd_push_is_rate_limited(self):
+        # First-use CIMD provisioning triggers an outbound metadata fetch, so the
+        # push must hit the same CIMD creation throttles as /oauth/authorize/
+        # before any provisioning work runs — not just the looser PAR IP limit.
+        mock_throttle = MagicMock()
+        mock_throttle.allow_request.return_value = False
+        mock_throttle.wait.return_value = 30
+        mock_throttle.scope = "cimd_burst"
+        mock_throttle_cls = MagicMock(return_value=mock_throttle)
+
+        body = self.public_par_body()
+        body["client_id"] = "https://new-client.example.com/.well-known/oauth-client"
+
+        with (
+            patch("posthog.api.oauth.cimd.CIMD_THROTTLE_CLASSES", new=[mock_throttle_cls]),
+            patch("posthog.api.oauth.par.get_or_create_cimd_application") as mock_provision,
+        ):
+            response = self.push(body)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_provision.assert_not_called()
 
     def test_unknown_client_is_rejected(self):
         body = self.public_par_body()
