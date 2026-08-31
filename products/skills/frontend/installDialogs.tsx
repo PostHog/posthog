@@ -2,24 +2,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
-// Mirrors the backend skill-name rules (lowercase, numbers, single hyphens, no leading or
-// trailing hyphen) so a retry is caught before it round-trips to the API.
-const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-const MAX_SKILL_NAME_LENGTH = 64
-
-export function validateSkillName(value: string | undefined): string | undefined {
-    const name = value?.trim()
-    if (!name) {
-        return 'Enter a name'
-    }
-    if (name.length > MAX_SKILL_NAME_LENGTH) {
-        return `Use ${MAX_SKILL_NAME_LENGTH} characters or fewer`
-    }
-    if (!SKILL_NAME_PATTERN.test(name)) {
-        return 'Use lowercase letters, numbers, and single hyphens'
-    }
-    return undefined
-}
+import { validateSkillName } from './skillConstants'
 
 // Recovery path for a name collision on install: let the user pick a different name and retry.
 export function openInstallRenameDialog({
@@ -38,7 +21,7 @@ export function openInstallRenameDialog({
                 <LemonInput autoFocus data-attr="community-skill-install-rename" placeholder="my-skill-name" />
             </LemonField>
         ),
-        errors: { new_name: validateSkillName },
+        errors: { new_name: (name) => validateSkillName((name ?? '').trim()) },
         onSubmit: ({ new_name }) => onRename(new_name.trim()),
     })
 }
