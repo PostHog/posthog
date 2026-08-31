@@ -443,9 +443,6 @@ export interface dataNodeLogicActions {
     loadFilteredCount: () => {
         value: true
     }
-    refreshCounts: () => {
-        value: true
-    }
     loadFilteredCountFailure: (
         error: string,
         errorObject?: any
@@ -579,6 +576,9 @@ export interface dataNodeLogicActions {
     ) => {
         totalCount: number | null
         payload?: any
+    }
+    refreshCounts: () => {
+        value: true
     }
     resetLoadingTimer: () => {
         value: true
