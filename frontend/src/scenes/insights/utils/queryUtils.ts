@@ -250,6 +250,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.BoldNumber]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsBarValue]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsDonut]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
 
     // separate: different breakdown limit (250)

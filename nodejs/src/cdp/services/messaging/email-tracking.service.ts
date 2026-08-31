@@ -390,6 +390,7 @@ export class EmailTrackingService {
                 logEntries,
                 transientBounceRecipients,
                 hardBounceRecipients,
+                complainedRecipients,
                 deliveredRecipients,
             } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
@@ -436,10 +437,10 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
-            // Feed bounces and successful deliveries into the suppression list. Wrapped so a
-            // failure here never affects the webhook's 200 response to SNS. Deliveries are processed
-            // first so a delivery + bounce in the same batch nets out conservatively (count resets,
-            // then the fresh bounce re-counts from a clean slate).
+            // Feed bounces, complaints and successful deliveries into the suppression list. Wrapped
+            // so a failure here never affects the webhook's 200 response to SNS. Deliveries are
+            // processed first so a delivery + bounce in the same batch nets out conservatively
+            // (count resets, then the fresh bounce re-counts from a clean slate).
             try {
                 for (const { teamId, emailAddresses, timestamp } of deliveredRecipients || []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
@@ -461,6 +462,12 @@ export class EmailTrackingService {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
                         await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                    }
+                }
+                for (const { teamId, emailAddresses, feedbackType } of complainedRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordComplaints(parsedTeamId, emailAddresses, feedbackType)
                     }
                 }
             } catch (error) {

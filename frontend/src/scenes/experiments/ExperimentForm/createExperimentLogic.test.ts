@@ -16,9 +16,9 @@ import {
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from 'products/replay_vision/frontend/replay_scanners/types'
 
-import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from './createExperimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({

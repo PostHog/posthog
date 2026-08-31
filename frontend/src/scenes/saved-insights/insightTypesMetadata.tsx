@@ -381,6 +381,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconWarning,
         inMenu: false,
     },
+    [NodeKind.ErrorTrackingReleasesQuery]: {
+        name: 'Error tracking releases',
+        description: 'Count occurrences of an error tracking issue per app release.',
+        icon: IconWarning,
+        inMenu: false,
+    },
     [NodeKind.RecordingsQuery]: {
         name: 'Session Recordings',
         description: 'View available recordings.',
@@ -549,6 +555,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.MarketingAnalyticsAttributionPathsQuery]: {
         name: 'Marketing Analytics Attribution Paths',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.MarketingAnalyticsRetentionQuery]: {
+        name: 'Marketing Analytics Retention',
         icon: IconHogQL,
         inMenu: false,
     },

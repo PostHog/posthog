@@ -224,7 +224,7 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
+ * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
  * @summary Append an artefact to a report
  */
 export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
@@ -232,7 +232,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -324,7 +324,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
  */
 export const signalsScoutCreateBodyNameMax = 64
 
-export const signalsScoutCreateBodyDescriptionMax = 4096
+export const signalsScoutCreateBodyDescriptionMax = 1024
 
 export const signalsScoutCreateBodyFilesItemPathMax = 500
 
@@ -803,7 +803,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
 
 /**
- * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
+ * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
  * @summary Leave a note for the scouts
  */
 export const signalsScoutNotesCreateBodyContentMax = 10000
@@ -816,14 +816,14 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
             .string()
             .max(signalsScoutNotesCreateBodyContentMax)
             .describe(
-                "The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim."
+                "The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; the run reads it verbatim."
             ),
         skill_name: zod
             .string()
             .max(signalsScoutNotesCreateBodySkillNameMax)
             .optional()
             .describe(
-                'Address the note to one scout by its skill name (`signals-scout-\*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.'
+                'Address the note to one scout by its skill name (`signals-scout-\*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.'
             ),
         expires_at: zod.iso
             .datetime({ offset: true })

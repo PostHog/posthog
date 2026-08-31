@@ -6,8 +6,10 @@ import {
     LibrdKafkaError,
     Message,
     Metadata,
+    PartitionMetadata,
     KafkaConsumer as RdKafkaConsumer,
     TopicPartitionOffset,
+    WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
 
@@ -205,6 +207,46 @@ export class KafkaConsumerV2 {
 
     public assignments(): Assignment[] {
         return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
+    }
+
+    public async queryWatermarkOffsets(topic: string, partition: number, timeout = 10000): Promise<[number, number]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            throw new Error('Not connected')
+        }
+
+        const offsets = await promisifyCallback<WatermarkOffsets>((cb) =>
+            this.rdKafkaConsumer.queryWatermarkOffsets(topic, partition, timeout, cb)
+        ).catch((err) => {
+            captureException(err)
+            logger.error('🔥', 'Failed to query kafka watermark offsets', err)
+            throw err
+        })
+
+        return [offsets.lowOffset, offsets.highOffset]
+    }
+
+    public async committedOffsets(timeout = 10000): Promise<TopicPartitionOffset[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            return []
+        }
+
+        return await promisifyCallback<TopicPartitionOffset[]>((cb) => this.rdKafkaConsumer.committed(timeout, cb))
+    }
+
+    public async getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            throw new Error('Not connected')
+        }
+
+        const meta = await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.getMetadata({ topic }, cb)).catch(
+            (err) => {
+                captureException(err)
+                logger.error('🔥', 'Failed to get partition metadata', err)
+                throw err
+            }
+        )
+
+        return meta.topics.find((entry) => entry.name === topic)?.partitions ?? []
     }
 
     public offsetsStore(offsets: TopicPartitionOffset[]): void {

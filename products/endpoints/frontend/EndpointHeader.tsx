@@ -5,8 +5,8 @@ import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -230,10 +230,7 @@ function DebugField({ label, value }: { label: string; value: string }): JSX.Ele
             <LemonButton
                 type="secondary"
                 size="xsmall"
-                onClick={() => {
-                    navigator.clipboard.writeText(value)
-                    lemonToast.success(`${label} copied to clipboard`)
-                }}
+                onClick={() => void copyToClipboard(value, label)}
                 className="font-mono text-xs"
             >
                 {value}

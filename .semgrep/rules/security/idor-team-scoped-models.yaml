@@ -73,6 +73,7 @@ rules:
                               |AgentToolApprovalRequest
                               |AgentTransportBinding
                               |AgentUser
+                              |AIObservabilityChecklistItemState
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -364,6 +365,8 @@ rules:
                               |UserRepoPreference
                               |VisionAction
                               |VisionActionRun
+                              |VisionAlertConfiguration
+                              |VisionAlertMatch
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
@@ -445,6 +448,7 @@ rules:
                         |AgentToolApprovalRequest
                         |AgentTransportBinding
                         |AgentUser
+                        |AIObservabilityChecklistItemState
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -729,6 +733,8 @@ rules:
                         |UserRepoPreference
                         |VisionAction
                         |VisionActionRun
+                        |VisionAlertConfiguration
+                        |VisionAlertMatch
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
@@ -834,6 +840,7 @@ rules:
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
                               |OrganizationMembership
+                              |OrganizationMemberNotificationLock
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -908,6 +915,7 @@ rules:
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
                         |OrganizationMembership
+                        |OrganizationMemberNotificationLock
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite

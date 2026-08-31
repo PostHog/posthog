@@ -5731,6 +5731,7 @@ dependencies = [
     { name = "tiktoken" },
     { name = "tldextract" },
     { name = "trafilatura" },
+    { name = "trino" },
     { name = "types-cachetools" },
     { name = "umap-learn" },
     { name = "user-agents" },
@@ -5964,7 +5965,7 @@ requires-dist = [
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.3.1" },
     { name = "posthog-owners", editable = "tools/owners" },
-    { name = "posthoganalytics", specifier = "==7.44.1" },
+    { name = "posthoganalytics", specifier = "==7.44.2" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6009,6 +6010,7 @@ requires-dist = [
     { name = "tiktoken", specifier = "==0.9.*" },
     { name = "tldextract", specifier = "~=5.1" },
     { name = "trafilatura", specifier = "==2.0.0" },
+    { name = "trino", specifier = "==0.338.0" },
     { name = "types-cachetools", specifier = "==5.5.0.20240820" },
     { name = "umap-learn", specifier = "~=0.5.0" },
     { name = "user-agents", specifier = "~=2.2.0" },
@@ -6138,7 +6140,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.44.1"
+version = "7.44.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6146,9 +6148,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/df/be/dda003038377bba8ae1ae18a01b5d0b06cb07cc255b08b9168232794e6e8/posthoganalytics-7.44.1.tar.gz", hash = "sha256:1d94949599892c2c78cf4c2a08396c6a3ad1a5d6f1be3bb14c0a933bd34591de", size = 479944, upload-time = "2026-08-26T14:51:06.935Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/db/b3/7b3d97db7e11bcc72fff1b3e545a60472f6ff51a782daf7e37f1bea2b380/posthoganalytics-7.44.2.tar.gz", hash = "sha256:e9b9f0df075e158639a0c4fed1cd357b59fc41f5108289f2b64ddb327cdc3cd6", size = 480080, upload-time = "2026-08-27T08:07:44.875Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/75/26/787dc1573b723710ce95aace462a89ec093d82fc550e81a19197863c4a6d/posthoganalytics-7.44.1-py3-none-any.whl", hash = "sha256:e044cfb950d381e07949c445a339ca8911626ca170da3b96e6b7598033af5227", size = 571384, upload-time = "2026-08-26T14:51:04.646Z" },
+    { url = "https://files.pythonhosted.org/packages/83/7a/dbf3959ecd2aa61a8ef3ce74c78dbba9626a210ff34726abe6ee7f568b5d/posthoganalytics-7.44.2-py3-none-any.whl", hash = "sha256:83c01961f803060fd1eafd1b7b6b44e87614ac2f8355d668854b299ed81b31f6", size = 571495, upload-time = "2026-08-27T08:07:43.078Z" },
 ]
 
 [[package]]
@@ -8469,6 +8471,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f1/11/7414d5bc07690002ce4d7553602107bf969af85144bbd02830f9fb471236/transformers-4.51.3.tar.gz", hash = "sha256:e292fcab3990c6defe6328f0f7d2004283ca81a7a07b2de9a46d67fd81ea1409", size = 8941266, upload-time = "2025-04-14T08:15:00.485Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a9/b6/5257d04ae327b44db31f15cce39e6020cc986333c715660b1315a9724d82/transformers-4.51.3-py3-none-any.whl", hash = "sha256:fd3279633ceb2b777013234bbf0b4f5c2d23c4626b05497691f00cfda55e8a83", size = 10383940, upload-time = "2025-04-14T08:13:43.023Z" },
+]
+
+[[package]]
+name = "trino"
+version = "0.338.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lz4" },
+    { name = "orjson", marker = "platform_python_implementation != 'PyPy'" },
+    { name = "python-dateutil" },
+    { name = "pytz" },
+    { name = "requests" },
+    { name = "tzlocal" },
+    { name = "zstandard" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/18/aa/4bc0539467c12d415e8f8870a79646be80d299c063c563a47fee0b6c9fa9/trino-0.338.0.tar.gz", hash = "sha256:1103d249cb96ba8f88f699588581965e2be088c16b9f8178e34cb64aa8a6c011", size = 57373, upload-time = "2026-06-29T19:55:37.547Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/b5/182b81d1b4cc2b306b174bd94efe5384f7d1253539eaf47a6b4d842b96a7/trino-0.338.0-py3-none-any.whl", hash = "sha256:093952f8a53b6f47ab357b77cbe92f1d66453290f7d8bcc4b74bd662e5ff2704", size = 59981, upload-time = "2026-06-29T19:55:36.449Z" },
 ]
 
 [[package]]

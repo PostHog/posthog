@@ -13,31 +13,21 @@ import {
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { groupBy } from 'lib/utils/arrays'
 import { objectsEqual } from 'lib/utils/objects'
-import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
     engineeringAnalyticsCiCards,
-    engineeringAnalyticsFlakyTests,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
-    engineeringAnalyticsQuarantineRequest,
     engineeringAnalyticsSources,
+    engineeringAnalyticsTrunkQuarantine,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
-import type {
-    FlakyTestItemClassificationEnumApi,
-    GitHubSourceApi,
-    PullRequestListItemApi,
-    PushCISampleApi,
-    QuarantineRequestApi,
-    QuarantineRequestResultApi,
-} from '../generated/api.schemas'
+import type { GitHubSourceApi, PullRequestListItemApi, PushCISampleApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
 import { scopeToValue } from '../lib/scope'
@@ -49,9 +39,6 @@ export const PR_TABLE_LIMIT = 1000
 
 // Mirrors `workflow_health.py` `_LIMIT` (top workflows by run count).
 export const WORKFLOW_HEALTH_LIMIT = 100
-
-// Mirrors the endpoint's maximum so the UI can paginate every returned queue row.
-export const FLAKY_TEST_LIMIT = 200
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -151,8 +138,11 @@ export interface WorkflowFailureSeries {
     labels: string[]
 }
 
-function formatBucket(bucketStart: string, granularity: WorkflowGranularity): string {
-    const at = dayjs(bucketStart)
+/** Bucket label per the shared series granularity, for chart tooltips. */
+export function formatBucket(bucketStart: string, granularity: WorkflowGranularity): string {
+    // Buckets are computed server-side on UTC boundaries, so the label must read them in UTC too —
+    // parsing in the browser's local timezone can shift a midnight bucket to the wrong day.
+    const at = dayjs.utc(bucketStart)
     if (granularity === 'hour') {
         return at.format('MMM D, HH:mm')
     }
@@ -323,11 +313,6 @@ export type QuarantineMode = 'run' | 'skip'
 export type QuarantineLifecycle = 'active' | 'expiring_soon' | 'in_grace' | 'overdue'
 export type QuarantineSelectorKind = 'product' | 'directory' | 'file' | 'test'
 
-/** 'past_expiry' groups in_grace + overdue — the states the quarantine check warns or fails on. */
-export type QuarantineLifecycleFilter = 'all' | 'active' | 'expiring_soon' | 'past_expiry'
-export type QuarantineModeFilter = QuarantineMode | 'all'
-export type QuarantineCard = 'active' | 'expiring_soon' | 'past_expiry' | 'skipped'
-
 export interface QuarantineEntryRow {
     id: string
     runner: string
@@ -356,201 +341,37 @@ export interface QuarantineData {
     repoFullName: string | null
 }
 
-export interface QuarantineCounts {
-    active: number
-    expiringSoon: number
-    inGrace: number
-    overdue: number
-    /** in_grace + overdue — everything the quarantine check warns or fails on. */
-    pastExpiry: number
-    skipped: number
-    total: number
-}
-
-export interface QuarantineFilters {
-    search: string
-    lifecycle: QuarantineLifecycleFilter
-    mode: QuarantineModeFilter
-    owner: string | null
-}
-
-export const DEFAULT_QUARANTINE_FILTERS: QuarantineFilters = {
-    search: '',
-    lifecycle: 'all',
-    mode: 'all',
-    owner: null,
-}
-
-function matchesLifecycleFilter(row: QuarantineEntryRow, lifecycle: QuarantineLifecycleFilter): boolean {
-    if (lifecycle === 'all') {
-        return true
-    }
-    if (lifecycle === 'past_expiry') {
-        return row.lifecycle === 'in_grace' || row.lifecycle === 'overdue'
-    }
-    return row.lifecycle === lifecycle
-}
-
-export function filterQuarantineEntries(rows: QuarantineEntryRow[], filters: QuarantineFilters): QuarantineEntryRow[] {
-    const search = filters.search.trim().toLowerCase()
-    return rows.filter((row) => {
-        if (!matchesLifecycleFilter(row, filters.lifecycle)) {
-            return false
-        }
-        if (filters.mode !== 'all' && row.mode !== filters.mode) {
-            return false
-        }
-        if (filters.owner && row.owner !== filters.owner) {
-            return false
-        }
-        if (search) {
-            const haystack = `${row.id} ${row.reason} ${row.owner}`.toLowerCase()
-            if (!haystack.includes(search)) {
-                return false
-            }
-        }
-        return true
-    })
-}
-
-export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts {
-    const counts = {
-        active: 0,
-        expiringSoon: 0,
-        inGrace: 0,
-        overdue: 0,
-        skipped: 0,
-        total: rows.length,
-    }
-    for (const row of rows) {
-        if (row.lifecycle === 'active') {
-            counts.active++
-        } else if (row.lifecycle === 'expiring_soon') {
-            counts.expiringSoon++
-        } else if (row.lifecycle === 'in_grace') {
-            counts.inGrace++
-        } else {
-            counts.overdue++
-        }
-        if (row.mode === 'skip') {
-            counts.skipped++
-        }
-    }
-    // past_expiry is exactly the expired buckets — derive it so the two can't drift.
-    return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
-}
-
-/** Test-health windows the UI offers; the endpoint accepts any window up to 30 days. */
-export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
-export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
-export type FlakyTestClassification = FlakyTestItemClassificationEnumApi
-export type TestRunner = NonNullable<QuarantineRequestApi['runner']>
-export const TEST_RUNNERS: readonly TestRunner[] = ['pytest', 'jest', 'playwright']
-
-export function isTestRunner(runner: string): runner is TestRunner {
-    return TEST_RUNNERS.some((candidate) => candidate === runner)
-}
-
-export interface FlakyTestRow {
-    runner: TestRunner
-    /** Runner-specific test identity (the CI span name): a stable grouping/display key. */
+export interface TrunkQuarantinedTestRow {
+    runner: string
     nodeid: string
-    /** Runnable selector for the quarantine action; exact when the CI reporter emitted it. */
-    selector: string
-    classification: FlakyTestClassification
-    /** Runs where one commit both failed and passed the test (re-run attempt or in-job retry): the flake proof. */
-    sameCommitRecoveryRunCount: number
-    failedRunCount: number
-    failedPrCount: number
-    masterFailedRunCount: number
-    quarantinedFailedRunCount: number
-    lastSignalAt: string
+    file: string
+    ownerTeam: string
+    status: string
+    quarantineSetting: string
+    quarantinedAt: string
+    ageDays: number
+    overdue: boolean
+    /** The Trunk app's page for this test; null when the source has no org slug or the row no id. */
+    trunkUrl: string | null
 }
 
-export interface FlakyTestsData {
-    rows: FlakyTestRow[]
-    /** True when more tests qualified than the cap; rows are the highest-ranked `limit`. */
-    truncated: boolean
-    limit: number
+export interface TrunkQuarantineTeamRow {
+    ownerTeam: string
+    testCount: number
+    overdueCount: number
+    oldestAgeDays: number
 }
 
-export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
-
-/** What the tab submits to the write endpoint; the backend opens the issue + PR. */
-export interface QuarantineSubmitInput {
-    action: QuarantineRequestAction
-    selector: string
-    runner?: TestRunner
-    reason: string
-    owner: string
-    /** Existing tracking issue, carried forward on extend/remove. */
-    issue: string
-    /** ISO 'YYYY-MM-DD', or null to let the server default to +14 days. */
-    expires: string | null
-    mode: QuarantineMode
-}
-
-/** Open-modal state for quarantine/extend; null when closed. Remove uses a confirm dialog. */
-export interface QuarantineModalState {
-    action: 'quarantine' | 'extend'
-    selector: string
-    runner: TestRunner
-    reason: string
-    owner: string
-    issue: string
-    mode: QuarantineMode
-    /** Glanceable confirm presentation for prefilled openers (queue rows); 'Edit details' switches to the form. */
-    confirm?: boolean
-}
-
-/** Data-backed quarantine reason from a queue row: the evidence is the reason; the
- *  cause is unknown until someone investigates, which is the tracking issue's job. */
-export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
-    const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
-    const parts: string[] = []
-    if (row.sameCommitRecoveryRunCount > 0) {
-        parts.push(`recovered on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`)
-    }
-    if (row.failedRunCount > 0) {
-        parts.push(`failed in ${pluralize(row.failedRunCount, 'run')}`)
-    }
-    if (row.failedPrCount > 0) {
-        parts.push(`hit ${pluralize(row.failedPrCount, 'PR')}`)
-    }
-    if (row.masterFailedRunCount > 0) {
-        parts.push(`broke master in ${pluralize(row.masterFailedRunCount, 'run')}`)
-    }
-    return `CI evidence: ${parts.join(', ')} in the last ${windowLabel}`
-}
-
-/** Suggest an owning team from a product-scoped selector; '' when the selector isn't product-scoped. */
-export function inferOwnerFromSelector(selector: string): string {
-    const trimmed = selector.trim()
-    const product = trimmed.startsWith('product:')
-        ? trimmed.slice('product:'.length)
-        : (trimmed.match(/^products\/([^/]+)\//)?.[1] ?? '').replace(/_/g, '-')
-    return product ? `@PostHog/team-${product}` : ''
-}
-
-function toRequestBody(input: QuarantineSubmitInput, repo: string | null): QuarantineRequestApi {
-    return {
-        // Wire field is 'operation' (a bare 'action' enum collides in the OpenAPI spec).
-        operation: input.action,
-        selector: input.selector,
-        ...(input.runner ? { runner: input.runner } : {}),
-        // The repo being viewed, so the PR lands there. Null in local dev.
-        repo,
-        reason: input.reason,
-        owner: input.owner,
-        issue: input.issue,
-        expires: input.expires,
-        mode: input.mode,
-    }
-}
-
-export function quarantineRequestErrorMessage(error: unknown): string {
-    const detail = error as { detail?: string; data?: { detail?: string }; message?: string }
-    return detail?.detail ?? detail?.data?.detail ?? detail?.message ?? 'Could not complete the quarantine request.'
+export interface TrunkQuarantineData {
+    /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
+    available: boolean
+    ttlDays: number
+    /** 'owner/name' the debt was read for; test file paths are relative to it. */
+    repository: string
+    /** The Trunk app's flaky-tests page for this repository; null when the source has no org slug. */
+    trunkUrl: string | null
+    teams: TrunkQuarantineTeamRow[]
+    tests: TrunkQuarantinedTestRow[]
 }
 
 /**
@@ -569,7 +390,6 @@ export interface engineeringAnalyticsLogicValues {
     dateFrom: string | null // engineeringAnalyticsFiltersLogic
     dateTo: string | null // engineeringAnalyticsFiltersLogic
     activeCard: CardFilter | null
-    activeQuarantineCard: QuarantineCard | null
     activeSource: GitHubSourceApi | null
     anyLoading: boolean
     author: string | null
@@ -577,20 +397,15 @@ export interface engineeringAnalyticsLogicValues {
     cardsLoading: boolean
     cardsStatus: LoaderStatus
     ciStatusFilter: CIStatusFilter
+    expandedTrunkQuarantineTeams: string[]
     filteredPullRequests: PullRequestRow[]
-    filteredQuarantineEntries: QuarantineEntryRow[]
     filteredWorkflowHealth: WorkflowHealthRow[]
     filters: PullRequestFilters
-    flakyTestWindow: FlakyTestWindow
-    flakyTests: FlakyTestsData | null
-    flakyTestsLoading: boolean
-    flakyTestsStatus: LoaderStatus
     fleetSummary: FleetSummary
     fleetTruncated: boolean
     githubSources: GitHubSourceApi[]
     githubSourcesLoading: boolean
     hasActiveFilters: boolean
-    hasActiveQuarantineFilters: boolean
     hasActiveWorkflowFilters: boolean
     hasMultipleSources: boolean
     notConnected: boolean
@@ -599,18 +414,8 @@ export interface engineeringAnalyticsLogicValues {
     pullRequestsLoading: boolean
     pullRequestsStatus: LoaderStatus
     quarantine: QuarantineData | null
-    quarantineCounts: QuarantineCounts
-    quarantineFilters: QuarantineFilters
-    quarantineLifecycleFilter: QuarantineLifecycleFilter
     quarantineLoadFailed: boolean
     quarantineLoading: boolean
-    quarantineModal: QuarantineModalState | null
-    quarantineModeFilter: QuarantineModeFilter
-    quarantineOwner: string | null
-    quarantineOwnerOptions: string[]
-    quarantineSearch: string
-    quarantineSubmit: QuarantineRequestResultApi | null
-    quarantineSubmitLoading: boolean
     readyCount: number
     readyOnly: boolean
     repo: string | null
@@ -627,6 +432,10 @@ export interface engineeringAnalyticsLogicValues {
     tableTruncated: boolean
     thrashCount: number
     thrashOnly: boolean
+    trunkQuarantine: TrunkQuarantineData | null
+    trunkQuarantineLoading: boolean
+    trunkQuarantineStatus: LoaderStatus
+    trunkQuarantineTestsByTeam: Record<string, TrunkQuarantinedTestRow[]>
     workflowCostAvailable: boolean
     workflowFilters: WorkflowFilters
     workflowHealth: WorkflowHealthRow[]
@@ -642,12 +451,6 @@ export interface engineeringAnalyticsLogicActions {
     applyCardFilter: (card: CardFilter) => {
         card: CardFilter
     }
-    applyQuarantineCard: (card: QuarantineCard) => {
-        card: QuarantineCard
-    }
-    closeQuarantineModal: () => {
-        value: true
-    }
     loadCards: () => any
     loadCardsFailure: (
         error: string,
@@ -661,21 +464,6 @@ export interface engineeringAnalyticsLogicActions {
         payload?: any
     ) => {
         cards: CardsData
-        payload?: any
-    }
-    loadFlakyTests: () => any
-    loadFlakyTestsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadFlakyTestsSuccess: (
-        flakyTests: FlakyTestsData,
-        payload?: any
-    ) => {
-        flakyTests: FlakyTestsData
         payload?: any
     }
     loadGithubSources: () => any
@@ -723,6 +511,21 @@ export interface engineeringAnalyticsLogicActions {
         quarantine: QuarantineData
         payload?: any
     }
+    loadTrunkQuarantine: () => any
+    loadTrunkQuarantineFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTrunkQuarantineSuccess: (
+        trunkQuarantine: TrunkQuarantineData,
+        payload?: any
+    ) => {
+        trunkQuarantine: TrunkQuarantineData
+        payload?: any
+    }
     loadWorkflowHealth: () => any
     loadWorkflowHealthFailure: (
         error: string,
@@ -738,16 +541,10 @@ export interface engineeringAnalyticsLogicActions {
         workflowHealth: WorkflowHealthRow[]
         payload?: any
     }
-    openQuarantineModal: (state: QuarantineModalState) => {
-        state: QuarantineModalState
-    }
     refresh: () => {
         value: true
     }
     resetFilters: () => {
-        value: true
-    }
-    resetQuarantineFilters: () => {
         value: true
     }
     resetWorkflowFilters: () => {
@@ -758,21 +555,6 @@ export interface engineeringAnalyticsLogicActions {
     }
     setCiStatusFilter: (ciStatus: CIStatusFilter) => {
         ciStatus: CIStatusFilter
-    }
-    setFlakyTestWindow: (window: FlakyTestWindow) => {
-        window: FlakyTestWindow
-    }
-    setQuarantineLifecycleFilter: (lifecycle: QuarantineLifecycleFilter) => {
-        lifecycle: QuarantineLifecycleFilter
-    }
-    setQuarantineModeFilter: (mode: QuarantineModeFilter) => {
-        mode: QuarantineModeFilter
-    }
-    setQuarantineOwner: (owner: string | null) => {
-        owner: string | null
-    }
-    setQuarantineSearch: (search: string) => {
-        search: string
     }
     setReadyOnly: (ready: boolean) => {
         ready: boolean
@@ -808,26 +590,8 @@ export interface engineeringAnalyticsLogicActions {
     setWorkflowStatusFilter: (status: WorkflowStatusFilter) => {
         status: WorkflowStatusFilter
     }
-    submitQuarantine: ({ input }: { input: QuarantineSubmitInput }) => {
-        input: QuarantineSubmitInput
-    }
-    submitQuarantineFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    submitQuarantineSuccess: (
-        quarantineSubmit: QuarantineRequestResultApi,
-        payload?: {
-            input: QuarantineSubmitInput
-        }
-    ) => {
-        quarantineSubmit: QuarantineRequestResultApi
-        payload?: {
-            input: QuarantineSubmitInput
-        }
+    toggleTrunkQuarantineTeam: (team: string) => {
+        team: string
     }
 }
 
@@ -878,23 +642,9 @@ export interface engineeringAnalyticsLogicMeta {
         pullRequestsLoadError: (cardsStatus: LoaderStatus, pullRequestsStatus: LoaderStatus) => boolean
         workflowHealthLoadError: (workflowHealthStatus: LoaderStatus) => boolean
         tableTruncated: (pullRequests: PullRequestRow[]) => boolean
-        quarantineFilters: (
-            quarantineSearch: string,
-            quarantineLifecycleFilter: QuarantineLifecycleFilter,
-            quarantineModeFilter: QuarantineModeFilter,
-            quarantineOwner: string | null
-        ) => QuarantineFilters
-        filteredQuarantineEntries: (
-            quarantine: QuarantineData | null,
-            quarantineFilters: QuarantineFilters
-        ) => QuarantineEntryRow[]
-        quarantineCounts: (quarantine: QuarantineData | null) => QuarantineCounts
-        quarantineOwnerOptions: (quarantine: QuarantineData | null) => string[]
-        activeQuarantineCard: (
-            quarantineLifecycleFilter: QuarantineLifecycleFilter,
-            quarantineModeFilter: QuarantineModeFilter
-        ) => QuarantineCard | null
-        hasActiveQuarantineFilters: (quarantineFilters: QuarantineFilters) => boolean
+        trunkQuarantineTestsByTeam: (
+            trunkQuarantine: TrunkQuarantineData | null
+        ) => Record<string, TrunkQuarantinedTestRow[]>
         hasMultipleSources: (githubSources: GitHubSourceApi[]) => boolean
         activeSource: (
             githubSources: GitHubSourceApi[],
@@ -945,15 +695,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // The picker selects a (source, repo) pair in one action, so both land before a single refresh.
             setScope: (sourceId: string | null, scopeRepo: string | null) => ({ sourceId, scopeRepo }),
             resetFilters: true,
-            setQuarantineSearch: (search: string) => ({ search }),
-            setQuarantineLifecycleFilter: (lifecycle: QuarantineLifecycleFilter) => ({ lifecycle }),
-            setQuarantineModeFilter: (mode: QuarantineModeFilter) => ({ mode }),
-            setQuarantineOwner: (owner: string | null) => ({ owner }),
-            applyQuarantineCard: (card: QuarantineCard) => ({ card }),
-            resetQuarantineFilters: true,
-            openQuarantineModal: (state: QuarantineModalState) => ({ state }),
-            closeQuarantineModal: true,
-            setFlakyTestWindow: (window: FlakyTestWindow) => ({ window }),
+            toggleTrunkQuarantineTeam: (team: string) => ({ team }),
             refresh: true,
         }),
 
@@ -1061,49 +803,42 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     },
                 },
             ],
-            flakyTests: [
-                null as FlakyTestsData | null,
+            trunkQuarantine: [
+                null as TrunkQuarantineData | null,
                 {
-                    loadFlakyTests: async (): Promise<FlakyTestsData> => {
-                        const data = await engineeringAnalyticsFlakyTests(projectId(), {
-                            date_from: values.flakyTestWindow,
-                            limit: FLAKY_TEST_LIMIT,
+                    loadTrunkQuarantine: async (): Promise<TrunkQuarantineData> => {
+                        const data = await engineeringAnalyticsTrunkQuarantine(projectId(), {
                             source_id: values.sourceId ?? undefined,
                             repo: values.scopeRepo ?? undefined,
                         })
                         return {
-                            rows: data.items.map(
-                                (it): FlakyTestRow => ({
-                                    runner: it.runner,
-                                    nodeid: it.nodeid,
-                                    selector: it.selector,
-                                    classification: it.classification,
-                                    sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
-                                    failedRunCount: it.failed_run_count,
-                                    failedPrCount: it.failed_pr_count,
-                                    masterFailedRunCount: it.master_failed_run_count,
-                                    quarantinedFailedRunCount: it.quarantined_failed_run_count,
-                                    lastSignalAt: it.last_signal_at,
+                            available: data.available,
+                            ttlDays: data.ttl_days,
+                            repository: data.repository,
+                            trunkUrl: data.trunk_url ?? null,
+                            teams: data.teams.map(
+                                (it): TrunkQuarantineTeamRow => ({
+                                    ownerTeam: it.owner_team,
+                                    testCount: it.test_count,
+                                    overdueCount: it.overdue_count,
+                                    oldestAgeDays: it.oldest_age_days,
                                 })
                             ),
-                            truncated: data.truncated,
-                            limit: data.limit,
+                            tests: data.tests.map(
+                                (it): TrunkQuarantinedTestRow => ({
+                                    runner: it.runner,
+                                    nodeid: it.nodeid,
+                                    file: it.file,
+                                    ownerTeam: it.owner_team,
+                                    status: it.status,
+                                    quarantineSetting: it.quarantine_setting,
+                                    quarantinedAt: it.quarantined_at,
+                                    ageDays: it.age_days,
+                                    overdue: it.overdue,
+                                    trunkUrl: it.trunk_url ?? null,
+                                })
+                            ),
                         }
-                    },
-                },
-            ],
-            quarantineSubmit: [
-                null as QuarantineRequestResultApi | null,
-                {
-                    submitQuarantine: async ({
-                        input,
-                    }: {
-                        input: QuarantineSubmitInput
-                    }): Promise<QuarantineRequestResultApi> => {
-                        return await engineeringAnalyticsQuarantineRequest(
-                            projectId(),
-                            toRequestBody(input, values.quarantine?.repoFullName ?? null)
-                        )
                     },
                 },
             ],
@@ -1189,34 +924,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadCardsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
-            quarantineSearch: [
-                DEFAULT_QUARANTINE_FILTERS.search,
-                {
-                    setQuarantineSearch: (_, { search }) => search,
-                    resetQuarantineFilters: () => DEFAULT_QUARANTINE_FILTERS.search,
-                },
-            ],
-            quarantineLifecycleFilter: [
-                DEFAULT_QUARANTINE_FILTERS.lifecycle,
-                {
-                    setQuarantineLifecycleFilter: (_, { lifecycle }) => lifecycle,
-                    resetQuarantineFilters: () => DEFAULT_QUARANTINE_FILTERS.lifecycle,
-                },
-            ],
-            quarantineModeFilter: [
-                DEFAULT_QUARANTINE_FILTERS.mode,
-                {
-                    setQuarantineModeFilter: (_, { mode }) => mode,
-                    resetQuarantineFilters: () => DEFAULT_QUARANTINE_FILTERS.mode,
-                },
-            ],
-            quarantineOwner: [
-                DEFAULT_QUARANTINE_FILTERS.owner,
-                {
-                    setQuarantineOwner: (_, { owner }) => owner,
-                    resetQuarantineFilters: () => DEFAULT_QUARANTINE_FILTERS.owner,
-                },
-            ],
             // The quarantine endpoint only 400s when there's no GitHub source and no local checkout.
             quarantineLoadFailed: [
                 false,
@@ -1226,27 +933,25 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantineFailure: () => true,
                 },
             ],
-            // Test-health window; transient like the other lenses (no persisted UI in this phase).
-            flakyTestWindow: [
-                DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
-                { setFlakyTestWindow: (_, { window }) => window },
-            ],
-            // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
-            // "connect a source" gate; only a real 'error' surfaces the queue's own banner.
-            flakyTestsStatus: [
-                'ok' as LoaderStatus,
+            // Whole-row click toggles a team's slice open (controlled LemonTable expansion, like the
+            // workflow runs table); a scope switch loads different teams, so open rows reset with it.
+            expandedTrunkQuarantineTeams: [
+                [] as string[],
                 {
-                    loadFlakyTests: () => 'ok',
-                    loadFlakyTestsSuccess: () => 'ok',
-                    loadFlakyTestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
+                    toggleTrunkQuarantineTeam: (state, { team }) =>
+                        state.includes(team) ? state.filter((open) => open !== team) : [...state, team],
+                    setSourceId: () => [],
+                    setScope: () => [],
                 },
             ],
-            quarantineModal: [
-                null as QuarantineModalState | null,
+            // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
+            // "connect a source" gate; only a real 'error' surfaces the board's own banner.
+            trunkQuarantineStatus: [
+                'ok' as LoaderStatus,
                 {
-                    openQuarantineModal: (_, { state }) => state,
-                    closeQuarantineModal: () => null,
-                    submitQuarantineSuccess: () => null,
+                    loadTrunkQuarantine: () => 'ok',
+                    loadTrunkQuarantineSuccess: () => 'ok',
+                    loadTrunkQuarantineFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
             pullRequestsStatus: [
@@ -1408,48 +1113,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (s) => [s.pullRequests],
                 (pullRequests: PullRequestRow[]): boolean => pullRequests.length >= PR_TABLE_LIMIT,
             ],
-            quarantineFilters: [
-                (s) => [s.quarantineSearch, s.quarantineLifecycleFilter, s.quarantineModeFilter, s.quarantineOwner],
-                (
-                    search: string,
-                    lifecycle: QuarantineLifecycleFilter,
-                    mode: QuarantineModeFilter,
-                    owner: string | null
-                ): QuarantineFilters => ({ search, lifecycle, mode, owner }),
-            ],
-            filteredQuarantineEntries: [
-                (s) => [s.quarantine, s.quarantineFilters],
-                (quarantine: QuarantineData | null, filters: QuarantineFilters): QuarantineEntryRow[] =>
-                    quarantine ? filterQuarantineEntries(quarantine.entries, filters) : [],
-            ],
-            quarantineCounts: [
-                (s) => [s.quarantine],
-                (quarantine: QuarantineData | null): QuarantineCounts => quarantineCountsOf(quarantine?.entries ?? []),
-            ],
-            quarantineOwnerOptions: [
-                (s) => [s.quarantine],
-                (quarantine: QuarantineData | null): string[] =>
-                    Array.from(new Set((quarantine?.entries ?? []).map((entry) => entry.owner).filter(Boolean))).sort(),
-            ],
-            activeQuarantineCard: [
-                (s) => [s.quarantineLifecycleFilter, s.quarantineModeFilter],
-                (lifecycle: QuarantineLifecycleFilter, mode: QuarantineModeFilter): QuarantineCard | null => {
-                    if (mode === 'skip' && lifecycle === 'all') {
-                        return 'skipped'
-                    }
-                    if (mode !== 'all') {
-                        return null
-                    }
-                    if (lifecycle === 'active' || lifecycle === 'expiring_soon' || lifecycle === 'past_expiry') {
-                        return lifecycle
-                    }
-                    return null
-                },
-            ],
-            hasActiveQuarantineFilters: [
-                (s) => [s.quarantineFilters],
-                (filters: QuarantineFilters): boolean =>
-                    !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_QUARANTINE_FILTERS),
+            trunkQuarantineTestsByTeam: [
+                (s) => [s.trunkQuarantine],
+                (trunkQuarantine: TrunkQuarantineData | null): Record<string, TrunkQuarantinedTestRow[]> =>
+                    groupBy(trunkQuarantine?.tests ?? [], (test) => test.ownerTeam),
             ],
             hasMultipleSources: [
                 (s) => [s.githubSources],
@@ -1533,9 +1200,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadPullRequests()
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
-                actions.loadFlakyTests()
+                actions.loadTrunkQuarantine()
             },
-            setFlakyTestWindow: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),
             setScope: () => actions.refresh(),
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
@@ -1556,35 +1222,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.setStuckOnly(target === 'stuck')
                 actions.setReadyOnly(target === 'ready')
                 actions.setThrashOnly(target === 'thrash')
-            },
-            applyQuarantineCard: ({ card }) => {
-                // Toggling a card off clears only the lifecycle/mode lens, leaving search and owner intact.
-                const target = values.activeQuarantineCard === card ? null : card
-                if (target === 'skipped') {
-                    actions.setQuarantineLifecycleFilter('all')
-                    actions.setQuarantineModeFilter('skip')
-                } else if (target === null) {
-                    actions.setQuarantineLifecycleFilter('all')
-                    actions.setQuarantineModeFilter('all')
-                } else {
-                    actions.setQuarantineModeFilter('all')
-                    actions.setQuarantineLifecycleFilter(target)
-                }
-            },
-            submitQuarantineSuccess: ({ quarantineSubmit }) => {
-                if (!quarantineSubmit) {
-                    return
-                }
-                lemonToast.success(
-                    quarantineSubmit.issue_url
-                        ? 'Opened a quarantine PR and a tracking issue. It takes effect once the PR merges.'
-                        : 'Opened a PR. It takes effect once it merges.',
-                    { button: { label: 'View PR', action: () => window.open(quarantineSubmit.pr_url, '_blank') } }
-                )
-                actions.loadQuarantine()
-            },
-            submitQuarantineFailure: ({ error }) => {
-                lemonToast.error(quarantineRequestErrorMessage(error))
             },
         })),
 
@@ -1628,6 +1265,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 [urls.engineeringAnalyticsPullRequestList()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsWorkflows()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsTestHealth()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsHealth()]: (_, s) => applyScope(s.source, s.repo),
             }
         }),
 

@@ -219,9 +219,6 @@ function ProductsSection(): JSX.Element {
                                         {iconForType(item.iconType)}
                                     </span>
                                     <span className="flex-1 text-sm font-medium truncate">{item.path}</span>
-                                    {listItem?.reason && (
-                                        <span className="text-xs text-muted shrink-0">{listItem.reason}</span>
-                                    )}
                                     <EnablementTag enabled={!!listItem} />
                                 </div>
                                 {team && (

@@ -3239,7 +3239,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (method?.startsWith('_posthog/')) {
                 // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification
                 // → rendered by the projection. _posthog/console, _posthog/sandbox_output,
-                // _posthog/git_checkpoint, … → no UI. No side effect either way.
+                // other internal events → no UI. No side effect either way.
                 return
             }
             // The session/new request carries the run's starting permission mode in its meta. Seed the

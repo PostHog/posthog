@@ -255,6 +255,11 @@ export interface SignalReportApi {
      * * `posthog_onboarding` - PostHog onboarding
      * * `posthog_system` - PostHog system */
     readonly billing_exempt_reason: BillingExemptReasonEnumApi | null
+    /**
+     * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
+     * @nullable
+     */
+    readonly channel_id: string | null
 }
 
 export interface PaginatedSignalReportListApi {
@@ -1608,6 +1613,7 @@ export interface SignalReportStateRequestApi {
  * * `signal_finding` - Signal Finding
  * * `repo_selection` - Repo Selection
  * * `suggested_reviewers` - Suggested Reviewers
+ * * `channel_assignment` - Channel Assignment
  * * `dismissal` - Dismissal
  * * `code_reference` - Code Reference
  * * `commit` - Commit
@@ -1629,6 +1635,7 @@ export const SignalReportArtefactTypeEnumApi = {
     SignalFinding: 'signal_finding',
     RepoSelection: 'repo_selection',
     SuggestedReviewers: 'suggested_reviewers',
+    ChannelAssignment: 'channel_assignment',
     Dismissal: 'dismissal',
     CodeReference: 'code_reference',
     Commit: 'commit',
@@ -1683,7 +1690,7 @@ export interface PaginatedSignalReportArtefactListApi {
  * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
-    /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -1935,7 +1942,7 @@ export interface SignalScoutCreateApi {
     name: string
     /**
      * Short description of the signal or behavior this scout investigates.
-     * @maxLength 4096
+     * @maxLength 1024
      */
     description: string
     /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
@@ -1961,6 +1968,63 @@ export const ScoutOriginEnumApi = {
     Canonical: 'canonical',
     Custom: 'custom',
 } as const
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
 
 /**
  * * `active` - Active
@@ -2011,6 +2075,8 @@ export interface SignalScoutConfigApi {
     readonly description: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
+    /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
+    readonly owners: readonly UserBasicApi[]
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
     readonly enabled: boolean
     /** Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.
@@ -2330,9 +2396,9 @@ export interface ScoutMetadataApi {
 export interface ScoutNoteApi {
     /** Note UUID. Pass to `scout-notes-delete` to retire the note. */
     id: string
-    /** Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet. */
+    /** Who the note is addressed to: a scout skill (`signals-scout-*`), a pipeline audience (`pipeline:*`, e.g. `pipeline:report-research`), or blank for a general note every scout sees. */
     skill_name: string
-    /** The note's prose, read verbatim by scout runs. */
+    /** The note's prose, read verbatim by the run that picks it up. */
     content: string
     /**
      * ISO-8601 creation timestamp.
@@ -2358,12 +2424,12 @@ export interface ScoutNoteApi {
  */
 export interface ScoutNoteCreateRequestApi {
     /**
-     * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim.
+     * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; the run reads it verbatim.
      * @maxLength 10000
      */
     content: string
     /**
-     * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.
+     * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.
      * @maxLength 200
      */
     skill_name?: string
@@ -3742,12 +3808,12 @@ export interface ScratchpadEntryApi {
      */
     expires_at?: string | null
     /**
-     * Run that wrote this entry, or null if human-authored.
+     * Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.
      * @nullable
      */
     created_by_run_id: string | null
     /**
-     * Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.
+     * Who created this entry: the canonical skill name of the scout that wrote it (e.g. `signals-scout-apm`), or the report-pipeline stage that did (`pipeline:report-research`, `pipeline:implementation`). Null if human-authored.
      * @nullable
      */
     created_by_skill?: string | null
@@ -3998,12 +4064,6 @@ export interface PatchedSignalSourceConfigApi {
     readonly status?: string | null
 }
 
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
 export interface SignalUserAutonomyConfigApi {
     readonly id: string
     readonly user: _UserApi
@@ -4044,7 +4104,15 @@ export type SignalsProcessingListParams = {
 
 export type SignalsReportsListParams = {
     /**
-     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
+     */
+    channel_id?: string
+    /**
+     * Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.
+     */
+    count_only?: boolean
+    /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean
     /**
@@ -4147,7 +4215,7 @@ export type SignalsScoutNotesListParams = {
      */
     include_expired?: boolean
     /**
-     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.
+     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the target's own notes only.
      */
     include_general?: boolean
     /**
@@ -4157,7 +4225,7 @@ export type SignalsScoutNotesListParams = {
      */
     limit?: number
     /**
-     * Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.
+     * Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a scout skill (`signals-scout-*`) or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.
      * @minLength 1
      */
     skill_name?: string

@@ -74,10 +74,25 @@ function fakeServer(params?: SignalReportsQueryParams): SignalReportsResponse {
   if (params?.has_implementation_pr === false) {
     return { count: REPORT_TAB_TOTAL, results: [] };
   }
+  const offset = params?.offset ?? 0;
+  const limit = params?.limit ?? 100;
+  const resultCount = Math.max(0, Math.min(limit, PIPELINE_TOTAL - offset));
   return {
     count: PIPELINE_TOTAL,
-    results: Array.from({ length: 100 }, (_, i) => readyReport(i)),
+    results: Array.from({ length: resultCount }, (_, i) =>
+      readyReport(offset + i),
+    ),
   };
+}
+
+function pipelineRequests(): SignalReportsQueryParams[] {
+  const requests: SignalReportsQueryParams[] = [];
+  for (const [params] of mockGetSignalReports.mock.calls) {
+    if (params?.has_implementation_pr == null && params?.count_only == null) {
+      requests.push(params);
+    }
+  }
+  return requests;
 }
 
 /** Params of the Reports-count request, or undefined if it was never fired. */
@@ -121,6 +136,27 @@ describe("useInboxAllReports", () => {
     // the Reports tab routes elsewhere, which is what made the badge disagree
     // with the list it labels.
     expect(reportsCountParams()?.status).toBe("ready");
+    expect(reportsCountParams()?.count_only).toBe(true);
+  });
+
+  it("stitches subsequent pages without gaps or duplicate reports", async () => {
+    const { result } = renderCounts();
+
+    await waitFor(() => {
+      expect(result.current.allReports).toHaveLength(50);
+    });
+
+    await result.current.fetchNextPage();
+
+    await waitFor(() => {
+      expect(result.current.allReports.map((report) => report.id)).toEqual(
+        Array.from({ length: 100 }, (_, index) => `report-${index}`),
+      );
+    });
+    expect(pipelineRequests()).toMatchObject([
+      { limit: 50, offset: 0 },
+      { limit: 50, offset: 50 },
+    ]);
   });
 
   it("skips the Reports count query for consumers that only read the pulls badge", async () => {
