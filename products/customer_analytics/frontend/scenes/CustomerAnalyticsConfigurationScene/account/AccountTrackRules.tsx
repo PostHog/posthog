@@ -138,6 +138,9 @@ export function AccountTrackRules(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const trackRulePropertyDefinitions = [...TRACK_RULE_ACCOUNT_FIELDS, ...customPropertyTaxonomicOptions].map(
+        ({ id, property_type }) => ({ id, name: id, property_type })
+    )
 
     const confirmRun = (): void => {
         if (!config?.enabled || hasUnsavedChanges || !canRun) {
@@ -222,6 +225,8 @@ export function AccountTrackRules(): JSX.Element {
                             [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
                         }}
                         operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
+                        propertyDefinitionsOverride={trackRulePropertyDefinitions}
+                        allowRelativeDateOptions
                         staticValueOptions={accountFilterStaticValueOptions}
                         editable={!restrictionReason}
                         disabledReason={restrictionReason ?? undefined}

@@ -1572,7 +1572,7 @@ fn op_telemetry_name(op: &Operation) -> String {
         }
         name.push(c.to_ascii_uppercase());
     }
-    format!("{}/{}", op.clone() as u8, name)
+    format!("{}/{}", *op as u8, name)
 }
 
 fn next_type_name(next: &JsonValue) -> String {

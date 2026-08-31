@@ -297,18 +297,18 @@ export interface SidebarNavItemClickedProperties {
   layout?: SidebarLayout;
 }
 
+export type TaskListSurface = "sidebar" | "space" | "saved_search";
+
 export interface TaskListGroupingChangedProperties {
   group_by: "repository" | "date";
   sort_by: "updated" | "created" | "alpha";
-  /** Which list was regrouped: the app sidebar's, or a space's session list. */
-  surface: "sidebar" | "space";
+  surface: TaskListSurface;
 }
 
 export interface TaskListAppearanceChangedProperties {
   secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
   secondary_field_count: number;
-  /** Which list it was changed from. The setting applies to both. */
-  surface: "sidebar" | "space";
+  surface: TaskListSurface;
 }
 
 export interface BrainrotActivatedProperties {
