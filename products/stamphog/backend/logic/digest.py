@@ -35,6 +35,19 @@ logger = structlog.get_logger(__name__)
 _DIGEST_MODEL = "claude-haiku-4-5"
 _SOURCE_PRODUCT = "stamphog_digest"
 
+# Bounds on the headline call alone. That call is optional: the selection call's lines are already
+# the digest, and losing the headline costs the channel its lead sentence and nothing else. It also
+# sits in front of a Slack post that is otherwise ready, and ``post_team_digests`` walks a team's
+# audiences one at a time, so a gateway that accepts the request and then stalls holds up this
+# team's post and every audience queued behind it.
+#
+# The client carries the SDK's own default instead, ten minutes with retries. That is the right
+# ceiling for the selection call, which the digest cannot do without, and far too patient for this
+# one. One retry rather than none, because losing a morning's headline to a single blip is worse
+# than waiting another half minute for it.
+_HEADLINE_TIMEOUT_SECONDS = 30.0
+_HEADLINE_MAX_RETRIES = 1
+
 # A payload rail, never an editorial rule. Slack rejects a message past 50 blocks and the thread
 # spends one on its lead line, so this sits well under that with room for a block someone adds
 # later. Nothing else limits the count: the bar in the prompt is the only thing that says how many
@@ -585,7 +598,8 @@ def _request_headline(client: Any, team_id: int, picked: list[DigestPRSummary], 
     """
     sources = {(pr.repo_config.repository, pr.pr_number): pr for pr in prs}
     try:
-        return _parse_headline(_complete(client, team_id, _build_headline_prompt(picked, sources)))
+        bounded = client.with_options(timeout=_HEADLINE_TIMEOUT_SECONDS, max_retries=_HEADLINE_MAX_RETRIES)
+        return _parse_headline(_complete(bounded, team_id, _build_headline_prompt(picked, sources)))
     except Exception as e:
         logger.warning("stamphog_digest_headline_fallback", team_id=team_id, error=str(e))
         return ""

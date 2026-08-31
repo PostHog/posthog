@@ -26,6 +26,8 @@ from products.stamphog.backend.logic.channel_resolution import (
     SlackChannel,
 )
 from products.stamphog.backend.logic.digest import (
+    _HEADLINE_MAX_RETRIES,
+    _HEADLINE_TIMEOUT_SECONDS,
     MAX_DIGEST_PRS,
     MAX_FALLBACK_PRS,
     DigestPRSummary,
@@ -663,7 +665,13 @@ def _recording_llm_client(answers: list[Any]) -> Any:
             raise answer
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=answer))])
 
-    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)), prompts=prompts)
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)), prompts=prompts, options=[]
+    )
+    # The real client hands back a bounded copy. The fake records the bounds and answers as itself,
+    # so a test can assert what the optional headline call was limited to.
+    client.with_options = lambda **kwargs: (client.options.append(kwargs), client)[1]
+    return client
 
 
 def test_the_headline_call_never_sees_a_merge_the_thread_left_out() -> None:
@@ -710,12 +718,18 @@ def test_a_headline_failure_keeps_the_judged_digest() -> None:
         RuntimeError("gateway down"),
     ]
 
-    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_recording_llm_client(answers)):
+    client = _recording_llm_client(answers)
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
         summary = summarize_merged_prs(prs)
 
     assert summary.judged is True
     assert [p.summary for p in summary.prs] == ["It ships."]
     assert summary.headline == ""
+    # The same call also has to be bounded. It sits in front of a Slack post that is already ready,
+    # and a team's audiences post one at a time, so an unbounded stall on an optional call holds up
+    # this digest and every audience behind it. The client's own default is ten minutes with retries.
+    assert client.options == [{"timeout": _HEADLINE_TIMEOUT_SECONDS, "max_retries": _HEADLINE_MAX_RETRIES}]
 
 
 def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
