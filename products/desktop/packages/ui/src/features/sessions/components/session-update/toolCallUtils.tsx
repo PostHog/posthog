@@ -15,9 +15,10 @@ import {
   Trash,
   Wrench,
 } from "@phosphor-icons/react";
-import { cn } from "@posthog/quill";
+import { Button, cn } from "@posthog/quill";
 import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import { Box, Text } from "@radix-ui/themes";
+import { useState } from "react";
 import type { CodeToolKind, ToolCall, ToolCallContent } from "../../types";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 
@@ -295,28 +296,60 @@ export function ExpandableIcon({
   );
 }
 
+/**
+ * Character cap on tool output committed to the DOM. The scroll box clips the
+ * output visually either way, but the full string still became a DOM text
+ * node: one large file read or command output puts megabytes into the
+ * document, and every re-render of the row re-commits it. Past the cap the
+ * rest renders only when the reader asks for it.
+ */
+const CONTENT_PRE_COLLAPSE_CHARS = 50_000;
+
 export function ContentPre({ children }: { children: React.ReactNode }) {
   // New thread wraps output in a bordered, muted box (it sits inside a ChatMarker panel); the legacy
   // thread keeps the original borderless scroll box so ConversationView is unchanged when toggled off.
   const chatChrome = useChatThreadChrome();
+  const [showFull, setShowFull] = useState(false);
+  const text = typeof children === "string" ? children : null;
+  const capped =
+    text !== null && !showFull && text.length > CONTENT_PRE_COLLAPSE_CHARS;
+  const shown = capped
+    ? `${text.slice(0, CONTENT_PRE_COLLAPSE_CHARS)}…`
+    : children;
+  const showFullButton = capped ? (
+    <Button
+      variant="outline"
+      size="xs"
+      className="mt-1 self-start"
+      onClick={() => setShowFull(true)}
+    >
+      Show full output
+    </Button>
+  ) : null;
   if (chatChrome) {
     return (
-      <Box className="max-h-64 rounded-sm border border-border">
-        <Box className="scroll-mask-2 max-h-64 overflow-auto bg-muted/50 p-3">
-          <pre className="m-0 whitespace-pre-wrap break-all font-mono text-xs">
-            {children}
-          </pre>
+      <>
+        <Box className="max-h-64 rounded-sm border border-border">
+          <Box className="scroll-mask-2 max-h-64 overflow-auto bg-muted/50 p-3">
+            <pre className="m-0 whitespace-pre-wrap break-all font-mono text-xs">
+              {shown}
+            </pre>
+          </Box>
         </Box>
-      </Box>
+        {showFullButton}
+      </>
     );
   }
   return (
-    <Box className="scroll-mask-2 max-h-64 overflow-auto px-3 py-2">
-      <Text asChild className="text-[13px] text-gray-11">
-        <pre className="m-0 whitespace-pre-wrap break-all font-mono">
-          {children}
-        </pre>
-      </Text>
-    </Box>
+    <>
+      <Box className="scroll-mask-2 max-h-64 overflow-auto px-3 py-2">
+        <Text asChild className="text-[13px] text-gray-11">
+          <pre className="m-0 whitespace-pre-wrap break-all font-mono">
+            {shown}
+          </pre>
+        </Text>
+      </Box>
+      {showFullButton}
+    </>
   );
 }
