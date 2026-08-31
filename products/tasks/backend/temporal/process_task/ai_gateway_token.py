@@ -12,6 +12,7 @@ import json
 import time
 import random
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.conf import settings
@@ -41,6 +42,9 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
 # Mirrors SIGNALS_STAGE_PRODUCTS + SCOUT_STAGE_PREFIX in gateway.ts.
 _SIGNALS_STAGE_PRODUCTS = frozenset({"scout", "research", "implementation", "repo_selection", "custom_agent"})
 _SCOUT_STAGE_PREFIX = "scout:"
+
+_MAX_CAP_USD = Decimal("10000")
+_MAX_CAP_DECIMAL_PLACES = 6
 
 # Products whose runs may mint an internally funded token. Mint scope needs
 # server-side provenance: `internal` and some origin_product values are
@@ -112,7 +116,25 @@ def _cap_override(raw: str, key: str, setting_name: str) -> str | None:
     except (ValueError, AttributeError):
         logger.warning("Ignoring invalid JSON object for %s", setting_name)
         return None
-    return str(override) if override is not None else None
+    if override is None:
+        return None
+    try:
+        cap = Decimal(str(override))
+    except (InvalidOperation, ValueError):
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    if not cap.is_finite():
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    exponent = cap.as_tuple().exponent
+    if not isinstance(exponent, int):
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    decimal_places = max(0, -exponent)
+    if cap <= 0 or cap > _MAX_CAP_USD or decimal_places > _MAX_CAP_DECIMAL_PLACES:
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    return f"{cap:f}"
 
 
 def _token_cap_usd(team_id: int, ai_product: str) -> str:
