@@ -629,7 +629,8 @@ export const loginLogic = kea<loginLogicType>([
                     const { detail } = e as Record<string, any>
                     const message =
                         typeof detail === 'string' ? detail : 'That code is invalid or has expired. Please try again.'
-                    actions.setGeneralError('invalid_code', message)
+                    // Shown under the code input, like the signup verify screen, not in the banner
+                    actions.setCodeVerificationManualErrors({ code: message })
                     throw e
                 }
             },
