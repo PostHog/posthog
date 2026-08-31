@@ -73,6 +73,7 @@ export function renderNode({
     submitAIPrompt,
     handleSelectionChange,
     startTextSelectionPointer,
+    onInteractionStateChange,
     restoreSelectionRef,
     rootEditableInputHtmlByNodeIdRef,
 }: {
@@ -122,6 +123,7 @@ export function renderNode({
     submitAIPrompt: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
+    onInteractionStateChange: ((isInteractionActive: boolean) => void) | undefined
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
     rootEditableInputHtmlByNodeIdRef: MutableRefObject<Record<string, string>>
 }): JSX.Element {
@@ -243,6 +245,7 @@ export function renderNode({
                     deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
                     insertParagraphAfterNode={insertParagraphAfterNode}
                     moveFocusToAdjacentNode={moveFocusToAdjacentNode}
+                    onInteractionStateChange={onInteractionStateChange}
                 />
             )
         }

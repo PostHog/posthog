@@ -56,6 +56,7 @@ function renderBlock(
 describe('NotebookMermaidBlock', () => {
     afterEach(() => {
         cleanup()
+        jest.clearAllMocks()
         renderMock.mockReset()
     })
 
@@ -95,15 +96,17 @@ describe('NotebookMermaidBlock', () => {
     it('edits a diagram without exposing the notebook markdown source', async () => {
         const node = codeNode('flowchart LR; A-->B', 'mermaid')
         const updateNode = jest.fn()
+        const onInteractionStateChange = jest.fn()
         renderMock.mockImplementation((_id: string, code: string) =>
             code.endsWith('-->')
                 ? Promise.reject(new Error('Parse error: incomplete edge'))
                 : Promise.resolve({ svg: '<svg data-testid="rendered"><g/></svg>' })
         )
 
-        renderBlock(node, 'edit', { updateNode })
+        const { unmount } = renderBlock(node, 'edit', { updateNode, onInteractionStateChange })
 
         fireEvent.click(screen.getByLabelText('Edit diagram'))
+        expect(onInteractionStateChange).toHaveBeenLastCalledWith(true)
         const definition = screen.getByLabelText('Mermaid definition')
         expect(definition).toHaveValue(node.text)
 
@@ -119,6 +122,17 @@ describe('NotebookMermaidBlock', () => {
         const updater = updateNode.mock.calls[0][1] as (currentNode: NotebookBlockNode) => NotebookBlockNode | null
         expect(updater(node)).toEqual({ ...node, text: 'flowchart LR; A-->C' })
         await waitFor(() => expect(screen.queryByLabelText('Mermaid definition')).not.toBeInTheDocument())
+        await waitFor(() => expect(onInteractionStateChange).toHaveBeenLastCalledWith(false))
+        expect(updateNode.mock.invocationCallOrder[0]).toBeLessThan(
+            onInteractionStateChange.mock.invocationCallOrder[
+                onInteractionStateChange.mock.invocationCallOrder.length - 1
+            ]
+        )
+
+        fireEvent.click(screen.getByLabelText('Edit diagram'))
+        expect(onInteractionStateChange).toHaveBeenLastCalledWith(true)
+        unmount()
+        expect(onInteractionStateChange).toHaveBeenLastCalledWith(false)
     })
 
     it('debounces the live preview so rapid edits do not each start a render', async () => {
@@ -129,7 +143,6 @@ describe('NotebookMermaidBlock', () => {
         fireEvent.click(screen.getByLabelText('Edit diagram'))
         const definition = screen.getByLabelText('Mermaid definition')
 
-        // Three keystrokes inside one debounce window collapse to a single preview render of the last value.
         fireEvent.change(definition, { target: { value: 'flowchart LR; A-->C' } })
         fireEvent.change(definition, { target: { value: 'flowchart LR; A-->CD' } })
         fireEvent.change(definition, { target: { value: 'flowchart LR; A-->CDE' } })
@@ -161,4 +174,21 @@ describe('NotebookMermaidBlock', () => {
             expect(deleteNode).toHaveBeenCalledTimes(expectedDeleteNodeCalls)
         }
     )
+
+    it('moves focus from the diagram and inserts a paragraph with the keyboard', () => {
+        renderMock.mockResolvedValue({ svg: '<svg data-testid="rendered"><g/></svg>' })
+        const moveFocusToAdjacentNode = jest.fn(() => true)
+        const insertParagraphAfterNode = jest.fn()
+        const { container } = renderBlock(codeNode('flowchart LR; A-->B', 'mermaid'), 'edit', {
+            insertParagraphAfterNode,
+            moveFocusToAdjacentNode,
+        })
+        const block = container.querySelector('.MarkdownNotebook__mermaid-block') as HTMLElement
+
+        fireEvent.keyDown(block, { key: 'ArrowDown' })
+        expect(moveFocusToAdjacentNode).toHaveBeenCalledWith('block-1', 'next', 0)
+
+        fireEvent.keyDown(block, { key: 'Enter' })
+        expect(insertParagraphAfterNode).toHaveBeenCalledTimes(1)
+    })
 })

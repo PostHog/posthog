@@ -21,11 +21,21 @@ describe('getSelectedCodeRanges', () => {
     })
 
     it.each([
-        // A rendered Mermaid diagram exposes SVG label text, not the fence source, so a code range
-        // measured against the element would not map to node.text.
-        ['mermaid', 'flowchart LR; A-->B', 'A B', 0],
-        ['js', 'const answer = 42', 'const answer = 42', 1],
-    ])('language %p over a block yields %p code range(s)', (language, source, elementText, expectedRanges) => {
+        {
+            label: 'rendered Mermaid preview',
+            language: 'mermaid',
+            source: 'flowchart LR; A-->B',
+            elementText: 'A B',
+            expectedRanges: 0,
+        },
+        {
+            label: 'editable JavaScript source',
+            language: 'js',
+            source: 'const answer = 42',
+            elementText: 'const answer = 42',
+            expectedRanges: 1,
+        },
+    ])('$label yields $expectedRanges code range(s)', ({ language, source, elementText, expectedRanges }) => {
         const node = codeNode(language, source)
         const element = document.createElement('div')
         element.textContent = elementText

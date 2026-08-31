@@ -1,4 +1,4 @@
-import { KeyboardEvent, Suspense, lazy, useState } from 'react'
+import { KeyboardEvent, Suspense, lazy, useEffect, useState } from 'react'
 
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
@@ -28,6 +28,7 @@ export function NotebookMermaidBlock({
     deleteSelectedNotebookBlocks,
     insertParagraphAfterNode,
     moveFocusToAdjacentNode,
+    onInteractionStateChange,
 }: {
     node: NotebookCodeBlockNode
     mode: NotebookMode
@@ -37,6 +38,7 @@ export function NotebookMermaidBlock({
     deleteSelectedNotebookBlocks: () => boolean
     insertParagraphAfterNode: () => void
     moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
+    onInteractionStateChange?: (isInteractionActive: boolean) => void
 }): JSX.Element {
     const [isEditorOpen, setIsEditorOpen] = useState(false)
     const [draft, setDraft] = useState(node.text)
@@ -44,6 +46,7 @@ export function NotebookMermaidBlock({
     const previewCode = isEditorOpen ? debouncedDraft : node.text
 
     const openEditor = (): void => {
+        onInteractionStateChange?.(true)
         setDraft(node.text)
         setIsEditorOpen(true)
     }
@@ -52,6 +55,14 @@ export function NotebookMermaidBlock({
         setIsEditorOpen(false)
         setDraft(node.text)
     }
+
+    useEffect(() => {
+        if (!isEditorOpen) {
+            return
+        }
+
+        return () => onInteractionStateChange?.(false)
+    }, [isEditorOpen, onInteractionStateChange])
 
     const saveDiagram = (): void => {
         if (draft !== node.text) {
@@ -65,9 +76,7 @@ export function NotebookMermaidBlock({
         setIsEditorOpen(false)
     }
 
-    // The rendered diagram takes no caret, so mirror the atomic-block keyboard contract used by
-    // DividerBlock: a focused block deletes on Backspace or Delete, moves focus on the arrow keys,
-    // and inserts a paragraph below on Enter.
+    // The rendered diagram has no caret, so it uses the keyboard contract for atomic notebook blocks.
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         if (mode !== 'edit' || event.target !== event.currentTarget) {
             return
@@ -130,6 +139,8 @@ export function NotebookMermaidBlock({
             ref={setBlockRef}
             contentEditable={false}
             tabIndex={mode === 'edit' ? 0 : undefined}
+            role="group"
+            aria-label="Mermaid diagram"
             data-markdown-notebook-node-id={node.id}
             onKeyDown={handleKeyDown}
         >
