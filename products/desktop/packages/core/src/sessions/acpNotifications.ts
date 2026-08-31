@@ -7,7 +7,6 @@ export const POSTHOG_NOTIFICATIONS = {
   ERROR: "_posthog/error",
   CONSOLE: "_posthog/console",
   SDK_SESSION: "_posthog/sdk_session",
-  GIT_CHECKPOINT: "_posthog/git_checkpoint",
   MODE_CHANGE: "_posthog/mode_change",
   SESSION_RESUME: "_posthog/session/resume",
   USER_MESSAGE: "_posthog/user_message",

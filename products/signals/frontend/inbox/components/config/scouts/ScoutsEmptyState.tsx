@@ -11,15 +11,15 @@ export function ScoutsEmptyState(): JSX.Element {
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
 
     return (
-        <div className="m-6 flex flex-col items-start gap-2 rounded border border-primary bg-surface-primary px-5 py-5">
-            <div className="flex items-center gap-2">
-                <IconCompass className="size-[18px] text-accent" />
-                <span className="text-sm font-medium text-default">No scouts on this project yet</span>
+        <div className="mx-auto flex max-w-md flex-col items-center gap-2 py-12 text-center">
+            <div className="mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-fill-primary text-secondary">
+                <IconCompass className="text-2xl" />
             </div>
-            <p className="mb-0 max-w-2xl text-xs leading-snug text-secondary">
+            <h3 className="m-0 text-base font-semibold">No scouts on this project yet</h3>
+            <p className="m-0 text-sm text-tertiary">
                 Create a scout to investigate a recurring signal or behavior on a schedule.
             </p>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
                 <ScoutCreateButton onCreated={() => loadScoutConfigs()} />
                 <ScoutSuggestButton />
             </div>

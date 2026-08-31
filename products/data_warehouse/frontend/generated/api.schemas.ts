@@ -2108,6 +2108,7 @@ export interface CredentialApi {
  * * `Gladly` - Gladly
  * * `Qualtrics` - Qualtrics
  * * `AzureDevOps` - AzureDevOps
+ * * `RoktAds` - RoktAds
  * * `Rollbar` - Rollbar
  * * `Opsgenie` - Opsgenie
  * * `IncidentIo` - IncidentIo
@@ -3176,6 +3177,7 @@ export interface CredentialApi {
  * * `SideShift` - SideShift
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
+ * * `Trino` - Trino
  * * `Easybill` - Easybill
  * * `Bexio` - Bexio
  * * `Umami` - Umami
@@ -3239,6 +3241,9 @@ export interface CredentialApi {
  * * `Tana` - Tana
  * * `Zenchef` - Zenchef
  * * `Lovable` - Lovable
+ * * `Anvil` - Anvil
+ * * `Coolify` - Coolify
+ * * `SocialPilot` - SocialPilot
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3432,6 +3437,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Gladly: 'Gladly',
     Qualtrics: 'Qualtrics',
     AzureDevOps: 'AzureDevOps',
+    RoktAds: 'RoktAds',
     Rollbar: 'Rollbar',
     Opsgenie: 'Opsgenie',
     IncidentIo: 'IncidentIo',
@@ -4500,6 +4506,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SideShift: 'SideShift',
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
+    Trino: 'Trino',
     Easybill: 'Easybill',
     Bexio: 'Bexio',
     Umami: 'Umami',
@@ -4563,6 +4570,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Tana: 'Tana',
     Zenchef: 'Zenchef',
     Lovable: 'Lovable',
+    Anvil: 'Anvil',
+    Coolify: 'Coolify',
+    SocialPilot: 'SocialPilot',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

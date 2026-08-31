@@ -144,6 +144,7 @@ class TestExecuteGraphql:
             ("deadline", "Deadline exceeded"),
             ("throttled", "Too many requests"),
             ("resolver_failure", "An error occurred resolving this field"),
+            ("nrdb_error", "There was an NRDB error"),
         ]
     )
     def test_transient_graphql_errors_are_retryable(self, _name: str, message: str) -> None:
