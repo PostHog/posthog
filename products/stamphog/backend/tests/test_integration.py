@@ -360,6 +360,31 @@ def test_a_superseded_run_posts_no_failure_notice(team, stamphog_chain: Stamphog
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_no_failure_notice_once_a_newer_run_holds_the_same_head(team, stamphog_chain: StamphogChain) -> None:
+    # `reopened` is a relevant action that does not move the head, and supersession skips terminal
+    # states, so a replacement can be queued at the unchanged head after this run failed. That
+    # replacement may already have approved the very commit the notice would call unreviewed.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha-reopened"
+    stamphog_chain.recorder.register_pr(REPO, 118, _pr_object(118, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=118, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.REVIEWING
+    )
+    ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.QUEUED
+    )
+
+    _run_activity(mark_review_failed, MarkReviewFailedInput(str(run.id), team.id, "RuntimeError: worker lost"))
+
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.FAILED  # the run still records its own outcome
+    assert [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"] == []
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_notice_github_error_fails_the_activity_so_temporal_retries(team, stamphog_chain: StamphogChain) -> None:
     # Swallowing the error completes the activity, so Temporal never retries and the run stays FAILED
     # with nothing on the PR, which is the silence this path removes. A rate limit is exactly when

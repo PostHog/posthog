@@ -1372,6 +1372,12 @@ def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: 
     No error text. The cause is infrastructure detail the author cannot act on, and this lands on a
     public pull request; it stays on the run and in the worker logs instead.
 
+    Nothing is posted once a newer run holds the same head. Supersession skips terminal states, so a
+    `reopened` delivery queues a replacement at the unchanged head after this run failed, and that
+    replacement may already have approved the very commit this notice would call unreviewed. A newer
+    run on a different head is left alone: that notice is still true of the head it names. The read
+    is writer-pinned because it gates a GitHub write.
+
     A GitHub error propagates rather than being swallowed. Swallowing it completes the activity, so
     Temporal never retries and the run stays FAILED with nothing on the PR, which is the silence this
     exists to remove; a rate limit is exactly when that happens. Raising is safe here because the
@@ -1379,6 +1385,16 @@ def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: 
     guard, which finishes this one step. `_post_non_approval_review` records its review id, so the
     retry that follows a successful post is a no-op.
     """
+    replaced_at_same_head = (
+        ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request_id=run.pull_request_id, head_sha=run.head_sha, created_at__gt=run.created_at)
+        .exists()
+    )
+    if replaced_at_same_head:
+        activity.logger.info(f"Skipping the failure notice for run {run.id}; a newer run holds the same head")
+        return
+
     _post_non_approval_review(
         client, run.pull_request.repo_config.repository, run, run.pull_request, team_id, FAILURE_NOTICE_BODY
     )
