@@ -1,11 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
+import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { WarningHog } from 'lib/components/hedgehogs'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
@@ -53,8 +55,17 @@ function Header(): JSX.Element {
         try {
             await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
             reportRecordingPlaylistCreated('new')
-        } catch {
-            lemonToast.error('Could not create the collection. You may not have access to do this.')
+        } catch (error: any) {
+            if (isAccessDeniedError(error)) {
+                lemonToast.error('You do not have access to create collections.')
+            } else {
+                lemonToast.error('Could not create the collection. Please try again.')
+            }
+            // This click handler is not a kea loader, so it skips the report gate initKea applies to
+            // loader failures. Reapply it here so a genuine 500 still reaches error tracking.
+            if (shouldReportApiFailure(error)) {
+                posthog.captureException(error)
+            }
         } finally {
             setLoading(false)
         }
