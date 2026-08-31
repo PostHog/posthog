@@ -125,6 +125,14 @@ from products.workflows.backend.models.team_workflows_config import EmailTrackin
 tracer = trace.get_tracer(__name__)
 
 
+def _validate_unique_attribute_keys(value: list[str]) -> list[str]:
+    # The child CharField already trims whitespace and rejects blanks; only
+    # cross-item uniqueness needs checking here.
+    if len(set(value)) != len(value):
+        raise serializers.ValidationError("Attribute keys must be unique.")
+    return value
+
+
 class TeamLogsConfigSerializer(serializers.ModelSerializer):
     logs_distinct_id_attribute_key = serializers.CharField(
         read_only=True,
@@ -173,18 +181,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "logs_session_id_attribute_keys",
         ]
 
-    def _validate_unique_keys(self, value: list[str]) -> list[str]:
-        # The child CharField already trims whitespace and rejects blanks; only
-        # cross-item uniqueness needs checking here.
-        if len(set(value)) != len(value):
-            raise serializers.ValidationError("Attribute keys must be unique.")
-        return value
-
     def validate_logs_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
-        return self._validate_unique_keys(value)
+        return _validate_unique_attribute_keys(value)
 
     def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
-        return self._validate_unique_keys(value)
+        return _validate_unique_attribute_keys(value)
 
     def update(self, instance: TeamLogsConfig, validated_data: dict) -> TeamLogsConfig:
         # Keep the legacy single-key column in sync so pre-plural readers stay coherent.
@@ -231,18 +232,11 @@ class TeamTracingConfigSerializer(serializers.ModelSerializer):
             "tracing_session_id_attribute_keys",
         ]
 
-    def _validate_unique_keys(self, value: list[str]) -> list[str]:
-        # The child CharField already trims whitespace and rejects blanks; only
-        # cross-item uniqueness needs checking here.
-        if len(set(value)) != len(value):
-            raise serializers.ValidationError("Attribute keys must be unique.")
-        return value
-
     def validate_tracing_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
-        return self._validate_unique_keys(value)
+        return _validate_unique_attribute_keys(value)
 
     def validate_tracing_session_id_attribute_keys(self, value: list[str]) -> list[str]:
-        return self._validate_unique_keys(value)
+        return _validate_unique_attribute_keys(value)
 
 
 def handle_tracing_config(request: request.Request, team: Team) -> response.Response:
