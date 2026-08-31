@@ -112,6 +112,14 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         // Optional row column used as the masking / dedup key in place of distinct_id
         key_property: z.string().optional(),
     }),
+    z.object({
+        type: z.literal('github-event'),
+        filters: z.object({
+            // Delivery-property filters only, on the same footing as slack-message: repository,
+            // event type and actor are all properties rather than fields of their own.
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
 ])
 
 export const HogFlowActionSchema = z.discriminatedUnion('type', [

@@ -167,6 +167,15 @@ def _dispatch_loop_triggers(request: HttpRequest, event_type: str, payload: dict
     return None
 
 
+def _dispatch_workflow_triggers(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> None:
+    from products.workflows.backend.github_workflow_events import emit_github_event
+
+    emit_github_event(event_type, payload, delivery_id)
+    return None
+
+
 # event_type -> ordered list of (handler_name, handler). Order matters only in that
 # the first handler in a bucket to return a non-None HttpResponse determines the
 # response sent back to GitHub; the pre-existing single handler in each bucket keeps
@@ -175,14 +184,17 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     "issues": [
         ("conversations", _dispatch_conversations_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "issue_comment": [
         ("conversations", _dispatch_conversations_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "pull_request": [
         ("tasks_pr_backstop", _dispatch_pull_request_event),
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
     "pull_request_review": [
         ("tasks_pr_review", _dispatch_pull_request_review_event),
@@ -195,6 +207,7 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     ],
     "push": [
         ("loops", _dispatch_loop_triggers),
+        ("workflows", _dispatch_workflow_triggers),
     ],
 }
 

@@ -19,9 +19,13 @@ import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
+const GITHUB_EVENT_RECEIVED_EVENT = '$github_event_received'
 
 // The event that starts each trigger type. Type alone would match every other signal on this topic.
-const INTERNAL_EVENT_TRIGGER_EVENTS = new Map([['slack-message', SLACK_MESSAGE_RECEIVED_EVENT]])
+const INTERNAL_EVENT_TRIGGER_EVENTS = new Map([
+    ['slack-message', SLACK_MESSAGE_RECEIVED_EVENT],
+    ['github-event', GITHUB_EVENT_RECEIVED_EVENT],
+])
 
 export class CdpInternalEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpInternalEventsConsumer'

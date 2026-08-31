@@ -115,7 +115,12 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // Trigger types whose runs have no person attached: a synced warehouse row, a materialized view
 // row, and a Slack poster are all things no PostHog person is attached to. Keep in sync with the
 // backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
-export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'slack-message'])
+export const ROW_SCOPED_TRIGGER_TYPES = new Set([
+    'data-warehouse-table',
+    'data-warehouse-view',
+    'slack-message',
+    'github-event',
+])
 
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
@@ -765,6 +770,12 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'github-event'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       type: 'slack-message'
                                   }
                                 | {
@@ -1033,6 +1044,12 @@ export interface workflowLogicActions {
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'github-event'
                         }
                       | {
                             filters: {
@@ -1612,6 +1629,12 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'github-event'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       type: 'slack-message'
                                   }
                                 | {
@@ -1885,6 +1908,12 @@ export interface workflowLogicActions {
                             filters: {
                                 properties?: any[] | undefined
                             }
+                            type: 'github-event'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
                             type: 'slack-message'
                         }
                       | {
@@ -2061,6 +2090,12 @@ export interface workflowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'github-event'
               }
             | {
                   filters: {
@@ -2436,6 +2471,12 @@ export interface workflowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'github-event'
               }
             | {
                   filters: {
@@ -2827,6 +2868,12 @@ export interface workflowLogicMeta {
                                     properties?: any[] | undefined
                                 }
                                 type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                type: 'github-event'
                             }
                           | {
                                 filters: {
