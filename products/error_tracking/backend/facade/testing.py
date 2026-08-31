@@ -82,9 +82,9 @@ def create_bypass_rule(*, team_id: int, order_key: int = 0) -> UUID:
 
 
 def create_severity_rule(*, team_id: int, severity: str = "high", order_key: int = 0) -> UUID:
-    # ErrorTrackingSeverityRule is the only fail-closed model here, so bare objects.create() would raise.
+    # ErrorTrackingSeverityRule is the only fail-closed model here, so it needs the for_team scope.
     return (
-        ErrorTrackingSeverityRule.objects.unscoped()
+        ErrorTrackingSeverityRule.objects.for_team(team_id)
         .create(team_id=team_id, filters=_EMPTY_FILTERS, bytecode=[], severity=severity, order_key=order_key)
         .id
     )
