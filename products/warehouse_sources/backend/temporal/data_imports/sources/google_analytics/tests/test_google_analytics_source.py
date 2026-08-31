@@ -127,6 +127,17 @@ def test_parse_custom_reports_rejects_invalid(custom_reports, expected_substring
     assert expected_substring in str(exc.value)
 
 
+def test_parse_custom_reports_invalid_json_hides_parser_detail():
+    # The raw JSONDecodeError position (e.g. "line 1 column 1 (char 0)") is debug noise for the
+    # user pasting a report, so the message stays actionable without echoing it back.
+    with pytest.raises(CustomReportError) as exc:
+        parse_custom_reports("not json")
+    message = str(exc.value)
+    assert "valid JSON" in message
+    assert "column" not in message
+    assert "char" not in message
+
+
 def test_validate_credentials_rejects_invalid_custom_reports():
     # A malformed custom-report config is surfaced at setup, before any GA4 call, so the
     # user fixes their JSON instead of hitting an opaque runReport failure mid-sync.
