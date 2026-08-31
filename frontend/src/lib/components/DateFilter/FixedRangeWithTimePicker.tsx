@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
@@ -35,6 +35,12 @@ export function FixedRangeWithTimePicker({
     const [selectingStart, setSelectingStart] = useState(true)
     const [localFrom, setLocalFrom] = useState<dayjs.Dayjs | null>(rangeDateFrom)
     const [localTo, setLocalTo] = useState<dayjs.Dayjs | null>(rangeDateTo)
+
+    // Keep the derived month stable across renders so the calendar's month arrows are not reset.
+    const leftmostMonth = useMemo(
+        () => (selectingStart ? localFrom : localTo)?.startOf('month'),
+        [selectingStart, localFrom, localTo]
+    )
 
     const handleApply = (): void => {
         if (localFrom && localTo) {
@@ -97,7 +103,7 @@ export function FixedRangeWithTimePicker({
                             }
                         }
                     }}
-                    leftmostMonth={(selectingStart ? localFrom : localTo)?.startOf('month')}
+                    leftmostMonth={leftmostMonth}
                     getDateState={({ date }) => ({
                         isStart: !!(localFrom && date.isSame(localFrom, 'd')),
                         isEnd: !!(localTo && date.isSame(localTo, 'd')),

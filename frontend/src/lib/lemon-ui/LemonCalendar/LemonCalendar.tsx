@@ -143,8 +143,8 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
         (props.leftmostMonth ?? today).startOf('month')
     )
     useEffect(() => {
-        if (props.leftmostMonth && props.leftmostMonth.isSame(leftmostMonth, 'd')) {
-            setLeftmostMonth(props.leftmostMonth)
+        if (props.leftmostMonth && !props.leftmostMonth.isSame(leftmostMonth, 'month')) {
+            setLeftmostMonth(props.leftmostMonth.startOf('month'))
         }
     }, [props.leftmostMonth]) // oxlint-disable-line react-hooks/exhaustive-deps
 

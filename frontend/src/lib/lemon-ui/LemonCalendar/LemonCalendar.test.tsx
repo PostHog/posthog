@@ -108,6 +108,17 @@ describe('LemonCalendar', () => {
         expect(onDateClick).toHaveBeenCalledWith(dayjs('2020-03-15'))
     })
 
+    test('follows the leftmostMonth prop when the selected month changes', async () => {
+        // The month arrows keep the displayed month in local state. When the caller's selected
+        // date moves to another month, the calendar must jump to it instead of staying put.
+        const { container, rerender } = render(<LemonCalendar leftmostMonth={dayjs('2020-03-01')} months={1} />)
+        const calendar = getByDataAttr(container, 'lemon-calendar')
+        expect(await within(calendar).findByText('March 2020')).toBeTruthy()
+
+        rerender(<LemonCalendar leftmostMonth={dayjs('2020-05-01')} months={1} />)
+        expect(await within(calendar).findByText('May 2020')).toBeTruthy()
+    })
+
     test('renders many months', async () => {
         const { container } = render(<LemonCalendar months={10} />)
         const lemonCalendarMonths = getAllByDataAttr(container, 'lemon-calendar-month')
