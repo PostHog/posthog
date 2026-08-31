@@ -41,6 +41,7 @@ import {
   type Options,
   type Query,
   query,
+  type SDKMessage,
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -694,7 +695,48 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     const input = head.pendingInput;
     head.pendingInput = undefined;
+    head.dispatchedAt = performance.now();
     session.input.push(input);
+  }
+
+  /** Time the window between handing a prompt to the SDK and the SDK's first
+   *  emission for it. Nothing crosses the wire during that window, so without
+   *  this line a slow first turn cannot be attributed after the fact: the log
+   *  names both how long the wait was and which message ended it, which
+   *  separates pre-model setup (a `commands_changed` skill rescan, for
+   *  example) from the model call itself. */
+  private timeFirstSdkMessage(
+    session: Session,
+    sessionId: string,
+    message: SDKMessage,
+  ): void {
+    const turn =
+      session.activeTurn ?? session.turnQueue.find((t) => !t.settled);
+    if (turn?.dispatchedAt === undefined || turn.firstMessageTimed) {
+      return;
+    }
+    turn.firstMessageTimed = true;
+    this.logger.debug("First SDK message after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+      messageType: message.type,
+      messageSubtype: (message as { subtype?: string }).subtype,
+    });
+  }
+
+  /** Time to the first assistant message, which is the first output a person
+   *  sees. Reported once per turn so a slow turn splits into the wait before
+   *  the model answered and the tool work after it. */
+  private timeFirstModelOutput(session: Session, sessionId: string): void {
+    const turn = session.activeTurn;
+    if (turn?.dispatchedAt === undefined || turn.firstOutputTimed) {
+      return;
+    }
+    turn.firstOutputTimed = true;
+    this.logger.debug("First model output after prompt dispatch", {
+      sessionId,
+      waitMs: Math.max(0, Math.round(performance.now() - turn.dispatchedAt)),
+    });
   }
 
   private ensureConsumer(sessionId: string): void {
@@ -992,6 +1034,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           this.closeQueryStream(session);
           return;
         }
+
+        this.timeFirstSdkMessage(session, sessionId, message);
 
         if (
           session.emitRawSDKMessages &&
@@ -1465,6 +1509,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
 
             if (message.type === "assistant") {
+              this.timeFirstModelOutput(session, sessionId);
               // Subagent output is a separate model context, so it is no
               // evidence the steer reached this turn's model.
               if (session.activeTurn && message.parent_tool_use_id === null) {
