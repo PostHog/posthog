@@ -50,6 +50,7 @@ def extract_aggregation_and_inner_expr(
         "count(distinct properties.category)" -> ("count", <Field node>, None, True)
         "properties.revenue" -> (None, <Field node>, None, False)
         "count()" -> ("count", <Constant value=1>, None, False)
+        "count(*)" -> ("count", <Constant value=1>, None, False)
     """
     # Parse the expression if it's a string
     if isinstance(hogql_expr, str):
@@ -83,6 +84,18 @@ def extract_aggregation_and_inner_expr(
                 )
             # Most aggregation functions take the expression as the first argument
             inner_expression = expr.args[0]
+            # The parser stores a wildcard argument as Field(chain=["*"]). It is not a per-row
+            # scalar, so splicing it into the value column breaks query construction. count(*)
+            # means the same as count(), so map a lone wildcard to a per-row 1 for count, and
+            # reject it for every other aggregation where a wildcard has no valid meaning.
+            if isinstance(inner_expression, ast.Field) and inner_expression.chain == ["*"]:
+                if aggregation_function.lower() == "count" and not expr.distinct:
+                    inner_expression = ast.Constant(value=1)
+                else:
+                    raise ValidationError(
+                        "HogQL metric expressions can only use a wildcard with count(*). "
+                        "Aggregate a specific value instead, e.g. sum(properties.revenue)."
+                    )
         else:
             # A missing argument is only valid for aggregates that support zero args, like count().
             # sum(), avg(), uniqExact(), and countIf() need one argument. HogQL rejects the empty

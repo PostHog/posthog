@@ -62,6 +62,11 @@ class TestHogQLAggregationIntegration(BaseTest):
             # Only count() may be used without an argument.
             ("sum_no_args", "sum()"),
             ("count_if_no_args", "countIf()"),
+            # A wildcard argument parses to Field(chain=["*"]), which is not a per-row scalar.
+            # count(*) is remapped to count(), but a wildcard has no meaning for other
+            # aggregations, and count(distinct *) cannot be remapped, so both are rejected.
+            ("sum_wildcard", "sum(*)"),
+            ("count_distinct_wildcard", "count(distinct *)"),
         ]
     )
     def test_rejects_compound_aggregate_expressions(self, _name: str, expr: str):
