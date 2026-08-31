@@ -35,6 +35,21 @@ describe('DataTableVisualization', () => {
         display: ChartDisplayType.ActionsTable,
     }
 
+    const hogqlQueryWithDateRange: DataVisualizationNode = {
+        kind: NodeKind.DataVisualizationNode,
+        source: {
+            kind: NodeKind.HogQLQuery,
+            query: 'SELECT count() FROM events WHERE timestamp >= {filters.dateRange.from}',
+            filters: {
+                dateRange: {
+                    date_from: '-7d',
+                    date_to: null,
+                },
+            },
+        },
+        display: ChartDisplayType.ActionsTable,
+    }
+
     const cachedResults: HogQLQueryResponse<number[][]> = {
         results: [[1], [2]],
         columns: ['number'],
@@ -49,6 +64,42 @@ describe('DataTableVisualization', () => {
 
     afterEach(() => {
         cleanup()
+    })
+
+    it('shows the date filter in read-only view mode when the HogQL query uses filter placeholders', async () => {
+        const { container } = render(
+            <DataTableVisualization
+                uniqueKey="data-visualization-read-only-date-range"
+                query={hogqlQueryWithDateRange}
+                setQuery={jest.fn()}
+                cachedResults={cachedResults}
+                readOnly
+            />
+        )
+
+        await waitFor(() => {
+            expect(container.querySelector('[data-attr="date-filter"]')).toBeTruthy()
+        })
+    })
+
+    it('hides the date filter in read-only view mode when the HogQL query has no filter placeholders', async () => {
+        const { container } = render(
+            <DataTableVisualization
+                uniqueKey="data-visualization-read-only-no-date-range"
+                query={query}
+                setQuery={jest.fn()}
+                cachedResults={cachedResults}
+                readOnly
+            />
+        )
+
+        await waitFor(() => {
+            if (!mockLatestLemonTableProps) {
+                throw new Error('Expected LemonTable to render')
+            }
+        })
+
+        expect(container.querySelector('[data-attr="date-filter"]')).toBeNull()
     })
 
     test.each([
