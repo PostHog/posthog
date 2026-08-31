@@ -7,10 +7,6 @@ export const startIntegrationFlowInput = z.object({
   region: cloudRegion,
   projectId: z.number(),
 });
-export type StartIntegrationFlowInput = z.infer<
-  typeof startIntegrationFlowInput
->;
-
 /**
  * Generic integration flow input: any OAuth `kind` PostHog supports. The per-kind routers
  * (linear/slack/github) keep the narrower input above; this one drives the generic starter so
@@ -21,10 +17,6 @@ export const startGenericIntegrationFlowInput = z.object({
   region: cloudRegion,
   projectId: z.number(),
 });
-export type StartGenericIntegrationFlowInput = z.infer<
-  typeof startGenericIntegrationFlowInput
->;
-
 export const startIntegrationFlowOutput = z.object({
   success: z.boolean(),
   error: z.string().optional(),

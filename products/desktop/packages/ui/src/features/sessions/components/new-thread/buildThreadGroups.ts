@@ -150,7 +150,7 @@ export function isGroupableItem(item: ConversationItem): boolean {
  * Tallies, icons, and live/done labels for a run of grouped items. Exported so the thread's
  * `ToolGroup` reads the same counts, keeping one definition of what "ran 3 commands" means.
  */
-export function summarize(items: ConversationItem[]): GroupSummary {
+function summarize(items: ConversationItem[]): GroupSummary {
   const counts: GroupCounts = {
     execute: 0,
     read: 0,
