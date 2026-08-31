@@ -8,18 +8,12 @@ controls every product viewset mixes in stay in access_control.py.
 
 from collections import defaultdict
 from dataclasses import asdict, dataclass
-from functools import cache
 from typing import TYPE_CHECKING, Any, cast
 
-from django.apps import apps
 from django.core.cache import cache as django_cache
-from django.core.exceptions import (
-    FieldDoesNotExist,
-    ValidationError as DjangoValidationError,
-)
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Max, Model, Q
 from django.db.models.functions import Coalesce
-from django.urls import URLResolver, get_resolver
 
 from rest_framework import exceptions
 from rest_framework.decorators import action
@@ -29,13 +23,18 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
-from posthog.exceptions_capture import capture_exception
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scoped_team_ids
-from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.object_names import (
+    display_model,
+    model_has_field,
+    resolve_object_names,
+    resources_with_object_access_controls,
+)
 from products.access_control.backend.facade.resolution_preview import build_resolution_preview
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
@@ -51,141 +50,12 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 
-from .access_control import (
-    AccessControlSerializer,
-    AccessControlViewSetMixin,
-    ResolvedAccessSerializer,
-    upsert_access_control,
-)
+from .access_control import AccessControlSerializer, ResolvedAccessSerializer, upsert_access_control
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
     _GenericViewSet = object
-
-
-@dataclass(frozen=True, kw_only=True)
-class _ResourceDisplayModel:
-    app_label: str
-    model_name: str
-    name_field: str
-
-
-# Names come from universal search's ENTITY_MAP first; these entries cover resources search doesn't
-# index, so they have no ENTITY_MAP entry to borrow. Add one when a resource's objects render raw
-# ids instead of names, in the rules list or the picker; delete one when search starts indexing the
-# resource, since ENTITY_MAP is consulted first and the entry goes dead. A resource in neither place
-# and with no derivable name field is left out of the picker and falls back to the raw id.
-_MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
-    "evaluation": _ResourceDisplayModel(app_label="ai_observability", model_name="evaluation", name_field="name"),
-    "warehouse_view": _ResourceDisplayModel(
-        app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
-    ),
-    "warehouse_table": _ResourceDisplayModel(
-        app_label="warehouse_sources", model_name="datawarehousetable", name_field="name"
-    ),
-    "external_data_source": _ResourceDisplayModel(
-        app_label="warehouse_sources", model_name="externaldatasource", name_field="source_type"
-    ),
-    "session_recording": _ResourceDisplayModel(
-        app_label="posthog", model_name="sessionrecording", name_field="session_id"
-    ),
-    "ticket": _ResourceDisplayModel(app_label="conversations", model_name="ticket", name_field="ticket_number"),
-}
-
-
-@dataclass(frozen=True, kw_only=True)
-class _ResolvedObjectName:
-    name: str | None
-    # Insights link by short_id rather than pk, so the frontend needs it alongside the name
-    short_id: str | None = None
-
-
-def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) -> dict[str, _ResolvedObjectName]:
-    """Map {resource_id -> display info} for one resource type, empty when we can't name its objects.
-
-    Queries through _base_manager so rules pointing at soft-deleted objects still resolve: those are
-    exactly the rows someone opens this page to clean up. Tenant isolation holds via team_id.
-    """
-    display = _display_model(resource) if resource_ids else None
-    if display is None:
-        return {}
-    try:
-        rows = display.model._base_manager.filter(team_id=team_id, pk__in=resource_ids)
-        if resource == "insight":
-            # Insight.name is nullable and saved insights often carry only derived_name, and insight
-            # URLs address short_ids rather than the pk rules store
-            return {
-                str(pk): _ResolvedObjectName(name=name or derived_name, short_id=short_id)
-                for pk, name, derived_name, short_id in rows.values_list("pk", "name", "derived_name", "short_id")
-            }
-        if resource == "ticket":
-            # A bare number doesn't read as an object; match the ticket page's own title
-            return {
-                str(pk): _ResolvedObjectName(name=f"Ticket: {number}")
-                for pk, number in rows.values_list("pk", "ticket_number")
-            }
-        if _model_has_field(display.model, "short_id"):
-            # Notebooks and other short_id models link by short_id, like insights
-            return {
-                str(pk): _ResolvedObjectName(name=name, short_id=short_id)
-                for pk, name, short_id in rows.values_list("pk", display.name_field, "short_id")
-            }
-        return {str(pk): _ResolvedObjectName(name=name) for pk, name in rows.values_list("pk", display.name_field)}
-    except Exception as e:
-        # A resource_id of the wrong shape for the model's pk, or a model that moved. The rules list
-        # falls back to raw ids, but report it: one failure usually breaks the whole resource type
-        capture_exception(e, {"resource": resource})
-        return {}
-
-
-@cache
-def resources_with_object_access_controls() -> dict[APIScopeObject, frozenset[type[Model]]]:
-    """Resources that support object-level access controls, mapped to the models behind them.
-
-    A viewset opts in by mixing in AccessControlViewSetMixin, so the registered routes are the
-    source of truth and this cannot drift from the code; adding the mixin also puts the resource in
-    the settings picker. A scope served by several viewsets maps to several models. The snapshot
-    test in test_access_control.py records the resources; regenerate it with `pytest
-    --snapshot-update`.
-    """
-    found: dict[APIScopeObject, set[type[Model]]] = {}
-
-    def walk(resolver: URLResolver) -> None:
-        for pattern in resolver.url_patterns:
-            if isinstance(pattern, URLResolver):
-                walk(pattern)
-                continue
-            cls = getattr(pattern.callback, "cls", None)
-            if cls is None or not issubclass(cls, AccessControlViewSetMixin):
-                continue
-            scope = getattr(cls, "scope_object", None)
-            # Project-level access is its own control (the "Project access" dropdown), never an
-            # object rule; every rules endpoint filters resource="project" out as well
-            if scope and scope != "INTERNAL" and scope != "project" and scope not in INTERNAL_API_SCOPE_OBJECTS:
-                queryset = getattr(cls, "queryset", None)
-                found.setdefault(scope, set())
-                if queryset is not None:
-                    found[scope].add(queryset.model)
-
-    walk(get_resolver())
-    return {scope: frozenset(models) for scope, models in found.items()}
-
-
-def _model_has_field(model: type[Model], field: str) -> bool:
-    try:
-        model._meta.get_field(field)
-        return True
-    except FieldDoesNotExist:
-        return False
-
-
-@dataclass(frozen=True, kw_only=True)
-class _DisplayModel:
-    """Where a resource's objects live and which field names them."""
-
-    model: type[Model]
-    name_field: str
 
 
 def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
@@ -210,50 +80,6 @@ def _resource_entry(subject: SubjectAccessControl, resource: APIScopeObject) -> 
         "minimum": minimum_access_level(resource),
         "maximum": highest_access_level(resource),
     }
-
-
-def _display_model(resource: str) -> _DisplayModel | None:
-    """Resolve a resource to its model and display field. None means the settings UI cannot work
-    with the resource's objects: search returns 400, rule writes return 400, existing rules show
-    raw ids.
-
-    A resource qualifies when its viewsets carry object-level access controls and we can name its
-    objects, tried in order: search's ENTITY_MAP (its rank-A field is the display name), the
-    supplement for resources search doesn't index, and finally a resource whose routes expose
-    exactly one model carrying a recognizable name field.
-    """
-    # Gate before the cached resolver: resource is raw request input, and caching unknown values
-    # would grow the cache by one permanent entry per distinct garbage string
-    if resource not in resources_with_object_access_controls():
-        return None
-    return _display_model_for_known_resource(resource)
-
-
-@cache
-def _display_model_for_known_resource(resource: str) -> _DisplayModel | None:
-    from posthog.api.search import (
-        ENTITY_MAP,  # noqa: PLC0415 — imports every searchable product model, keep it off this module's import path
-    )
-
-    model: type[Model] | None = None
-    name_field: str | None = None
-    entity = ENTITY_MAP.get(resource)
-    supplement = _MODELS_NOT_IN_ENTITY_MAP.get(resource)
-    if entity is not None:
-        model = entity["klass"]
-        name_field = next((field for field, rank in entity["search_fields"].items() if rank == "A"), None)
-    elif supplement is not None:
-        model = apps.get_model(supplement.app_label, supplement.model_name)
-        name_field = supplement.name_field
-    else:
-        models = resources_with_object_access_controls().get(cast(APIScopeObject, resource)) or frozenset()
-        if len(models) == 1:
-            model = next(iter(models))
-            name_field = next((field for field in ("name", "title", "key") if _model_has_field(model, field)), None)
-
-    if model is None or name_field is None or not _model_has_field(model, "team"):
-        return None
-    return _DisplayModel(model=model, name_field=name_field)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -407,7 +233,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                         "available_access_levels": list(ordered_access_levels(r)),
                         "minimum_access_level": minimum_access_level(r),
                     }
-                    for r in sorted(r for r in resources_with_object_access_controls() if _display_model(r) is not None)
+                    for r in sorted(r for r in resources_with_object_access_controls() if display_model(r) is not None)
                 ],
             }
         )
@@ -579,7 +405,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         # rules lists show what is configured, while the picker search and the rule write are the
         # surfaces that hide inaccessible objects
         names_by_resource = {
-            resource: _resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
+            resource: resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
         }
 
         results = []
@@ -696,7 +522,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
         resource = request.query_params.get("resource") or ""
-        display = _display_model(resource)
+        display = display_model(resource)
         if display is None:
             raise exceptions.ValidationError("resource does not support object access rules")
 
@@ -711,7 +537,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         # Objects mid-deletion or never saved are not sensible rule targets. Excluding rather than
         # filtering keeps rows whose `deleted` is NULL, which is every row on models where the field
         # was added without a default (session recordings), and legacy rows elsewhere
-        if _model_has_field(display.model, "deleted"):
+        if model_has_field(display.model, "deleted"):
             qs = qs.exclude(deleted=True)
         # Insight-specific rather than probing for a `saved` field: only Insight has one among the
         # picker resources, and a future model's field of that name could mean something else
@@ -734,7 +560,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             else:
                 if lookup:
                     # Models with a short_id (notebooks) link by it, so a pasted URL carries one
-                    by_short_id = not lookup.isdigit() and _model_has_field(display.model, "short_id")
+                    by_short_id = not lookup.isdigit() and model_has_field(display.model, "short_id")
                     qs = qs.filter(short_id=lookup) if by_short_id else qs.filter(pk=lookup)
                 elif search:
                     # name_field comes from _display_model's code-defined maps, never from the
@@ -746,7 +572,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             # A lookup id of the wrong shape for the model's pk matches nothing
             pks = []
         # One place builds display names, so the picker shows exactly what the rules list will
-        names = _resolve_object_names(resource, pks, team.id)
+        names = resolve_object_names(resource, pks, team.id)
         results = [{"id": pk, "name": (resolved.name if (resolved := names.get(pk)) else None) or pk} for pk in pks]
         return Response({"results": results})
 
@@ -765,7 +591,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         resource = str(request.data.get("resource") or "")
         resource_id = str(request.data.get("resource_id") or "")
-        display = _display_model(resource)
+        display = display_model(resource)
         if display is None:
             raise exceptions.ValidationError("resource does not support object access rules")
         if not resource_id:

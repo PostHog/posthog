@@ -23,6 +23,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.object_names import display_model, resolve_object_names
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_FALLBACK_MAP,
@@ -213,17 +214,10 @@ def _load_objects(
         # Project rules point at the team itself
         return {str(team.pk): (team, team.name, None)} if str(team.pk) in object_ids else {}
 
-    # Deferred to break the import cycle: the settings presentation module imports this module
-    # for its endpoint.
-    from products.access_control.backend.presentation.access_control_settings import (  # noqa: PLC0415
-        _display_model,
-        _resolve_object_names,
-    )
-
-    display = _display_model(resource)
+    display = display_model(resource)
     if display is None:
         return {}
-    names = _resolve_object_names(resource, object_ids, team.pk)
+    names = resolve_object_names(resource, object_ids, team.pk)
     try:
         instances = display.model._base_manager.filter(team_id=team.pk, pk__in=object_ids)
     except Exception as e:
