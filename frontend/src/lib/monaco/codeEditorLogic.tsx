@@ -9,7 +9,7 @@ import { subscriptions } from 'kea-subscriptions'
 // JS context, and that's exactly what happens on auto-reload when the new script chunks are loaded. Unfortunately
 // esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
-import { type IRange, MarkerSeverity, editor } from 'monaco-editor'
+import { type IPosition, type IRange, MarkerSeverity, editor } from 'monaco-editor'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -59,8 +59,56 @@ export interface ModelMarker extends editor.IMarkerData {
     hogQLFixAction?: ModelMarkerFixAction
     /** Where the fix action is offered. A query-level fix should not need the caret on its marker. */
     hogQLFixScope?: IRange
-    start: number
-    end: number
+}
+
+/** How to place an offset from the metadata query in the editor document. */
+export interface MarkerPlacement {
+    /** The statement the metadata query covered. Notice offsets index this, not the whole script. */
+    query: string
+    /** UTF-16 offset of that statement within the full editor text. */
+    markerOffset: number
+    positionAt: (offset: number) => IPosition
+    /** Where a query-level fix is offered. */
+    statementScope: IRange
+}
+
+export function noticeToMarker(notice: HogQLNotice, severity: MarkerSeverity, placement: MarkerPlacement): ModelMarker {
+    const { query, markerOffset, positionAt, statementScope } = placement
+    // The backend counts code points and Monaco counts UTF-16 units, so convert before adding the
+    // statement offset, which Monaco already counts in UTF-16.
+    const documentPositionAt = (codePointOffset: number): IPosition =>
+        positionAt(codePointOffsetToUtf16(query, codePointOffset) + markerOffset)
+    const start = documentPositionAt(notice.start ?? 0)
+    const end = documentPositionAt(notice.end ?? query.length)
+    return {
+        startLineNumber: start.lineNumber,
+        startColumn: start.column,
+        endLineNumber: end.lineNumber,
+        endColumn: end.column,
+        message: notice.message ?? 'Unknown error',
+        severity: severity,
+        hogQLFix: notice.fix?.startsWith('ai_prompt:') ? undefined : notice.fix,
+        hogQLAIFixPrompt: notice.fix?.startsWith('ai_prompt:') ? notice.fix.slice('ai_prompt:'.length) : undefined,
+        hogQLFixScope: notice.fix_action ? statementScope : undefined,
+        hogQLFixAction: notice.fix_action
+            ? {
+                  title: notice.fix_action.title,
+                  edits: notice.fix_action.edits.map((edit) => {
+                      const editStart = documentPositionAt(edit.start)
+                      const editEnd = documentPositionAt(edit.end)
+                      return {
+                          range: {
+                              startLineNumber: editStart.lineNumber,
+                              startColumn: editStart.column,
+                              endLineNumber: editEnd.lineNumber,
+                              endColumn: editEnd.column,
+                          },
+                          text: edit.text,
+                      }
+                  }),
+              }
+            : undefined,
+    }
 }
 
 export interface CodeEditorLogicProps {
@@ -248,60 +296,21 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         endColumn: scopeEndPosition.column,
                     }
 
-                    function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): ModelMarker {
-                        const start = model!.getPositionAt(
-                            codePointOffsetToUtf16(query, error.start ?? 0) + markerOffset
-                        )
-                        const end = model!.getPositionAt(
-                            codePointOffsetToUtf16(query, error.end ?? query.length) + markerOffset
-                        )
-                        return {
-                            start: error.start ?? 0,
-                            startLineNumber: start.lineNumber,
-                            startColumn: start.column,
-                            end: error.end ?? query.length,
-                            endLineNumber: end.lineNumber,
-                            endColumn: end.column,
-                            message: error.message ?? 'Unknown error',
-                            severity: severity,
-                            hogQLFix: error.fix?.startsWith('ai_prompt:') ? undefined : error.fix,
-                            hogQLAIFixPrompt: error.fix?.startsWith('ai_prompt:')
-                                ? error.fix.slice('ai_prompt:'.length)
-                                : undefined,
-                            hogQLFixScope: error.fix_action ? statementScope : undefined,
-                            hogQLFixAction: error.fix_action
-                                ? {
-                                      title: error.fix_action.title,
-                                      edits: error.fix_action.edits.map((edit) => {
-                                          const editStart = model!.getPositionAt(
-                                              codePointOffsetToUtf16(query, edit.start) + markerOffset
-                                          )
-                                          const editEnd = model!.getPositionAt(
-                                              codePointOffsetToUtf16(query, edit.end) + markerOffset
-                                          )
-                                          return {
-                                              range: {
-                                                  startLineNumber: editStart.lineNumber,
-                                                  startColumn: editStart.column,
-                                                  endLineNumber: editEnd.lineNumber,
-                                                  endColumn: editEnd.column,
-                                              },
-                                              text: edit.text,
-                                          }
-                                      }),
-                                  }
-                                : undefined,
-                        }
+                    const placement: MarkerPlacement = {
+                        query,
+                        markerOffset,
+                        positionAt: (offset: number) => model.getPositionAt(offset),
+                        statementScope,
                     }
 
                     for (const notice of metadataResponse?.errors ?? []) {
-                        markers.push(noticeToMarker(notice, 8 /* MarkerSeverity.Error */))
+                        markers.push(noticeToMarker(notice, 8 /* MarkerSeverity.Error */, placement))
                     }
                     for (const notice of metadataResponse?.warnings ?? []) {
-                        markers.push(noticeToMarker(notice, 4 /* MarkerSeverity.Warning */))
+                        markers.push(noticeToMarker(notice, 4 /* MarkerSeverity.Warning */, placement))
                     }
                     for (const notice of metadataResponse?.notices ?? []) {
-                        markers.push(noticeToMarker(notice, 1 /* MarkerSeverity.Hint */))
+                        markers.push(noticeToMarker(notice, 1 /* MarkerSeverity.Hint */, placement))
                     }
 
                     props.monaco?.editor.setModelMarkers(model, 'hogql', markers)

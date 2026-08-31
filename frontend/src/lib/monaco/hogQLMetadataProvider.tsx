@@ -26,10 +26,6 @@ export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => (
                     lineNumber: activeMarker.endLineNumber,
                 })
                 for (const rawMarker of markersFromMetadata) {
-                    // Compare document offsets on both sides. `rawMarker.start/end` index the metadata
-                    // query, which is one statement of the script, so they only line up with Monaco's
-                    // offsets in the first statement. The line/column range already carries the
-                    // statement's offset.
                     const rawStart = model.getOffsetAt({
                         lineNumber: rawMarker.startLineNumber,
                         column: rawMarker.startColumn,

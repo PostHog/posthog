@@ -42,15 +42,11 @@ describe('hogQLMetadataProvider', () => {
         title: string
     }
 
-    // `event = 'pageview'` sits in the second statement. Its statement-relative offsets are small,
-    // while its line and column point past the first statement.
+    // `event = 'pageview'` sits in the second statement, so its line and column point past the first.
     const taxonomyMarker = (): ModelMarker =>
         ({
             message: "Event 'pageview' was not found in this project taxonomy.",
             hogQLFix: "'$pageview'",
-            // Relative to the second statement, which is what the metadata query covered.
-            start: SCRIPT.indexOf("'pageview'") - SECOND_STATEMENT_OFFSET,
-            end: SCRIPT.indexOf("'pageview'") - SECOND_STATEMENT_OFFSET + "'pageview'".length,
             startLineNumber: 2,
             startColumn: SCRIPT.indexOf("'pageview'") - SECOND_STATEMENT_OFFSET + 1,
             endLineNumber: 2,
