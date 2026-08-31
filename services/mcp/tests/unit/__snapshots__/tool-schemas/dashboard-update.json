@@ -109,7 +109,8 @@
                     "const": 37,
                     "type": "number"
                 }
-            ]
+            ],
+            "description": "* `21` - Can view dashboard\n* `37` - Can edit dashboard"
         },
         "tags": {
             "items": {
