@@ -209,7 +209,7 @@ describe('dataNodeLogic', () => {
         })
     })
 
-    it('can load next data for EventsQuery', async () => {
+    it('clamps EventsQuery pagination to the maximum accumulated rows', async () => {
         const results = [
             [
                 { ...commonResult, timestamp: '2022-12-24T17:00:41.165000Z' },
@@ -225,6 +225,7 @@ describe('dataNodeLogic', () => {
 
         logic = dataNodeLogic({
             key: testUniqueKey,
+            maxPaginationRows: 3,
             query: setLatestVersionsOnQuery({
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
@@ -241,7 +242,7 @@ describe('dataNodeLogic', () => {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 before: '2022-12-24T17:00:41.165000Z|01853a90-ba94-0000-8776-e8df5617c3ec',
-                limit: 100,
+                limit: 2,
             }),
             response: partial({ results }),
         })
@@ -253,6 +254,11 @@ describe('dataNodeLogic', () => {
                 { ...commonResult, uuid: 'new', timestamp: '2022-12-23T17:00:41.165000Z' },
                 'update user properties',
                 '2022-12-23T17:00:41.165000Z',
+            ],
+            [
+                { ...commonResult, uuid: 'newer', timestamp: '2022-12-22T17:00:41.165000Z' },
+                'update user properties',
+                '2022-12-22T17:00:41.165000Z',
             ],
         ]
         mockedQuery.mockResolvedValueOnce({
@@ -270,7 +276,7 @@ describe('dataNodeLogic', () => {
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
                     before: '2022-12-24T17:00:41.165000Z|01853a90-ba94-0000-8776-e8df5617c3ec',
-                    limit: 100,
+                    limit: 2,
                 }),
                 response: partial({ results }),
             })
@@ -278,15 +284,13 @@ describe('dataNodeLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             responseLoading: false,
-            canLoadNextData: true,
-            nextQuery: setLatestVersionsOnQuery({
-                kind: NodeKind.EventsQuery,
-                select: ['*', 'event', 'timestamp'],
-                before: '2022-12-23T17:00:41.165000Z|new',
-                limit: 100,
-            }),
+            canLoadNextData: false,
+            nextQuery: null,
             response: partial({ results: [...results, ...results2] }),
         })
+
+        await expectLogic(logic, () => logic.actions.loadNextData()).toFinishAllListeners()
+        expect(mockedQuery).toHaveBeenCalledTimes(2)
     })
 
     it('can load next data for PersonsNode', async () => {
