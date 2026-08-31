@@ -173,16 +173,11 @@ export function ReportCard({
             ? dismissalReasonLabel(report.dismissal_reason)
             : null
 
-    // Closed rows recede so open work stands out in the mixed flat list, while the outcome badge keeps
-    // full strength: it says why the row closed. The dim sits on the parts around that badge, because
-    // `opacity` on the row itself would fade the badge with everything else. Hover restores the row.
-    const dimClosed = isDismissed || isResolved ? 'opacity-35 group-hover:opacity-100' : undefined
-
     const cardBodyClassName = 'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline'
     const cardBody = (
         <>
             {report.priority && (
-                <div className={clsx('shrink-0', dimClosed)}>
+                <div className="shrink-0">
                     <SignalReportPriorityBadge priority={report.priority} />
                 </div>
             )}
@@ -192,8 +187,7 @@ export function ReportCard({
                 <div
                     className={clsx(
                         'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
-                        hasPr && 'pr-14',
-                        dimClosed
+                        hasPr && 'pr-14'
                     )}
                 >
                     {conventionalTitle && (
@@ -207,8 +201,7 @@ export function ReportCard({
                         className={clsx(
                             'min-w-0',
                             !hasPr && !isReady && 'opacity-80',
-                            'break-words line-clamp-2 text-xs text-secondary leading-snug m-0',
-                            dimClosed
+                            'break-words line-clamp-2 text-xs text-secondary leading-snug m-0'
                         )}
                     >
                         {headline}
@@ -218,8 +211,7 @@ export function ReportCard({
                         className={clsx(
                             'min-w-0',
                             !isReady && 'opacity-80',
-                            'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0',
-                            dimClosed
+                            'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
                         )}
                     >
                         No summary yet. Still collecting context.
@@ -227,29 +219,16 @@ export function ReportCard({
                 ) : null}
 
                 <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none">
-                    {/* The meta items sit in two groups around the outcome badge so a closed row can dim
-                        them without dimming the badge. `empty:hidden` drops the leading group's gap when
-                        the row has neither a repo slug nor a known source. */}
-                    <div
-                        className={clsx(
-                            'flex items-center flex-wrap min-w-0 gap-x-2.5 gap-y-1 empty:hidden',
-                            dimClosed
+                    {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
+                    <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
+                    {!hasPr &&
+                        !redesign &&
+                        !isStatusRedundantWithActionability(report.status, report.actionability) && (
+                            <SignalReportStatusBadge status={report.status} />
                         )}
-                    >
-                        {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
-                        <InboxCardSourceMeta
-                            sourceProducts={report.source_products}
-                            scoutSkillName={report.scout_name}
-                        />
-                        {!hasPr &&
-                            !redesign &&
-                            !isStatusRedundantWithActionability(report.status, report.actionability) && (
-                                <SignalReportStatusBadge status={report.status} />
-                            )}
-                        {!hasPr && !redesign && report.actionability && (
-                            <SignalReportActionabilityBadge actionability={report.actionability} />
-                        )}
-                    </div>
+                    {!hasPr && !redesign && report.actionability && (
+                        <SignalReportActionabilityBadge actionability={report.actionability} />
+                    )}
                     {outcomeLabel && (
                         <Tooltip title={report.dismissal_note || undefined}>
                             <LemonTag
@@ -267,24 +246,29 @@ export function ReportCard({
                             </LemonTag>
                         </Tooltip>
                     )}
-                    <div className={clsx('ml-auto flex shrink-0 items-center gap-x-2.5', dimClosed)}>
-                        <SignalReportBillingBadge report={report} />
-                        <TZLabel
-                            time={report.updated_at ?? report.created_at}
-                            className="shrink-0 text-xs text-tertiary tabular-nums"
-                            title="Last updated"
-                        />
-                    </div>
+                    <SignalReportBillingBadge report={report} />
+                    <TZLabel
+                        time={report.updated_at ?? report.created_at}
+                        className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
+                        title="Last updated"
+                    />
                 </div>
             </div>
         </>
     )
 
     return (
-        <div className={inboxCardRowClassName(attached, { dashed: !hasPr })}>
+        <div
+            className={clsx(
+                inboxCardRowClassName(attached, { dashed: !hasPr }),
+                // Closed rows recede so open work stands out in the mixed flat list; hover restores
+                // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
+                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100'
+            )}
+        >
             <div className="relative flex min-w-0 flex-1">
                 {hasPr && prNumber != null ? (
-                    <div className={clsx('absolute right-0 top-0 z-10', dimClosed)}>
+                    <div className="absolute right-0 top-0 z-10">
                         <PrBadge
                             prNumber={prNumber}
                             // No link in preview mode: the sample PR url is fabricated, and a link would
@@ -309,12 +293,7 @@ export function ReportCard({
                 dismissed report can't be restored, so neither carries actions – skip the column (and
                 divider) for both. */}
             {!isResolved && !(isDismissed && isRefunded) && (
-                <div
-                    className={clsx(
-                        'flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3',
-                        dimClosed
-                    )}
-                >
+                <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     {isDismissed ? (
                         // A refunded report can't be restored (its PR can never be billed again).
                         !isRefunded && (
