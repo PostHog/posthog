@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 
+import { annotationsModel } from '~/models/annotationsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -32,6 +33,20 @@ describe('annotationsSetupLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.ANNOTATIONS }).values.status).toBe(expected)
+    })
+
+    it('re-detects when an annotation is created without leaving the scene', async () => {
+        listSpy.mockResolvedValueOnce({ count: 0, results: [] }).mockResolvedValue({ count: 1, results: [] })
+        const logic = annotationsSetupLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.ANNOTATIONS }).values.status).toBe('needs-setup')
+
+        // The empty state's modal appends the annotation in place, so without the recheck
+        // wiring the gate would keep hiding it until the user re-entered the scene.
+        annotationsModel.actions.appendAnnotations([])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.ANNOTATIONS }).values.status).toBe('has-data')
     })
 
     it('fails open to unknown when the count query fails before any answer', async () => {
