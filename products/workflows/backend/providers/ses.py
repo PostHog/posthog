@@ -63,6 +63,7 @@ class IspSendingMetrics:
 class SESProvider:
     ses_client: "SESClient"
     ses_v2_client: "SESV2Client"
+    ses_v2_metrics_client: "SESV2Client"
 
     def __init__(self):
         # Initialize the boto3 clients
