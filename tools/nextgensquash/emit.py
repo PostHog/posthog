@@ -572,6 +572,13 @@ class Emitter:
                                 continue
                             s_upper = s.upper()
                             cmatch = re.search(r"ADD\s+CONSTRAINT\s+\"?([a-zA-Z0-9_]+)\"?", s, re.IGNORECASE)
+                            tmatch = re.search(r"ALTER\s+TABLE\s+(?:ONLY\s+)?\"?([a-zA-Z0-9_]+)\"?", s, re.IGNORECASE)
+                            # Same rule as index forwarding: skip targets the
+                            # squash doesn't create (managed=False personhog
+                            # tables).
+                            if tmatch and tmatch.group(1).lower() not in managed_tables:
+                                self.dropped_runsql.append(f"{self.app}.{mig_name} [unmanaged-table]: {s[:160]}")
+                                continue
                             if cmatch and "FOREIGN KEY" in s_upper and "ADD COLUMN" not in s_upper:
                                 cname = cmatch.group(1)
                                 self._forwarded_fk_constraint_names.add(cname)
