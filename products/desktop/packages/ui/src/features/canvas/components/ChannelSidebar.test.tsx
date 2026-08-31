@@ -146,8 +146,8 @@ describe("ChannelSidebar", () => {
     {
       what: "nothing has arrived yet",
       state: { items: [], isLoading: true },
-      shown: [] as string[],
-      hidden: ["Sessions", "No matches", "No sessions yet"],
+      shown: ["Sessions"],
+      hidden: ["No matches", "No sessions yet"],
     },
     {
       what: "the space is settled and genuinely empty",

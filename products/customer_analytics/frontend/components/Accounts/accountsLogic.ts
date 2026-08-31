@@ -155,6 +155,7 @@ export interface accountsLogicValues {
     customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi> // accountsColumnConfigLogic
     defaultSelectColumns: string[] // accountsColumnConfigLogic
     querySelectColumns: string[] // accountsColumnConfigLogic
+    relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi> // accountsColumnConfigLogic
     relationshipDefinitionsLoaded: boolean // accountsColumnConfigLogic
     selectColumns: string[] // accountsColumnConfigLogic
     visibleColumnNames: string[] // accountsColumnConfigLogic
@@ -203,6 +204,20 @@ export interface accountsLogicActions {
     ) => {
         customPropertyDefinitions: CustomPropertyDefinitionApi[]
         payload?: any
+    } // accountsColumnConfigLogic
+    loadRelationshipDefinitionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // accountsColumnConfigLogic
+    loadRelationshipDefinitionsSuccess: (
+        relationshipDefinitions: AccountRelationshipDefinitionApi[],
+        payload?: any
+    ) => {
+        payload?: any
+        relationshipDefinitions: AccountRelationshipDefinitionApi[]
     } // accountsColumnConfigLogic
     moveColumn: (
         oldIndex: number,
@@ -457,6 +472,7 @@ export interface accountsLogicMeta {
             accountIdFilter: string | null,
             tileFilter: TileFilter | null,
             accountFilters: AccountFilter[],
+            relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
             columnDisplay: AccountColumnDisplayState,
             sortOrder: AccountSortOrder,
@@ -504,6 +520,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 'querySelectColumns',
                 'aliasToRelationshipDefinition',
                 'aliasToDefinition',
+                'relationshipDefinitionsById',
                 'relationshipDefinitionsLoaded',
                 'customPropertyDefinitionsById',
                 'columnDisplay',
@@ -519,6 +536,8 @@ export const accountsLogic = kea<accountsLogicType>([
             accountsColumnConfigLogic,
             [
                 'loadCustomPropertyDefinitionsSuccess',
+                'loadRelationshipDefinitionsSuccess',
+                'loadRelationshipDefinitionsFailure',
                 'setSelectColumns',
                 'selectColumn',
                 'unselectColumn',
@@ -875,6 +894,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.accountIdFilter,
                 s.tileFilter,
                 s.accountFilters,
+                s.relationshipDefinitionsById,
                 s.customPropertyDefinitionsById,
                 s.columnDisplay,
                 s.sortOrder,
@@ -890,6 +910,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 accountFilters: AccountFilter[],
+                relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
                 customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
                 columnDisplay: AccountColumnDisplayState,
                 sortOrder: AccountSortOrder,
@@ -904,6 +925,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter,
                 tileFilter,
                 accountFilters,
+                relationshipDefinitionsById,
                 customPropertyDefinitionsById,
                 columnDisplay,
                 sortOrder,
@@ -957,33 +979,72 @@ export const accountsLogic = kea<accountsLogicType>([
     listeners(({ actions, values, cache, selectors }) => ({
         loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {
             cache.customPropertyDefinitionsLoaded = true
+            if (!cache.relationshipDefinitionsLoaded) {
+                return
+            }
             const definitionsById = Object.fromEntries(
                 customPropertyDefinitions.map((definition) => [definition.id, definition])
             )
-            const supportedFilters = supportedAccountFilters(values.accountFilters, definitionsById)
+            const supportedFilters = supportedAccountFilters(
+                values.accountFilters,
+                definitionsById,
+                values.relationshipDefinitionsById
+            )
             if (!objectsEqual(supportedFilters, values.accountFilters)) {
                 actions.setAccountFilters(supportedFilters)
             }
         },
-        setAccountFilters: ({ filters }) => {
+        loadRelationshipDefinitionsSuccess: () => {
+            cache.relationshipDefinitionsLoaded = true
             if (!cache.customPropertyDefinitionsLoaded) {
                 return
             }
-            const supportedFilters = supportedAccountFilters(filters, values.customPropertyDefinitionsById)
+            const supportedFilters = supportedAccountFilters(
+                values.accountFilters,
+                values.customPropertyDefinitionsById,
+                values.relationshipDefinitionsById
+            )
+            if (!objectsEqual(supportedFilters, values.accountFilters)) {
+                actions.setAccountFilters(supportedFilters)
+            }
+        },
+        loadRelationshipDefinitionsFailure: () => {
+            cache.relationshipDefinitionsLoaded = true
+            actions.setAccountFilters(values.accountFilters)
+        },
+        setAccountFilters: ({ filters }) => {
+            if (!cache.customPropertyDefinitionsLoaded || !cache.relationshipDefinitionsLoaded) {
+                return
+            }
+            const supportedFilters = supportedAccountFilters(
+                filters,
+                values.customPropertyDefinitionsById,
+                values.relationshipDefinitionsById
+            )
             if (!objectsEqual(supportedFilters, filters)) {
                 actions.setAccountFilters(supportedFilters)
             }
         },
         updateAccountFilters: ({ filters }, _, __, previousState) => {
-            const supportedFilters = cache.customPropertyDefinitionsLoaded
-                ? supportedAccountFilters(filters, values.customPropertyDefinitionsById)
-                : filters
+            const supportedFilters =
+                cache.customPropertyDefinitionsLoaded && cache.relationshipDefinitionsLoaded
+                    ? supportedAccountFilters(
+                          filters,
+                          values.customPropertyDefinitionsById,
+                          values.relationshipDefinitionsById
+                      )
+                    : filters
             const previousFilters = selectors.accountFilters(previousState)
             const changedFilter =
                 supportedFilters.find((filter, index) => !objectsEqual(filter, previousFilters[index])) ??
                 previousFilters.find((filter, index) => !objectsEqual(filter, supportedFilters[index]))
             actions.setAccountFilters(supportedFilters)
-            const fieldKind = changedFilter?.type === 'account' ? 'account_field' : 'custom_property'
+            const fieldKind =
+                changedFilter?.type === 'account'
+                    ? 'account_field'
+                    : changedFilter?.type === 'account_relationship'
+                      ? 'relationship'
+                      : 'custom_property'
             posthog.capture(AccountsEvents.FilterChanged, {
                 filter_type: fieldKind,
                 field_kind: fieldKind,

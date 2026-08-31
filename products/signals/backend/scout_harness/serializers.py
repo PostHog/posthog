@@ -36,6 +36,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutEmissi
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
+from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -533,6 +534,21 @@ class FleetFindingsSummaryQuerySerializer(serializers.Serializer):
         help_text=(
             f"Lookback window in hours over runs' `created_at` "
             f"(default {DEFAULT_FINDINGS_WINDOW_HOURS}, hard cap {MAX_FINDINGS_WINDOW_HOURS})."
+        ),
+    )
+
+
+class ScoutFleetSyncQuerySerializer(serializers.Serializer):
+    """Query parameters for the `sync` action."""
+
+    surface = serializers.ChoiceField(
+        choices=SYNC_SURFACES,
+        required=False,
+        help_text=(
+            "Which surface asked for the materialization, recorded on the "
+            "`signals_scout_fleet_synced` analytics event so a fleet a person's tab-open "
+            "delivered is separable from one the coordinator was going to deliver anyway. "
+            "Omitted means unknown."
         ),
     )
 

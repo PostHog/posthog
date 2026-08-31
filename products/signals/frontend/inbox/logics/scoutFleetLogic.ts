@@ -47,6 +47,7 @@ import {
     captureScoutChatStarted,
     captureScoutConfigChanged,
     ScoutChatType,
+    ScoutFleetSyncOutcome,
     ScoutSurface,
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
@@ -245,6 +246,7 @@ export interface scoutFleetLogicValues {
     scoutConfigs: SignalScoutConfig[] | null
     scoutConfigsLoading: boolean
     scoutEnabledFilter: ScoutEnabledFilter
+    scoutFleetSyncOutcome: ScoutFleetSyncOutcome
     scoutFleetSyncRequested: boolean
     scoutFleetSynced: boolean
     scoutMetadata: ScoutMetadataApi | null
@@ -389,6 +391,9 @@ export interface scoutFleetLogicActions {
     }
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
+    }
+    setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => {
+        outcome: ScoutFleetSyncOutcome
     }
     setScoutOwnerFilter: (owner: string | null) => {
         owner: string | null
@@ -574,9 +579,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         }),
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
+        setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => ({ outcome }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
@@ -618,9 +624,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         return values.scoutConfigs
                     }
                     try {
-                        const configs = await signalsScoutConfigSync(String(teamId))
+                        const configs = await signalsScoutConfigSync(String(teamId), { surface: 'roster' })
                         // Same unmount race as `loadScoutConfigs`: break before reading `values`.
                         breakpoint()
+                        actions.setScoutFleetSyncOutcome('synced')
                         return reconcileById(values.scoutConfigs ?? [], configs, (config) => config.id)
                     } catch (error) {
                         // Materializing is a write, so a member without write access gets a 403 —
@@ -628,6 +635,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         // rather than blanking the roster. Anything else, notably a 5xx, still
                         // throws so a real backend failure reaches error tracking.
                         if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                            // Record which refusal it was. Both leave the roster on whatever the
+                            // list read returned, so the `Scout fleet viewed` that follows would
+                            // otherwise be indistinguishable from a project with no scouts.
+                            actions.setScoutFleetSyncOutcome(error.status === 403 ? 'skipped_permission' : 'not_found')
                             return values.scoutConfigs
                         }
                         throw error
@@ -840,6 +851,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 syncScoutFleetSuccess: () => true,
                 syncScoutFleetFailure: () => true,
+            },
+        ],
+        // Why the roster looks the way it does, read by `Scout fleet viewed`. The sync loader
+        // swallows the refusals it can't act on and answers with the previous list, so only the
+        // loader knows which branch it took — hence the explicit set rather than a mapping off
+        // success. `syncScoutFleetFailure` covers the branch that rethrows.
+        scoutFleetSyncOutcome: [
+            'not_attempted' as ScoutFleetSyncOutcome,
+            {
+                setScoutFleetSyncOutcome: (_, { outcome }) => outcome,
+                syncScoutFleetFailure: () => 'failed' as ScoutFleetSyncOutcome,
             },
         ],
         // Scouts with a delete request in flight — drives the delete button's loading/disabled state
