@@ -143,8 +143,10 @@ scan's string-reference section to find them.
 **Reverse accessors.** A relation field (FK, O2O, M2M) that crosses a product
 boundary without `related_name="+"` adds a reverse accessor and a reverse query
 name to the target class. No import exists, so the scan cannot see it, but any
-caller can traverse it. The move: seal the relation with `related_name="+"` and
-delete its `reverse-accessor(...)` line from
+caller can traverse it. The move: seal the relation with `related_name="+"`,
+remove any explicit `related_query_name` (it keeps `filter()` traversal alive
+and shows as a `query:<name>` row), and delete its `reverse-accessor(...)` line
+from
 `products/model_crossing_uses_baseline.txt` in the same change
 (`bin/hogli product:crossings --all --write-baseline`); give a caller that
 needs reverse access a facade read function. The crossing ratchet blocks new

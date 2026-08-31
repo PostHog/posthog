@@ -48,7 +48,9 @@ def test_disallowed_crossing_uses_match_the_baseline() -> None:
         "call a facade function instead. A 'get_model' line is an apps.get_model reference from "
         "outside the owning product; it is a coupling the import linters cannot see, and it belongs "
         "behind a facade function too. A 'reverse-accessor(...)' line is a boundary-crossing relation "
-        'field without related_name="+"; seal it and give callers a facade read function. '
+        'field without related_name="+" (a query:<name> row means an explicit related_query_name '
+        "keeps filter() traversal alive); seal it, remove the explicit query name, and give "
+        "callers a facade read function. "
         "A 'drives(...)' line is a test outside the product that executes "
         "one of its query runners; move that test into the product. Only a doctrine amendment in "
         "products/architecture.md § Wiring couplings can add a line.\n"
