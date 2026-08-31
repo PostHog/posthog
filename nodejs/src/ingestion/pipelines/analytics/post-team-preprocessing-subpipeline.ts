@@ -87,16 +87,15 @@ export function createPostTeamPreprocessingSubpipeline<
 
     return (
         builder
-            // Warm the team-keyed caches with one batched load per chunk before the sequential
-            // chain below and the hog transformer read them one event at a time. The schema
-            // prefetch shares the enforcement flag, matching when the validation step reads it.
+            // Warm the schema cache with one batched load per chunk before the sequential chain
+            // below reads it one event at a time. The prefetch shares the enforcement flag,
+            // matching when the validation step reads the cache.
             .pipeChunk(
                 prefetchEventSchemasStep(
                     eventSchemaEnforcementManager,
                     teamCachesPrefetchEnabled && eventSchemaEnforcementEnabled
                 )
             )
-            .pipeChunk(prefetchHogFunctionsStep(hogTransformer, teamCachesPrefetchEnabled))
             // These validation steps are synchronous, so we can process events sequentially.
             .sequentially((b) =>
                 b
@@ -132,5 +131,9 @@ export function createPostTeamPreprocessingSubpipeline<
             // Same best-effort, fire-and-forget cache warming for groups: one
             // batched fetch for the chunk's $groupidentify group keys.
             .pipeChunk(prefetchGroupsStep(groupTypeManager, groupsPrefetchEnabled))
+            // Warm the transformation hog-function cache last, after the drop steps above, so
+            // only teams with surviving events are loaded. The transformer runs much later in
+            // the event subpipeline, so the load still lands well ahead of its reads.
+            .pipeChunk(prefetchHogFunctionsStep(hogTransformer, teamCachesPrefetchEnabled))
     )
 }
