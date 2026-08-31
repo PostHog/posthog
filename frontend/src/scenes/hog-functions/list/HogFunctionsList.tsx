@@ -176,6 +176,7 @@ export function HogFunctionList({
                                 </>
                             }
                             description={hogFunction.description}
+                            truncateDescription
                         />
                     )
                 },

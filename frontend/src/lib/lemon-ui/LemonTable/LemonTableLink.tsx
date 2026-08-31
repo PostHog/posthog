@@ -12,27 +12,47 @@ interface LemonTableLinkContentProps {
      * instead of overflowing. The title itself must carry a `truncate` class for the ellipsis to show.
      */
     truncateTitle?: boolean
+    /** Clamp the description to two lines instead of rendering it at full height. */
+    truncateDescription?: boolean
 }
 
 export function LemonTableLink({
     title,
     description,
     truncateTitle,
+    truncateDescription,
     ...props
 }: Pick<LinkProps, 'to' | 'onClick' | 'target' | 'className' | 'targetBlankIcon'> &
     LemonTableLinkContentProps): JSX.Element {
     if (!props.to) {
-        return <LemonTableLinkContent title={title} description={description} truncateTitle={truncateTitle} />
+        return (
+            <LemonTableLinkContent
+                title={title}
+                description={description}
+                truncateTitle={truncateTitle}
+                truncateDescription={truncateDescription}
+            />
+        )
     }
 
     return (
         <Link subtle {...props} className={clsx(props.className, truncateTitle && 'block min-w-0')}>
-            <LemonTableLinkContent title={title} description={description} truncateTitle={truncateTitle} />
+            <LemonTableLinkContent
+                title={title}
+                description={description}
+                truncateTitle={truncateTitle}
+                truncateDescription={truncateDescription}
+            />
         </Link>
     )
 }
 
-function LemonTableLinkContent({ title, description, truncateTitle }: LemonTableLinkContentProps): JSX.Element {
+function LemonTableLinkContent({
+    title,
+    description,
+    truncateTitle,
+    truncateDescription,
+}: LemonTableLinkContentProps): JSX.Element {
     return (
         <div className={clsx('flex flex-col py-1', truncateTitle && 'min-w-0')}>
             <div className={clsx('flex flex-row items-center font-semibold text-sm gap-1', truncateTitle && 'min-w-0')}>
@@ -40,7 +60,7 @@ function LemonTableLinkContent({ title, description, truncateTitle }: LemonTable
             </div>
 
             {description ? (
-                <div className="text-xs text-tertiary mt-1">
+                <div className={clsx('text-xs text-tertiary mt-1', truncateDescription && 'line-clamp-2')}>
                     {typeof description === 'string' ? (
                         <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
                             {description}
