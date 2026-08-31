@@ -14,6 +14,8 @@ describe("railPaneForPath", () => {
     ["/inbox/pulls/$reportId", "inbox"],
     ["/loops", "loops"],
     ["/loops/$loopId/edit", "loops"],
+    ["/feeds/", "feeds"],
+    ["/feeds/$feedId", "feeds"],
   ] as const)("puts %s on %s", (path, pane) => {
     expect(railPaneForPath(path)).toBe(pane);
   });
@@ -37,7 +39,6 @@ describe("railPaneForPath", () => {
     "/spaces/$channelId/history",
     "/spaces/$channelId/canvases",
     "/spaces/$channelId/tasks/$taskId",
-    "/feeds/$feedId",
     "/tasks/$taskId",
     "/new",
   ])("leaves %s with Spaces", (path) => {
@@ -53,9 +54,12 @@ describe("railPaneHasSidebar", () => {
     },
   );
 
-  it.each(["spaces", "activity"] as const)("gives %s a column", (pane) => {
-    expect(railPaneHasSidebar(pane)).toBe(true);
-  });
+  it.each(["spaces", "activity", "feeds"] as const)(
+    "gives %s a column",
+    (pane) => {
+      expect(railPaneHasSidebar(pane)).toBe(true);
+    },
+  );
 });
 
 describe("RAIL_PANE_ROOT", () => {

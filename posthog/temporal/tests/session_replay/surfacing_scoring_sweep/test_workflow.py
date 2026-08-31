@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 import pytest
 from unittest import mock
@@ -172,6 +173,10 @@ async def test_workflow_tolerates_partial_chunk_failures() -> None:
                 ScoreSessionsBatchInputs(),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
+                # A crash in workflow code is a workflow *task* failure, which Temporal
+                # retries forever, so a regression here wedges instead of failing. Cap it
+                # so the test reports a timeout rather than hanging the suite.
+                execution_timeout=timedelta(seconds=30),
             )
 
     parsed = _as_batch_result(result)

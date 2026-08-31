@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import {
     AccountsTableAccountField,
     AccountsTableAccountFieldOperator,
@@ -140,6 +141,7 @@ describe('accountsLogic', () => {
     afterEach(() => {
         logic.unmount()
         localStorage.clear()
+        resumeKeaLoadersErrors()
     })
 
     it('starts with empty filters', () => {
@@ -278,6 +280,31 @@ describe('accountsLogic', () => {
 
         expect(logic.values.accountsQuerySource?.kind).toBe('AccountsTableQuery')
         expect(logic.values.metricsQuery).not.toBeNull()
+    })
+
+    it('removes relationship filters when relationship definitions fail to load', async () => {
+        logic.unmount()
+        silenceKeaLoadersErrors()
+        mockDefinitionsList.mockRejectedValueOnce(new Error('network'))
+        logic = accountsLogic()
+        logic.mount()
+
+        logic.actions.updateAccountFilters([
+            {
+                type: PropertyFilterType.AccountRelationship,
+                key: CSM_DEFINITION_ID,
+                operator: PropertyOperator.Exact,
+                value: [42],
+            },
+        ])
+
+        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
+
+        expect(logic.values.accountFilters).toEqual([])
+        expect(logic.values.accountsQuerySource?.filters).not.toContainEqual(
+            expect.objectContaining({ kind: 'relationship' })
+        )
+        expect(logic.values.activeFilterCount).toBe(0)
     })
 
     it('keeps overview metrics off the list query', () => {

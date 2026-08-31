@@ -262,11 +262,13 @@ retarget its originating background tab as described below. `railHistoryStore`
   still drives the strip's **highlight**, which should flip instantly — that is
   a render, not a write.
 - **A session is not always a path param.** Activity reads its picked item out
-  of `/activity`'s *search*, and a feed does the same. The strip's identity and
-  label therefore come from `useActiveSession()`, never `params.taskId`, or a
-  tab sitting on an open session reads "New tab". That selection lives in the
-  URL precisely so a tab can name it and restore it — don't move it back into a
-  store.
+  of `/activity`'s *search*. The strip's identity and label therefore come from
+  `useActiveSession()`, never `params.taskId`, or a tab sitting on an open
+  session reads "New tab". That selection lives in the URL precisely so a tab
+  can name it and restore it — don't move it back into a store.
+- **A saved search names its own tab.** `/feeds/$feedId` is the tab; picking a
+  result reads that task into the pane without leaving the search, so the strip
+  drops the active session there and labels the tab with the search's name.
 - **Label resolution is reactive + cached.** Names come from the active
   record's warm fetch, then the channel list / all-tasks list, then a
   module-level cache — and the `tabs` memo references those sources directly (so

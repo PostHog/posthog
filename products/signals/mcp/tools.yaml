@@ -443,8 +443,10 @@ tools:
             precedence when set), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to
             the inbox). Cron schedules use the project timezone automatically and occurrences must be at least 30
             minutes apart; set null to return to the rolling interval. You can also configure
-            `output_destinations.slack` with a Slack integration and channel. `skill_name` is fixed. Enabling records
-            who flipped it on and is activity-logged, since running a scout drives spend.
+            `output_destinations.slack` with a Slack integration plus either a `channel` to post into or `users` to DM
+            directly (handy for personal scouts) — find channel ids with integrations-channels-retrieve and member ids
+            with integrations-users-retrieve. `skill_name` is fixed. Enabling records who flipped it on and is
+            activity-logged, since running a scout drives spend.
     scout-create:
         operation: signals_scout_create
         enabled: true
@@ -461,8 +463,9 @@ tools:
             markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps,
             and report criteria there. The server always grants the report-channel tools. Optional `files` bundle
             reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and
-            typed output destinations such as Slack. Repeating the same definition is safe and applies any supplied
-            config fields. Reusing the name for a different definition returns a conflict.
+            typed output destinations such as Slack (a channel to post into, or users to DM directly). Repeating the
+            same definition is safe and applies any supplied config fields. Reusing the name for a different definition
+            returns a conflict.
         confirmed_action:
             message: >
                 About to create scout '{name}', a persistent automation that can run unattended on its configured
