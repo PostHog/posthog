@@ -4,6 +4,7 @@ from django.db import transaction
 
 from posthog.dataclasses import frozen
 
+from products.web_analytics.backend.content_autopilot.lifecycle import lock_proposal
 from products.web_analytics.backend.models import ContentAutopilotProposal
 
 
@@ -29,7 +30,7 @@ def _export_filename(*, file_path: object, proposal_id: str) -> str:
     filename = PurePosixPath(file_path.replace("\\", "/")).name
     if (
         not filename
-        or filename in {".", ".."}
+        or filename == ".."
         or len(filename) > MAX_EXPORT_FILENAME_CHARS
         or any(ord(character) < 32 or ord(character) == 127 for character in filename)
     ):
@@ -40,9 +41,7 @@ def _export_filename(*, file_path: object, proposal_id: str) -> str:
 def export_proposal(*, proposal: ContentAutopilotProposal) -> ExportedProposal:
     with transaction.atomic():
         try:
-            locked_proposal = (
-                ContentAutopilotProposal.objects.for_team(proposal.team_id).select_for_update().get(id=proposal.id)
-            )
+            locked_proposal = lock_proposal(proposal)
         except ContentAutopilotProposal.DoesNotExist as error:
             raise ContentAutopilotExportError("That proposal could not be found.") from error
 

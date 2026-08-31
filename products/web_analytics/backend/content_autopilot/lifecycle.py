@@ -20,21 +20,34 @@ MAX_PROPOSAL_MARKDOWN_CHARS = 500_000
 ACTIVE_RUN_STATUSES = {ContentAutopilotRun.RunStatus.PENDING, ContentAutopilotRun.RunStatus.GENERATING}
 
 
+def lock_proposal(proposal: ContentAutopilotProposal) -> ContentAutopilotProposal:
+    return (
+        ContentAutopilotProposal.objects.for_team(proposal.team_id, canonical=True)
+        .select_for_update()
+        .get(id=proposal.id)
+    )
+
+
 def start_run(*, team: Team, profile_id: str, triggered_by_id: int | None) -> ContentAutopilotRun:
+    team_id = team.parent_team_id or team.id
     with transaction.atomic():
         try:
-            profile = ContentAutopilotSiteProfile.objects.for_team(team.id).select_for_update().get(id=profile_id)
+            profile = (
+                ContentAutopilotSiteProfile.objects.for_team(team_id, canonical=True)
+                .select_for_update()
+                .get(id=profile_id)
+            )
         except ContentAutopilotSiteProfile.DoesNotExist as error:
             raise ContentAutopilotLifecycleError("Select a site before starting a content run.") from error
 
         if (
-            ContentAutopilotRun.objects.for_team(team.id)
+            ContentAutopilotRun.objects.for_team(team_id, canonical=True)
             .filter(profile=profile, run_status__in=ACTIVE_RUN_STATUSES)
             .exists()
         ):
             raise ContentAutopilotLifecycleError("A content run is already in progress for this site.")
 
-        return ContentAutopilotRun.objects.for_team(team.id).create(
+        return ContentAutopilotRun.objects.for_team(team_id, canonical=True).create(
             team=team,
             profile=profile,
             run_status=ContentAutopilotRun.RunStatus.PENDING,
@@ -53,7 +66,9 @@ def start_run(*, team: Team, profile_id: str, triggered_by_id: int | None) -> Co
 
 def cancel_run(*, run: ContentAutopilotRun) -> ContentAutopilotRun:
     with transaction.atomic():
-        locked_run = ContentAutopilotRun.objects.for_team(run.team_id).select_for_update().get(id=run.id)
+        locked_run = (
+            ContentAutopilotRun.objects.for_team(run.team_id, canonical=True).select_for_update().get(id=run.id)
+        )
         if locked_run.run_status not in ACTIVE_RUN_STATUSES:
             raise ContentAutopilotLifecycleError("Only a pending or generating run can be canceled.")
         locked_run.run_status = ContentAutopilotRun.RunStatus.CANCELED
@@ -64,9 +79,7 @@ def cancel_run(*, run: ContentAutopilotRun) -> ContentAutopilotRun:
 
 def reject_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopilotProposal:
     with transaction.atomic():
-        locked_proposal = (
-            ContentAutopilotProposal.objects.for_team(proposal.team_id).select_for_update().get(id=proposal.id)
-        )
+        locked_proposal = lock_proposal(proposal)
         if locked_proposal.lifecycle_status != ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW:
             raise ContentAutopilotLifecycleError("Only a proposal ready for review can be rejected.")
         locked_proposal.lifecycle_status = ContentAutopilotProposal.LifecycleStatus.REJECTED
@@ -74,29 +87,21 @@ def reject_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopilotPr
         return locked_proposal
 
 
-def _reset_for_regeneration(proposal: ContentAutopilotProposal) -> None:
+def _reset_for_regeneration(proposal: ContentAutopilotProposal) -> list[str]:
     proposal.lifecycle_status = ContentAutopilotProposal.LifecycleStatus.GENERATING
     proposal.validation_report = default_content_autopilot_validation_report()
+    return ["lifecycle_status", "validation_report"]
 
 
 def regenerate_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopilotProposal:
     with transaction.atomic():
-        locked_proposal = (
-            ContentAutopilotProposal.objects.for_team(proposal.team_id).select_for_update().get(id=proposal.id)
-        )
+        locked_proposal = lock_proposal(proposal)
         if locked_proposal.lifecycle_status not in {
             ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW,
             ContentAutopilotProposal.LifecycleStatus.FAILED,
         }:
             raise ContentAutopilotLifecycleError("Only proposals ready for review or failed can be regenerated.")
-        _reset_for_regeneration(locked_proposal)
-        locked_proposal.save(
-            update_fields=[
-                "lifecycle_status",
-                "validation_report",
-                "updated_at",
-            ]
-        )
+        locked_proposal.save(update_fields=[*_reset_for_regeneration(locked_proposal), "updated_at"])
         return locked_proposal
 
 
@@ -107,22 +112,20 @@ def edit_proposal(
     content_package: dict[str, object],
 ) -> ContentAutopilotProposal:
     if len(proposed_markdown) > MAX_PROPOSAL_MARKDOWN_CHARS:
-        raise ContentAutopilotLifecycleError("Proposal Markdown must be 500,000 characters or fewer.")
-    with transaction.atomic():
-        locked_proposal = (
-            ContentAutopilotProposal.objects.for_team(proposal.team_id).select_for_update().get(id=proposal.id)
+        raise ContentAutopilotLifecycleError(
+            f"Proposal Markdown must be {MAX_PROPOSAL_MARKDOWN_CHARS:,} characters or fewer."
         )
+    with transaction.atomic():
+        locked_proposal = lock_proposal(proposal)
         if locked_proposal.lifecycle_status != ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW:
             raise ContentAutopilotLifecycleError("Only a proposal ready for review can be edited.")
         locked_proposal.proposed_markdown = proposed_markdown
         locked_proposal.content_package = {key: value for key, value in content_package.items() if key != "markdown"}
-        _reset_for_regeneration(locked_proposal)
         locked_proposal.save(
             update_fields=[
                 "proposed_markdown",
                 "content_package",
-                "lifecycle_status",
-                "validation_report",
+                *_reset_for_regeneration(locked_proposal),
                 "updated_at",
             ]
         )

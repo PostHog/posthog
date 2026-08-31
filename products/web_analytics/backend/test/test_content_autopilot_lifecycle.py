@@ -99,25 +99,30 @@ class TestContentAutopilotLifecycle(BaseTest):
 
     @parameterized.expand(
         [
-            ("ready_for_review", ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW, True),
-            ("failed", ContentAutopilotProposal.LifecycleStatus.FAILED, True),
-            ("rejected", ContentAutopilotProposal.LifecycleStatus.REJECTED, False),
-            ("generating", ContentAutopilotProposal.LifecycleStatus.GENERATING, False),
+            ("ready_for_review", ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW),
+            ("failed", ContentAutopilotProposal.LifecycleStatus.FAILED),
         ]
     )
-    def test_regeneration_accepts_only_reviewed_or_failed_drafts(
-        self, _name: str, lifecycle_status: str, is_allowed: bool
-    ) -> None:
-        profile = create_content_autopilot_profile(self.team)
-        proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
-        proposal.lifecycle_status = lifecycle_status
-        proposal.save(update_fields=["lifecycle_status"])
+    def test_regeneration_accepts_reviewed_or_failed_drafts(self, _name: str, lifecycle_status: str) -> None:
+        regenerated = regenerate_proposal(proposal=self._proposal_with_status(lifecycle_status))
 
-        if not is_allowed:
-            with self.assertRaises(ContentAutopilotLifecycleError):
-                regenerate_proposal(proposal=proposal)
-            return
-
-        regenerated = regenerate_proposal(proposal=proposal)
         self.assertEqual(regenerated.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.GENERATING)
         self.assertEqual(regenerated.validation_report, {"passed": False, "checks": []})
+
+    @parameterized.expand(
+        [
+            ("rejected", ContentAutopilotProposal.LifecycleStatus.REJECTED),
+            ("generating", ContentAutopilotProposal.LifecycleStatus.GENERATING),
+        ]
+    )
+    def test_regeneration_refuses_other_drafts(self, _name: str, lifecycle_status: str) -> None:
+        with self.assertRaises(ContentAutopilotLifecycleError):
+            regenerate_proposal(proposal=self._proposal_with_status(lifecycle_status))
+
+    def _proposal_with_status(self, lifecycle_status: str) -> ContentAutopilotProposal:
+        profile = create_content_autopilot_profile(self.team)
+        return create_content_autopilot_proposal(
+            self.team,
+            create_content_autopilot_run(self.team, profile),
+            lifecycle_status=lifecycle_status,
+        )

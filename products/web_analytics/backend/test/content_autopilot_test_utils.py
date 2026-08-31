@@ -41,6 +41,7 @@ def create_content_autopilot_proposal(
     run: ContentAutopilotRun,
     *,
     proposal_type: str = ContentAutopilotProposal.ProposalType.PAGE_IMPROVEMENT,
+    lifecycle_status: str = ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW,
     file_path: str = "content/guides/example.md",
     validation_passed: bool = True,
     markdown: str = "# Improved guide\n\nUseful content.",
@@ -49,7 +50,7 @@ def create_content_autopilot_proposal(
         team=team,
         run=run,
         proposal_type=proposal_type,
-        lifecycle_status=ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW,
+        lifecycle_status=lifecycle_status,
         title="Improve the example guide",
         target_url="https://example.com/guides/example",
         evidence=[

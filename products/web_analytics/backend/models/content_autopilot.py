@@ -1,10 +1,17 @@
 from collections.abc import Iterable
+from typing import Any
 
 from django.db import models
-from django.db.models.base import ModelBase
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
+
+
+def _parent_team_id(child: models.Model, relation: str, update_fields: Iterable[str] | None) -> int | None:
+    touched = None if update_fields is None else set(update_fields)
+    if not (child._state.adding or touched is None or touched & {relation, f"{relation}_id", "team", "team_id"}):
+        return None
+    return getattr(child, relation).team_id
 
 
 def default_content_autopilot_package() -> dict[str, object]:
@@ -78,24 +85,13 @@ class ContentAutopilotRun(TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_contentautopilotrun"
         indexes = [models.Index(fields=["team", "-created_at"], name="content_auto_run_team_created")]
 
-    def save(
-        self,
-        *,
-        force_insert: bool | tuple[ModelBase, ...] = False,
-        force_update: bool = False,
-        using: str | None = None,
-        update_fields: Iterable[str] | None = None,
-    ) -> None:
-        profile_team_id = self.profile.team_id
-        if self.team_id is not None and self.team_id != profile_team_id:
-            raise ValueError("ContentAutopilotRun must belong to the same team as its profile.")
-        self.team_id = profile_team_id
-        super().save(
-            force_insert=force_insert,
-            force_update=force_update,
-            using=using,
-            update_fields=update_fields,
-        )
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        parent_team_id = _parent_team_id(self, "profile", kwargs.get("update_fields"))
+        if parent_team_id is not None:
+            if self.team_id is not None and self.team_id != parent_team_id:
+                raise ValueError("ContentAutopilotRun must belong to the same team as its profile.")
+            self.team_id = parent_team_id
+        super().save(*args, **kwargs)
 
 
 class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
@@ -141,21 +137,10 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
             models.Index(fields=["team", "lifecycle_status", "-created_at"], name="content_auto_prop_status"),
         ]
 
-    def save(
-        self,
-        *,
-        force_insert: bool | tuple[ModelBase, ...] = False,
-        force_update: bool = False,
-        using: str | None = None,
-        update_fields: Iterable[str] | None = None,
-    ) -> None:
-        run_team_id = self.run.team_id
-        if self.team_id is not None and self.team_id != run_team_id:
-            raise ValueError("ContentAutopilotProposal must belong to the same team as its run.")
-        self.team_id = run_team_id
-        super().save(
-            force_insert=force_insert,
-            force_update=force_update,
-            using=using,
-            update_fields=update_fields,
-        )
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        parent_team_id = _parent_team_id(self, "run", kwargs.get("update_fields"))
+        if parent_team_id is not None:
+            if self.team_id is not None and self.team_id != parent_team_id:
+                raise ValueError("ContentAutopilotProposal must belong to the same team as its run.")
+            self.team_id = parent_team_id
+        super().save(*args, **kwargs)
