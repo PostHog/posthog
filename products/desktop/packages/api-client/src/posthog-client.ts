@@ -4808,6 +4808,9 @@ export class PostHogAPIClient {
     if (params?.priority) {
       url.searchParams.set("priority", params.priority);
     }
+    if (params?.count_only != null) {
+      url.searchParams.set("count_only", String(params.count_only));
+    }
     if (params?.has_implementation_pr != null) {
       url.searchParams.set(
         "has_implementation_pr",
