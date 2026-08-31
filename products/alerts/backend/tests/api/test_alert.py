@@ -1600,6 +1600,18 @@ class TestAlertSimulate(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_simulate_unknown_insight_short_id_returns_not_found_error(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": "not-a-real-short-id",
+                "detector_config": {"type": "zscore"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "does_not_exist"
+
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
     def test_simulate_accepts_insight_short_id(self, mock_simulate) -> None:
         mock_simulate.return_value = {

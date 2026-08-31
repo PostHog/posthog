@@ -192,12 +192,15 @@ class DetectorConfigField(serializers.JSONField):
 class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
     """Resolve an insight by its database ID or its user-facing short ID."""
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data: object) -> Insight:
+        if isinstance(data, bool) or not isinstance(data, (str, int)):
+            self.fail("incorrect_type", data_type=type(data).__name__)
+
         insight = resolve_insight_by_id_or_short_id(self.get_queryset(), data)
         if insight is not None:
             return insight
 
-        return super().to_internal_value(data)
+        self.fail("does_not_exist", pk_value=data)
 
 
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
