@@ -5,9 +5,15 @@ import {
 } from "@posthog/shared/domain-types";
 import { router } from "expo-router";
 import { ArrowSquareOut, CaretRight, SpeakerHigh } from "phosphor-react-native";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Linking, Pressable, ScrollView, Switch, View } from "react-native";
 import { useAuthStore, useProjectsQuery, useUserQuery } from "@/features/auth";
+import {
+  GRAVATAR_MANAGE_URL,
+  mapProbeResultToStatus,
+} from "@/features/auth/gravatar";
+import { useGravatarUrl } from "@/features/auth/useGravatarUrl";
+import { useImageProbe } from "@/features/auth/useImageProbe";
 import { useDismissedReportsStore } from "@/features/inbox/stores/dismissedReportsStore";
 import { usePushTokenStore } from "@/features/notifications/stores/pushTokenStore";
 import {
@@ -21,6 +27,7 @@ import {
 import { DailyReportLimitRow } from "@/features/settings/components/DailyReportLimitRow";
 import { DebugInfoSection } from "@/features/settings/components/DebugInfoSection";
 import { FloatingSettingsHeader } from "@/features/settings/components/FloatingSettingsHeader";
+import { ProfilePictureRow } from "@/features/settings/components/ProfilePictureRow";
 import { SettingsRow } from "@/features/settings/components/SettingsRow";
 import { SettingsSection } from "@/features/settings/components/SettingsSection";
 import { SelectSheet } from "@/features/tasks/composer/SelectSheet";
@@ -213,6 +220,20 @@ export default function SettingsScreen() {
     (s) => s.dismissedIds.length + s.acceptedIds.length,
   );
   const clearDismissed = useDismissedReportsStore((s) => s.clearDismissed);
+
+  const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
+  const gravatarUrl = useGravatarUrl(userData?.email);
+  const candidateUrl =
+    gravatarUrl && refreshedAt
+      ? `${gravatarUrl}&_=${refreshedAt}`
+      : gravatarUrl;
+  const probe = useImageProbe(candidateUrl);
+  const handleRefreshGravatar = useCallback(() => {
+    setRefreshedAt(Date.now());
+  }, []);
+  const handleOpenGravatar = useCallback(() => {
+    Linking.openURL(GRAVATAR_MANAGE_URL).catch(() => {});
+  }, []);
 
   const [themeSheetOpen, setThemeSheetOpen] = useState(false);
   const [fontSizeSheetOpen, setFontSizeSheetOpen] = useState(false);
@@ -548,6 +569,16 @@ export default function SettingsScreen() {
 
         {/* Profile */}
         <SettingsSection title="Profile">
+          {userData ? (
+            <ProfilePictureRow
+              user={userData}
+              imageUrl={probe.url}
+              status={mapProbeResultToStatus(probe.result)}
+              checking={probe.loading || !candidateUrl}
+              onRefresh={handleRefreshGravatar}
+              onOpenGravatar={handleOpenGravatar}
+            />
+          ) : null}
           <SettingsRow
             label="First name"
             rightSlot={
