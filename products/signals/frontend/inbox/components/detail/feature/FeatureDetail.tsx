@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { lazy, Suspense } from 'react'
 
-import { IconAI, IconArrowLeft, IconClockRewind, IconDocument, IconPencil, IconQuestion } from '@posthog/icons'
+import {
+    IconAI,
+    IconArrowLeft,
+    IconClockRewind,
+    IconDocument,
+    IconListCheck,
+    IconPencil,
+    IconQuestion,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -18,6 +26,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
+
+import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { featureDetailLogic, FeatureDetailSubTab } from '../../../logics/featureDetailLogic'
 import { inboxReportDetailLogic } from '../../../logics/inboxReportDetailLogic'
@@ -415,127 +425,142 @@ function EditableTitle({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
-/**
- * Initial planning view. The conversation leads while a live feature summary and artefact log show
- * the durable output. Finish planning becomes available once the required context exists.
- */
-function FeaturePlanningView({ report }: { report: SignalReport }): JSX.Element {
+/** Planning tab: starts fresh sessions explicitly and keeps the latest conversation alongside its durable output. */
+function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
     const logic = featureDetailLogic({ reportId: report.id, report })
-    const { missingForPlanningCompletion, finishingPlanning } = useValues(logic)
-    const { finishPlanning } = useActions(logic)
-    const { reportArtefacts, primaryTask } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const {
+        featureStage,
+        finishingPlanning,
+        isManaged,
+        missingForPlanningCompletion,
+        planningSessionActive,
+        planningTask,
+        startingPlanningSession,
+    } = useValues(logic)
+    const { finishPlanning, startPlanningSession } = useActions(logic)
+    const { reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
 
-    const planningTaskId = primaryTask?.task.id
-    const planningRunId = primaryTask?.task.latest_run?.id
+    const planningTaskId = planningTask?.task.id
+    const planningRun = planningTask?.task.latest_run
+    const planningRunId = planningRun?.id
+    const planningActionLabel = !planningTask
+        ? 'Start planning'
+        : planningRun?.status === TaskRunStatus.FAILED || planningRun?.status === TaskRunStatus.CANCELLED
+          ? 'Restart planning'
+          : 'Start another planning session'
+    const planningDescription = isManaged
+        ? 'Review an owned feature with an agent. Revisit its intended behavior, current status, measurement, or next increment.'
+        : featureStage === 'staged'
+          ? 'Review this discovered feature with an agent. It stays discovered until you finish planning.'
+          : 'Work with an agent to define the feature, how it should be built, and how PostHog should measure it.'
+    const finishDisabledReason = !planningTask
+        ? 'Start a planning session first'
+        : missingForPlanningCompletion.length > 0
+          ? `Still needed: ${missingForPlanningCompletion.join(', ')}`
+          : undefined
 
     return (
-        <div className="@container w-full max-w-[calc(180ch+5rem)] mx-auto px-6 py-5 text-sm flex flex-col flex-1 min-h-0">
-            <div className="flex flex-col gap-3.5 mb-4 shrink-0">
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    icon={<IconArrowLeft />}
-                    to={urls.inbox('features')}
-                    className="-ml-2 w-fit"
-                >
-                    Features
-                </LemonButton>
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex flex-col gap-2 min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                            <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
-                                {report.title || 'Untitled feature'}
-                            </h1>
-                            <LemonTag type="warning" size="small">
-                                Planning
-                            </LemonTag>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary leading-none select-none">
-                            <span className="flex items-center gap-1">
-                                <span>Started</span>
-                                <TZLabel time={report.created_at} />
-                            </span>
-                        </div>
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between">
+                <div className="flex max-w-[80ch] flex-col gap-1">
+                    <h2 className="m-0 text-base font-semibold">Planning</h2>
+                    <p className="m-0 text-sm text-secondary">{planningDescription}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 @2xl:shrink-0">
+                    {planningTask && !planningSessionActive ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={startPlanningSession}
+                            loading={startingPlanningSession}
+                        >
+                            {planningActionLabel}
+                        </LemonButton>
+                    ) : null}
+                    {!isManaged ? (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={finishPlanning}
+                            loading={finishingPlanning}
+                            disabledReason={finishDisabledReason}
+                            tooltip={finishDisabledReason ? undefined : 'Activate the feature owner'}
+                        >
+                            Finish planning
+                        </LemonButton>
+                    ) : null}
+                </div>
+            </div>
+
+            {!planningTask ? (
+                <div className="flex min-h-80 flex-col items-center justify-center gap-3 rounded border border-primary bg-surface-primary p-6 text-center">
+                    <IconAI className="text-2xl text-tertiary" />
+                    <div className="flex max-w-[60ch] flex-col gap-1">
+                        <h3 className="m-0 text-base font-semibold">Plan this feature with an agent</h3>
+                        <p className="m-0 text-sm text-secondary">{planningDescription}</p>
                     </div>
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={finishPlanning}
-                        loading={finishingPlanning}
-                        disabledReason={
-                            missingForPlanningCompletion.length > 0
-                                ? `Still needed: ${missingForPlanningCompletion.join(', ')}`
-                                : undefined
-                        }
-                        tooltip={
-                            missingForPlanningCompletion.length === 0
-                                ? 'Complete planning and activate the feature owner'
-                                : undefined
-                        }
+                        onClick={startPlanningSession}
+                        loading={startingPlanningSession}
                     >
-                        Finish planning
+                        Start planning
                     </LemonButton>
                 </div>
-            </div>
-
-            {/* Chat leads (left, 2/3) — it's the primary surface while planning; the live overview rides along right. */}
-            <div className="grid grid-cols-1 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-5 flex-1 min-h-0">
-                <div className="min-w-0 flex flex-col min-h-[480px]">
-                    <div className="flex flex-col flex-1 min-h-0 rounded border border-primary bg-surface-primary px-4">
-                        {planningTaskId && planningRunId ? (
-                            <Suspense fallback={<LemonSkeleton className="my-4 h-24" />}>
-                                <TaskRunChat taskId={planningTaskId} runId={planningRunId} />
-                            </Suspense>
-                        ) : (
-                            <div className="flex flex-1 items-center justify-center text-sm text-tertiary">
-                                Starting the planning conversation…
-                            </div>
-                        )}
+            ) : (
+                <div className="grid grid-cols-1 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-5 min-h-0">
+                    <div className="min-w-0 flex flex-col min-h-[480px]">
+                        <div className="flex flex-col flex-1 min-h-0 rounded border border-primary bg-surface-primary px-4">
+                            {planningTaskId && planningRunId ? (
+                                <Suspense fallback={<LemonSkeleton className="my-4 h-24" />}>
+                                    <TaskRunChat taskId={planningTaskId} runId={planningRunId} />
+                                </Suspense>
+                            ) : (
+                                <div className="flex flex-1 items-center justify-center text-sm text-tertiary">
+                                    Starting the planning conversation…
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="min-w-0 flex flex-col gap-5 overflow-y-auto">
+                        <DetailSection icon={<IconDocument />} title="Summary">
+                            {report.summary ? (
+                                <LemonMarkdown className={MARKDOWN_BODY_CLASSES} disableImages>
+                                    {report.summary}
+                                </LemonMarkdown>
+                            ) : (
+                                <p className="m-0 text-sm italic text-tertiary">
+                                    No summary yet. Plan the feature with the agent and it will fill this in.
+                                </p>
+                            )}
+                        </DetailSection>
+                        <DetailSection icon={<IconClockRewind />} title="Artefacts">
+                            {reportArtefacts && reportArtefacts.length > 0 ? (
+                                <ArtefactLogList reportId={report.id} artefacts={reportArtefacts} />
+                            ) : (
+                                <p className="m-0 text-sm italic text-tertiary">Nothing yet.</p>
+                            )}
+                        </DetailSection>
                     </div>
                 </div>
-                <div className="min-w-0 flex flex-col gap-5 overflow-y-auto">
-                    <DetailSection icon={<IconDocument />} title="Summary">
-                        {report.summary ? (
-                            <LemonMarkdown className={MARKDOWN_BODY_CLASSES} disableImages>
-                                {report.summary}
-                            </LemonMarkdown>
-                        ) : (
-                            <p className="m-0 text-sm italic text-tertiary">
-                                No summary yet. Plan the feature with the agent and it will fill this in.
-                            </p>
-                        )}
-                    </DetailSection>
-                    <DetailSection icon={<IconClockRewind />} title="Artefacts">
-                        {reportArtefacts && reportArtefacts.length > 0 ? (
-                            <ArtefactLogList reportId={report.id} artefacts={reportArtefacts} />
-                        ) : (
-                            <p className="m-0 text-sm italic text-tertiary">Nothing yet.</p>
-                        )}
-                    </DetailSection>
-                </div>
-            </div>
+            )}
         </div>
     )
 }
 
-/**
- * Dedicated feature report detail with Status, Owner, and Feed surfaces. Initial planning uses the
- * live conversation view; the same report remains active afterward.
- */
+/** Feature report detail with durable status, planning, ownership, and activity surfaces. */
 export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = featureDetailLogic({ reportId: report.id, report })
-    const { activeSubTab, isPlanning, isStaged, hasImplementationRun, startingImplementation, promotingFeature } =
+    const { activeSubTab, featureStage, isManaged, isStaged, hasImplementationRun, startingImplementation } =
         useValues(logic)
-    const { setActiveSubTab, startImplementation, promoteFeature } = useActions(logic)
-
-    if (isPlanning) {
-        return <FeaturePlanningView report={report} />
-    }
+    const { setActiveSubTab, startImplementation } = useActions(logic)
 
     const featurePath = urls.inboxReport('features', report.id)
 
     const tabs: { key: FeatureDetailSubTab; label: string; content: JSX.Element }[] = [
         { key: 'status', label: 'Status', content: <FeatureStatusTab report={report} /> },
+        { key: 'planning', label: 'Planning', content: <FeaturePlanningTab report={report} /> },
         { key: 'owner', label: 'Owner', content: <FeatureOwnerTab report={report} /> },
         { key: 'feed', label: 'Feed', content: <FeatureFeedTab report={report} /> },
     ]
@@ -558,6 +583,8 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                         <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary leading-none select-none">
                             {isStaged ? (
                                 <LemonTag type="highlight">Discovered</LemonTag>
+                            ) : featureStage === 'planning' ? (
+                                <LemonTag type="warning">Planning</LemonTag>
                             ) : (
                                 <SignalReportStatusBadge status={report.status} />
                             )}
@@ -573,17 +600,7 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                         </div>
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">
-                        {isStaged ? (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={promoteFeature}
-                                loading={promotingFeature}
-                                tooltip="Promote feature starts a planning session with an agent. Review the feature together, then finish planning to activate its owner scout."
-                            >
-                                Promote feature
-                            </LemonButton>
-                        ) : hasImplementationRun === false ? (
+                        {isManaged && hasImplementationRun === false ? (
                             <LemonButton
                                 type="primary"
                                 size="small"
@@ -618,7 +635,12 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                 tabs={tabs.map(({ key, label }) => ({
                     key,
                     label:
-                        key === 'owner' ? (
+                        key === 'planning' ? (
+                            <span className="flex items-center gap-1.5">
+                                <IconListCheck className="text-sm" />
+                                {label}
+                            </span>
+                        ) : key === 'owner' ? (
                             <span className="flex items-center gap-1.5">
                                 <IconAI className="text-sm" />
                                 {label}

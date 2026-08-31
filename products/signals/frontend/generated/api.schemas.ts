@@ -95,11 +95,6 @@ export interface InboxFeaturePlanningNotReadyApi {
     missing: string[]
 }
 
-export interface InboxFeatureErrorApi {
-    /** What happened and what to do next. */
-    detail: string
-}
-
 /**
  * Response for a manually started implementation pass.
  */
@@ -131,6 +126,11 @@ export interface InboxFeatureDiscoveryCreateApi {
 export interface InboxFeatureDiscoveryCreatedApi {
     /** Id of the queued feature discovery run. */
     run_id: string
+}
+
+export interface InboxFeatureErrorApi {
+    /** What happened and what to do next. */
+    detail: string
 }
 
 export interface InboxFeatureDiscoveryRunApi {

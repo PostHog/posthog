@@ -103,7 +103,7 @@ export const featureCreateLogic = kea<featureCreateLogicType>([
                     initial_description: description,
                 })
                 actions.closeNewFeatureModal()
-                router.actions.push(urls.inboxReport('features', created.report_id))
+                router.actions.push(urls.inboxReport('features', created.report_id), { feature_tab: 'planning' })
             } catch (error: unknown) {
                 lemonToast.error(featureCreateErrorMessage(error))
             } finally {

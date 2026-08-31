@@ -4,8 +4,6 @@ The `safety_judgment` artefact marks completion of the initial planning phase. T
 continues through implementation, release, monitoring, and optimization after that marker exists.
 """
 
-from dataclasses import dataclass
-
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -27,6 +25,7 @@ from products.signals.backend.artefact_schemas import (
     SafetyJudgment,
 )
 from products.signals.backend.features.prompts import (
+    FeaturePlanningSessionContext,
     build_groundskeeping_note,
     build_owner_scout_body,
     build_owner_scout_description,
@@ -70,25 +69,21 @@ class FeatureDiscoveryStartError(Exception):
     pass
 
 
-class FeatureNotStagedError(Exception):
-    pass
-
-
-@dataclass(frozen=True)
+@frozen
 class CreatedFeature:
     report_id: str
     task_id: str
     run_id: str | None
 
 
-@dataclass(frozen=True)
+@frozen
 class FeaturePlanningCompletion:
     scout_skill_name: str
     # None when kickoff was not possible or planning had already been completed.
     implementation_task_id: str | None
 
 
-@dataclass(frozen=True)
+@frozen
 class FeaturePlanningReadiness:
     ready: bool
     missing: list[str]
@@ -101,10 +96,16 @@ class CreatedFeatureDiscovery:
 
 
 def _start_feature_planning_task(
-    *, team: Team, user: User, report: SignalReport, repository: str | None, task_title: str
+    *,
+    team: Team,
+    user: User,
+    report: SignalReport,
+    repository: str | None,
+    task_title: str,
+    session_context: FeaturePlanningSessionContext,
 ) -> CreatedFeature:
     report_id = str(report.id)
-    first_message = build_planning_bootstrap_message(report_id, report.summary or "")
+    first_message = build_planning_bootstrap_message(report_id, report.summary or "", session_context)
     created = tasks_facade.create_and_run_task(
         team=team,
         title=task_title,
@@ -178,6 +179,7 @@ def create_feature(*, team: Team, user: User, initial_description: str) -> Creat
         report=report,
         repository=None,
         task_title="Plan a new feature",
+        session_context="new_feature",
     )
 
     logger.info("feature_management.create_feature", extra={"team_id": team.id, "report_id": report_id})
@@ -356,12 +358,29 @@ def finish_feature_planning(*, team: Team, user: User, report: SignalReport) -> 
     return FeaturePlanningCompletion(scout_skill_name=skill_name, implementation_task_id=implementation_task_id)
 
 
-def start_staged_feature_planning(*, team: Team, user: User, report: SignalReport) -> CreatedFeature:
-    """Start an interactive planning conversation on an existing discovered feature report."""
+def start_feature_planning_session(*, team: Team, user: User, report: SignalReport) -> CreatedFeature:
+    """Start a fresh planning conversation without changing the feature's lifecycle."""
     report_id = str(report.id)
     lifecycle = latest_feature_lifecycle(team_id=team.id, report_id=report_id)
-    if lifecycle is None or lifecycle.feature_stage != FeatureStage.STAGED:
-        raise FeatureNotStagedError
+    managed = lifecycle is not None and lifecycle.feature_stage == FeatureStage.MANAGED
+    if lifecycle is None:
+        managed = SignalReportArtefact.objects.filter(
+            team_id=team.id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+        ).exists()
+
+    session_context: FeaturePlanningSessionContext
+    task_title: str
+    if lifecycle is not None and lifecycle.feature_stage == FeatureStage.STAGED:
+        session_context = "discovered_feature"
+        task_title = "Plan a discovered feature"
+    elif managed:
+        session_context = "managed_feature"
+        task_title = "Revisit feature planning"
+    else:
+        session_context = "new_feature"
+        task_title = "Plan a new feature"
 
     repo_artefact = (
         SignalReportArtefact.objects.filter(
@@ -381,23 +400,18 @@ def start_staged_feature_planning(*, team: Team, user: User, report: SignalRepor
         user=user,
         report=report,
         repository=repository,
-        task_title="Plan a discovered feature",
-    )
-    SignalReportArtefact.append_status(
-        team_id=team.id,
-        report_id=report_id,
-        content=FeatureLifecycle(
-            feature_stage=FeatureStage.PLANNING,
-            source=lifecycle.source,
-            discovery_run_id=lifecycle.discovery_run_id,
-        ),
-        attribution=ArtefactAttribution.from_user(user.id),
-        reevaluate_autostart=False,
+        task_title=task_title,
+        session_context=session_context,
     )
 
     logger.info(
-        "feature_management.start_staged_feature_planning",
-        extra={"team_id": team.id, "report_id": report_id, "task_id": str(created.task_id)},
+        "feature_management.start_feature_planning_session",
+        extra={
+            "team_id": team.id,
+            "report_id": report_id,
+            "task_id": str(created.task_id),
+            "session_context": session_context,
+        },
     )
     return created
 

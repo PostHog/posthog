@@ -31,12 +31,11 @@ from products.signals.backend.features.serializers import (
 )
 from products.signals.backend.features.service import (
     FeatureDiscoveryStartError,
-    FeatureNotStagedError,
     FeaturePlanningNotReadyError,
     create_feature,
     finish_feature_planning,
     start_feature_discovery,
-    start_staged_feature_planning,
+    start_feature_planning_session,
 )
 from products.signals.backend.models import FeatureDiscoveryRun, SignalReport
 
@@ -256,36 +255,26 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=InboxFeatureCreatedSerializer,
                 description="Feature planning conversation started.",
             ),
-            400: OpenApiResponse(
-                response=InboxFeatureErrorSerializer,
-                description="The report is not a staged feature.",
-            ),
             404: OpenApiResponse(description="Feature report not found for this project."),
         },
-        summary="Start planning a discovered feature",
+        summary="Start a feature planning session",
         description=(
-            "Start the normal interactive planning conversation for an auto-discovered feature. The agent inspects "
-            "the selected repository, verifies the discovery report, asks about intended functionality, and "
-            "updates the same report. The feature remains in planning until planning is finished."
+            "Start a fresh interactive planning conversation for a new, discovered, or managed feature. The agent "
+            "receives the feature's lifecycle context, inspects its selected repository when available, asks about "
+            "intended functionality, and updates the same report without changing its lifecycle."
         ),
     )
-    @action(detail=True, methods=["post"], url_path="promote")
-    def promote(self, request: Request, *args, **kwargs) -> Response:
+    @action(detail=True, methods=["post"], url_path="start_planning")
+    def start_planning(self, request: Request, *args, **kwargs) -> Response:
         report = get_object_or_404(
             SignalReport.objects.filter(team=self.team).exclude(status=SignalReport.Status.DELETED),
             id=kwargs["pk"],
         )
-        try:
-            created = start_staged_feature_planning(
-                team=self.team,
-                user=cast(User, request.user),
-                report=report,
-            )
-        except FeatureNotStagedError:
-            return Response(
-                InboxFeatureErrorSerializer({"detail": "This report is not a staged feature."}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        created = start_feature_planning_session(
+            team=self.team,
+            user=cast(User, request.user),
+            report=report,
+        )
         return Response(
             InboxFeatureCreatedSerializer(
                 {

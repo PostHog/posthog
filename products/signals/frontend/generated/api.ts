@@ -188,25 +188,6 @@ export const signalsFeaturesFinishPlanningCreate = async (
     })
 }
 
-export const getSignalsFeaturesPromoteCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/features/${id}/promote/`
-}
-
-/**
- * Start the normal interactive planning conversation for an auto-discovered feature. The agent inspects the selected repository, verifies the discovery report, asks about intended functionality, and updates the same report. The feature remains in planning until planning is finished.
- * @summary Start planning a discovered feature
- */
-export const signalsFeaturesPromoteCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<InboxFeatureCreatedApi> => {
-    return apiMutator<InboxFeatureCreatedApi>(getSignalsFeaturesPromoteCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
 export const getSignalsFeaturesStartImplementationCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/features/${id}/start_implementation/`
 }
@@ -227,6 +208,25 @@ export const signalsFeaturesStartImplementationCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getSignalsFeaturesStartPlanningCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/features/${id}/start_planning/`
+}
+
+/**
+ * Start a fresh interactive planning conversation for a new, discovered, or managed feature. The agent receives the feature's lifecycle context, inspects its selected repository when available, asks about intended functionality, and updates the same report without changing its lifecycle.
+ * @summary Start a feature planning session
+ */
+export const signalsFeaturesStartPlanningCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<InboxFeatureCreatedApi> => {
+    return apiMutator<InboxFeatureCreatedApi>(getSignalsFeaturesStartPlanningCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
 }
 
 export const getSignalsFeaturesDiscoverCreateUrl = (projectId: string) => {

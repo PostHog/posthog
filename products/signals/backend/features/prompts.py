@@ -6,6 +6,27 @@ context. Interactive task runs deliver `pending_user_message`, while their descr
 metadata, so instructions must live in that message or in the report.
 """
 
+from typing import Literal
+
+FeaturePlanningSessionContext = Literal["new_feature", "discovered_feature", "managed_feature"]
+
+_PLANNING_SESSION_CONTEXT: dict[FeaturePlanningSessionContext, str] = {
+    "new_feature": (
+        "This is the feature's first planning session. Help the user turn their initial idea into a clear, "
+        "implementable, measurable feature."
+    ),
+    "discovered_feature": (
+        "This feature was discovered from existing code and has not been promoted into active ownership. "
+        "Treat the report as evidence, verify it against the repository, and ask which future the user wants "
+        "before treating current behavior as intended behavior."
+    ),
+    "managed_feature": (
+        "This is an existing feature with an active owner scout. Revisit its intended behavior, current status, "
+        "in-flight work, measurement, and next increment. Update its owner scout playbook when decisions change; "
+        "do not recreate or replace its owner."
+    ),
+}
+
 _GROUNDSKEEPING_NOTE_TEMPLATE = """\
 ## About this feature report
 
@@ -87,6 +108,9 @@ You are the **planning agent for a software feature** represented by feature rep
 the PostHog inbox. Planning is only the first phase. After planning, a long-lived owner scout will use \
 this same report to implement, monitor, and optimize the feature with PostHog.
 
+Session context:
+{session_context}
+
 First fetch the report's artefact log through the `posthog` MCP using \
 `inbox-report-artefacts-list` with report_id `{report_id}`. Read the "About this feature report" note \
 as your operating contract.
@@ -165,9 +189,13 @@ def build_groundskeeping_note(report_id: str, owner_scout_skill_name: str) -> st
     return _GROUNDSKEEPING_NOTE_TEMPLATE.format(report_id=report_id, owner_scout_skill_name=owner_scout_skill_name)
 
 
-def build_planning_bootstrap_message(report_id: str, initial_description: str) -> str:
+def build_planning_bootstrap_message(
+    report_id: str, initial_description: str, session_context: FeaturePlanningSessionContext
+) -> str:
     return _PLANNING_BOOTSTRAP_TEMPLATE.format(
-        report_id=report_id, initial_description=initial_description.strip() or "(none given)"
+        report_id=report_id,
+        initial_description=initial_description.strip() or "(none given)",
+        session_context=_PLANNING_SESSION_CONTEXT[session_context],
     )
 
 

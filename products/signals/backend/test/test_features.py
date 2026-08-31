@@ -120,6 +120,7 @@ class TestFeatureService(APIBaseTest):
         assert "monitor, and optimize" in first_message
         assert "inspect every outstanding `question` artefact" in first_message
         assert "living overview" in first_message
+        assert "feature's first planning session" in first_message
         assert "Build a widget" in first_message
 
     def test_feature_planning_readiness_lists_missing_pieces(self):
@@ -270,7 +271,7 @@ class TestFeatureAPI(APIBaseTest):
         assert response.status_code == 404
 
     @patch("products.tasks.backend.facade.api.create_and_run_task")
-    def test_promote_endpoint_starts_repo_backed_planning_on_the_discovered_report(
+    def test_start_planning_keeps_discovered_feature_staged_and_uses_its_repository(
         self, mock_create_task: MagicMock
     ) -> None:
         mock_create_task.return_value = _mock_created_task(self.team, self.user)
@@ -288,7 +289,7 @@ class TestFeatureAPI(APIBaseTest):
             reevaluate_autostart=False,
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/promote/")
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/start_planning/")
 
         assert response.status_code == 200, response.content
         assert response.json() == {
@@ -296,12 +297,13 @@ class TestFeatureAPI(APIBaseTest):
             "task_id": str(mock_create_task.return_value.task_id),
             "run_id": str(mock_create_task.return_value.latest_run.id),
         }
-        lifecycle = SignalReportArtefact.objects.filter(
+        lifecycles = SignalReportArtefact.objects.filter(
             report_id=report.id,
             type=SignalReportArtefact.ArtefactType.FEATURE_LIFECYCLE,
-        ).latest("created_at")
-        parsed_lifecycle = FeatureLifecycle.model_validate_json(lifecycle.content)
-        assert parsed_lifecycle.feature_stage == FeatureStage.PLANNING
+        )
+        assert lifecycles.count() == 1
+        parsed_lifecycle = FeatureLifecycle.model_validate_json(lifecycles.get().content)
+        assert parsed_lifecycle.feature_stage == FeatureStage.STAGED
         assert parsed_lifecycle.source == FeatureSource.DISCOVERY
         assert parsed_lifecycle.discovery_run_id == discovery_run_id
 
@@ -310,9 +312,11 @@ class TestFeatureAPI(APIBaseTest):
         assert kwargs["mode"] == "interactive"
         assert kwargs["signal_report_id"] == str(report.id)
         assert kwargs["ai_stage"] == "planning"
+        assert kwargs["title"] == "Plan a discovered feature"
         first_message = kwargs["pending_user_message"]
         assert "planning agent for a software feature" in first_message
-        assert "what future the user intends" in first_message
+        assert "has not been promoted into active ownership" in first_message
+        assert "ask which future the user wants" in first_message
         assert report.summary in first_message
 
         artefacts = list(SignalReportArtefact.objects.filter(report_id=report.id).order_by("created_at"))
@@ -323,3 +327,31 @@ class TestFeatureAPI(APIBaseTest):
         assert not SignalScoutConfig.all_teams.filter(
             team=self.team, skill_name=owner_scout_skill_name(str(report.id))
         ).exists()
+
+    @patch("products.tasks.backend.facade.api.create_and_run_task")
+    def test_start_planning_revisits_a_managed_feature_without_replacing_its_owner(
+        self, mock_create_task: MagicMock
+    ) -> None:
+        mock_create_task.return_value = _mock_created_task(self.team, self.user)
+        report = _make_ready_feature(self.team, self.user)
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=FeatureLifecycle(feature_stage=FeatureStage.MANAGED, source=FeatureSource.MANUAL),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+            reevaluate_autostart=False,
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/start_planning/")
+
+        assert response.status_code == 200, response.content
+        kwargs = mock_create_task.call_args.kwargs
+        assert kwargs["title"] == "Revisit feature planning"
+        assert kwargs["repository"] == "posthog/posthog"
+        assert "existing feature with an active owner scout" in kwargs["pending_user_message"]
+        assert "do not recreate or replace its owner" in kwargs["pending_user_message"]
+        lifecycle = SignalReportArtefact.objects.filter(
+            report_id=report.id,
+            type=SignalReportArtefact.ArtefactType.FEATURE_LIFECYCLE,
+        ).get()
+        assert FeatureLifecycle.model_validate_json(lifecycle.content).feature_stage == FeatureStage.MANAGED

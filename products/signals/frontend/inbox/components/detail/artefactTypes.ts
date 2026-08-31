@@ -167,10 +167,10 @@ export function artefactAttributionLabel(artefact: SignalReportArtefact): string
 // ── Task-run purpose derivation (replaces the legacy SignalReportTask `relationship`) ──────────
 
 /** A task↔report association's derived purpose. `other` covers custom-agent runs. */
-export type ReportTaskPurpose = 'research' | 'implementation' | 'other'
+export type ReportTaskPurpose = 'research' | 'planning' | 'implementation' | 'other'
 
-/** Sort order for linked-task rows: implementation first, then research, then everything else. */
-export const PURPOSE_ORDER: ReportTaskPurpose[] = ['implementation', 'research', 'other']
+/** Sort order for linked-task rows: implementation first, then planning, research, and everything else. */
+export const PURPOSE_ORDER: ReportTaskPurpose[] = ['implementation', 'planning', 'research', 'other']
 
 export interface DerivedPurpose {
     purpose: ReportTaskPurpose
@@ -190,6 +190,9 @@ export function deriveTaskPurpose(content: TaskRunArtefactContent): DerivedPurpo
         }
         if (content.type === 'implementation') {
             return { purpose: 'implementation', purposeLabel: 'Implementation' }
+        }
+        if (content.type === 'planning') {
+            return { purpose: 'planning', purposeLabel: 'Planning' }
         }
         if (content.type === 'repo_selection') {
             return null

@@ -70,8 +70,9 @@ The main discovery activity records failures directly, and the workflow cleanup 
 
 ### Planning agent
 
-Creating a feature starts an interactive, repository-less task with `ai_stage="planning"`.
-Pressing **Promote feature** starts the same planning flow on a discovered feature's existing report and selected repository.
+Creating a feature from the list modal starts an interactive, repository-less task with `ai_stage="planning"` and opens its Planning tab.
+The Planning tab can start a fresh session for any feature without changing its lifecycle.
+A discovered feature stays discovered until the user finishes planning, while a managed feature keeps its existing owner.
 The agent verifies discovery against the current code, checks related repositories when needed, and asks the user what future they intend for the feature instead of treating current behavior as approved intent.
 For a manually created feature, the agent asks which repositories matter and shallow-clones them as read-only context.
 It writes all durable work to the feature report through PostHog MCP tools.
@@ -119,16 +120,16 @@ The feature endpoints live under `/api/projects/{team_id}/signals/features/`:
 - `GET /`: list feature reports, with staged features first;
 - `POST /discover/`: start guided repository discovery;
 - `GET /discovery_runs/`: list recent discovery runs and their progress;
-- `POST /{report_id}/promote/`: start the normal planning session for a discovered feature;
+- `POST /{report_id}/start_planning/`: start a fresh planning session without changing feature lifecycle;
 - `POST /{report_id}/finish_planning/`: complete initial planning and activate ownership;
 - `POST /{report_id}/start_implementation/`: manually start one guarded implementation pass.
 
-The Features tab lists staged reports separately from planning and managed features.
+The Features tab lists discovered reports separately from planning and managed features.
 The discovery modal selects a connected GitHub repository and accepts an optional scope instruction.
-During planning, the detail view leads with the live agent conversation and a report preview.
-Staged and managed reports use Status, Owner, and Feed surfaces to keep code context, implementation, feedback, measurements, and optimization work together.
-Pressing **Promote feature** moves a discovered report into the planning conversation.
-Finishing that conversation promotes it, activates its owner scout, and attempts the first implementation pass.
+Every feature detail view has Status, Planning, Owner, and Feed tabs for code context, implementation, feedback, measurements, and optimization work.
+Opening the Planning tab never starts a task. Its controls start, restart, or add a planning session explicitly.
+The list's New feature modal is the exception: it starts the first session and opens the new report on the Planning tab.
+Finishing initial planning promotes a discovered or new feature, activates its owner scout, and attempts the first implementation pass.
 
 ## Invariants
 
