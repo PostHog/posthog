@@ -546,15 +546,25 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     forms(({ values, actions, props }) => ({
         proposedUrl: {
             defaults: { url: '' } as ProposeNewUrlFormType,
-            errors: ({ url }) => ({
-                // default to allowing wildcards because that was the original behavior
-                url: validateProposedUrl(
-                    url,
-                    values.authorizedUrls,
-                    values.onlyAllowDomains,
-                    props.allowWildCards ?? true
-                ),
-            }),
+            errors: ({ url }) => {
+                const editUrlIndex = values.editUrlIndex
+                const isEditing = editUrlIndex !== null && editUrlIndex >= 0
+                const savedUrl = isEditing ? values.authorizedUrls[editUrlIndex] : undefined
+
+                // Exclude the row being edited so re-saving it is not flagged as a duplicate of itself.
+                const otherUrls = isEditing
+                    ? values.authorizedUrls.filter((_, index) => index !== editUrlIndex)
+                    : values.authorizedUrls
+
+                // team.app_urls is shared with the toolbar surface, which allows wildcards. Keep an
+                // already saved wildcard entry editable here even when this surface rejects new wildcards.
+                // Default to allowing wildcards because that was the original behavior.
+                const allowWildCards = (props.allowWildCards ?? true) || (savedUrl?.includes('*') ?? false)
+
+                return {
+                    url: validateProposedUrl(url, otherUrls, values.onlyAllowDomains, allowWildCards),
+                }
+            },
             submit: async ({ url }) => {
                 if (values.editUrlIndex !== null && values.editUrlIndex >= 0) {
                     actions.updateUrl(values.editUrlIndex, url)
