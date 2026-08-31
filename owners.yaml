@@ -10,8 +10,6 @@ teams:
         slack: '#team-ai-research'
         # The team keeps bot output out of its own channel, so automation posts here instead.
         notifications: '#bots-ai-research'
-    apm:
-        slack: '#team-apm'
     batch-exports:
         slack: '#team-batch-exports'
     clickhouse:
