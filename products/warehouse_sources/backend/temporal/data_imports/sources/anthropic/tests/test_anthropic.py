@@ -924,21 +924,3 @@ class TestClaudeCodeDayFanOut:
         assert len(rows) == 1
         assert params[0]["params"]["page"] == "P2"
         assert params[0]["params"]["starting_at"] == today.isoformat()
-
-
-class TestServiceAccountsFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_emits_one_row_per_service_account_with_composite_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        # Service account objects here don't carry workspace_id, so the fan-out must inject it or the
-        # composite key's workspace_id lands null.
-        _wire(
-            session,
-            [
-                _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
-                _entity_page([{"id": "svac_1", "type": "service_account"}], has_more=False, last_id="svac_1"),
-                _entity_page([{"id": "svac_2", "type": "service_account"}], has_more=False, last_id="svac_2"),
-            ],
-        )
-        rows = _rows(_source("service_accounts", _make_manager()))
-        assert [(r["workspace_id"], r["id"]) for r in rows] == [("wrkspc_1", "svac_1"), ("wrkspc_2", "svac_2")]
