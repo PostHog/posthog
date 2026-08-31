@@ -579,6 +579,7 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                                 size="small"
                                 onClick={promoteFeature}
                                 loading={promotingFeature}
+                                tooltip="Promote feature starts a planning session with an agent. Review the feature together, then finish planning to activate its owner scout."
                             >
                                 Promote feature
                             </LemonButton>
@@ -610,13 +611,6 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                     </div>
                 </div>
             </div>
-
-            {isStaged && (
-                <LemonBanner type="info" className="mb-4">
-                    Promote feature starts a planning session with an agent. Review the feature together, then finish
-                    planning to activate its owner scout.
-                </LemonBanner>
-            )}
 
             <LemonTabs<FeatureDetailSubTab>
                 activeKey={activeSubTab}
