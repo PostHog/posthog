@@ -6,8 +6,9 @@ from django.test import override_settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
-from posthog.schema import PersonPropertyFilter, PropertyOperator, RecordingsQuery
+from posthog.schema import PersonPropertyFilter, PersonsOnEventsMode, PropertyOperator, RecordingsQuery
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
@@ -40,48 +41,26 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
     def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
-    def test_hybrid_query_disabled_by_default(self) -> None:
-        with freeze_time("2021-08-21T20:00:00.000Z"):
-            anonymous_id = "anonymous_user_123"
-            identified_id = "identified_user_123"
-            session_id_after = "session_after_identification"
+    @parameterized.expand(
+        [
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, True),
+            (PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, True),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, False),
+            (PersonsOnEventsMode.DISABLED, False),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_hybrid_query_gate_follows_person_on_events_mode(
+        self, mode: PersonsOnEventsMode, expected: bool, mock_feature_enabled
+    ) -> None:
+        self.team.modifiers = {"personsOnEventsMode": mode.value}
+        self.team.save()
 
-            create_person(
-                team=self.team,
-                distinct_ids=[anonymous_id, identified_id],
-                properties={"email": "user@example.com"},
-            )
+        subquery = ReplayFiltersEventsSubQuery(self.team, RecordingsQuery())
 
-            produce_replay_summary(
-                distinct_id=identified_id,
-                session_id=session_id_after,
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-            )
-            create_event(
-                identified_id,
-                self.an_hour_ago,
-                team=self.team,
-                event_name="$pageview",
-                properties={"$session_id": session_id_after},
-            )
+        assert subquery._is_hybrid_query_mode_enabled() is expected
 
-            self._assert_query_matches_session_ids(
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "value": "user@example.com",
-                            "type": "person",
-                            "operator": "exact",
-                        }
-                    ]
-                },
-                [session_id_after],
-            )
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_hybrid_query_enabled_finds_sessions(self, mock_feature_enabled) -> None:
+    def test_hybrid_query_finds_pre_identification_sessions_without_the_flag(self) -> None:
         with freeze_time("2021-08-21T20:00:00.000Z"):
             anonymous_id = "anonymous_user_456"
             identified_id = "identified_user_456"
