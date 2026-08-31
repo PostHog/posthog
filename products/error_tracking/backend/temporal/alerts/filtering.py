@@ -50,6 +50,8 @@ def alert_filters_match(
     lifecycle_properties = {
         key: value
         for key, value in {
+            **(inputs.extra or {}),
+            "exception_timestamp": inputs.event_timestamp,
             "name": inputs.issue_name,
             "description": inputs.issue_description,
             "issue_description": inputs.issue_description,
@@ -103,8 +105,10 @@ def fetch_exception_properties(inputs: AlertDeliveryWorkflowInputs) -> dict[str,
     Ingestion transitions carry the event uuid: the Redis handoff (with a
     ClickHouse fallback) that the lifecycle activities already use serves those,
     and a miss raises so the activity retries. Manual openers carry no triggering
-    event, so the issue's latest exception stands in; a miss there is expected
-    (old issues age out of retention) and evaluates as no event properties.
+    event, so the issue's latest exception stands in, resolved through the
+    fingerprint override mapping so merges and splits keep matching; a miss there
+    is expected (old issues age out of retention) and evaluates as no event
+    properties.
     """
     team = Team.objects.get(id=inputs.team_id)
     if inputs.event_uuid:
@@ -117,7 +121,7 @@ def _fetch_latest_issue_exception_properties(team: Team, inputs: AlertDeliveryWo
         """
         SELECT properties
         FROM events
-        WHERE event = '$exception' AND properties.$exception_issue_id = {issue_id}
+        WHERE event = '$exception' AND issue_id = toUUID({issue_id})
         ORDER BY timestamp DESC
         LIMIT 1
         """,
