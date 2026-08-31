@@ -64,8 +64,16 @@ export function ReviewerSearchList({
     surface: InboxReportActionSurface
 }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { displayReviewers, addReviewerOptions, availableReviewersLoading, isUpdatingReviewers } = useValues(logic)
+    const { displayReviewers, addReviewerOptions, availableReviewersLoading, isUpdatingReviewers, reportArtefacts } =
+        useValues(logic)
     const { updateReviewers, searchAvailableReviewers } = useActions(logic)
+    // A write is a full replacement, and `displayReviewers` is null until the artefact log lands. The
+    // context menu mounts this logic fresh, so the member search can resolve before the artefacts; a
+    // click in that window would build the write from an empty base and silently wipe every existing
+    // reviewer. Wait for the artefacts (as the detail pane's `SuggestedReviewersSection` already does)
+    // before the rows become clickable. `reportArtefacts !== null` with no reviewer artefact is a real
+    // empty list, so this doesn't block adding the first reviewer.
+    const reviewersLoaded = reportArtefacts !== null
     const [query, setQuery] = useState('')
 
     const baseReviewers = displayReviewers ?? []
@@ -134,7 +142,7 @@ export function ReviewerSearchList({
                 }}
             />
             <div className="flex max-h-72 flex-col overflow-y-auto">
-                {availableReviewersLoading ? (
+                {availableReviewersLoading || !reviewersLoaded ? (
                     <span className="flex items-center gap-2 px-1 py-2 text-xs text-tertiary">
                         <Spinner className="size-3" />
                         Searching…
