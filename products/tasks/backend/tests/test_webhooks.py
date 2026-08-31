@@ -1341,6 +1341,18 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         mock_signal_reports.assert_called_once()
         self.assertEqual(mock_signal_reports.call_args.args[1], [self.task_run])
 
+    @patch("products.tasks.backend.webhooks._signal_reports_for_pr_runs")
+    def test_report_transition_fails_closed_without_a_team_scope(self, mock_signal_reports):
+        _transition_signal_reports_for_pr(
+            "https://github.com/posthog/posthog/pull/42",
+            SignalReport.Status.RESOLVED,
+            "github_pr_webhook_signal_report_resolved",
+            [],
+            record_merge=True,
+        )
+
+        mock_signal_reports.assert_not_called()
+
     @parameterized.expand(
         [
             ("trailing_slash", "https://github.com/posthog/posthog/pull/42/"),

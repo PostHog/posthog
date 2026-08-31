@@ -302,7 +302,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
             pr_url,
             SignalReport.Status.RESOLVED,
             "github_pr_webhook_signal_report_resolved",
-            scoped_team_ids or ([task_run.team_id] if task_run else None),
+            scoped_team_ids or ([task_run.team_id] if task_run else []),
             record_merge=True,
         )
 
@@ -314,7 +314,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
             pr_url,
             SignalReport.Status.SUPPRESSED,
             "github_pr_webhook_signal_report_archived",
-            scoped_team_ids or ([task_run.team_id] if task_run else None),
+            scoped_team_ids or ([task_run.team_id] if task_run else []),
         )
 
     return HttpResponse(status=200)
@@ -972,7 +972,7 @@ def _transition_signal_reports_for_pr(
     pr_url: str,
     target_status: SignalReport.Status,
     success_log_event: str,
-    team_ids: list[int] | None,
+    team_ids: list[int],
     *,
     record_merge: bool = False,
 ) -> None:
@@ -986,11 +986,15 @@ def _transition_signal_reports_for_pr(
     # Observer-only runs can record a PR while inspecting in-flight work, but they did not create
     # it and cannot lead to a report whose surfaced implementation PR matches this webhook. Drop
     # them before materializing candidates so popular PRs do not fan out through report lookup.
+    if not team_ids:
+        logger.warning("github_pr_webhook_signal_report_transition_unscoped", pr_url=pr_url)
+        return
+
     run_candidates = TaskRun.objects.filter(
-        pr_bearing_task_run_filter(), output__pr_url__in=_pr_url_lookup_values(pr_url)
+        pr_bearing_task_run_filter(),
+        output__pr_url__in=_pr_url_lookup_values(pr_url),
+        team_id__in=team_ids,
     )
-    if team_ids:
-        run_candidates = run_candidates.filter(team_id__in=team_ids)
     reports = _signal_reports_for_pr_runs(pr_url, list(run_candidates))
 
     if record_merge and reports:
