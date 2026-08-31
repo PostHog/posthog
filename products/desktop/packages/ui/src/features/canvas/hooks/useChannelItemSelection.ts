@@ -15,27 +15,19 @@ export interface ChannelItemSelection {
   bulkActions: ReturnType<typeof useSidebarBulkActions>;
   archiveConfirm: ReturnType<typeof useBulkArchiveConfirm>;
   marquee: ReturnType<typeof useMarqueeSelection>;
-  /** The box a marquee is measured against. */
   listAnchorRef: RefObject<HTMLDivElement | null>;
   onRowClick: (item: ChannelItemModel, event: MouseEvent) => void;
 }
 
-/**
- * Picking rows out of a session list: click to open, modifier-click to select,
- * and what the bulk bar acts on.
- */
 export function useChannelItemSelection({
   listItems,
   activeKey,
   open,
 }: {
   listItems: readonly ChannelItemModel[];
-  /** `task:<id>` / `canvas:<id>` of the row the content pane is showing. */
   activeKey: string | null;
   open: (item: ChannelItemModel) => void;
 }): ChannelItemSelection {
-  // Only sessions take part in a bulk selection: a canvas can't be archived,
-  // filed, or tiled the way a session can, so modifier-clicking one just opens it.
   const selectableTaskIds = useMemo(
     () => listItems.filter((i) => i.kind === "task").map((i) => i.id),
     [listItems],
@@ -55,8 +47,6 @@ export function useChannelItemSelection({
     pruneSelection(selectableTaskIds);
   }, [selectableTaskIds, pruneSelection]);
 
-  // A bulk action acts on exactly the rows that are highlighted, and never on
-  // the open session as well.
   const activeTaskId = activeKey?.startsWith("task:")
     ? activeKey.slice("task:".length)
     : null;

@@ -44,11 +44,6 @@ const CHANNEL_TABS: readonly {
   { value: "canvas", label: "Canvases" },
 ];
 
-/**
- * The tabs name the list, so it has no label of its own. They sit at the start
- * of the list's controls row and wrap under it when the sidebar is narrow, so
- * tab labels are never cut off.
- */
 function ChannelTabs({
   tab,
   onTabChange,
@@ -128,9 +123,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const { items, actions, isLoading, channelMissing } =
     useChannelItems(channelId);
 
-  // A space opens on its sessions. The pane stays mounted across a space
-  // switch, so the tab is stored against the space it was chosen in rather than
-  // carried into the next one; the list's filters deliberately do carry over.
   const [chosenTab, setChosenTab] = useState({
     channelId,
     tab: "task" as ChannelTab,
@@ -246,10 +238,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             activeKey={activeKey}
             surface="space"
             headerLeft={<ChannelTabs tab={tab} onTabChange={setTab} />}
-            // #me holds only your own sessions, so "created by" can only ever
-            // answer "you".
             hasMultipleAuthors={!isPersonalChannel}
-            // A canvas has no run to ask a status or an environment about.
             hasRuns={tab === "task"}
             cap={RECENTS_CAP}
             channelIdFor={() => channelId}

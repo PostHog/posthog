@@ -86,14 +86,11 @@ function isInCommandCenter(
   );
 }
 
-// Varied widths, as percentages, so the loading state reads as the list it
-// becomes rather than a stack of identical bars.
 const SKELETON_ROW_WIDTHS = [60, 80, 40, 75, 50, 66] as const;
 
 function ChannelItemsSkeleton() {
   return (
     <div aria-hidden className="flex flex-col gap-px">
-      {/* Stands in for the tabs row, so it carries that row's scale. */}
       <SkeletonText
         lines={1}
         maxWidth={100}
@@ -102,9 +99,6 @@ function ChannelItemsSkeleton() {
       {SKELETON_ROW_WIDTHS.map((width) => (
         <div key={width} className="flex items-center gap-2 px-2 py-1.5">
           <Skeleton className="size-4 shrink-0 rounded" />
-          {/* SkeletonText sizes its bar off the line it stands in — text-[13px]
-              is a row's own type scale, so the placeholder is the height of the
-              title it becomes rather than a fixed pill. */}
           <SkeletonText
             lines={1}
             maxWidth={width}
@@ -116,15 +110,8 @@ function ChannelItemsSkeleton() {
   );
 }
 
-/** `ready` is the list itself, whether or not the filters leave any rows in it. */
 type ListState = "loading" | "empty" | "ready";
 
-/**
- * What the list shows, decided in one place so a cold load cannot draw the
- * skeleton and an empty state together. `narrowed` — a filter, or something
- * typed in the search box — is what makes no items mean "nothing matches"
- * rather than "nothing here".
- */
 function listStateOf({
   isLoading,
   itemCount,
@@ -139,14 +126,6 @@ function listStateOf({
   return "ready";
 }
 
-/**
- * The list every session list is: search, filters, sort, grouping, sections,
- * pinned run, multi-select and the bulk bar. The space sidebar and a saved
- * search both render it, so the two lists can never drift apart.
- *
- * The caller owns what the rows are and what opening one does; this owns how
- * they are narrowed, ordered and drawn.
- */
 export function ChannelItemsPane({
   items,
   isLoading,
@@ -162,26 +141,17 @@ export function ChannelItemsPane({
   overlay,
   searchLabel = "Search sessions",
 }: {
-  /** Already scoped to what this list holds. */
   items: readonly ChannelItemModel[];
   isLoading: boolean;
   actions: ChannelItemActions;
-  /** `task:<id>` / `canvas:<id>` of the row the content pane is showing. */
   activeKey: string | null;
   surface: TaskListSurface;
-  /** Drawn at the start of the controls row (the space list's tabs). */
   headerLeft?: ReactNode;
-  /** False where every row is yours, so the author filter says nothing. */
   hasMultipleAuthors?: boolean;
-  /** False where the rows have no run to ask a status or environment about. */
   hasRuns?: boolean;
-  /** Longest list to draw, applied before the sections. */
   cap?: number;
-  /** The space a row is filed under, for its "File to…" menu. */
   channelIdFor?: (item: ChannelItemModel) => string | undefined;
-  /** Drawn when the list holds nothing at all. */
   emptyState: ReactNode;
-  /** Floats over the list (the space list's new-session button). */
   overlay?: ReactNode;
   searchLabel?: string;
 }) {
@@ -197,9 +167,6 @@ export function ChannelItemsPane({
   const setSort = useSidebarStore((state) => state.setChannelItemSort);
   const rawGrouping = useSidebarStore((state) => state.channelItemGrouping);
   const setGrouping = useSidebarStore((state) => state.setChannelItemGrouping);
-  // Rows without a run carry no repository, so grouping by one would file the
-  // whole list under a single heading. Neutralised as well as hidden, the way
-  // the run filters below are.
   const grouping = hasRuns ? rawGrouping : "date";
 
   const client = useOptionalAuthenticatedClient();
@@ -217,13 +184,7 @@ export function ChannelItemsPane({
     });
   };
 
-  // The menu only offers sources the list holds, so it is built from every row
-  // rather than from what the current filters left behind — picking one source
-  // must not be what removes the others from the menu.
   const sources = useMemo(() => channelItemSources(items), [items]);
-  // A filter this list cannot answer is neutralised as well as hidden, or a
-  // choice made in another list would empty this one with no visible control to
-  // undo it. The stored filter is untouched, so rows arriving later put it back.
   const filters = useMemo<ChannelItemFilters>(() => {
     const sourceMissing =
       rawFilters.source !== ANY_SOURCE && !sources.includes(rawFilters.source);
@@ -238,10 +199,6 @@ export function ChannelItemsPane({
   }, [rawFilters, hasMultipleAuthors, hasRuns, sources]);
   const filtersActive = hasActiveChannelItemFilters(filters);
 
-  // Pins sort to the top because a pin is a request not to lose the thing:
-  // below the chosen order it would fall off the end of the cap. The cap is
-  // applied to the flat list, before the sections, so the number of rows a
-  // reader gets doesn't depend on how many days they span.
   const listItems = useMemo(() => {
     const ordered = sortChannelItems(
       filterChannelItems(items, { query, filters, me }),
@@ -249,8 +206,6 @@ export function ChannelItemsPane({
     );
     return cap === undefined ? ordered : ordered.slice(0, cap);
   }, [items, query, filters, sort, me, cap]);
-  // Dated against the day rather than the moment, so the headers follow local
-  // midnight even when the list itself hasn't changed for hours.
   const dayStart = useLocalDayStart();
   const sections = useMemo(
     () => groupChannelItems(listItems, sort, new Date(dayStart), grouping),
@@ -262,22 +217,14 @@ export function ChannelItemsPane({
   const datedSections = sections.filter(
     (section) => section.key !== PINNED_SECTION_KEY,
   );
-  // Under "Pinned" every row wears the same badge, so the header says it once
-  // instead, but only while a header below marks where the pins stop. An
-  // alphabetical run carries no header, so there the badges stay.
   const showPinnedBadges = datedSections[0]?.label == null;
 
-  // The search box is always open, so it is what is typed in it — not the box
-  // itself — that makes no rows mean "nothing matches" rather than "nothing
-  // here".
   const narrowed = filtersActive || query.trim().length > 0;
   const listState = listStateOf({
     isLoading,
     itemCount: items.length,
     narrowed,
   });
-  // The header stays while the list is narrowed, so you can undo whatever
-  // emptied it — and while the list is empty, so you can leave it.
   const showHeader = listState === "ready" || listState === "empty";
 
   const {
@@ -291,8 +238,6 @@ export function ChannelItemsPane({
   } = useChannelItemSelection({ listItems, activeKey, open: actions.open });
 
   const prefersReducedMotion = useReducedMotion();
-  // A drag that starts on a selected row carries the whole selection, so a pin
-  // or an unpin applies to every row the user picked, not just the grabbed one.
   const dragSiblingsFor = useCallback(
     (item: ChannelItemModel) =>
       item.kind === "task"
@@ -316,9 +261,6 @@ export function ChannelItemsPane({
         opacity: { duration: 0.1 },
       };
 
-  // Every row gets the wrapper, not just the dragged one. Swapping a row
-  // between wrapped and bare remounts it, and Chromium ends a native drag the
-  // moment its source leaves the DOM.
   const taskRow = (item: ChannelItemModel, showPinBadge: boolean) => {
     const inSelection =
       item.kind === "task" && selectedTaskIds.includes(item.id);
@@ -340,9 +282,6 @@ export function ChannelItemsPane({
           isActive={item.key === activeKey}
           isSelected={inSelection}
           showPinBadge={showPinBadge}
-          // Right-clicking inside a selection acts on the selection; right-clicking
-          // outside it drops the selection first, so the menu that opens is about
-          // the row under the pointer and nothing else.
           bulk={
             inSelection && selectedTaskIds.length > 1
               ? {
@@ -360,8 +299,6 @@ export function ChannelItemsPane({
           onRename={
             item.kind === "task" ? () => setEditingTaskId(item.id) : undefined
           }
-          // Undefined disables the menu item when this item is already present;
-          // duplicating the same task or canvas would make the grid ambiguous.
           onAddToCommandCenter={
             !isInCommandCenter(item, commandCenterCells)
               ? commandCenterAssigner(item)
@@ -408,8 +345,6 @@ export function ChannelItemsPane({
               {headerLeft}
             </div>
           )}
-          {/* The filter menu sits in the box it narrows, so the list has one
-              row of controls rather than a row and a box that comes and goes. */}
           <InputGroup className="h-7">
             <InputGroupAddon align="inline-start">
               <MagnifyingGlass size={12} className="text-muted-foreground" />
@@ -424,9 +359,6 @@ export function ChannelItemsPane({
             <InputGroupAddon align="inline-end">
               <ChannelFilterMenu
                 filters={filters}
-                // Written against the stored filters, not the narrowed ones the
-                // menu displays: a choice made in one list has to survive a
-                // write made in another.
                 onFilterChange={(key, value) =>
                   setFilters({ ...rawFilters, [key]: value })
                 }
@@ -446,8 +378,6 @@ export function ChannelItemsPane({
         </div>
       )}
 
-      {/* Pin and unpin stay reachable from the row's menu and its context
-          menu, so the drag adds no keyboard-only path. */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
       <div
         aria-busy={isLoading}
@@ -494,8 +424,6 @@ export function ChannelItemsPane({
       {overlay}
       <MarqueeOverlay rect={marquee} />
 
-      {/* Below the list rather than floating over it: the bottom rows are where
-          a shift-click range usually ends, and the FAB already sits there. */}
       <SidebarBulkActionBar
         actions={bulkActions}
         onClearSelection={clearSelection}
@@ -510,8 +438,6 @@ export function ChannelItemsPane({
           y={pinDrag.previewY}
         />
       ) : null}
-      {/* The list owns the dialog, as it owns every other piece of this
-          surface's state; the menu only asks for it to open. */}
       <EditListItemAppearanceDialog
         surface={surface}
         open={appearanceOpen}

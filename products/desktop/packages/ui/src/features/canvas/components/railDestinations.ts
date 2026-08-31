@@ -59,7 +59,6 @@ export interface RailDestination {
    * from landing on its root. Defaults to `onPick`.
    */
   onReclick?: () => void;
-  /** Bottom cluster (beside Search and Settings) rather than the main stack. */
   placement?: "top" | "bottom";
   shortcut?: string;
   count?: (counts: RailCounts) => number;
@@ -72,7 +71,6 @@ export interface RailFlags {
   inbox: boolean;
   loops: boolean;
   context: boolean;
-  /** The project has at least one saved search to show. */
   savedSearches: boolean;
 }
 
@@ -217,8 +215,6 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Saved searches",
     analyticsId: "search",
     Icon: ListMagnifyingGlassIcon,
-    // The route opens the first saved search: the destination is the searches
-    // themselves, and there is no list page above them.
     href: "/feeds",
     onPick: navigateToFeeds,
     placement: "bottom",

@@ -21,7 +21,6 @@ export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
 export const DESKTOP_HOME_FLAG = "desktop-home-flag";
-/** Gates the rail button for saved searches. The searches themselves are always on. */
 export const SAVED_SEARCHES_RAIL_FLAG = "posthog-desktop-saved-searches-rail";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";

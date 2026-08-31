@@ -297,7 +297,6 @@ export interface SidebarNavItemClickedProperties {
   layout?: SidebarLayout;
 }
 
-/** Which session list a change was made from. The setting applies to all of them. */
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {

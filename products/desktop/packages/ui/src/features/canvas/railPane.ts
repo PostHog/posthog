@@ -75,9 +75,6 @@ export function getRailPane(): NavRailPane {
   return railPaneForMatches(getCurrentMatches());
 }
 
-// Home, Inbox, Command Center and Loops are whole-screen destinations: no
-// route under them may put a second nav on the screen. Spaces owns the space
-// tree, Activity owns the feed, a saved search owns its result list.
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
   "spaces",
   "activity",

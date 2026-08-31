@@ -81,7 +81,6 @@ describe("SavedSearchSwitcher", () => {
       </Theme>,
     );
 
-    // The dropdown items render inline (mocked), so the second search is clickable.
     await user.click(screen.getByText("Onboarding"));
 
     expect(navigate).toHaveBeenCalledWith({

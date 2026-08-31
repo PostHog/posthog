@@ -25,10 +25,6 @@ export function useProjectTaskFeed(feedId: string): TaskFeed | undefined {
   return feeds.find((feed) => feed.id === feedId);
 }
 
-/**
- * Whether the list above is settled: the store is read back and the owner is
- * known. Until then an empty list means "not yet", not "none".
- */
 export function useProjectTaskFeedsReady(): boolean {
   const client = useOptionalAuthenticatedClient();
   const { isLoading } = useCurrentUser({ client });

@@ -167,8 +167,6 @@ function BrowserTabStripImpl() {
   // Which rail destination this location belongs to, so the tab can remember
   // where that destination was when it left.
   const railPane = useRailPane();
-  // Which session this tab is named after, wherever it came from: a path
-  // param, or Activity's picked item.
   const activeSession = useTabSession();
   // Top-level app pages are tab targets too. Their typed metadata keeps route
   // classification, persisted labels, and rendered labels in one vocabulary.
@@ -571,8 +569,6 @@ function BrowserTabStripImpl() {
         const appView = isActive ? routeAppView : t.appView;
         const channel = channelName(channelId);
         const feedId = isActive ? routeFeedId : feedIdFromHref(t.href);
-        // Before the task branch: a saved search keeps its own name while one
-        // of its results is open in it.
         if (feedId) {
           return {
             id: t.id,

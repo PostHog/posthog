@@ -63,7 +63,6 @@ export interface ChannelItemActions {
   /** Pins or unpins a whole batch, which a drag over the pinned run applies. */
   setPinned: (items: ChannelItemModel[], pinned: boolean) => void;
   archive: (item: ChannelItemModel) => void;
-  /** Canvases only — a task is archived, not deleted. Absent where a list holds none. */
   remove?: (item: ChannelItemModel) => void;
   fileCanvas?: (item: ChannelItemModel, channelId: string) => void;
 }

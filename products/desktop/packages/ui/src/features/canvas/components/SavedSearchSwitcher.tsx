@@ -12,10 +12,6 @@ import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjec
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactElement } from "react";
 
-/**
- * The title of a saved search, and the way to another one. The name is the
- * dropdown trigger, so the switch is one click from the thing it renames.
- */
 export function SavedSearchSwitcher({
   currentFeedId,
   className,

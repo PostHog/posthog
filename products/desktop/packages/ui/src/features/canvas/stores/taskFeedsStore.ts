@@ -13,7 +13,6 @@ export interface TaskFeed {
 
 interface TaskFeedsState {
   feeds: TaskFeed[];
-  /** False until the persisted feeds are read back, so an empty list is known to be empty. */
   hasHydrated: boolean;
   setHasHydrated: (hydrated: boolean) => void;
   addFeed: (input: {
@@ -81,7 +80,6 @@ export const useTaskFeedsStore = create<TaskFeedsState>()(
   ),
 );
 
-/** The one definition of "my saved searches": this project, this owner. */
 export function ownedProjectFeeds(
   feeds: readonly TaskFeed[],
   projectId: number | null,

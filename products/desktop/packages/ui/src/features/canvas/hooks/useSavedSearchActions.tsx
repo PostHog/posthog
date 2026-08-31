@@ -20,10 +20,6 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 
-/**
- * Editing and deleting a saved search, with the dialogs both do it through.
- * Each layout draws its own buttons; neither owns a copy of the flow.
- */
 export function useSavedSearchActions(feed: TaskFeed | undefined): {
   openEdit: () => void;
   requestDelete: () => void;
@@ -38,8 +34,6 @@ export function useSavedSearchActions(feed: TaskFeed | undefined): {
   const remove = () => {
     if (!feed) return;
     removeFeed(feed.id);
-    // The pane keeps the picked result outside the route, so it has to go with
-    // the search that held it.
     select(null);
     track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
       action_type: "delete",
