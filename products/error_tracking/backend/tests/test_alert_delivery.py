@@ -124,7 +124,7 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
         assert planned[0].thread is not None
         assert planned[0].thread.id == thread.id
 
-    def test_repeated_opener_event_with_thread_is_a_reply(self):
+    def test_repeated_opener_event_with_rooted_thread_is_a_reply(self):
         alert = self._create_alert(triggers=["issue_created", "issue_reopened"])
         with team_scope(self.team.id):
             ErrorTrackingAlertThread.objects.create(
@@ -132,6 +132,7 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
                 alert=alert,
                 issue=self.issue,
                 destination=alert.destinations.get(),
+                external_ref={"channel": "C0123", "ts": "111.222"},
             )
 
         planned = plan_alert_deliveries(self._inputs("$error_tracking_issue_reopened"))
@@ -246,6 +247,51 @@ class TestSlackThreadDelivery(AlertTestMixin):
         client.chat_postMessage.assert_not_called()
         thread.refresh_from_db()
         assert thread.delivered_notification_ids == []
+
+    def test_retry_after_failed_root_post_roots_the_thread(self):
+        # A crash between the thread insert and the root post must not wedge the
+        # destination: the next opener attempt roots the existing row.
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        thread = self._thread(alert, rooted=False)
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert delivered == 1
+        assert client.chat_postMessage.call_args.kwargs["channel"] == "C0123"
+        thread.refresh_from_db()
+        assert thread.external_ref == {"channel": "C0123", "ts": "111.222"}
+        assert thread.delivered_notification_ids == ["notif-1"]
+
+    def test_opener_with_configured_filters_stays_dark(self):
+        # Filter evaluation lands in a follow-up layer; until then a filtered
+        # alert must not post issues the user may have excluded.
+        client = self._mock_slack()
+        with team_scope(self.team.id):
+            alert = ErrorTrackingAlert.objects.create(
+                team=self.team,
+                name="Filtered",
+                triggers=["issue_created"],
+                filters={"properties": [{"key": "environment", "value": "production", "type": "event"}]},
+            )
+            alert.destinations.create(
+                team=self.team, channel_type="slack", integration=self.integration, config={"channel": "C0123"}
+            )
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert delivered == 0
+        client.chat_postMessage.assert_not_called()
+
+    def test_root_header_stays_within_slack_limit(self):
+        client = self._mock_slack()
+        self._create_alert(triggers=["issue_created"])
+
+        deliver_alert_notifications(self._inputs("$error_tracking_issue_created", issue_name="x" * 400))
+
+        blocks = client.chat_postMessage.call_args.kwargs["blocks"]
+        header = next(block for block in blocks if block["type"] == "header")
+        assert len(header["text"]["text"]) <= 150
 
     def test_repointed_destination_replies_in_original_channel(self):
         client = self._mock_slack()
