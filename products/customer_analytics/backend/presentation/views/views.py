@@ -29,6 +29,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -44,6 +45,8 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import (
     PostHogFeatureFlagPermission,
+    TeamMemberAccessPermission,
+    TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     get_authenticator_scopes,
     is_service_auth,
@@ -874,6 +877,7 @@ class CustomPropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    permission_classes = [TeamMemberLightManagementPermission]
     # ``values`` is a custom read action; without listing it here it carries no required scope and
     # rejects token auth outright ("does not support personal API key access") before the group gate runs.
     scope_object_read_actions = ["list", "retrieve", "values"]
@@ -2186,6 +2190,13 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         return Response(CustomPropertyValueSerializer(value).data, status=status.HTTP_201_CREATED)
 
 
+class AccountRelationshipDeletePermission(BasePermission):
+    message = TeamMemberStrictManagementPermission.message
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        return request.method != "DELETE" or TeamMemberStrictManagementPermission().has_permission(request, view)
+
+
 @extend_schema(
     tags=["customer_analytics"],
     parameters=[
@@ -2200,6 +2211,7 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
 class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     serializer_class = AccountRelationshipSerializer
+    permission_classes = [AccountRelationshipDeletePermission]
     pagination_class = None
 
     def _accessible_account_id(self) -> str | None:
@@ -2268,6 +2280,23 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
+
+    @extend_schema(request=None, responses={204: None})
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        account_id = api.get_editable_account_id(
+            self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
+        )
+        if account_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        deleted = api.delete_account_relationship(
+            team_id=self.team_id,
+            account_id=account_id,
+            relationship_id=self.kwargs["pk"],
+            actor=cast(User, request.user),
+        )
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 _EVENT_STREAM_ID_PARAM = OpenApiParameter(
@@ -2447,8 +2476,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
 
     scope_object = "account"
     scope_object_read_actions = ["list"]
-    # Same gate as IntegrationViewSet: any member can read status, starting a run needs admin.
-    permission_classes = [TeamMemberStrictManagementPermission]
+    permission_classes = [TeamMemberAccessPermission]
     serializer_class = CalendarSyncTriggerSerializer
     pagination_class = None  # a team connects a handful of calendars — nothing to paginate
     queryset = None  # no model — state lives in integration config, reached through the facade
@@ -2466,7 +2494,17 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     )
     @action(methods=["POST"], detail=False, url_path="sync_now")
     def sync_now(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        result = api.trigger_calendar_sync(self.team_id, request.validated_data["integration_id"])
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        try:
+            result = api.trigger_calendar_sync(
+                self.team_id,
+                request.validated_data["integration_id"],
+                user_id=getattr(request.user, "id", None),
+                has_management_access=has_management_access,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied("Only the person who connected this Google account or a project admin can sync it.")
         if result is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CalendarSyncTriggerResponseSerializer({"status": result}).data)

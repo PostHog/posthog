@@ -4,9 +4,9 @@ import type { McpServerConnection } from "@posthog/shared";
 import { Hono } from "hono";
 import type { Logger } from "../utils/logger";
 
-export const DEFAULT_RELAY_TIMEOUT_MS = 60_000;
+const DEFAULT_RELAY_TIMEOUT_MS = 60_000;
 /** Request payloads above this are rejected before any event is emitted. */
-export const DEFAULT_MAX_REQUEST_BYTES = 64_000;
+const DEFAULT_MAX_REQUEST_BYTES = 64_000;
 
 /** JSON-RPC error: the desktop app did not answer within the timeout. */
 export const RELAY_TIMEOUT_CODE = -32001;

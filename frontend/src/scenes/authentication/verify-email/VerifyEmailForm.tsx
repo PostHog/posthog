@@ -7,6 +7,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
@@ -105,6 +106,54 @@ function NotSeeingIt(): JSX.Element {
     )
 }
 
+function VerificationCodeEntry(): JSX.Element {
+    const { verificationCode, verificationCodeError, validatedEmailTokenLoading } = useValues(verifyEmailLogic)
+    const { setVerificationCode, submitVerificationCode } = useActions(verifyEmailLogic)
+
+    return (
+        <form
+            className="flex w-full flex-col gap-2.5"
+            onSubmit={(e) => {
+                e.preventDefault()
+                if (!validatedEmailTokenLoading) {
+                    submitVerificationCode()
+                }
+            }}
+        >
+            <LemonInput
+                autoFocus
+                value={verificationCode}
+                onChange={setVerificationCode}
+                placeholder="123456"
+                aria-label="Email verification code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                size="large"
+                className="text-center ph-replay-block"
+                data-attr="verify-email-code"
+                status={verificationCodeError ? 'danger' : 'default'}
+            />
+            {verificationCodeError && (
+                <p className="m-0 text-sm text-danger" role="alert">
+                    {verificationCodeError}
+                </p>
+            )}
+            <LemonButton
+                type="primary"
+                size="large"
+                center
+                fullWidth
+                htmlType="submit"
+                loading={validatedEmailTokenLoading}
+                disabledReason={verificationCode ? undefined : 'Enter the code from your email'}
+                data-attr="verify-email-code-submit"
+            >
+                Verify email
+            </LemonButton>
+        </form>
+    )
+}
+
 export function VerifyEmailForm(): JSX.Element {
     const { view, uuid, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
@@ -169,7 +218,7 @@ export function VerifyEmailForm(): JSX.Element {
                                     loading={newlyRequestedVerificationLinkLoading}
                                     onClick={() => requestVerificationLink(uuid)}
                                 >
-                                    Email me a new link
+                                    Resend verification email
                                 </LemonButton>
                             )}
                             <LemonButton
@@ -228,9 +277,13 @@ export function VerifyEmailForm(): JSX.Element {
                         Check your inbox
                     </h1>
                     <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                        We sent you a verification link. Click the link inside and you're in. It's valid for 24 hours.
+                        We emailed you a 6-digit code. Enter it below to verify your email address. The code is valid
+                        for 30 minutes.
                     </p>
-                    <NotSeeingIt />
+                    <VerificationCodeEntry />
+                    <div className="mt-3">
+                        <NotSeeingIt />
+                    </div>
                 </div>
             </AuthSceneCard>
         </AuthScene>

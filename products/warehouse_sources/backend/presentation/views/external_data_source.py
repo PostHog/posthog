@@ -113,6 +113,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     auto_enable_new_schemas,
+    latest_completed_job_prefetch,
     sync_old_schemas_with_new_schemas,
     update_sync_type_config_keys,
 )
@@ -2143,13 +2144,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # list load (up to one query, and a get_or_create write, per source).
             .select_related("created_by", "revenue_analytics_config")
             .prefetch_related(
-                Prefetch(
-                    "jobs",
-                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
-                        "-created_at"
-                    )[:1],
-                    to_attr="ordered_jobs",
-                ),
+                latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"),
                 # The one place schemas are read during serialization. `active_schemas` used to be a
                 # second prefetch over the same rows — it's now derived in Python from this one (see
                 # `_active_schemas`), so the schema table is scanned once.
@@ -3794,7 +3789,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 eligible_schemas=eligible_schemas,
                 config=source_config,
             )
-            if hog_fn_result.error or hog_fn_result.hog_function is None:
+            if hog_fn_result.error or hog_fn_result.hog_function_id is None:
                 return failure(hog_fn_result.error)
 
             registration = create_and_register_webhook(
@@ -3811,7 +3806,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not registration.success:
             # The external registration failed (e.g. credentials can't create webhooks), so the
             # handler would never receive events — remove it and keep the polling defaults.
-            hog_function = hog_fn_result.hog_function
+            hog_function = HogFunction.objects.get(id=hog_fn_result.hog_function_id, team_id=self.team_id)
             hog_function.deleted = True
             hog_function.enabled = False
             hog_function.save(update_fields=["deleted", "enabled"])

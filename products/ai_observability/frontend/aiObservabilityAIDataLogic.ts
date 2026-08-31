@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
-import { parsePartialJSON } from './utils'
+import { parsePartialJSON, selectAiValue } from './utils'
 
 const AI_DATA_QUERY_TAGS = {
     productKey: ProductKey.AI_OBSERVABILITY,
@@ -88,21 +88,18 @@ function parseHeavyValue(value: unknown): unknown {
     }
 }
 
-function firstUsableValue(...values: unknown[]): unknown {
-    for (const value of values) {
-        const parsed = parseHeavyValue(value)
-        if (isUsableValue(parsed)) {
-            return parsed
-        }
-    }
-    return undefined
+// A column can hold an empty container while a sibling holds the response, so prefer content over
+// mere presence — but keep a present-but-empty container, so the caller sees the value arrived and
+// the loader does not fall through to the next, slower query for a row it already has.
+function selectHeavyValue(...values: unknown[]): unknown {
+    return selectAiValue(...values.map(parseHeavyValue))
 }
 
 function mapAIDataQueryRow(row: AIDataQueryRow): AIData {
     const [input, output, outputChoices, inputState, outputState, tools] = row
     return {
-        input: firstUsableValue(input, inputState),
-        output: firstUsableValue(outputChoices, outputState, output),
+        input: selectHeavyValue(input, inputState),
+        output: selectHeavyValue(outputChoices, outputState, output),
         tools: parseHeavyValue(tools),
     }
 }

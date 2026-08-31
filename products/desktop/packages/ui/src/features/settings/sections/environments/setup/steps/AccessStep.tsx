@@ -26,7 +26,7 @@ export function AccessStep({
   return (
     <StepBody
       title="Access"
-      description="Which hosts sessions may reach, and the values they get before the agent runs."
+      description="Which hosts sessions may reach, and the values they get before the agent runs"
     >
       <div className="flex max-w-[520px] flex-col gap-2">
         <Label className="font-medium text-[12.5px]">Network access</Label>

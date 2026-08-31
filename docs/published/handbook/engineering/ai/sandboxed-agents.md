@@ -330,6 +330,52 @@ the dockerd warmup overlaps the repo clone and the environment is usually
 ready by the agent's first command. Running `bootstrap-dev-stack` again is still the right first
 step — it is the synchronization point, blocking until the warmup completes.
 
+##### Preview URL
+
+A user-created cloud run on `PostHog/PostHog` that booted the dev-stack image can also serve
+that stack back to the person who started it, so they can click through a change instead of
+reading the diff. Gated on the `tasks-dev-stack-preview` flag, per organization.
+
+Once the branch is checked out, the workflow starts the stack in the background
+(`start_dev_stack_preview`) and then waits for it (`wait_dev_stack_preview`) without holding
+the agent up. The in-sandbox script (`start-dev-stack-preview.sh`) runs `pnpm install`, `uv sync`,
+`hogli start -y -d`, `hogli wait`, and `setup_dev --no-data`, then reports `starting`, `ready`, or
+`failed` in `/tmp/posthog-preview/status.json`, which the wait activity polls. A crashed or unready
+dev-stack process fails the preview instead of publishing a half-working one, and each click on the
+link re-probes Django and Vite inside the sandbox before redirecting. Startup peaks around 19 GB, so
+these runs default to 32 GB rather than the standard VM memory size; the core limit stays at the
+VM default, but a box that actually boots the dev-stack image reserves 4 cores instead of the
+burstable 0.5 floor (a fallback to the plain base image keeps the plain floor), and a per-task
+`sandbox_resources` override still wins. The launcher starts with a scrubbed
+environment (`env -i`, fixed PATH), so the stack and its containers never inherit the run's
+GitHub token or personal API key. Relaunching is safe: the script takes an `flock` and reports
+`ready` straight away when the stack is already serving. While that lock is held, or once the
+stack it started answers `/_health`, `bin/start` (so `hogli start`) exits 0 without starting a
+second stack and tells the agent to poll `status.json` for `ready` or `failed`; `hogli wait`
+returns `not reachable` (exit 3) until the launcher reaches the phrocs step, so the agent retries
+it rather than forcing a start. The backend does not retry a `failed` preview; the agent then
+starts the stack itself. `HOGLI_SKIP_PREVIEW_CHECK=1` bypasses the guard, and the launcher sets it
+for its own `hogli start`.
+
+A Modal tunnel cannot reach the 127.0.0.1 listeners the dev compose stack publishes, and a
+two-origin setup breaks ES module loading, so the script puts one host-network Caddy container on
+port 8020 in front of both Django (8010) and Vite (8234). It serves `/_metrics` a 404, because
+that endpoint is unauthenticated under `DEBUG`.
+
+When the stack answers, the run's state gets a `dev_stack_preview` entry and the link is emitted
+as a progress step. The link always points at PostHog:
+`GET /api/projects/{team}/tasks/{task}/runs/{run}/preview/` requires control of the task (a
+`task:write` scope, not only visibility of a shared run) because the dev stack behind it is
+writable, mints a fresh Modal connect token per click, and redirects. Read-only impersonation sessions
+get a 403 for the same reason. No sandbox host or token is ever stored on the run. A preview that fails
+to launch, fails to boot, or takes too long is reported as a failed `preview` step and the run carries on
+without it. The launcher only writes `ready` after it logs in through the proxy and loads
+`/api/projects/@current/`, so a stack that answers `/_health` but errors after login is reported as failed.
+When a sandbox was sized by a worker that does not know the preview flag, the preview is skipped for that run.
+
+Known limit for v1: the dev stack runs with `DEBUG=1`, so a server error renders Django's debug
+page inside the preview.
+
 Restricted runs can use the VM runtime only when `tasks-modal-network-allowlist` is also enabled.
 The network flag interlock runs before state overrides, image-builder routing, custom-image routing,
 and the VM rollout flag. A trusted `use_modal_vm_sandbox` state value cannot bypass it.
