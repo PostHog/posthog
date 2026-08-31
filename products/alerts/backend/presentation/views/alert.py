@@ -183,6 +183,25 @@ class DetectorConfigField(serializers.JSONField):
     pass
 
 
+@extend_schema_field(
+    {
+        "oneOf": [{"type": "integer"}, {"type": "string"}],
+        "description": "Numeric insight ID or saved insight short ID.",
+    }
+)
+class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
+    """Resolve an insight by its database ID or its user-facing short ID."""
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            try:
+                return self.get_queryset().get(short_id=data.strip())
+            except Insight.DoesNotExist:
+                pass
+
+        return super().to_internal_value(data)
+
+
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
 class ScheduleRestrictionField(serializers.JSONField):
     pass
@@ -875,12 +894,18 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
 
 class AlertSimulateSerializer(serializers.Serializer):
-    insight = TeamScopedPrimaryKeyRelatedField(
+    insight = TeamScopedInsightReferenceField(
         queryset=Insight.objects.all(),
-        help_text="Insight ID to simulate the detector on.",
+        help_text="Numeric insight ID or saved insight short ID to simulate the detector on.",
     )
     detector_config = DetectorConfigField(
-        help_text="Detector configuration to simulate.",
+        required=False,
+        allow_null=True,
+        default=lambda: {"type": "zscore", "threshold": 0.95, "window": 30},
+        help_text=(
+            "Detector configuration to simulate. Omit or set to null to use the default z-score detector "
+            "(threshold 0.95, window 30)."
+        ),
     )
     # TODO: fold series_index and date_from into a per-kind range on `config` once a second insight
     # kind needs a range knob. They stay flat today because date_from is a preview-only range with
@@ -915,7 +940,7 @@ class AlertSimulateSerializer(serializers.Serializer):
 
     def validate_detector_config(self, value):
         if value is None:
-            raise ValidationError("detector_config is required.")
+            value = {"type": "zscore", "threshold": 0.95, "window": 30}
 
         import pydantic
 

@@ -1562,7 +1562,29 @@ class TestAlertSimulate(APIBaseTest):
         assert isinstance(data["scores"], list)
         assert len(data["scores"]) == 34
 
-    def test_simulate_missing_detector_config_returns_400(self) -> None:
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_simulate_uses_default_detector_config(self, mock_calculate) -> None:
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [10.0] * 35,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "label": "pageview",
+                    "action": {"name": "pageview"},
+                    "actions": [],
+                    "count": 35,
+                    "breakdown_value": "",
+                    "status": None,
+                    "compare_label": None,
+                    "compare": False,
+                    "persons_urls": [],
+                    "persons": {},
+                    "filter": {},
+                }
+            ]
+        )
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
             {
@@ -1570,7 +1592,47 @@ class TestAlertSimulate(APIBaseTest):
                 "series_index": 0,
             },
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_calculate.call_args.kwargs["detector_config"] == {
+            "type": "zscore",
+            "threshold": 0.95,
+            "window": 30,
+            "preprocessing": None,
+        }
+
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_simulate_accepts_insight_short_id(self, mock_calculate) -> None:
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [10.0] * 35,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "label": "pageview",
+                    "action": {"name": "pageview"},
+                    "actions": [],
+                    "count": 35,
+                    "breakdown_value": "",
+                    "status": None,
+                    "compare_label": None,
+                    "compare": False,
+                    "persons_urls": [],
+                    "persons": {},
+                    "filter": {},
+                }
+            ]
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["short_id"],
+                "detector_config": {"type": "zscore"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_calculate.call_args.kwargs["insight"].id == self.insight["id"]
 
     def test_simulate_invalid_detector_config_returns_400(self) -> None:
         response = self.client.post(
