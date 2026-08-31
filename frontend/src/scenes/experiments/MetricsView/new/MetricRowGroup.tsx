@@ -622,8 +622,7 @@ export function MetricRowGroup({
 
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric, refreshExperimentResults } =
-        useActions(experimentLogic)
+    const { retryPrimaryMetric, retrySecondaryMetric, refreshExperimentResults } = useActions(experimentLogic)
     const { variants } = useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
@@ -740,7 +739,8 @@ export function MetricRowGroup({
             isOpen: true,
             variantResult,
         })
-        reportExperimentTimeseriesViewed(experiment.id, metric)
+        // The outcome-carrying "viewed" event fires from experimentTimeseriesLogic once the
+        // request settles, so we know whether the open landed on the chart or a fallback.
     }
 
     const handleTimeseriesModalClose = (): void => {
