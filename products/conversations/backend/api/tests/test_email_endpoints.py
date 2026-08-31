@@ -2157,7 +2157,7 @@ class TestEmailInboundDmarcRewrite(BaseTest):
 
 
 class TestEmailInboundSelfAddressedAutoreply(BaseTest):
-    def setUp(self) -> None:
+    def setUp(self):
         super().setUp()
         self.client = Client()
         self.team.conversations_settings = {"email_enabled": True}
@@ -2191,9 +2191,7 @@ class TestEmailInboundSelfAddressedAutoreply(BaseTest):
         ]
     )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_autoreply_from_the_inbox_itself_is_dropped(
-        self, name: str, headers: dict[str, str], _mock_sig: MagicMock
-    ) -> None:
+    def test_autoreply_from_the_inbox_itself_is_dropped(self, name, headers, _mock_sig):
         self._post(f"<loop-{name}@posthog.com>", {"from": "PostHog Security <security@posthog.com>", **headers})
 
         assert Ticket.objects.filter(team=self.team).count() == 0
@@ -2231,15 +2229,13 @@ class TestEmailInboundSelfAddressedAutoreply(BaseTest):
         ]
     )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_self_addressed_human_mail_still_opens_a_ticket(
-        self, name: str, headers: dict[str, str], _mock_sig: MagicMock
-    ) -> None:
+    def test_self_addressed_human_mail_still_opens_a_ticket(self, name, headers, _mock_sig):
         self._post(f"<human-{name}@posthog.com>", headers)
 
         assert Ticket.objects.filter(team=self.team).count() == 1
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_external_automated_mail_still_opens_a_ticket(self, _mock_sig: MagicMock) -> None:
+    def test_external_automated_mail_still_opens_a_ticket(self, _mock_sig: MagicMock):
         # Teams route infrastructure alerts to support on purpose, so being machine-generated is
         # only half the test: the message also has to claim to come from the inbox itself.
         self._post(
