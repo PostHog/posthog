@@ -1,5 +1,7 @@
 from typing import Optional, Union
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql import ast
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.parser import parse_expr
@@ -62,6 +64,14 @@ def extract_aggregation_and_inner_expr(
 
         # Get the inner expression
         if expr.args and len(expr.args) > 0:
+            # Only the first argument survives the rebuild onto the per-row value column.
+            # A conditional aggregate like uniqExactIf(x, cond) would lose its condition and
+            # then fail to compile, so reject it instead of dropping arguments silently.
+            if len(expr.args) > 1:
+                raise ValidationError(
+                    "HogQL metric expressions must use a single-argument aggregation, e.g. sum(properties.revenue). "
+                    "Conditional aggregations like uniqExactIf(x, cond) are not supported."
+                )
             # Most aggregation functions take the expression as the first argument
             inner_expression = expr.args[0]
         else:
