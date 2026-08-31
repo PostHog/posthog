@@ -246,6 +246,16 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", default = "60000")]
     pub ingestion_worker_stream_ack_timeout_ms: u64,
 
+    /// Soft time budget stamped on every sub-batch (milliseconds), enforced
+    /// by the worker: past it the worker stops starting new work, lets
+    /// in-flight steps finish, and acks PARTIAL so the consumer redelivers
+    /// only the unfinished remainder. 0 sends no budget, which keeps today's
+    /// semantics. When set, size it well under
+    /// INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS (suggested half): the ack
+    /// watchdog stays the system's hard limit. gRPC transport only.
+    #[envconfig(from = "INGESTION_WORKER_SUB_BATCH_SOFT_BUDGET_MS", default = "0")]
+    pub ingestion_worker_sub_batch_soft_budget_ms: u64,
+
     // ---- Worker discovery ----
     /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the
     /// co-located sidecar default) or `endpointslice` (watch a Kubernetes

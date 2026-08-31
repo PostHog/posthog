@@ -727,6 +727,45 @@ async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
 }
 
 #[tokio::test]
+async fn the_soft_budget_rides_frames_but_not_split_chunks() {
+    // The worker derives its time budget from the wire alone, so a configured
+    // budget must reach every frame. A size-split sub-batch is the exception:
+    // its chunks are separate frames with separate budgets, and a budget cut
+    // in one chunk while a later chunk carries the same key would reorder the
+    // key. Split chunks must go out unbudgeted.
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    transport.set_soft_budget_ms(30_000);
+    let url = worker_url(mock.addr);
+
+    let single = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    single.wait().await.expect("send should succeed");
+
+    // Frame size cap in bytes. One `msg()` estimates to ~143 bytes, so this
+    // fits exactly one message per frame and three messages become three frames.
+    transport.set_max_body_bytes(200);
+    let split = transport.begin_send(
+        &url,
+        "batch-2",
+        vec![msg("d1", 2), msg("d1", 3), msg("d1", 4)],
+        false,
+    );
+    split.wait().await.expect("all chunks accepted");
+
+    let received = mock.received.lock().await;
+    let budgets: Vec<u64> = received.iter().map(|s| s.soft_budget_ms).collect();
+    assert_eq!(
+        budgets,
+        vec![30_000, 0, 0, 0],
+        "one budgeted frame, then three unbudgeted split chunks"
+    );
+}
+
+#[tokio::test]
 async fn a_busy_status_fences_as_retriable_with_messages() {
     // A worker reporting busy is applying backpressure, not failing: the fenced
     // sends must carry their messages (to replay) and classify as retriable, so

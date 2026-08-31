@@ -245,6 +245,7 @@ async fn async_main(config: Config) -> Result<()> {
         Duration::from_millis(config.ingestion_worker_stream_ack_timeout_ms),
     );
     transport.set_max_body_bytes(config.transport_max_body_bytes);
+    transport.set_soft_budget_ms(config.ingestion_worker_sub_batch_soft_budget_ms);
     let transport = Arc::new(transport);
 
     // Select the worker discovery provider and start it (static applies the

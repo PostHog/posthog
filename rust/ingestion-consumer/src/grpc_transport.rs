@@ -129,6 +129,12 @@ struct WorkerStreamItem {
     batch_id: String,
     messages: Vec<SerializedKafkaMessage>,
     replay: bool,
+    /// Send this frame with `soft_budget_ms = 0` regardless of the configured
+    /// budget. Set for every chunk of a size-split sub-batch: chunks are
+    /// separate frames with separate budgets on the worker, so a budget cut in
+    /// one chunk while a later chunk carries the same routing key would let
+    /// the key's newer messages complete ahead of its timed-out older ones.
+    unbudgeted: bool,
     reply: oneshot::Sender<StreamReply>,
 }
 
@@ -168,6 +174,9 @@ pub struct GrpcTransport {
     /// consecutive chunks (see `begin_send`), so no frame crosses the worker's
     /// message limit.
     max_body_bytes: usize,
+    /// Soft time budget stamped on every sub-batch frame (milliseconds).
+    /// 0 sends no budget, so the worker never times work out.
+    soft_budget_ms: u64,
 }
 
 impl GrpcTransport {
@@ -180,6 +189,7 @@ impl GrpcTransport {
             max_unacked,
             ack_timeout,
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
+            soft_budget_ms: 0,
             assignment_epoch: Arc::new(AtomicU64::new(1)),
             probe_client: reqwest::Client::builder()
                 .timeout(readiness::PROBE_TIMEOUT)
@@ -197,6 +207,15 @@ impl GrpcTransport {
     pub fn set_max_body_bytes(&mut self, bytes: usize) {
         assert!(bytes > 0, "max_body_bytes must be > 0");
         self.max_body_bytes = bytes;
+    }
+
+    /// Set the soft time budget stamped on every sub-batch (milliseconds).
+    /// 0 sends no budget. The worker enforces what it is sent: past the
+    /// budget it stops starting new work and acks the sub-batch PARTIAL, so
+    /// size it well under the ack watchdog, which stays the hard limit.
+    /// Call before the transport is shared.
+    pub fn set_soft_budget_ms(&mut self, ms: u64) {
+        self.soft_budget_ms = ms;
     }
 
     /// Enqueue a sub-batch on the worker's stream. Synchronous on purpose: call
@@ -222,6 +241,7 @@ impl GrpcTransport {
             )
             .increment((chunks.len() - 1) as u64);
         }
+        let split = chunks.len() > 1;
         let stream = self.worker_stream_for(worker_url);
         let receivers = chunks
             .into_iter()
@@ -231,6 +251,7 @@ impl GrpcTransport {
                     batch_id: batch_id.to_string(),
                     messages,
                     replay,
+                    unbudgeted: split,
                     reply,
                 };
                 if let Err(send_err) = stream.tx.send(item) {
@@ -268,6 +289,7 @@ impl GrpcTransport {
             consumer_id: self.consumer_id.clone(),
             max_unacked: self.max_unacked,
             ack_timeout: self.ack_timeout,
+            soft_budget_ms: self.soft_budget_ms,
             assignment_epoch: Arc::clone(&self.assignment_epoch),
         };
         tokio::spawn(async move { runner.run(rx).await });
@@ -328,6 +350,7 @@ struct WorkerStreamRunner {
     consumer_id: String,
     max_unacked: usize,
     ack_timeout: Duration,
+    soft_budget_ms: u64,
     assignment_epoch: Arc<AtomicU64>,
 }
 
@@ -534,7 +557,11 @@ impl WorkerStreamRunner {
                     messages: item.messages.iter().map(to_proto_message).collect(),
                     replay: item.replay,
                     assignment_epoch: self.assignment_epoch.load(Ordering::Relaxed),
-                    soft_budget_ms: 0,
+                    soft_budget_ms: if item.unbudgeted {
+                        0
+                    } else {
+                        self.soft_budget_ms
+                    },
                 })),
             };
             // tonic gzips the frame after this point, so only the raw size is observable here.
