@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import orjson as json
 import structlog
@@ -19,6 +19,7 @@ from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.exceptions import ClickHouseAtCapacity
@@ -31,6 +32,8 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
+
+_INTERNAL_ERROR_CATEGORY_KEY = "_error_category"
 
 CUSTOM_BUCKETS = (0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 20, 30, 60, 120, 300, 600, float("inf"))
 
@@ -55,19 +58,22 @@ class QueryRetrievalError(Exception):
 
 
 def _query_status_error_code(err: Exception) -> Optional[str]:
-    error_category = classify_query_error(err)
-    if error_category is QueryErrorCategory.RATE_LIMITED:
-        return error_category.value
-    api_error_code: Optional[str] = None
     if isinstance(err, APIException):
         codes = err.get_codes()
         if isinstance(codes, str):
-            api_error_code = codes
-            if codes != "error":
-                return codes
-    if error_category is not QueryErrorCategory.ERROR:
-        return error_category.value
-    return api_error_code
+            return codes
+    return None
+
+
+def _query_status_error_category(err: Exception) -> Optional[QueryErrorCategory]:
+    error_category = classify_query_error(err)
+    return error_category if error_category is not QueryErrorCategory.ERROR else None
+
+
+@frozen
+class InternalQueryStatus:
+    query_status: QueryStatus
+    error_category: Optional[QueryErrorCategory]
 
 
 class QueryStatusManager:
@@ -99,8 +105,13 @@ class QueryStatusManager:
     def running_queries_key(self) -> str:
         return f"{self.KEY_PREFIX_RUNNING_QUERIES}:{self.team_id}"
 
-    def store_query_status(self, query_status: QueryStatus):
-        value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
+    def store_query_status(
+        self, query_status: QueryStatus, *, error_category: Optional[QueryErrorCategory] = None
+    ) -> None:
+        query_status_data = query_status.model_dump(exclude={"clickhouse_query_progress"})
+        if error_category is not None:
+            query_status_data[_INTERNAL_ERROR_CATEGORY_KEY] = error_category.value
+        value = SafeJSONRenderer().render(query_status_data)
         query_status.expiration_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(
             seconds=self.STATUS_TTL_SECONDS
         )
@@ -158,13 +169,16 @@ class QueryStatusManager:
             logger.exception("Clickhouse Status Check Failed", error=e)
             return None
 
-    def get_query_status(self, show_progress: bool = False) -> QueryStatus:
+    def _get_query_status_data(self) -> dict[str, Any]:
         byte_results = self._get_results()
 
         if not byte_results:
             raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
 
-        loaded = json.loads(byte_results)
+        return json.loads(byte_results)
+
+    def get_query_status(self, show_progress: bool = False) -> QueryStatus:
+        loaded = self._get_query_status_data()
         # Drop unknown keys so a status written by a newer deploy (with extra fields) doesn't fail
         # validation here — QueryStatus forbids extra fields.
         query_status = QueryStatus(**{k: v for k, v in loaded.items() if k in QueryStatus.model_fields})
@@ -173,6 +187,16 @@ class QueryStatusManager:
             query_status.query_progress = self.get_clickhouse_progresses()
 
         return query_status
+
+    def get_internal_query_status(self) -> InternalQueryStatus:
+        loaded = self._get_query_status_data()
+        query_status = QueryStatus(**{k: v for k, v in loaded.items() if k in QueryStatus.model_fields})
+        raw_error_category = loaded.get(_INTERNAL_ERROR_CATEGORY_KEY)
+        try:
+            error_category = QueryErrorCategory(raw_error_category) if isinstance(raw_error_category, str) else None
+        except ValueError:
+            error_category = None
+        return InternalQueryStatus(query_status=query_status, error_category=error_category)
 
     def delete_query_status(self) -> None:
         logger.info("Deleting redis query key %s", self.results_key)
@@ -280,6 +304,7 @@ def execute_process_query(
         wait_duration = (query_status.pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
         QUERY_WAIT_TIME.labels(team=team_id, mode=trigger).observe(wait_duration)
 
+    error_category: Optional[QueryErrorCategory] = None
     try:
         results = process_query_dict(
             team=team,
@@ -321,10 +346,8 @@ def execute_process_query(
         if is_user_safe_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
-        # Preserve the semantic category across the async status boundary. Rate-limited takes
-        # precedence over an inherited API code (cluster and per-query memory share one), while a
-        # specific non-transient frontend code remains intact.
-        query_status.error_code = _query_status_error_code(err)
+            query_status.error_code = _query_status_error_code(err)
+        error_category = _query_status_error_category(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
             # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
@@ -333,7 +356,7 @@ def execute_process_query(
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
-        manager.store_query_status(query_status)
+        manager.store_query_status(query_status, error_category=error_category)
         cache_key = None
         try:
             if query_status.results:
@@ -454,6 +477,11 @@ def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -
     """
     manager = QueryStatusManager(query_id, team_id)
     return manager.get_query_status(show_progress=show_progress)
+
+
+def get_internal_query_status(team_id: int, query_id: str) -> InternalQueryStatus:
+    manager = QueryStatusManager(query_id, team_id)
+    return manager.get_internal_query_status()
 
 
 def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str:

@@ -358,15 +358,37 @@ async def test_run_steps_forwards_resolution_error_message_to_fix(
     assert mock_fix.await_args.kwargs["error_message"] == "Unable to resolve field 'operaton'"
 
 
+@pytest.mark.parametrize(
+    "clickhouse_error,unsafe_fragment",
+    [
+        pytest.param(
+            CHQueryErrorUnknownFunction(
+                "DB::Exception: Unknown function made_up", code=46, code_name="unknown_function"
+            ),
+            "made_up",
+            id="unknown_function",
+        ),
+        pytest.param(
+            CHQueryErrorUnknownIdentifier(
+                "DB::Exception: Unknown identifier attacker_controlled_value",
+                code=47,
+                code_name="unknown_identifier",
+            ),
+            "attacker_controlled_value",
+            id="unknown_identifier",
+        ),
+    ],
+)
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
 @patch(f"{_RP}.AssistantQueryExecutor")
-async def test_run_steps_repairs_wrapped_clickhouse_user_error(
-    mock_executor_cls: MagicMock, mock_fix: AsyncMock
+async def test_run_steps_repairs_clickhouse_user_errors_without_forwarding_raw_text(
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+    clickhouse_error: BaseException,
+    unsafe_fragment: str,
 ) -> None:
     error = MaxToolRetryableError("Query validation failed")
-    error.__context__ = CHQueryErrorUnknownFunction(
-        "DB::Exception: Unknown function made_up", code=46, code_name="unknown_function"
-    )
+    error.__context__ = clickhouse_error
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
 
     execution = await _run_steps(
@@ -376,29 +398,7 @@ async def test_run_steps_repairs_wrapped_clickhouse_user_error(
     assert mock_fix.await_args is not None
     repair_message = mock_fix.await_args.kwargs["error_message"]
     assert repair_message == "ClickHouse rejected the query. Rewrite it using valid HogQL syntax and functions."
-    assert "made_up" not in repair_message
-    assert execution.plan_invalidating_failed_count == 1
-
-
-@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
-@patch(f"{_RP}.AssistantQueryExecutor")
-async def test_run_steps_repairs_internal_clickhouse_user_error_without_forwarding_raw_text(
-    mock_executor_cls: MagicMock, mock_fix: AsyncMock
-) -> None:
-    error = MaxToolRetryableError("Query validation failed")
-    error.__context__ = CHQueryErrorUnknownIdentifier(
-        "DB::Exception: Unknown identifier attacker_controlled_value", code=47, code_name="unknown_identifier"
-    )
-    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
-
-    execution = await _run_steps(
-        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
-    )
-
-    assert mock_fix.await_args is not None
-    repair_message = mock_fix.await_args.kwargs["error_message"]
-    assert repair_message == "ClickHouse rejected the query. Rewrite it using valid HogQL syntax and functions."
-    assert "attacker_controlled_value" not in repair_message
+    assert unsafe_fragment not in repair_message
     assert execution.plan_invalidating_failed_count == 1
 
 
@@ -671,10 +671,11 @@ async def test_unfrozen_run_returns_plan_to_persist(
 @pytest.mark.parametrize(
     "total_steps,failed_count,plan_invalidating_failed_count,should_freeze",
     [
-        (12, 0, 0, True),
-        (12, 1, 1, False),
-        (12, 1, 0, True),
-        (12, 12, 0, False),
+        pytest.param(12, 0, 0, True, id="all_succeeded"),
+        pytest.param(12, 1, 1, False, id="structural_failure"),
+        pytest.param(12, 1, 0, True, id="partial_transient_failure"),
+        pytest.param(12, 12, 0, False, id="all_transient_failures"),
+        pytest.param(1, 1, 0, False, id="single_transient_failure"),
     ],
 )
 def test_plan_to_freeze_rejects_invalid_or_all_failed_plans(

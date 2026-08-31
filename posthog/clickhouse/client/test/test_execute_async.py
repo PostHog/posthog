@@ -81,6 +81,16 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
+    def test_internal_error_category_is_stored_outside_public_query_status(self):
+        self.manager.store_query_status(self.query_status, error_category=QueryErrorCategory.USER_ERROR)
+
+        public_status = self.manager.get_query_status()
+        internal_status = self.manager.get_internal_query_status()
+
+        self.assertIsNone(public_status.error_code)
+        self.assertEqual(internal_status.query_status, public_status)
+        self.assertEqual(internal_status.error_category, QueryErrorCategory.USER_ERROR)
+
     def test_process_query_task_on_failure_marks_status_errored(self):
         from posthog.tasks.tasks import process_query_task
 
@@ -99,22 +109,35 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertTrue(result.error)
         self.assertEqual(result.error_message, ClickHouseAtCapacity.default_detail)
         self.assertIsNotNone(result.end_time)
-
-    def test_internal_user_error_carries_category_code(self):
-        error = CHQueryErrorUnknownIdentifier(
-            "DB::Exception: Unknown identifier attacker_controlled_value", code=47, code_name="unknown_identifier"
-        )
-
-        self.assertEqual(_query_status_error_code(error), QueryErrorCategory.USER_ERROR.value)
-
-    def test_transient_cluster_memory_error_carries_rate_limited_category(self):
         self.assertEqual(
-            _query_status_error_code(ClickHouseClusterMemoryLimitExceeded()),
-            QueryErrorCategory.RATE_LIMITED.value,
+            self.manager.get_internal_query_status().error_category,
+            QueryErrorCategory.RATE_LIMITED,
         )
 
-    def test_generic_api_error_preserves_default_code(self):
-        self.assertEqual(_query_status_error_code(APIException("Query failed")), "error")
+    @parameterized.expand(
+        [
+            ("internal_user_error", CHQueryErrorUnknownIdentifier("bad", code=47), QueryErrorCategory.USER_ERROR),
+            ("transient_capacity", ClickHouseClusterMemoryLimitExceeded(), QueryErrorCategory.RATE_LIMITED),
+            ("query_performance", ClickHouseQueryMemoryLimitExceeded(), QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
+        ]
+    )
+    def test_query_status_error_category(self, _name, error, expected_category):
+        self.assertEqual(client._query_status_error_category(error), expected_category)
+
+    @parameterized.expand(
+        [
+            ("generic_api_code", APIException("Query failed"), "error"),
+            ("specific_api_code", APIException("Query failed", code="user_error"), "user_error"),
+            (
+                "query_performance_api_code",
+                ClickHouseQueryMemoryLimitExceeded(),
+                ClickHouseQueryMemoryLimitExceeded.default_code,
+            ),
+            ("internal_error", CHQueryErrorUnknownIdentifier("bad", code=47), None),
+        ]
+    )
+    def test_query_status_public_error_code(self, _name, error, expected_code):
+        self.assertEqual(_query_status_error_code(error), expected_code)
 
     def test_store_clickhouse_query_progress(self):
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": 1234}}
@@ -388,6 +411,24 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.complete)
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
+
+    def test_async_query_internal_error_category_is_not_exposed_as_public_error_code(self):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+        error = CHQueryErrorUnknownIdentifier(
+            "DB::Exception: Unknown identifier attacker_controlled_value", code=47, code_name="unknown_identifier"
+        )
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=error):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        public_status = client.get_query_status(self.team.id, query_id)
+        self.assertIsNone(public_status.error_message)
+        self.assertIsNone(public_status.error_code)
+        internal_status = client.get_internal_query_status(self.team.id, query_id)
+        self.assertEqual(internal_status.error_category, QueryErrorCategory.USER_ERROR)
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")

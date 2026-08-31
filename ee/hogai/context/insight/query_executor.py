@@ -42,7 +42,7 @@ from posthog.hogql.errors import (
 )
 
 from posthog.api.services.query import process_query_dict
-from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.clickhouse.client.execute_async import get_internal_query_status, get_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
@@ -128,7 +128,7 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
 
 def _query_status_error(query_status: dict[str, Any]) -> Exception:
     error_message = query_status.get("error_message")
-    error_code = query_status.get("error_code")
+    error_code = query_status.get("error_category") or query_status.get("error_code")
     if error_message or error_code:
         return APIException(error_message or "Query failed", code=error_code or "error")
     return Exception("Query failed")
@@ -448,6 +448,14 @@ class AssistantQueryExecutor:
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
+                    try:
+                        internal_status = await database_sync_to_async(
+                            get_internal_query_status, thread_sensitive=True
+                        )(team_id=self._team.pk, query_id=query_status["id"])
+                        if internal_status.error_category is not None:
+                            query_status["error_category"] = internal_status.error_category.value
+                    except Exception:
+                        logger.warning("Failed to retrieve internal query error category", exc_info=True)
                     raise _query_status_error(query_status)
 
                 # Use the completed query results

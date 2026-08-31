@@ -61,7 +61,11 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_enriched_prompt,
     build_frozen_prompt,
 )
-from products.exports.backend.temporal.subscriptions.types import safe_error_message, undisclosed_query_error_type
+from products.exports.backend.temporal.subscriptions.types import (
+    iter_exception_chain,
+    safe_error_message,
+    undisclosed_query_error_type,
+)
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
@@ -116,16 +120,14 @@ _ASYNC_USER_QUERY_REPAIR_HINT = "The query was rejected because its structure is
 _GENERIC_QUERY_REPAIR_HINT = "The query failed with an adjusted-input error. Rewrite it using valid HogQL."
 
 
-def _query_error_disposition(exc: BaseException) -> tuple[Optional[str], bool]:
-    """Return safe fixer guidance and whether this failure makes the plan unsafe to freeze."""
+def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> tuple[Optional[str], bool]:
+    """Return a safe repair hint and whether this failure invalidates the plan."""
     safe_message = safe_error_message(exc)
     categories: set[QueryErrorCategory] = set()
     api_error_codes: set[str] = set()
     has_clickhouse_user_error = False
     has_retryable_error = False
-    seen: set[int] = set()
-    current: Optional[BaseException] = exc
-    while current is not None and id(current) not in seen:
+    for current in iter_exception_chain(exc):
         if isinstance(current, MaxToolRetryableError):
             has_retryable_error = True
         if isinstance(current, APIException):
@@ -138,8 +140,6 @@ def _query_error_disposition(exc: BaseException) -> tuple[Optional[str], bool]:
                 categories.add(category)
             if isinstance(current, InternalCHQueryError) and category is QueryErrorCategory.USER_ERROR:
                 has_clickhouse_user_error = True
-        seen.add(id(current))
-        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
 
     # Capacity pressure is temporary and does not make the query itself invalid. Check it before
     # the generic retryable wrapper, which otherwise describes every adjusted-input failure alike.
@@ -612,7 +612,7 @@ async def _run_steps(
                 )
             except Exception as exc:
                 last_exc = exc
-                rewrite_error_message, plan_invalidating_failure = _query_error_disposition(exc)
+                rewrite_error_message, plan_invalidating_failure = _query_repair_hint_and_plan_invalidation(exc)
                 had_plan_invalidating_failure = had_plan_invalidating_failure or plan_invalidating_failure
                 if attempt >= _MAX_QUERY_FIX_RETRIES or rewrite_error_message is None:
                     break

@@ -39,7 +39,7 @@ from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory
 
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
@@ -57,6 +57,28 @@ def test_query_status_error_preserves_category_code() -> None:
 
     assert isinstance(error, APIException)
     assert error.get_codes() == "user_error"
+
+
+def test_query_status_error_uses_code_without_message() -> None:
+    error = _query_status_error({"error": True, "error_code": "user_error"})
+
+    assert isinstance(error, APIException)
+    assert str(error) == "Query failed"
+    assert error.get_codes() == "user_error"
+
+
+def test_query_status_error_uses_internal_category() -> None:
+    error = _query_status_error({"error": True, "error_category": "user_error"})
+
+    assert isinstance(error, APIException)
+    assert error.get_codes() == "user_error"
+
+
+def test_query_status_error_without_message_or_code_is_generic() -> None:
+    error = _query_status_error({"error": True})
+
+    assert type(error) is Exception
+    assert str(error) == "Query failed"
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
@@ -380,8 +402,11 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Query hasn't completed in time", str(context.exception))
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_internal_query_status")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_query_polling_with_error(self, mock_get_query_status, mock_process_query):
+    async def test_async_query_polling_with_error(
+        self, mock_get_query_status, mock_get_internal_query_status, mock_process_query
+    ):
         """Test async query polling that returns an error"""
         # Initial response with incomplete query
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
@@ -393,9 +418,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "complete": True,
                 "error": True,
                 "error_message": "Query failed with error",
-                "error_code": "user_error",
             }
         )
+        mock_get_internal_query_status.return_value = Mock(error_category=QueryErrorCategory.USER_ERROR)
 
         query = AssistantTrendsQuery(series=[])
 

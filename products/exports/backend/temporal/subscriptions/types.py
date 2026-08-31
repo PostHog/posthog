@@ -13,15 +13,20 @@ from posthog.slo.types import SloConfig
 UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
 
-def undisclosed_query_error_type(exc: BaseException) -> typing.Optional[str]:
+def iter_exception_chain(exc: BaseException) -> typing.Iterator[BaseException]:
     seen: set[int] = set()
     current: typing.Optional[BaseException] = exc
     while current is not None and id(current) not in seen:
+        yield current
+        seen.add(id(current))
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+
+
+def undisclosed_query_error_type(exc: BaseException) -> typing.Optional[str]:
+    for current in iter_exception_chain(exc):
         type_name = type(current).__name__
         if type_name in UNDISCLOSED_QUERY_ERROR_TYPES:
             return type_name
-        seen.add(id(current))
-        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
     return None
 
 
@@ -41,13 +46,9 @@ def safe_error_message(exc: BaseException) -> typing.Optional[str]:
     walk honours ``raise ... from None`` (``__suppress_context__``) — a deliberately severed
     chain stays severed, so an internal error the author meant to hide is never surfaced.
     """
-    seen: set[int] = set()
-    current: typing.Optional[BaseException] = exc
-    while current is not None and id(current) not in seen:
+    for current in iter_exception_chain(exc):
         if isinstance(current, (ExposedHogQLError, ResolutionError)):
             return str(current).replace("\x00", "")
-        seen.add(id(current))
-        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
     return None
 
 
