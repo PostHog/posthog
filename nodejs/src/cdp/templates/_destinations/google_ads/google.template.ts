@@ -27,6 +27,26 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             required: false,
         },
         {
+            key: 'gbraid',
+            type: 'string',
+            label: 'Google click ID for web-to-app (gbraid)',
+            description:
+                'Click identifier for iOS web-to-app conversions where the user allowed app tracking (gbraid). Used when no gclid is available after ATT. Set only one of gclid, gbraid, or wbraid per conversion.',
+            default: '{person.properties.gbraid ?? person.properties.$initial_gbraid}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'wbraid',
+            type: 'string',
+            label: 'Google click ID for web-to-app (wbraid)',
+            description:
+                'Click identifier for iOS web-to-app conversions where the user did not allow app tracking (wbraid). Used when no gclid is available after ATT. Set only one of gclid, gbraid, or wbraid per conversion.',
+            default: '{person.properties.wbraid ?? person.properties.$initial_wbraid}',
+            secret: false,
+            required: false,
+        },
+        {
             key: 'conversionDateTime',
             type: 'string',
             label: 'Conversion Date Time',
@@ -107,8 +127,8 @@ if (not empty(inputs.phone)) {
     userIdentifiers := arrayPushBack(userIdentifiers, {'hashed_phone_number': sha256Hex(lower(trim(inputs.phone)))})
 }
 
-if (empty(inputs.gclid) and empty(userIdentifiers)) {
-    print('No \`gclid\` or user identifiers. Skipping...')
+if (empty(inputs.gclid) and empty(inputs.gbraid) and empty(inputs.wbraid) and empty(userIdentifiers)) {
+    print('No \`gclid\`, \`gbraid\`, \`wbraid\` or user identifiers. Skipping...')
     return
 }
 
@@ -118,6 +138,12 @@ let conversion := {
 }
 if (not empty(inputs.gclid)) {
     conversion.gclid := inputs.gclid
+}
+if (not empty(inputs.gbraid)) {
+    conversion.gbraid := inputs.gbraid
+}
+if (not empty(inputs.wbraid)) {
+    conversion.wbraid := inputs.wbraid
 }
 if (not empty(userIdentifiers)) {
     conversion.user_identifiers := userIdentifiers
