@@ -77,10 +77,15 @@ describe('early data derivations', () => {
         expect(checklist.find((i) => i.key === 'sessions')?.status).toBe(sessionsStatus)
     })
 
-    it('flips unmet-demand reporting to ok once any report exists', () => {
-        expect(buildChecklist(stats({})).find((i) => i.key === 'missing-capability')?.status).toBe('pending')
-        expect(
-            buildChecklist(stats({ missingCapabilityReports: 2 })).find((i) => i.key === 'missing-capability')?.status
-        ).toBe('ok')
+    it.each([
+        [0, 'pending', undefined],
+        [2, 'ok', '/mcp-analytics/missing-capabilities'],
+    ])('grades %i missing-capability reports as %s and links to %s', (reports, status, appLinkTo) => {
+        const item = buildChecklist(stats({ missingCapabilityReports: reports })).find(
+            (i) => i.key === 'missing-capability'
+        )
+
+        expect(item?.status).toBe(status)
+        expect(item?.appLink?.to).toBe(appLinkTo)
     })
 })
