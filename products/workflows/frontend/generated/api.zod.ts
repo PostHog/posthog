@@ -2336,6 +2336,74 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
     })
     .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
 
+/**
+ * Agent-authored changes to this workflow, awaiting a human's decision.
+ *
+ * Creating one stages nothing: a proposal only reaches the workflow's draft once a human
+ * approves it, and only reaches the live config once someone publishes that draft.
+ */
+export const hogFlowsProposalsCreateBodyTitleMax = 200
+
+export const hogFlowsProposalsCreateBodySourceIdMax = 200
+
+export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(hogFlowsProposalsCreateBodyTitleMax).describe('Short summary of the proposed change.'),
+    rationale: zod.string().describe('Why this change is worth making, in prose a human reads.'),
+    content: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are.'
+        ),
+    evidence: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
+    base_version: zod
+        .number()
+        .optional()
+        .describe('Workflow version this was authored against. Defaults to the current live version.'),
+    source_type: zod
+        .enum(['scout', 'responder', 'human', 'stub'])
+        .describe('\* `scout` - Scout\n\* `responder` - Responder\n\* `human` - Human\n\* `stub` - Stub generator')
+        .describe(
+            'What kind of producer authored this proposal.\n\n\* `scout` - Scout\n\* `responder` - Responder\n\* `human` - Human\n\* `stub` - Stub generator'
+        ),
+    source_id: zod
+        .string()
+        .max(hogFlowsProposalsCreateBodySourceIdMax)
+        .nullish()
+        .describe(
+            'Stable id of the producing agent run or finding. Posting the same one twice returns the existing proposal instead of creating a duplicate.'
+        ),
+})
+
+export const hogFlowsProposalsApproveCreateBodyOverwriteDefault = false
+
+export const HogFlowsProposalsApproveCreateBody = /* @__PURE__ */ zod.object({
+    overwrite: zod
+        .boolean()
+        .default(hogFlowsProposalsApproveCreateBodyOverwriteDefault)
+        .describe(
+            "Replace the open staged draft with this proposal's content. Without it, approving while a draft is open returns 409."
+        ),
+    expected_draft_updated_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'The draft_updated_at of the staged draft this overwrite was confirmed against. A draft with a different stamp returns 409 instead of being overwritten. Omit to overwrite unconditionally.'
+        ),
+})
+
+export const hogFlowsProposalsRejectCreateBodyResolutionNoteMax = 1000
+
+export const HogFlowsProposalsRejectCreateBody = /* @__PURE__ */ zod.object({
+    resolution_note: zod
+        .string()
+        .max(hogFlowsProposalsRejectCreateBodyResolutionNoteMax)
+        .optional()
+        .describe('Why the proposal was rejected. Read back by whoever tunes the agent that produced it.'),
+})
+
 export const hogFlowsPublishCreateBodyConfirmDefault = false
 
 export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
