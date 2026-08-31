@@ -1,7 +1,7 @@
 import itertools
 from collections.abc import Iterator
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from uuid import UUID
 
@@ -340,6 +340,43 @@ def test_requeues_a_person_the_drain_already_cleaned(cluster: ClickhouseCluster,
 
 
 @pytest.mark.django_db
+def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_database):
+    # The upsert's conflict guard skips rows that already hold the incoming values. Without it a
+    # Dagster retry of this op writes a new tuple version for every queued person, and a retry
+    # over millions of rows leaves that many dead tuples on the persons writer. A full second job
+    # run cannot exercise this: the first run hard-deletes the ClickHouse rows, so the op never
+    # upserts the same person twice. The op is invoked directly instead, as a retry would.
+    create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+    run = clickhouse_cleanup.CleanupRun.for_run("persist_retry_run", clickhouse_cleanup.CleanupConfig(dry_run=False))
+    cluster.any_host(run.persons.populate).result()
+    cluster.map_all_hosts(run.persons.sync_replica).result()
+    run = replace(run, distinct_ids_deleted_at=datetime(2026, 1, 1, tzinfo=UTC), persons_count=1)
+
+    def queue_row() -> tuple:
+        # xmin changes on every UPDATE, so a stable xmin proves no new tuple version was written.
+        with persons_database.cursor() as cursor:
+            cursor.execute(f"SELECT xmin::text, deleted_at, cleaned_at FROM {PG_CLEANUP_QUEUE_TABLE}")
+            [row] = cursor.fetchall()
+            return row
+
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_database, run)
+    first = queue_row()
+
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_database, run)
+    assert queue_row() == first
+
+    # A drained row must still be re-armed even when deleted_at matches, or the second deletion
+    # of a re-created person is dropped.
+    with persons_database.cursor() as cursor:
+        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET cleaned_at = now()")
+    persons_database.commit()
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_database, run)
+    rearmed = queue_row()
+    assert rearmed[2] is None
+    assert rearmed[0] != first[0]
+
+
+@pytest.mark.django_db
 def test_excludes_a_person_revived_while_the_run_is_in_flight(cluster: ClickhouseCluster, persons_database):
     revived = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     create_person_distinct_id(team_id=TEAM_ID, distinct_id="spared", person_id=revived, version=0)
@@ -348,11 +385,11 @@ def test_excludes_a_person_revived_while_the_run_is_in_flight(cluster: Clickhous
 
     original = OrphanedDistinctIdsTable.populate
 
-    def revive_then_populate(self, client, persons_dictionary):
+    def revive_then_populate(self, client, persons_dictionary, settings=None):
         # Fires after the snapshot is taken and the dictionary is loaded, so the checkpoint is
         # the only thing standing between the revived person and the delete.
         create_person(uuid=revived, team_id=TEAM_ID, version=10, is_deleted=False)
-        return original(self, client, persons_dictionary)
+        return original(self, client, persons_dictionary, settings=settings)
 
     with patch.object(OrphanedDistinctIdsTable, "populate", revive_then_populate):
         run_job(cluster, persons_database)
@@ -527,8 +564,8 @@ def test_keeps_a_distinct_id_recaptured_while_the_run_is_in_flight(cluster: Clic
 
     original = OrphanedDistinctIdsTable.populate
 
-    def recapture_then_populate(self, client, persons_dictionary):
-        result = original(self, client, persons_dictionary)
+    def recapture_then_populate(self, client, persons_dictionary, settings=None):
+        result = original(self, client, persons_dictionary, settings=settings)
         # A client captures the id again after the snapshot froze the reason it qualified. Trusting
         # that snapshot would delete every version of the mapping, including this live one.
         create_person_distinct_id(team_id=TEAM_ID, distinct_id="recaptured", person_id=live, version=200)
@@ -619,8 +656,8 @@ def test_rows_written_after_the_snapshot_survive(cluster: ClickhouseCluster, per
 
     original = OrphanedDistinctIdsTable.populate
 
-    def write_after_snapshot(self, client, persons_dictionary):
-        result = original(self, client, persons_dictionary)
+    def write_after_snapshot(self, client, persons_dictionary, settings=None):
+        result = original(self, client, persons_dictionary, settings=settings)
         create_person_distinct_id(team_id=TEAM_ID, distinct_id="racing", person_id=deleted, version=500)
         return result
 

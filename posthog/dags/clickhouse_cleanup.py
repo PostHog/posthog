@@ -189,7 +189,7 @@ class DeletedPersonsTable(SnapshotTable):
     keys = "team_id, person_id"
     dictionary_types = "team_id Int64, person_id UUID, max_version UInt64"
 
-    def populate(self, client: Client) -> None:
+    def populate(self, client: Client, settings: Mapping[str, int] | None = None) -> None:
         # A person can be soft-deleted and later revived by a higher version, so membership is
         # decided by the latest version rather than by any version having is_deleted set. The
         # inner IN narrows the aggregation to persons with at least one deleted version.
@@ -203,6 +203,7 @@ class DeletedPersonsTable(SnapshotTable):
             HAVING argMax(is_deleted, version) > 0
             """,
             {"run_id": self.run_id},
+            settings=settings,
         )
 
 
@@ -219,7 +220,7 @@ class RevivedPersonsTable(SnapshotTable):
     keys = "team_id, person_id"
     dictionary_types = "team_id Int64, person_id UUID"
 
-    def populate(self, client: Client, persons: DeletedPersonsTable) -> int:
+    def populate(self, client: Client, persons: DeletedPersonsTable, settings: Mapping[str, int] | None = None) -> int:
         # Later checkpoints re-run this, so already-recorded revivals are excluded rather than
         # inserted again. Counting this run's rows is what reports how many are newly revived.
         client.execute(
@@ -233,6 +234,7 @@ class RevivedPersonsTable(SnapshotTable):
             HAVING argMax(is_deleted, version) = 0
             """,
             {"run_id": self.run_id},
+            settings=settings,
         )
         return self.count(client)
 
@@ -250,7 +252,9 @@ class OrphanedDistinctIdsTable(SnapshotTable):
     keys = "team_id, distinct_id"
     dictionary_types = "team_id Int64, distinct_id String, max_version Int64"
 
-    def populate(self, client: Client, persons_dictionary: "SnapshotDictionary") -> None:
+    def populate(
+        self, client: Client, persons_dictionary: "SnapshotDictionary", settings: Mapping[str, int] | None = None
+    ) -> None:
         # person_distinct_id2 is keyed on (team_id, distinct_id) with person_id as a value, so a
         # distinct id can be repointed over time. Deleting rows that merely match a deleted
         # person_id can strip the newest row and resurrect an older mapping underneath it, so the
@@ -275,6 +279,7 @@ class OrphanedDistinctIdsTable(SnapshotTable):
             HAVING own_tombstone OR dictHas('{persons_dictionary.qualified_name}', (team_id, person_id))
             """,
             {"run_id": self.run_id},
+            settings=settings,
         )
 
 
@@ -298,6 +303,7 @@ class RevivedDistinctIdsTable(SnapshotTable):
         orphaned: OrphanedDistinctIdsTable,
         persons: DeletedPersonsTable,
         revived: RevivedPersonsTable,
+        settings: Mapping[str, int] | None = None,
     ) -> int:
         # A key stops qualifying once its latest version is live AND its current owner is not a
         # person this run is still deleting. Both arms of the original predicate have to fail.
@@ -317,6 +323,7 @@ class RevivedDistinctIdsTable(SnapshotTable):
                )
             """,
             {"run_id": self.run_id},
+            settings=settings,
         )
         return self.count(client)
 
@@ -431,6 +438,15 @@ class CleanupRun:
         )
 
     @property
+    def query_settings(self) -> dict[str, int]:
+        """Caps for the snapshot INSERT..SELECTs, which scan person and person_distinct_id2 whole.
+
+        Without these the populates run unbounded; the dictionary loads already honor the same
+        two config fields, so one launch config bounds every heavy read in the run.
+        """
+        return {"max_execution_time": self.max_execution_time, "max_memory_usage": self.max_memory_usage}
+
+    @property
     def all_tables(self) -> tuple[SnapshotTable, ...]:
         return (self.persons, self.revived, self.orphaned, self.revived_distinct_ids)
 
@@ -501,12 +517,18 @@ def snapshot_deleted_persons(
     run: CleanupRun,
 ) -> CleanupRun:
     """Capture the persons whose latest version is deleted, tagged with this run's id."""
-    cluster.any_host_by_role(run.persons.populate, NodeRole.DATA).result()
+    started = time.monotonic()
+    cluster.any_host_by_role(partial(run.persons.populate, settings=run.query_settings), NodeRole.DATA).result()
     # The insert lands on one host, but every host reads this table when the dictionary loads.
     cluster.map_all_hosts(run.persons.sync_replica).result()
 
     count = cluster.any_host_by_role(run.persons.distinct_key_count, NodeRole.DATA).result()
-    context.add_output_metadata({"deleted_persons": dagster.MetadataValue.int(count)})
+    context.add_output_metadata(
+        {
+            "deleted_persons": dagster.MetadataValue.int(count),
+            "snapshot_seconds": dagster.MetadataValue.float(round(time.monotonic() - started, 1)),
+        }
+    )
     return replace(run, persons_count=count)
 
 
@@ -519,14 +541,22 @@ def snapshot_orphaned_distinct_ids(
     """Resolve which distinct ids belong to the snapshotted persons, or tombstoned themselves."""
     _create_dictionary(context, cluster, run.persons_dictionary, run)
 
+    started = time.monotonic()
     cluster.any_host_by_role(
-        partial(run.orphaned.populate, persons_dictionary=run.persons_dictionary), NodeRole.DATA
+        partial(run.orphaned.populate, persons_dictionary=run.persons_dictionary, settings=run.query_settings),
+        NodeRole.DATA,
     ).result()
     cluster.map_all_hosts(run.orphaned.sync_replica).result()
+    snapshot_seconds = round(time.monotonic() - started, 1)
     _create_dictionary(context, cluster, run.orphaned_dictionary, run)
 
     count = cluster.any_host_by_role(run.orphaned.distinct_key_count, NodeRole.DATA).result()
-    context.add_output_metadata({"orphaned_distinct_ids": dagster.MetadataValue.int(count)})
+    context.add_output_metadata(
+        {
+            "orphaned_distinct_ids": dagster.MetadataValue.int(count),
+            "snapshot_seconds": dagster.MetadataValue.float(snapshot_seconds),
+        }
+    )
     return replace(run, orphaned_count=count)
 
 
@@ -548,7 +578,7 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
     ) -> CleanupRun:
         persons_before = cluster.any_host_by_role(run.revived.count, NodeRole.DATA).result()
         persons_total = cluster.any_host_by_role(
-            partial(run.revived.populate, persons=run.persons), NodeRole.DATA
+            partial(run.revived.populate, persons=run.persons, settings=run.query_settings), NodeRole.DATA
         ).result()
         cluster.map_all_hosts(run.revived.sync_replica).result()
 
@@ -560,6 +590,7 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
                 orphaned=run.orphaned,
                 persons=run.persons,
                 revived=run.revived,
+                settings=run.query_settings,
             ),
             NodeRole.DATA,
         ).result()
@@ -945,8 +976,10 @@ def persist_deleted_persons(
             # A person can be deleted, drained, re-created and deleted again under the same uuid,
             # and the drain only looks at rows where cleaned_at is null. Leaving an already-cleaned
             # row untouched would drop that second deletion on the floor and leak its Postgres rows
-            # for good, so the conflict re-arms the row instead of ignoring it. This is also what
-            # makes a rerun idempotent for persons the drain has not reached yet.
+            # for good, so the conflict re-arms the row instead of ignoring it. The WHERE keeps a
+            # retried op from rewriting rows that already hold these values: an unconditional
+            # DO UPDATE writes a new tuple version per row, so a retry over millions of rows would
+            # leave that many dead tuples for the persons writer to vacuum.
             execute_values(
                 cursor,
                 f"""
@@ -954,13 +987,15 @@ def persist_deleted_persons(
                 VALUES %s
                 ON CONFLICT (team_id, person_uuid) DO UPDATE
                 SET deleted_at = EXCLUDED.deleted_at, cleaned_at = NULL
+                WHERE {PG_CLEANUP_QUEUE_TABLE}.cleaned_at IS NOT NULL
+                   OR {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
                 """,
                 [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
-                # One statement per page, so rowcount is the whole page rather than the last
-                # sub-batch of psycopg2's default 100-row paging.
-                page_size=len(page),
+                page_size=1000,
             )
-            written += cursor.rowcount
+            # The conflict guard makes rowcount "rows changed", not "rows queued"; the metric is
+            # the queued set, which is the page.
+            written += len(page)
             # Commit per page: the upsert makes replays idempotent, and one transaction across
             # millions of rows would hold WAL and xmin on the persons writer for the whole op.
             persons_database.commit()
