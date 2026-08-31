@@ -248,6 +248,7 @@ def test_dispatch_reports_success() -> None:
         patch.object(dispatch.store, "get_run", return_value=run),
         patch.object(dispatch.temporal_client, "start_wizard_run_workflow"),
         patch.object(dispatch.store, "mark_dispatch_succeeded"),
+        patch.object(dispatch.store, "cancellation_requested", return_value=False),
         patch.object(dispatch.wizard_observability, "dispatch_finished") as dispatch_finished,
     ):
         dispatch.dispatch_created_cloud_wizard_run_to_temporal_worker(run.team_id, run.id)
@@ -263,6 +264,7 @@ def test_dispatch_enables_local_wizard_source() -> None:
         patch.object(dispatch.store, "get_run", return_value=run),
         patch.object(dispatch.temporal_client, "start_wizard_run_workflow") as start_workflow,
         patch.object(dispatch.store, "mark_dispatch_succeeded"),
+        patch.object(dispatch.store, "cancellation_requested", return_value=False),
         patch.object(dispatch.wizard_observability, "dispatch_finished"),
     ):
         dispatch.dispatch_created_cloud_wizard_run_to_temporal_worker(run.team_id, run.id)
