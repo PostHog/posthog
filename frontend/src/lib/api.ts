@@ -6672,6 +6672,9 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
+            type?: 'messaging' | 'automation'
+            /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
+            trigger?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {

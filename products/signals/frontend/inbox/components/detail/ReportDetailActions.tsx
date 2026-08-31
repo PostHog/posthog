@@ -187,8 +187,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     // report (ready or pending_input). Other live statuses (potential, candidate, in_progress,
     // failed) return 409, so don't show a dead-end affordance. Mirrors `canCreateImplementationPr`
     // and the server transition guard.
-    const canResolve =
-        report.status === SignalReportStatus.READY || report.status === SignalReportStatus.PENDING_INPUT
+    const canResolve = report.status === SignalReportStatus.READY || report.status === SignalReportStatus.PENDING_INPUT
 
     const resolve: ReportDetailAction = {
         key: 'resolve',
