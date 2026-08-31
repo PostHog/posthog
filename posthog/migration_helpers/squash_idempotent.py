@@ -20,6 +20,10 @@ def _existing_constraint_names(schema_editor, table: str) -> set[str]:
 class AddFieldIfMissing(migrations.AddField):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.model_name)
+        if not model._meta.managed:
+            # Django's own operation no-ops for unmanaged models; probing their
+            # (absent) tables would crash first.
+            return
         field = model._meta.get_field(self.name)
         conn = schema_editor.connection
         with conn.cursor() as cursor:
@@ -37,6 +41,10 @@ class AddFieldIfMissing(migrations.AddField):
 class AddIndexIfMissing(migrations.AddIndex):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.model_name)
+        if not model._meta.managed:
+            # Django's own operation no-ops for unmanaged models; probing their
+            # (absent) tables would crash first.
+            return
         if self.index.name in _existing_constraint_names(schema_editor, model._meta.db_table):
             return
         super().database_forwards(app_label, schema_editor, from_state, to_state)
@@ -45,6 +53,10 @@ class AddIndexIfMissing(migrations.AddIndex):
 class AddConstraintIfMissing(migrations.AddConstraint):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.model_name)
+        if not model._meta.managed:
+            # Django's own operation no-ops for unmanaged models; probing their
+            # (absent) tables would crash first.
+            return
         if self.constraint.name in _existing_constraint_names(schema_editor, model._meta.db_table):
             return
         super().database_forwards(app_label, schema_editor, from_state, to_state)
@@ -53,6 +65,8 @@ class AddConstraintIfMissing(migrations.AddConstraint):
 class AlterUniqueTogetherIfMissing(migrations.AlterUniqueTogether):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.name)
+        if not model._meta.managed:
+            return
         wanted: set[frozenset[str]] = set()
         for tup in self.option_value or ():
             wanted.add(frozenset(model._meta.get_field(f).column for f in tup))
