@@ -1,5 +1,9 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
+if TYPE_CHECKING:
+    import uuid
+
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -7,6 +11,12 @@ from posthog.models.utils import UUIDModel, uuid7
 
 
 class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
+    # Framework internals (admin querysets, FK form fields, raw-id widget lookups) read
+    # `_default_manager` with no team context, where the fail-closed `objects` would raise.
+    # Route them through this unscoped sibling via `Meta.default_manager_name`, mirroring
+    # `ProductTeamModel`; scoped reads stay on `objects`.
+    all_teams = models.Manager()
+
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         BOOTSTRAPPING = "bootstrapping", "Bootstrapping"
@@ -32,9 +42,12 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     target_definition = models.JSONField(
         default=dict, help_text="Full target definition including filters and positive-label logic"
     )
-    horizon_days = models.IntegerField(default=7, help_text="Predict whether the target occurs within N days")
+    horizon_days = models.IntegerField(
+        default=7, validators=[MinValueValidator(1)], help_text="Predict whether the target occurs within N days"
+    )
     training_lookback_days = models.IntegerField(
         default=180,
+        validators=[MinValueValidator(1)],
         help_text="How far back to look for training examples. Larger windows give more data but may include stale behavior.",
     )
 
@@ -47,14 +60,25 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     )
 
     # Schedule and budget
-    cadence_days = models.IntegerField(default=1, help_text="Re-score every N days")
-    iteration_budget = models.IntegerField(default=50, help_text="Max training iterations for the autoresearch loop")
-    iteration_budget_remaining = models.IntegerField(default=50)
+    cadence_days = models.IntegerField(default=1, validators=[MinValueValidator(1)], help_text="Re-score every N days")
+    iteration_budget = models.IntegerField(
+        default=50, validators=[MinValueValidator(1)], help_text="Max training iterations for the autoresearch loop"
+    )
+    # Nullable so save() can tell "not supplied" from an explicit value; filled from
+    # iteration_budget on first save.
+    iteration_budget_remaining = models.IntegerField(null=True, blank=True, default=None)
 
     # Stop criteria
-    success_auc = models.FloatField(null=True, blank=True, help_text="Stop when holdout AUC reaches this threshold")
+    success_auc = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        help_text="Stop when holdout AUC reaches this threshold",
+    )
     plateau_iterations = models.IntegerField(
-        default=10, help_text="Stop if no improvement after this many consecutive iterations"
+        default=10,
+        validators=[MinValueValidator(1)],
+        help_text="Stop if no improvement after this many consecutive iterations",
     )
 
     # Outputs
@@ -72,6 +96,29 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         ordering = ["-created_at"]
+        default_manager_name = "all_teams"
+        constraints = [
+            models.CheckConstraint(check=models.Q(horizon_days__gte=1), name="autoresearch_horizon_days_positive"),
+            models.CheckConstraint(
+                check=models.Q(training_lookback_days__gte=1), name="autoresearch_lookback_days_positive"
+            ),
+            models.CheckConstraint(check=models.Q(cadence_days__gte=1), name="autoresearch_cadence_days_positive"),
+            models.CheckConstraint(
+                check=models.Q(iteration_budget__gte=1), name="autoresearch_iteration_budget_positive"
+            ),
+            models.CheckConstraint(
+                check=models.Q(plateau_iterations__gte=1), name="autoresearch_plateau_iterations_positive"
+            ),
+            models.CheckConstraint(
+                check=models.Q(success_auc__isnull=True) | models.Q(success_auc__gte=0.0, success_auc__lte=1.0),
+                name="autoresearch_success_auc_in_unit_range",
+            ),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.iteration_budget_remaining is None:
+            self.iteration_budget_remaining = self.iteration_budget
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.name} ({self.team_id})"
@@ -82,7 +129,7 @@ class PipelineScopedModel(TeamScopedRootMixin, UUIDModel):
 
     The row carries team rather than reaching it through pipeline, because
     TeamScopedManager filters on a team column the model itself declares, and save()
-    fills it from the parent so a caller cannot file a row under the wrong tenant.
+    derives it from the parent so a caller cannot file a row under the wrong tenant.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
@@ -90,14 +137,35 @@ class PipelineScopedModel(TeamScopedRootMixin, UUIDModel):
         "posthog.Team", on_delete=models.CASCADE, related_name="autoresearch_%(class)ss", db_constraint=False
     )
 
+    # See AutoresearchPipeline.all_teams: framework internals need an unscoped
+    # `_default_manager`; concrete subclasses set `Meta.default_manager_name = "all_teams"`.
+    all_teams = models.Manager()
+
+    # Relations that must belong to the same pipeline as this row. save() rejects a
+    # mismatch, so a row cannot mix parents across pipelines.
+    _pipeline_bound_relations: ClassVar[tuple[str, ...]] = ()
+
+    if TYPE_CHECKING:
+        # Subclasses declare the pipeline FK; this names its attname for the shared save().
+        pipeline_id: "uuid.UUID"
+
     class Meta:
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         # RelatedObjectDoesNotExist subclasses AttributeError, so an unset pipeline reads as None.
         pipeline = getattr(self, "pipeline", None)
-        if getattr(self, "team_id", None) is None and pipeline is not None:
+        if pipeline is not None:
+            # Overwrite unconditionally: an explicit team_id that disagrees with the
+            # pipeline's would file the row under the wrong tenant.
             self.team_id = pipeline.team_id
+        for relation_name in self._pipeline_bound_relations:
+            related = getattr(self, relation_name, None)
+            if related is not None and related.pipeline_id != self.pipeline_id:
+                raise ValueError(
+                    f"{type(self).__name__}.{relation_name} belongs to pipeline {related.pipeline_id}, "
+                    f"not this row's pipeline {self.pipeline_id}"
+                )
         super().save(*args, **kwargs)
 
 
@@ -112,6 +180,8 @@ class AutoresearchModel(PipelineScopedModel):
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="models")
 
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.CHALLENGER)
+
+    _pipeline_bound_relations = ("source_training_run",)
 
     # Portable recipe, the load-bearing artifact
     recipe_hash = models.CharField(max_length=64, help_text="SHA-256 of the serialized recipe JSON")
@@ -155,6 +225,16 @@ class AutoresearchModel(PipelineScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        default_manager_name = "all_teams"
+        constraints = [
+            # Inference and scoring read "the champion" as a single row; two champions
+            # would make that read ambiguous, so the database rejects the second.
+            models.UniqueConstraint(
+                fields=["pipeline"],
+                condition=models.Q(role="champion"),
+                name="autoresearch_one_champion_per_pipeline",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.role} model for pipeline {self.pipeline_id}"
@@ -194,6 +274,7 @@ class AutoresearchTrainingRun(PipelineScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        default_manager_name = "all_teams"
 
 
 class AutoresearchIteration(PipelineScopedModel):
@@ -206,6 +287,8 @@ class AutoresearchIteration(PipelineScopedModel):
 
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="iterations")
     training_run = models.ForeignKey(AutoresearchTrainingRun, on_delete=models.CASCADE, related_name="iterations")
+
+    _pipeline_bound_relations = ("training_run", "parent_suggestion")
 
     iteration_number = models.IntegerField()
     recipe_hash = models.CharField(max_length=64)
@@ -230,6 +313,7 @@ class AutoresearchIteration(PipelineScopedModel):
 
     class Meta:
         ordering = ["iteration_number"]
+        default_manager_name = "all_teams"
         unique_together = [("training_run", "iteration_number")]
 
 
@@ -280,6 +364,7 @@ class AutoresearchSuggestion(PipelineScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        default_manager_name = "all_teams"
 
     def __str__(self) -> str:
         return f"[{self.priority}] {self.prompt[:60]} ({self.status})"
@@ -299,6 +384,9 @@ class AutoresearchRun(PipelineScopedModel):
         FAILED = "failed", "Failed"
 
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="runs")
+
+    _pipeline_bound_relations = ("model",)
+
     model = models.ForeignKey(
         AutoresearchModel,
         on_delete=models.SET_NULL,
@@ -320,3 +408,4 @@ class AutoresearchRun(PipelineScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        default_manager_name = "all_teams"

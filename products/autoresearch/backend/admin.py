@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.http import HttpRequest
 
 from .models import (
     AutoresearchIteration,
@@ -48,13 +49,23 @@ class AutoresearchPipelineAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("id", "name", "description", "status")}),
         ("Team & Owner", {"fields": ("team", "created_by")}),
-        ("Prediction target", {"fields": ("target_event", "target_definition", "horizon_days")}),
+        (
+            "Prediction target",
+            {"fields": ("target_event", "target_definition", "horizon_days", "training_lookback_days")},
+        ),
         ("Population", {"fields": ("training_population", "inference_population")}),
         ("Output", {"fields": ("output_person_property",)}),
         ("Budget & schedule", {"fields": ("iteration_budget", "iteration_budget_remaining", "cadence_days")}),
         ("Stop criteria", {"fields": ("success_auc", "plateau_iterations")}),
         ("Dates", {"fields": ("created_at", "updated_at", "last_scored_at")}),
     )
+
+    def get_readonly_fields(self, request: HttpRequest, obj: AutoresearchPipeline | None = None) -> tuple[str, ...]:
+        # Every child row copies team_id from the pipeline at save time. Moving a saved
+        # pipeline to another team would strand those copies under the old tenant.
+        if obj is not None:
+            return (*self.readonly_fields, "team")
+        return self.readonly_fields
 
 
 class AutoresearchIterationInline(admin.TabularInline):
@@ -98,16 +109,46 @@ class AutoresearchModelAdmin(admin.ModelAdmin):
     )
     list_filter = ("role", "is_preliminary", "created_at")
     search_fields = ("pipeline__name", "recipe_hash", "agent_description")
-    readonly_fields = ("id", "recipe_hash", "created_at", "updated_at", "promoted_at", "archived_at")
+    # model_recipe is readonly because recipe_hash is its SHA-256; an admin edit to one
+    # without the other would break hash-based dedup and provenance.
+    readonly_fields = (
+        "id",
+        "recipe_hash",
+        "model_recipe",
+        "artifact_prefix",
+        "created_at",
+        "updated_at",
+        "promoted_at",
+        "archived_at",
+    )
     raw_id_fields = ("pipeline", "source_training_run")
 
     fieldsets = (
         (None, {"fields": ("id", "pipeline", "role", "is_preliminary")}),
-        ("Recipe", {"fields": ("recipe_hash", "model_recipe", "model_explanation")}),
+        ("Recipe", {"fields": ("recipe_hash", "model_recipe", "artifact_prefix", "model_explanation")}),
         ("Performance", {"fields": ("holdout_score", "realized_score", "calibration_error", "metrics")}),
         ("Provenance", {"fields": ("source_training_run", "agent_description", "trained_on_start", "trained_on_end")}),
         ("Dates", {"fields": ("created_at", "updated_at", "promoted_at", "archived_at")}),
     )
+
+
+@admin.register(AutoresearchIteration)
+class AutoresearchIterationAdmin(admin.ModelAdmin):
+    """Read-only detail view behind the training-run inline's change links."""
+
+    list_display = ("id", "training_run", "iteration_number", "status", "holdout_score", "created_at")
+    list_filter = ("status", "created_at")
+    search_fields = ("pipeline__name", "recipe_hash")
+    raw_id_fields = ("pipeline", "training_run", "parent_suggestion")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: AutoresearchIteration | None = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: AutoresearchIteration | None = None) -> bool:
+        return False
 
 
 @admin.register(AutoresearchRun)

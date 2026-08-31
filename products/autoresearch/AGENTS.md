@@ -26,7 +26,7 @@ When it is empty the model carries only `model_recipe`, which the in-process sco
 
 Every model carries its own `team` foreign key and sits on `TeamScopedRootMixin`, so reads outside a team scope raise rather than crossing tenants.
 Read through `Model.objects.for_team(team_id)` or inside a `team_scope(team_id)` block.
-The five pipeline-owned models inherit `PipelineScopedModel`, whose `save()` fills `team` from the parent pipeline, so a create only has to pass `pipeline`.
+The five pipeline-owned models inherit `PipelineScopedModel`, whose `save()` derives `team` from the parent pipeline unconditionally (an explicit mismatched value is overwritten) and rejects related rows that belong to another pipeline, so a create only has to pass `pipeline`.
 
 ## Feature flag and access
 
