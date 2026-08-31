@@ -115,6 +115,9 @@ export function ReviewerSearchList({
             <LemonInput
                 type="search"
                 size="small"
+                // Search inputs default to a 240px cap, which reads as a broken layout in a panel
+                // only slightly wider; span the panel instead.
+                fullWidth
                 autoFocus
                 placeholder="Search users…"
                 value={query}

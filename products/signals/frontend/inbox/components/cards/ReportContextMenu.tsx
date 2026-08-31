@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { ReactNode } from 'react'
+import { Fragment, ReactNode } from 'react'
 
 import { IconCheckCircle, IconChevronRight, IconHide, IconPeople, IconPullRequest, IconUndo } from '@posthog/icons'
 
@@ -9,6 +9,7 @@ import {
     ContextMenuContent,
     ContextMenuGroup,
     ContextMenuItem,
+    ContextMenuSeparator,
     ContextMenuSub,
     ContextMenuSubContent,
     ContextMenuSubTrigger,
@@ -171,12 +172,16 @@ function ReportContextMenuItems({
     return (
         <ContextMenuGroup>
             {canCreateImplementationPr(report) && (
-                <ContextMenuItem asChild>
-                    <ButtonPrimitive menuItem onClick={onCreatePr} data-attr="inbox-report-context-menu-create-pr">
-                        <IconPullRequest />
-                        Create PR
-                    </ButtonPrimitive>
-                </ContextMenuItem>
+                <>
+                    <ContextMenuItem asChild>
+                        <ButtonPrimitive menuItem onClick={onCreatePr} data-attr="inbox-report-context-menu-create-pr">
+                            <IconPullRequest />
+                            Create PR
+                        </ButtonPrimitive>
+                    </ContextMenuItem>
+                    {/* Create PR acts on its own; the divider separates it from the verdict submenus. */}
+                    <ContextMenuSeparator />
+                </>
             )}
             {canResolveReport(report) && (
                 <ContextMenuSub>
@@ -192,15 +197,20 @@ function ReportContextMenuItems({
                     <ContextMenuSubContent className="max-w-80">
                         <ContextMenuGroup>
                             {RESOLVE_REASON_OPTIONS.map((option) => (
-                                <ContextMenuItem key={option.value} asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => pickResolveReason(option.value)}
-                                        data-attr="inbox-report-context-menu-resolve-reason"
-                                    >
-                                        {option.label}
-                                    </ButtonPrimitive>
-                                </ContextMenuItem>
+                                <Fragment key={option.value}>
+                                    {/* The canned reasons apply instantly; "Something else…" opens
+                                        the note dialog, so it sits apart. */}
+                                    {option.value === 'other' && <ContextMenuSeparator />}
+                                    <ContextMenuItem asChild>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => pickResolveReason(option.value)}
+                                            data-attr="inbox-report-context-menu-resolve-reason"
+                                        >
+                                            {option.label}
+                                        </ButtonPrimitive>
+                                    </ContextMenuItem>
+                                </Fragment>
                             ))}
                         </ContextMenuGroup>
                     </ContextMenuSubContent>
@@ -217,15 +227,18 @@ function ReportContextMenuItems({
                 <ContextMenuSubContent className="max-w-80">
                     <ContextMenuGroup>
                         {DISMISSAL_REASON_OPTIONS.map((option) => (
-                            <ContextMenuItem key={option.value} asChild>
-                                <ButtonPrimitive
-                                    menuItem
-                                    onClick={() => pickDismissReason(option.value)}
-                                    data-attr="inbox-report-context-menu-dismiss-reason"
-                                >
-                                    {option.label}
-                                </ButtonPrimitive>
-                            </ContextMenuItem>
+                            <Fragment key={option.value}>
+                                {option.value === 'other' && <ContextMenuSeparator />}
+                                <ContextMenuItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => pickDismissReason(option.value)}
+                                        data-attr="inbox-report-context-menu-dismiss-reason"
+                                    >
+                                        {option.label}
+                                    </ButtonPrimitive>
+                                </ContextMenuItem>
+                            </Fragment>
                         ))}
                     </ContextMenuGroup>
                 </ContextMenuSubContent>
