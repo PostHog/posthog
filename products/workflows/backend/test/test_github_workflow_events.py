@@ -213,6 +213,29 @@ def test_issue_comment_reads_the_comment_but_the_issues_title_and_number(produce
     assert properties["number"] == 7
 
 
+def test_oversized_delivery_sheds_the_raw_payload_but_still_emits(produce, integration) -> None:
+    # A push's commits array is unbounded; even after stripping commit messages the ids alone can
+    # push the message past Kafka's ~1 MiB limit, where the broker drops it silently and the
+    # fan-out's dedup mark blocks a redelivery from recovering it. The emit must shed the raw
+    # payload rather than lose the run, and still deliver the flat fields a trigger matches on.
+    big_push = {
+        "installation": {"id": INSTALLATION_ID},
+        "repository": {"full_name": "PostHog/posthog", "private": False},
+        "sender": {"login": "octocat", "type": "User"},
+        "ref": "refs/heads/main",
+        "commits": [{"id": "c" * 100, "message": "m" * 100} for _ in range(12000)],
+    }
+
+    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_github_event("push", big_push, "delivery-1")
+
+    properties = produce.call_args.args[1].properties
+    assert properties["github_event"] == {"truncated": True}
+    # The flat fields a trigger filters on still deliver, so the run isn't lost.
+    assert properties["repository"] == "PostHog/posthog"
+    assert properties["event_type"] == "push"
+
+
 @pytest.mark.parametrize(
     "repository,expected",
     [

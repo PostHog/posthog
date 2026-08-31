@@ -8,6 +8,7 @@ Registered in the GitHub App webhook fan-out (``posthog.urls.github_webhook``), 
 signature, parses the body, and dedupes redeliveries before any handler runs.
 """
 
+import json
 import uuid
 from typing import Any
 
@@ -29,6 +30,11 @@ GITHUB_EVENT_RECEIVED_EVENT = "$github_event_received"
 GITHUB_TRIGGER_EVENT_TYPES = ("issues", "issue_comment", "pull_request", "pull_request_review", "push")
 
 _GITHUB_EVENT_NAMESPACE = uuid.UUID("2c9f5d71-8e4a-4b6d-9f13-7a5e0c2b8d64")
+
+# Kafka's default message.max.bytes is ~1 MiB and produce_internal_event does not truncate, so an
+# oversized delivery is dropped at the broker with the run lost. Cap the serialized properties
+# below that, leaving headroom for the event envelope. Mirrors posthog/tasks/usage_report.py.
+_MAX_EVENT_PAYLOAD_BYTES = 900_000
 
 # Associations that mean the actor has, or is granted, write access to the repository. Anyone can
 # open an issue on a public repo, so this is what separates a maintainer from a passer-by.
@@ -116,7 +122,7 @@ def _event_properties(event_type: str, payload: dict[str, Any], *, integration_i
     ref = payload.get("ref") or ""
     is_private = repository.get("private")
 
-    return {
+    properties: dict[str, Any] = {
         # The PostHog GitHub connection this copy belongs to, so a step can resolve back to it.
         "integration_id": integration_id,
         "event_type": event_type,
@@ -154,6 +160,15 @@ def _event_properties(event_type: str, payload: dict[str, Any], *, integration_i
         # Anything a step wants that the flat fields above don't cover.
         "github_event": _redacted_github_event(event_type, payload),
     }
+
+    # A push's commits array grows without bound, so the embedded payload can push the message past
+    # Kafka's limit; a silent broker drop is unrecoverable here because the fan-out's dedup mark
+    # already blocks GitHub's redelivery. Drop the raw-payload escape hatch when the message would
+    # blow the budget - the flat fields above, which filters and most steps read, still deliver.
+    if len(json.dumps(properties, default=str).encode("utf-8")) > _MAX_EVENT_PAYLOAD_BYTES:
+        properties["github_event"] = {"truncated": True}
+
+    return properties
 
 
 def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str) -> None:
