@@ -1,9 +1,6 @@
-import type { PrDiffStats } from "@posthog/core/git/router-schemas";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-
-export type { PrDiffStats };
 
 /**
  * Single-request batch fetch of PR diff stats (additions/deletions/changedFiles)

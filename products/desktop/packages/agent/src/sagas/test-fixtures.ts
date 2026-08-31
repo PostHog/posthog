@@ -65,52 +65,6 @@ export async function createTestRepo(prefix = "test-repo"): Promise<TestRepo> {
   };
 }
 
-export async function cloneTestRepo(
-  sourcePath: string,
-  prefix = "test-repo-clone",
-): Promise<TestRepo> {
-  const clonePath = join(
-    tmpdir(),
-    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  await execFileAsync("git", ["clone", sourcePath, clonePath]);
-  await execFileAsync("git", ["config", "user.email", "test@test.com"], {
-    cwd: clonePath,
-  });
-  await execFileAsync("git", ["config", "user.name", "Test"], {
-    cwd: clonePath,
-  });
-  await execFileAsync("git", ["config", "commit.gpgsign", "false"], {
-    cwd: clonePath,
-  });
-
-  const git = async (args: string[]): Promise<string> => {
-    const { stdout } = await execFileAsync("git", args, { cwd: clonePath });
-    return stdout.trim();
-  };
-
-  return {
-    path: clonePath,
-    cleanup: () => rm(clonePath, { recursive: true, force: true }),
-    git,
-    writeFile: async (relativePath: string, content: string) => {
-      const fullPath = join(clonePath, relativePath);
-      const dir = join(fullPath, "..");
-      await mkdir(dir, { recursive: true });
-      await writeFile(fullPath, content);
-    },
-    readFile: async (relativePath: string) => {
-      return readFile(join(clonePath, relativePath), "utf-8");
-    },
-    deleteFile: async (relativePath: string) => {
-      await rm(join(clonePath, relativePath), { force: true });
-    },
-    exists: (relativePath: string) => {
-      return existsSync(join(clonePath, relativePath));
-    },
-  };
-}
-
 export function createMockLogger(): SagaLogger {
   return {
     info: vi.fn(),

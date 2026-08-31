@@ -1,5 +1,4 @@
 import { GitSaga, type GitSagaInput } from "../git-saga";
-import { detectDefaultBranch } from "../queries";
 
 export interface CreateBranchInput extends GitSagaInput {
   branchName: string;
@@ -146,57 +145,5 @@ export class CreateOrSwitchBranchSaga extends GitSaga<
     }
 
     return { branchName, created: !branchExists };
-  }
-}
-
-export interface ResetToDefaultBranchInput extends GitSagaInput {}
-
-export interface ResetToDefaultBranchOutput {
-  previousBranch: string;
-  defaultBranch: string;
-  switched: boolean;
-}
-
-export class ResetToDefaultBranchSaga extends GitSaga<
-  ResetToDefaultBranchInput,
-  ResetToDefaultBranchOutput
-> {
-  readonly sagaName = "ResetToDefaultBranchSaga";
-
-  protected async executeGitOperations(
-    _input: ResetToDefaultBranchInput,
-  ): Promise<ResetToDefaultBranchOutput> {
-    const originalBranch = await this.readOnlyStep("get-current-branch", () =>
-      this.git.revparse(["--abbrev-ref", "HEAD"]),
-    );
-
-    const defaultBranch = await this.readOnlyStep("get-default-branch", () =>
-      detectDefaultBranch(this.git),
-    );
-
-    if (originalBranch === defaultBranch) {
-      return { previousBranch: originalBranch, defaultBranch, switched: false };
-    }
-
-    const hasChanges = await this.readOnlyStep("check-changes", async () => {
-      const status = await this.git.status();
-      return !status.isClean();
-    });
-
-    if (hasChanges) {
-      throw new Error(
-        "Uncommitted changes detected. Please commit or stash before switching branches.",
-      );
-    }
-
-    await this.step({
-      name: "switch-to-default",
-      execute: () => this.git.checkout(defaultBranch),
-      rollback: async () => {
-        await this.git.checkout(originalBranch);
-      },
-    });
-
-    return { previousBranch: originalBranch, defaultBranch, switched: true };
   }
 }

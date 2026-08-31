@@ -10,7 +10,12 @@ import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
 import { productSetupStatusLogic } from './productSetupStatusLogic'
-import type { ProductEmptyStateConfig, ProductEmptyStateMode, ProductEmptyStateText } from './types'
+import type {
+    ProductEmptyStateConfig,
+    ProductEmptyStateMode,
+    ProductEmptyStatePrimaryAction,
+    ProductEmptyStateText,
+} from './types'
 
 export interface ProductEmptyStateProps {
     config: ProductEmptyStateConfig
@@ -18,6 +23,17 @@ export interface ProductEmptyStateProps {
 }
 
 const ACCENT_TEXT = 'text-[var(--empty-state-accent)] dark:text-[var(--empty-state-accent-dark)]'
+
+/** A single action covers every mode; a mode-keyed one applies only to the modes it names. */
+function resolvePrimaryAction(
+    primaryAction: ProductEmptyStateConfig['primaryAction'],
+    mode: ProductEmptyStateMode
+): ProductEmptyStatePrimaryAction | undefined {
+    if (!primaryAction) {
+        return undefined
+    }
+    return 'label' in primaryAction ? primaryAction : primaryAction[mode]
+}
 
 /**
  * The product setup empty state: pitch + install command on the left, an animated
@@ -46,7 +62,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const Preview = config.Preview
     const hedgehogBeside = config.hedgehogPlacement === 'beside'
 
-    const { primaryAction } = config
+    const primaryAction = resolvePrimaryAction(config.primaryAction, mode)
     const primaryActionButton = primaryAction ? (
         <LemonButton
             type="primary"
@@ -72,6 +88,44 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
         ) : (
             primaryActionButton
         )
+
+    // The hint, the wizard card and the primary action are one block: the hint introduces
+    // whatever sits under it, so a mode without an action drops its lead-in too. Offering
+    // the manual setup link as the fallback CTA only fits a product still needing setup.
+    const callToAction = showWizard ? (
+        <>
+            <TerminalCard
+                command={wizardCommand}
+                copyLabel={`${config.productName} wizard command`}
+                onCopy={() => captureClick('wizard command copied')}
+            />
+            {guardedPrimaryAction ? (
+                <>
+                    <div className="flex items-center gap-3">
+                        <div className="h-px flex-1 bg-border-primary" />
+                        <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
+                        <div className="h-px flex-1 bg-border-primary" />
+                    </div>
+                    {guardedPrimaryAction}
+                </>
+            ) : null}
+        </>
+    ) : config.PrimaryAction ? (
+        <config.PrimaryAction />
+    ) : guardedPrimaryAction ? (
+        guardedPrimaryAction
+    ) : manualUrl && mode === 'needs-setup' ? (
+        <LemonButton
+            type="primary"
+            to={manualUrl}
+            targetBlank
+            className="self-start"
+            onClick={() => captureClick('manual setup clicked')}
+            data-attr="product-empty-state-manual-setup"
+        >
+            Set up {config.productName}
+        </LemonButton>
+    ) : null
 
     return (
         <div
@@ -104,42 +158,9 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                         <p className="text-secondary text-sm m-0">{text.lead}</p>
                     </div>
 
-                    {text.hint ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
+                    {text.hint && callToAction ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
 
-                    {showWizard ? (
-                        <>
-                            <TerminalCard
-                                command={wizardCommand}
-                                copyLabel={`${config.productName} wizard command`}
-                                onCopy={() => captureClick('wizard command copied')}
-                            />
-                            {guardedPrimaryAction ? (
-                                <>
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-px flex-1 bg-border-primary" />
-                                        <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
-                                        <div className="h-px flex-1 bg-border-primary" />
-                                    </div>
-                                    {guardedPrimaryAction}
-                                </>
-                            ) : null}
-                        </>
-                    ) : config.PrimaryAction ? (
-                        <config.PrimaryAction />
-                    ) : guardedPrimaryAction ? (
-                        guardedPrimaryAction
-                    ) : manualUrl ? (
-                        <LemonButton
-                            type="primary"
-                            to={manualUrl}
-                            targetBlank
-                            className="self-start"
-                            onClick={() => captureClick('manual setup clicked')}
-                            data-attr="product-empty-state-manual-setup"
-                        >
-                            Set up {config.productName}
-                        </LemonButton>
-                    ) : null}
+                    {callToAction}
 
                     {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
 

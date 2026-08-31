@@ -1144,6 +1144,7 @@ export interface sourceCatalogLogicMeta {
                       | 'RocketChat'
                       | 'Rocketlane'
                       | 'RocketMatter'
+                      | 'RoktAds'
                       | 'Rollbar'
                       | 'Rootly'
                       | 'Rss'
