@@ -157,6 +157,10 @@ export function ReviewerSearchList({
                             <button
                                 key={option.user_uuid}
                                 type="button"
+                                // The row toggles a reviewer both ways and shows state only through a
+                                // decorative check, so announce it: a screen reader needs the pressed
+                                // state to tell adding from removing before activation.
+                                aria-pressed={assigned}
                                 disabled={isUpdatingReviewers}
                                 className="flex w-full items-start justify-between gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-fill-highlight-50 disabled:opacity-60"
                                 onClick={() => toggleOption(option)}
