@@ -236,15 +236,16 @@ export function WorkflowsTable(): JSX.Element {
                     <Link to={urls.workflow(id, 'metrics')}>
                         <AppMetricsSparkline
                             logicKey={id}
-                            successMetricNames={['triggered']}
-                            metricLabels={{ triggered: 'Started', failed: 'Failed' }}
+                            metricLabels={{ triggered: 'Started', succeeded: 'Completed', failed: 'Failed' }}
+                            // Same colors as the workflow metrics tab: triggered is blue there too.
+                            metricColors={{ triggered: 'blue', succeeded: 'success', failed: 'danger' }}
                             forceParams={{
                                 // The versioned mirror keys every run's metrics (including batch runs,
                                 // which the plain hog_flow source keys under the batch job id) as
                                 // `<flow id>/<version>`, so a prefix match covers all activity.
                                 appSource: 'hog_flow_version',
                                 appSourceIdPrefix: `${id}/`,
-                                metricName: ['triggered', 'failed'],
+                                metricName: ['triggered', 'succeeded', 'failed'],
                                 breakdownBy: 'metric_name',
                                 interval: 'day',
                                 dateFrom: '-7d',
