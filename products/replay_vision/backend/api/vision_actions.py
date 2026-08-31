@@ -685,16 +685,19 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """The scanner behind a shim-served id, object-checked the way the legacy path checked it.
 
         The flag branches return before `safely_get_object` runs, so the object-level check that
-        `vision_action` inherits from `replay_scanner` has to happen here explicitly.
+        `vision_action` inherits from `replay_scanner` has to happen here explicitly. Every scanner
+        the id acts on is checked, not just the first: one legacy alert can have fanned out across
+        several scanners, and a write reaches all of them.
         """
-        scanner_id = vision_actions_shim.scanner_id_for(self.team, str(pk))
-        if scanner_id is None:
+        scanner_ids = vision_actions_shim.scanner_ids_for(self.team, str(pk))
+        if not scanner_ids:
             raise NotFound()
-        scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
-        if scanner is None:
+        scanners = list(ReplayScanner.objects.filter(team_id=self.team_id, id__in=scanner_ids))
+        if len(scanners) != len(scanner_ids):
             raise NotFound()
-        _check_action_scanner_access(self, scanner, None)
-        return scanner
+        for scanner in scanners:
+            _check_action_scanner_access(self, scanner, None)
+        return scanners[0]
 
     def _can_edit_scanner(self, scanner: ReplayScanner) -> bool:
         return self.user_access_control.check_access_level_for_object(scanner, required_level="editor")

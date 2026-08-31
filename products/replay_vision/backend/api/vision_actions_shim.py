@@ -381,13 +381,19 @@ def _resolve_all(team: Team, pk: str) -> list[tuple[str, Any]]:
     return [single] if single else []
 
 
-def scanner_id_for(team: Team, pk: str) -> str | None:
-    """The scanner an id belongs to, so the viewset can object-check before acting on it."""
-    resolved = _resolve(team, pk)
-    if resolved is None:
-        return None
-    kind, entity = resolved
-    return str(entity.scanner_id) if kind == "alert" else entity.source_id
+def scanner_ids_for(team: Team, pk: str) -> list[str]:
+    """Every scanner an id acts on, so the viewset can object-check all of them.
+
+    A legacy alert that fanned out across scanners resolves to one successor per scanner, and a
+    write reaches all of them, so authorizing only the first would let an editor of one scanner
+    mutate an alert on a scanner they cannot access.
+    """
+    ids: list[str] = []
+    for kind, entity in _resolve_all(team, pk):
+        scanner_id = str(entity.scanner_id) if kind == "alert" else entity.source_id
+        if scanner_id and scanner_id not in ids:
+            ids.append(scanner_id)
+    return ids
 
 
 def retrieve_action(team: Team, pk: str, *, can_edit: bool = True) -> dict[str, Any]:

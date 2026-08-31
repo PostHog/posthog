@@ -421,6 +421,45 @@ class TestVisionActionsShim(APIBaseTest):
         assert response.status_code == 204
         assert VisionAlertConfiguration.objects.for_team(self.team.id).count() == 0
 
+    def test_fanned_out_alert_checks_every_scanner_not_just_the_first(self) -> None:
+        second = ReplayScanner.objects.create(
+            team=self.team,
+            name="Restricted",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "x"},
+            model=ScannerModel.GEMINI_3_7_FLASH,
+        )
+        alerts = [
+            VisionAlertConfiguration.objects.for_team(self.team.id).create(
+                team_id=self.team.id, scanner=scanner, name=f"Fan {i}", kind=VisionAlertKind.MATCH, selection={}
+            )
+            for i, scanner in enumerate((self.scanner, second))
+        ]
+        legacy = VisionAction.objects.unscoped().create(
+            team=self.team,
+            scanner=self.scanner,
+            name="Wide",
+            mode=ActionMode.ALERT,
+            trigger_type=TriggerType.SCHEDULE,
+            enabled=False,
+            alert_config={"frequency": "every_match", "migrated_to": [str(a.id) for a in alerts]},
+        )
+
+        # The caller may edit the first successor's scanner but not the second's.
+        def only_first(scanner: Any, level: str = "editor", **kwargs: Any) -> bool:
+            return getattr(scanner, "id", None) != second.id
+
+        with (
+            patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[]),
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
+                side_effect=only_first,
+            ),
+        ):
+            response = self.client.delete(f"{self.base_url}{legacy.id}/")
+        assert response.status_code == 403, response.status_code
+        assert VisionAlertConfiguration.objects.for_team(self.team.id).count() == 2
+
     def test_frequency_change_is_refused_rather_than_ignored(self) -> None:
         alert = VisionAlertConfiguration.objects.for_team(self.team.id).create(
             team_id=self.team.id, scanner=self.scanner, name="Match", kind=VisionAlertKind.MATCH, selection={}
