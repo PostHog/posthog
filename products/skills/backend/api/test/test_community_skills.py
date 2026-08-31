@@ -139,8 +139,11 @@ class TestCommunitySkillAPI(APIBaseTest):
 
         response = self.client.post(self._url("web-analytics-triage/install/"), {})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
         # Caller never supplied new_name, so the response must not blame that field.
-        self.assertNotIn("attr", response.json())
+        self.assertNotIn("attr", body)
+        # The stable code lets a client offer a rename-and-retry path.
+        self.assertEqual(body.get("code"), "duplicate_name")
 
     def test_install_custom_name_conflict_blames_new_name(self, _mock_flag) -> None:
         _create_community_skill(slug="web-analytics-triage")
@@ -148,7 +151,9 @@ class TestCommunitySkillAPI(APIBaseTest):
 
         response = self.client.post(self._url("web-analytics-triage/install/"), {"new_name": "taken"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "new_name")
+        body = response.json()
+        self.assertEqual(body.get("attr"), "new_name")
+        self.assertEqual(body.get("code"), "duplicate_name")
 
     def test_install_blank_new_name_falls_back_to_slug(self, _mock_flag) -> None:
         _create_community_skill(slug="web-analytics-triage")
