@@ -210,7 +210,9 @@ export function ScoutSlackDestinationSettings({
               {mode === "channel" ? (
                 <>
                   <QuillText size="xxs" className="text-gray-10">
-                    PostHog must be in the channel. Invite it with{" "}
+                    {hasUsers
+                      ? "Direct messages stay on until you pick a channel to replace them. PostHog must be in the channel. Invite it with "
+                      : "PostHog must be in the channel. Invite it with "}
                     <code>/invite @PostHog</code>.
                   </QuillText>
                   {configuredIntegration && hasChannel ? (
@@ -230,8 +232,9 @@ export function ScoutSlackDestinationSettings({
                 </>
               ) : (
                 <QuillText size="xxs" className="text-gray-10">
-                  Each person gets their own direct message from the PostHog app
-                  (up to {MAX_SCOUT_SLACK_DM_TARGETS} people).
+                  {hasChannel
+                    ? `The channel stays on until you pick up to ${MAX_SCOUT_SLACK_DM_TARGETS} people to replace it. Each person gets their own direct message from the PostHog app.`
+                    : `Each person gets their own direct message from the PostHog app (up to ${MAX_SCOUT_SLACK_DM_TARGETS} people).`}
                 </QuillText>
               )}
             </>
