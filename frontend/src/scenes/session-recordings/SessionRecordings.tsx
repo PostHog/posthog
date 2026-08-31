@@ -15,6 +15,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -52,6 +53,8 @@ function Header(): JSX.Element {
         try {
             await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
             reportRecordingPlaylistCreated('new')
+        } catch {
+            lemonToast.error('Could not create the collection. You may not have access to do this.')
         } finally {
             setLoading(false)
         }
