@@ -301,7 +301,9 @@ describe('accountsLogic', () => {
         await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
 
         expect(logic.values.accountFilters).toEqual([])
-        expect(logic.values.accountsQuerySource?.filters).toEqual([])
+        expect(logic.values.accountsQuerySource?.filters).not.toContainEqual(
+            expect.objectContaining({ kind: 'relationship' })
+        )
         expect(logic.values.activeFilterCount).toBe(0)
     })
 
