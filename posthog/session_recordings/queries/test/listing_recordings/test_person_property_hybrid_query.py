@@ -1,5 +1,5 @@
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, create_person_id_override_by_distinct_id
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -140,6 +140,12 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
             # Carries no $session_id, so it reads as NULL. It must not reach the session id
             # set the replay table is matched against, which rejects a NULL.
             create_event(identified_id, self.an_hour_ago, team=self.team)
+
+            # The merge itself. The anonymous event was written before the person existed, so it
+            # still carries a pre-merge person_id, and only this override row ties it to the
+            # person the identify produced. That is the shape a real merge leaves behind, and it
+            # is what makes events.person_id resolve to the merged person in an override mode.
+            create_person_id_override_by_distinct_id(anonymous_id, identified_id, self.team.pk)
 
             self._assert_query_matches_session_ids(
                 {
