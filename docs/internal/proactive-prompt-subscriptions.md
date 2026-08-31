@@ -18,6 +18,10 @@ Enabling proactive follow-up also permits an eligible run to prepare an inert ex
 
 The `subscription-creation-wizard` experiment splits creation into Report, Actions, Notify, Schedule, and Review. Actions appears only for AI reports when proactive follow-up is available. Review shows the standing action consent before creation.
 
+Report suggestions describe outcomes such as activation, adoption, conversion, retention, and regressions. They remain editable and use the existing prompt field. When enabled, the first report can run immediately after the subscription is created.
+
+Actions shows unavailable capabilities with their current setup requirement. Public research remains limited to reviewed subjects supplied by the server, and draft pull requests remain limited to authorized repositories.
+
 Editing uses Content, Actions, Delivery, and Settings tabs under the same experiment. A saved Actions configuration remains visible when the server capability becomes unavailable so the owner can turn it off. All sections share one form and one persistent Save action; hidden validation errors move the user to the affected section.
 
 ## Delivery timing

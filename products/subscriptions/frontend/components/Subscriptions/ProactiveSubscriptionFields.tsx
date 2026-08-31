@@ -62,7 +62,6 @@ export function ProactiveSubscriptionFields({
 
     const proactiveAvailable = proactiveConfigurationOptions?.proactive_available === true
     const draftPrAvailable = proactiveConfigurationOptions?.draft_pr_available === true
-    const showDraftPrControls = draftPrAvailable || config?.create_draft_pr === true
     if (!proactiveAvailable && !config?.enabled) {
         return null
     }
@@ -94,6 +93,21 @@ export function ProactiveSubscriptionFields({
                 : option.repository,
     }))
     const researchSubjects = proactiveConfigurationOptions?.public_research_subjects ?? []
+    const configuredResearchSubjectId = config?.public_research_subject_id ?? null
+    const configuredResearchSubjectAvailable = researchSubjects.some(
+        (subject) => subject.id === configuredResearchSubjectId
+    )
+    const hasUnavailableResearchSubject = !!configuredResearchSubjectId && !configuredResearchSubjectAvailable
+    const researchSubjectOptions = [
+        { value: null, label: 'Do not use public research' },
+        ...researchSubjects.map((subject) => ({
+            value: subject.id,
+            label: `${subject.display_name} (${subject.canonical_domain})`,
+        })),
+        ...(hasUnavailableResearchSubject
+            ? [{ value: configuredResearchSubjectId, label: 'Previously selected source (unavailable)' }]
+            : []),
+    ]
 
     return (
         <div className="flex flex-col gap-3 rounded border bg-surface-primary p-3">
@@ -124,10 +138,10 @@ export function ProactiveSubscriptionFields({
                     onChange={setProactiveEnabled}
                     label={
                         <div className="flex flex-col gap-1 py-1">
-                            <div className="leading-tight">Act on useful findings from future reports</div>
+                            <div className="leading-tight">Investigate findings and recommend next steps</div>
                             <div className="text-xs text-secondary font-normal leading-tight">
-                                PostHog may prepare up to three recommendations, one draft pull request, and one
-                                inactive experiment draft from each future report. You can turn this off at any time.
+                                For each future report, PostHog may investigate relevant changes and prepare up to three
+                                recommendations and one inactive experiment draft. You can turn this off at any time.
                             </div>
                         </div>
                     }
@@ -137,98 +151,98 @@ export function ProactiveSubscriptionFields({
 
             {config?.enabled ? (
                 <>
-                    {showDraftPrControls ? (
-                        <>
-                            {proactiveAvailable && !draftPrAvailable ? (
-                                <LemonBanner type="warning">
-                                    Draft pull request automation is currently unavailable. Turn it off to remove the
-                                    saved setting.
-                                </LemonBanner>
-                            ) : null}
-                            <LemonField name="proactive_config.create_draft_pr">
-                                <LemonSwitch
-                                    bordered
-                                    fullWidth
-                                    checked={config.create_draft_pr === true}
-                                    onChange={setDraftPrEnabled}
-                                    label={
-                                        <div className="flex flex-col gap-1 py-1">
-                                            <div className="leading-tight">
-                                                Automatically open one draft pull request
-                                            </div>
-                                            <div className="text-xs text-secondary font-normal leading-tight">
-                                                PostHog builds and tests the change in an isolated sandbox, then opens
-                                                the draft only when the protected repository checks pass.
-                                            </div>
-                                        </div>
-                                    }
-                                    data-attr="subscription-proactive-draft-pr"
-                                />
-                            </LemonField>
-
-                            {config.create_draft_pr ? (
-                                <LemonField
-                                    name="proactive_config.repository"
-                                    label="Repository"
-                                    help="Only repositories your personal GitHub connection can currently authorize are listed."
-                                >
-                                    <div>
-                                        <LemonInputSelect
-                                            mode="single"
-                                            value={selectedRepositoryKey ? [selectedRepositoryKey] : []}
-                                            onChange={(selectedKeys) => {
-                                                const selected = repositoryOptions.find(
-                                                    (option) => repositoryOptionKey(option) === selectedKeys[0]
-                                                )
-                                                selectProactiveRepository(selected ?? null)
-                                            }}
-                                            options={repositorySelectOptions}
-                                            placeholder="Select a repository"
-                                            disabledReason={
-                                                draftPrAvailable
-                                                    ? undefined
-                                                    : 'Repository selection is currently unavailable. Turn off draft pull request automation to remove the saved repository.'
-                                            }
-                                            data-attr="subscription-proactive-repository"
-                                        />
-                                        {repositorySelectOptions.length === 0 ? (
-                                            <LemonBanner type="info" className="mt-2">
-                                                Connect GitHub under{' '}
-                                                <Link to={urls.settings('user-personal-integrations')}>
-                                                    Personal integrations
-                                                </Link>{' '}
-                                                to authorize a repository.
-                                            </LemonBanner>
-                                        ) : null}
-                                    </div>
-                                </LemonField>
-                            ) : null}
-                        </>
+                    {proactiveAvailable && !draftPrAvailable ? (
+                        <LemonBanner type={config.create_draft_pr ? 'warning' : 'info'}>
+                            {config.create_draft_pr
+                                ? 'Draft pull request automation is currently unavailable. Turn it off to remove the saved setting.'
+                                : 'Draft pull request automation is not available for this project.'}
+                        </LemonBanner>
                     ) : null}
+                    <LemonField name="proactive_config.create_draft_pr">
+                        <LemonSwitch
+                            bordered
+                            fullWidth
+                            checked={config.create_draft_pr === true}
+                            onChange={setDraftPrEnabled}
+                            disabledReason={
+                                !draftPrAvailable && !config.create_draft_pr
+                                    ? 'Draft pull request automation is not available for this project.'
+                                    : undefined
+                            }
+                            label={
+                                <div className="flex flex-col gap-1 py-1">
+                                    <div className="leading-tight">Automatically open one draft pull request</div>
+                                    <div className="text-xs text-secondary font-normal leading-tight">
+                                        PostHog builds and tests the change in an isolated sandbox, then opens the draft
+                                        only when the protected repository checks pass.
+                                    </div>
+                                </div>
+                            }
+                            data-attr="subscription-proactive-draft-pr"
+                        />
+                    </LemonField>
 
-                    {researchSubjects.length > 0 ? (
+                    {config.create_draft_pr ? (
                         <LemonField
-                            name="proactive_config.public_research_subject_id"
-                            label="Public research"
-                            help="Optional. PostHog can only research a reviewed public subject from this list."
+                            name="proactive_config.repository"
+                            label="Repository"
+                            help="Only repositories your personal GitHub connection can currently authorize are listed."
                         >
-                            <LemonSelect
-                                value={config.public_research_subject_id ?? null}
-                                onChange={(subjectId) => setPublicResearchSubject(subjectId ?? null)}
-                                options={[
-                                    { value: null, label: 'Do not use public research' },
-                                    ...researchSubjects.map((subject) => ({
-                                        value: subject.id,
-                                        label: `${subject.display_name} (${subject.canonical_domain})`,
-                                    })),
-                                ]}
-                                disabledReason={
-                                    proactiveAvailable ? undefined : 'Public research is currently unavailable.'
-                                }
-                                fullWidth
-                            />
+                            <div>
+                                <LemonInputSelect
+                                    mode="single"
+                                    value={selectedRepositoryKey ? [selectedRepositoryKey] : []}
+                                    onChange={(selectedKeys) => {
+                                        const selected = repositoryOptions.find(
+                                            (option) => repositoryOptionKey(option) === selectedKeys[0]
+                                        )
+                                        selectProactiveRepository(selected ?? null)
+                                    }}
+                                    options={repositorySelectOptions}
+                                    placeholder="Select a repository"
+                                    disabledReason={
+                                        draftPrAvailable
+                                            ? undefined
+                                            : 'Repository selection is currently unavailable. Turn off draft pull request automation to remove the saved repository.'
+                                    }
+                                    data-attr="subscription-proactive-repository"
+                                />
+                                {repositorySelectOptions.length === 0 ? (
+                                    <LemonBanner type="info" className="mt-2">
+                                        Connect GitHub under{' '}
+                                        <Link to={urls.settings('user-personal-integrations')}>
+                                            Personal integrations
+                                        </Link>{' '}
+                                        to authorize a repository.
+                                    </LemonBanner>
+                                ) : null}
+                            </div>
                         </LemonField>
                     ) : null}
+
+                    <LemonField
+                        name="proactive_config.public_research_subject_id"
+                        label="Public research"
+                        help="Optional. PostHog can only research a reviewed public subject from this list."
+                    >
+                        <LemonSelect
+                            value={config.public_research_subject_id ?? null}
+                            onChange={(subjectId) => setPublicResearchSubject(subjectId ?? null)}
+                            options={
+                                researchSubjects.length > 0 || hasUnavailableResearchSubject
+                                    ? researchSubjectOptions
+                                    : [{ value: null, label: 'No approved public research sources' }]
+                            }
+                            disabledReason={
+                                !proactiveAvailable && !hasUnavailableResearchSubject
+                                    ? 'Public research is currently unavailable.'
+                                    : researchSubjects.length === 0 && !hasUnavailableResearchSubject
+                                      ? 'No reviewed public research sources are available for this project.'
+                                      : undefined
+                            }
+                            fullWidth
+                        />
+                    </LemonField>
 
                     <div className="text-xs text-secondary">
                         When eligible, PostHog may also prepare an inert experiment draft. It never starts an experiment

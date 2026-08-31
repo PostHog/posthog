@@ -171,7 +171,8 @@ export function formatSubscriptionSchedule(
 }
 
 export function getSubscriptionAdvancedSettings(
-    subscription: Pick<SubscriptionType, 'summary_enabled' | 'summary_prompt_guide' | 'send_test_now'>
+    subscription: Pick<SubscriptionType, 'summary_enabled' | 'summary_prompt_guide' | 'send_test_now'>,
+    isNewSubscription: boolean = false
 ): string[] {
     const settings: string[] = []
 
@@ -182,7 +183,7 @@ export function getSubscriptionAdvancedSettings(
         settings.push('Custom AI summary context')
     }
     if (subscription.send_test_now === false) {
-        settings.push('No test delivery')
+        settings.push(isNewSubscription ? 'Wait for scheduled run' : 'No test delivery')
     }
 
     return settings

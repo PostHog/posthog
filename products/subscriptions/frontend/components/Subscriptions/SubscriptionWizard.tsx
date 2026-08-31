@@ -336,7 +336,7 @@ function SubscriptionReviewStep({
     const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
     const { generatePreview } = useActions(subscriptionLogic(logicProps))
     const selectedInsightsCount = subscription.dashboard_export_insights?.length ?? 0
-    const advancedSettings = getSubscriptionAdvancedSettings(subscription)
+    const advancedSettings = getSubscriptionAdvancedSettings(subscription, logicProps.id === 'new')
     const nextDeliveryDate = getNextDeliveryDate(subscription)
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
     const reviewItems = [

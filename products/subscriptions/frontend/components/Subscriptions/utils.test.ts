@@ -65,6 +65,19 @@ describe('getSubscriptionAdvancedSettings', () => {
             })
         ).toEqual(['Automatic AI summary', 'Custom AI summary context', 'No test delivery'])
     })
+
+    it('describes a deferred first report when creating a subscription', () => {
+        expect(
+            getSubscriptionAdvancedSettings(
+                {
+                    summary_enabled: false,
+                    summary_prompt_guide: '',
+                    send_test_now: false,
+                },
+                true
+            )
+        ).toEqual(['Wait for scheduled run'])
+    })
 })
 
 describe('getNextDeliveryDate', () => {

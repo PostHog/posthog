@@ -34,6 +34,7 @@ export function SubscriptionSettingsSection({
     const { summaryQuota } = useValues(subscriptionLogic(logicProps))
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
+    const isNewSubscription = logicProps.id === 'new'
     const nextDeliveryDate = getNextDeliveryDate(subscription)
 
     return (
@@ -110,7 +111,7 @@ export function SubscriptionSettingsSection({
 
             {showSendTestNow ? (
                 <>
-                    <LemonLabel>Test delivery</LemonLabel>
+                    <LemonLabel>{isNewSubscription ? 'First report' : 'Test delivery'}</LemonLabel>
                     <LemonField name="send_test_now">
                         {({ value, onChange }) => (
                             <LemonSwitch
@@ -118,7 +119,11 @@ export function SubscriptionSettingsSection({
                                 onChange={onChange}
                                 bordered
                                 fullWidth
-                                label="Send a test report when I save"
+                                label={
+                                    isNewSubscription
+                                        ? 'Run the first report after I create this subscription'
+                                        : 'Send a test report when I save'
+                                }
                                 disabledReason={
                                     subscription.enabled === false
                                         ? 'Re-enable this subscription before sending a test report'
@@ -129,8 +134,12 @@ export function SubscriptionSettingsSection({
                     </LemonField>
                     <p className="m-0 text-xs text-secondary">
                         {subscription.send_test_now
-                            ? 'PostHog will send this report once after you save, so you can check the result.'
-                            : 'No test report will be sent. The subscription will wait for its next scheduled run'}
+                            ? isNewSubscription
+                                ? 'PostHog will run and send the first report after you create this subscription.'
+                                : 'PostHog will send this report once after you save, so you can check the result.'
+                            : isNewSubscription
+                              ? 'The first report will wait for its scheduled run'
+                              : 'No test report will be sent. The subscription will wait for its next scheduled run'}
                         {!subscription.send_test_now && nextDeliveryDate ? (
                             <>
                                 {' on '}

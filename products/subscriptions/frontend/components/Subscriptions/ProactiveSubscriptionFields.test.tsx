@@ -56,8 +56,21 @@ jest.mock('lib/lemon-ui/LemonInputSelect/LemonInputSelect', () => ({
 }))
 
 jest.mock('lib/lemon-ui/LemonSelect', () => ({
-    LemonSelect: ({ options }: { options: { label: string }[] }) => (
-        <div>{options.map((option) => option.label).join(', ')}</div>
+    LemonSelect: ({
+        options,
+        onChange,
+        disabledReason,
+    }: {
+        options: { label: string }[]
+        onChange: (value: null) => void
+        disabledReason?: string
+    }) => (
+        <div>
+            {options.map((option) => option.label).join(', ')}
+            <button disabled={!!disabledReason} onClick={() => onChange(null)}>
+                Clear public research
+            </button>
+        </div>
     ),
 }))
 
@@ -153,14 +166,14 @@ describe('ProactiveSubscriptionFields', () => {
             />
         )
 
-        expect(screen.getByText('Act on useful findings from future reports')).toBeInTheDocument()
+        expect(screen.getByText('Investigate findings and recommend next steps')).toBeInTheDocument()
         expect(screen.getByText('Automatically open one draft pull request')).toBeInTheDocument()
         expect(screen.getByText('example/product')).toBeInTheDocument()
         expect(screen.getByText(/Example public docs \(example.com\)/)).toBeInTheDocument()
         expect(screen.getByText(/never starts an experiment or sends traffic automatically/i)).toBeInTheDocument()
     })
 
-    it('hides new draft pull request configuration while its server control is off', () => {
+    it('keeps unavailable actions discoverable with a clear explanation', () => {
         mockedUseValues.mockReturnValue({
             proactiveConfigurationOptions: {
                 proactive_available: true,
@@ -185,7 +198,9 @@ describe('ProactiveSubscriptionFields', () => {
             />
         )
 
-        expect(screen.queryByText('Automatically open one draft pull request')).not.toBeInTheDocument()
+        expect(screen.getByText('Automatically open one draft pull request')).toBeInTheDocument()
+        expect(screen.getByText('Draft pull request automation is not available for this project.')).toBeInTheDocument()
+        expect(screen.getByText('No approved public research sources')).toBeInTheDocument()
         expect(screen.queryByPlaceholderText('Select a repository')).not.toBeInTheDocument()
     })
 
@@ -215,7 +230,45 @@ describe('ProactiveSubscriptionFields', () => {
         )
 
         expect(screen.getByText(/Proactive follow-up is currently unavailable/)).toBeInTheDocument()
-        expect(screen.getByText('Act on useful findings from future reports')).toBeInTheDocument()
+        expect(screen.getByText('Investigate findings and recommend next steps')).toBeInTheDocument()
+    })
+
+    it('lets users remove a saved public research source that is no longer available', () => {
+        const setPublicResearchSubject = jest.fn()
+        mockedUseActions.mockReturnValue({
+            loadProactiveConfigurationOptions: jest.fn(),
+            selectProactiveRepository: jest.fn(),
+            setDraftPrEnabled: jest.fn(),
+            setProactiveEnabled: jest.fn(),
+            setPublicResearchSubject,
+        })
+        mockedUseValues.mockReturnValue({
+            proactiveConfigurationOptions: {
+                proactive_available: true,
+                draft_pr_available: false,
+                repositories: [],
+                public_research_subjects: [],
+            },
+            proactiveConfigurationOptionsLoading: false,
+        })
+
+        render(
+            <ProactiveSubscriptionFields
+                logicProps={{ id: 42 }}
+                subscription={subscription({
+                    enabled: true,
+                    repository: null,
+                    repository_integration_id: null,
+                    create_draft_pr: false,
+                    repository_grant_id: null,
+                    public_research_subject_id: '00000000-0000-4000-8000-000000000099',
+                })}
+            />
+        )
+
+        expect(screen.getByText(/Previously selected source \(unavailable\)/)).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Clear public research' }))
+        expect(setPublicResearchSubject).toHaveBeenCalledWith(null)
     })
 
     it('shows a retry when proactive configuration options fail to load', () => {
