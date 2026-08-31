@@ -17,6 +17,14 @@ MODEL_CONTEXT_TOKENS: dict[str, int] = {
 # Held back from the window for the system prompt and the model's own response.
 RESERVED_TOKENS = 20_000
 
+# Cost-conscious ceiling for unattended batch summarization, in characters.
+# Batch runs on a schedule over every team's traces, so its context size drives a recurring bill,
+# not a single user-triggered call. The model window (~1M tokens for nano) never bounds a typical
+# trace, so unbounded batch inputs make the recurring unit cost spike. A trace summary does not improve past
+# a few tens of thousands of tokens of context, so cap it there. Measured in characters like the
+# rest of this module (~1.6 characters per token), this targets roughly 55K tokens of input.
+BATCH_TEXT_REPR_MAX_CHARS = 90_000
+
 
 def text_repr_budget(model: str | None = None) -> int:
     """Characters of text representation the model accepts.
@@ -27,6 +35,16 @@ def text_repr_budget(model: str | None = None) -> int:
     """
     window = MODEL_CONTEXT_TOKENS.get(model or DEFAULT_MODEL_OPENAI, min(MODEL_CONTEXT_TOKENS.values()))
     return window - RESERVED_TOKENS
+
+
+def batch_text_repr_budget(model: str | None = None) -> int:
+    """Characters of text representation a batch summarization accepts.
+
+    Bounds the per-model window down to a cost-conscious ceiling. The batch job summarizes
+    unattended on a schedule, so a large context inflates the recurring bill without a better
+    summary. Never returns more than the model window allows.
+    """
+    return min(text_repr_budget(model), BATCH_TEXT_REPR_MAX_CHARS)
 
 
 def bounded_text_repr(text: str, budget: int) -> str:
