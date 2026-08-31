@@ -10,6 +10,8 @@ import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDet
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
+import { ReportRunsSection } from "@posthog/ui/features/inbox/components/ReportRunsSection";
 import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { useCallback, useEffect, useRef } from "react";
@@ -100,7 +102,7 @@ function ReportDetailContent({
           primaryAction={
             <ReportDetailActions report={report} placement="header" />
           }
-          aboveSummary={
+          belowSummary={
             <ReportVerdictBanner
               key={report.id}
               report={report}
@@ -111,6 +113,8 @@ function ReportDetailContent({
           footer={<ReportFeedbackFooter report={report} />}
           evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
         >
+          <ReportReviewersSection report={report} />
+          <ReportRunsSection report={report} />
           <ReportActivitySection reportId={report.id} />
         </InboxDetailFrame>
       </div>

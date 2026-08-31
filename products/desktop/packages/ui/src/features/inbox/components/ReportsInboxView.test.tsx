@@ -150,6 +150,7 @@ describe("ReportsInboxView", () => {
   });
 
   it("applies report search to the resolved and archived section", async () => {
+    mocks.activeReports = [activeReport("active-report", "Checkout summary")];
     render(<ReportsInboxView />);
 
     await userEvent.click(screen.getByText("Resolved & archived"));
@@ -157,6 +158,13 @@ describe("ReportsInboxView", () => {
     expect(screen.getByText("Checkout errors")).toBeInTheDocument();
     expect(screen.queryByText("Slow dashboards")).not.toBeInTheDocument();
     await waitFor(() => expect(mocks.fetchNextPage).toHaveBeenCalledOnce());
+  });
+
+  it("does not show terminal sections when the active inbox is empty", () => {
+    render(<ReportsInboxView />);
+
+    expect(screen.getByText("No reports match your filters")).toBeTruthy();
+    expect(screen.queryByText("Resolved & archived")).toBeNull();
   });
 
   it("opens a report on the first click without preloading its route", async () => {

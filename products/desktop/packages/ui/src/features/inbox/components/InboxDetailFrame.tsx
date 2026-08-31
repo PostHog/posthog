@@ -1,14 +1,10 @@
-import {
-  ChartLineUpIcon,
-  type IconProps,
-  LightbulbIcon,
-  TargetIcon,
-  WarningCircleIcon,
-  WrenchIcon,
-} from "@phosphor-icons/react";
+import type { IconProps } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
-import { splitReportSummary } from "@posthog/core/inbox/reportPresentation";
+import {
+  humanizeReportTitle,
+  splitReportSummary,
+} from "@posthog/core/inbox/reportPresentation";
 import {
   Tabs,
   TabsList,
@@ -18,10 +14,10 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
-import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
+import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBackLink";
 import { ReportChartsSection } from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
-import { InboxDetailPageHeader } from "@posthog/ui/features/inbox/components/InboxDetailPageHeader";
 import {
+  InboxMetaRow,
   InboxMetaSeparator,
   InboxMetaText,
 } from "@posthog/ui/features/inbox/components/InboxMetaRow";
@@ -92,14 +88,6 @@ interface InboxDetailFrameProps {
   children?: ReactNode;
 }
 
-/**
- * Shared chrome for inbox detail screens. The body lays out the report
- * summary on the left and supporting sections (Evidence, Tasks, Suggested
- * reviewers) on the right when the container is wide enough; everything
- * stacks into a single column below the breakpoint. AgentRunDetail keeps
- * its own layout – its sections (Run summary, Task log) diverge enough that
- * sharing this frame would obscure intent.
- */
 export function InboxDetailFrame({
   report,
   backTo,
@@ -134,216 +122,193 @@ export function InboxDetailFrame({
   const { actionButton: dismissButton, dialog: dismissDialog } =
     useInboxReportDismissAction(report);
 
-  const SummaryIcon = summarySection.Icon;
   const EvidenceIcon = evidenceSection?.Icon;
-  // While the signals query is in flight we already know how many findings to
-  // expect – use `report.signal_count` so the meta row and Evidence skeleton
-  // render immediately. Once the actual signals load, switch to the live count.
-  const evidenceCount = signalsLoaded ? signals.length : report.signal_count;
+  const evidenceUnavailable =
+    signalsLoaded && signalsResp?.report === null && report.signal_count > 0;
+  // Preserve the report's known count while loading or when the detail request
+  // failed. An unavailable response must not make Evidence disappear while a
+  // generic activity log remains on screen.
+  const evidenceCount =
+    !signalsLoaded || evidenceUnavailable
+      ? report.signal_count
+      : signals.length;
   const hasEvidence =
     evidenceSection != null && EvidenceIcon != null && evidenceCount > 0;
+  const displayTitle = humanizeReportTitle(report.title, fallbackTitle);
+
+  const reportMeta = (
+    <>
+      {metaPrefix}
+      {evidenceCount > 0 && (
+        <>
+          <InboxMetaText className="tabular-nums">
+            {evidenceCount} signal{evidenceCount === 1 ? "" : "s"}
+          </InboxMetaText>
+          <InboxMetaSeparator />
+        </>
+      )}
+      <RelativeTimestamp
+        timestamp={report.updated_at ?? report.created_at}
+        className="text-[13px]"
+      />
+      {hasSource && (
+        <>
+          <InboxMetaSeparator />
+          <InboxMetaSourceStack
+            sourceProducts={report.source_products}
+            labelPrefix="Agent · "
+          />
+        </>
+      )}
+      {report.priority && (
+        <>
+          <InboxMetaSeparator />
+          <InboxMetaText>{report.priority}</InboxMetaText>
+        </>
+      )}
+      {runRepository && (
+        <>
+          <InboxMetaSeparator />
+          <Tooltip>
+            <TooltipTrigger
+              render={<InboxMetaText mono className="cursor-help" />}
+            >
+              {runRepository}
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              Agent runs for this report work in this repository
+            </TooltipContent>
+          </Tooltip>
+        </>
+      )}
+      {metaSuffix}
+    </>
+  );
 
   return (
-    <div className="flex min-h-full flex-col">
-      <InboxDetailPageHeader
-        backTo={backTo}
-        backLabel={backLabel}
-        breadcrumb={breadcrumb}
-        reportTitle={report.title}
-        fallbackTitle={fallbackTitle}
-        badges={
-          <>
-            {/* Ready is the default state and the decision block says so; only
-                an exceptional status (failed, running, archived) earns a badge. */}
-            {report.status !== "ready" && (
-              <SignalReportStatusBadge status={report.status} />
-            )}
-            {report.is_suggested_reviewer && <ForYouBadge />}
-          </>
-        }
-        meta={
-          <>
-            {metaPrefix}
-            {evidenceCount > 0 && (
-              <>
-                <InboxMetaText className="tabular-nums">
-                  {evidenceCount} signal{evidenceCount === 1 ? "" : "s"}
-                </InboxMetaText>
-                <InboxMetaSeparator />
-              </>
-            )}
-            <RelativeTimestamp
-              timestamp={report.updated_at ?? report.created_at}
-              className="text-[13px]"
-            />
-            {hasSource && (
-              <>
-                <InboxMetaSeparator />
-                <InboxMetaSourceStack
-                  sourceProducts={report.source_products}
-                  labelPrefix="Agent · "
-                />
-              </>
-            )}
-            {report.priority && (
-              <>
-                <InboxMetaSeparator />
-                <InboxMetaText>{report.priority}</InboxMetaText>
-              </>
-            )}
-            {runRepository && (
-              <>
-                <InboxMetaSeparator />
-                <Tooltip>
-                  <TooltipTrigger
-                    render={<InboxMetaText mono className="cursor-help" />}
-                  >
-                    {runRepository}
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    Agent runs for this report work in this repository
-                  </TooltipContent>
-                </Tooltip>
-              </>
-            )}
-            {metaSuffix}
-          </>
-        }
-        actions={
-          <div className="flex items-center gap-2.5">
-            <ReportReviewersHeader report={report} />
-            {primaryAction}
-            {showDismiss && dismissButton}
-          </div>
-        }
-      />
-
-      {secondaryTab && (
-        <div className="border-(--gray-5) border-b px-6">
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList variant="line" className="h-auto gap-0.5">
-              <TabsTrigger value="overview" className="gap-1.5 px-2.5 py-2">
-                <span className="font-medium text-[14px]">Overview</span>
-              </TabsTrigger>
-              <TabsTrigger value="secondary" className="gap-1.5 px-2.5 py-2">
-                <span className="flex items-center gap-1.5 font-medium text-[14px]">
-                  {secondaryTab.label}
-                </span>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+    <div className="@container flex min-h-full flex-col">
+      <div className="mx-auto flex w-full max-w-[calc(160ch+5rem)] flex-wrap items-center justify-between gap-3 px-6 py-4">
+        <div className="flex items-center gap-2 text-[13.5px] text-gray-11">
+          <DetailBackLink to={backTo} label={backLabel} />
+          {breadcrumb}
         </div>
-      )}
+        <div className="flex items-center gap-2.5">
+          <ReportReviewersHeader report={report} />
+          {primaryAction}
+          {showDismiss && dismissButton}
+        </div>
+      </div>
 
-      {/*
-         The detail body is a container-query grid:
-           - Left column caps at 80ch – matches the prose width inside, because
-             we set the same 14px font context that the prose uses so `ch` here
-             resolves to the same width as inside the markdown.
-           - Right column grows beyond the prose to use the leftover space, but
-             the grid container is capped so the right column never exceeds 50%
-             of total width. Wider viewports just get larger side gutters.
-        */}
-      <div className="@container mx-auto w-full max-w-[calc(160ch+5rem)] px-6 py-5 text-[14px]">
-        {secondaryTab && activeTab === "secondary" ? (
-          <div className="flex min-w-0 flex-col gap-5">
-            {secondaryTab.content}
-          </div>
-        ) : (
-          <div className="grid @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] grid-cols-1 gap-5">
-            <div className="flex min-w-0 flex-col gap-5">
-              {aboveSummary}
-              <ReportSummarySlots
-                report={report}
-                fallbackTitle={summarySection.title}
-                Icon={SummaryIcon}
-              />
-              {belowSummary}
-            </div>
+      <div className="mx-auto w-full max-w-[calc(160ch+5rem)] px-6 pb-5 text-[14px]">
+        <div className="flex @5xl:flex-row flex-col @5xl:items-start overflow-hidden rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)">
+          <aside className="@5xl:order-none order-2 flex @5xl:w-[26rem] w-full min-w-0 @5xl:shrink-0 flex-col gap-5 @5xl:self-stretch border-(--gray-5) border-t @5xl:border-t-0 @5xl:border-r p-5">
+            {hasEvidence && (
+              <RightColumnSection
+                Icon={EvidenceIcon}
+                title={evidenceSection.title}
+                collapsible
+                rightSlot={
+                  <span className="cursor-default select-none text-[12px] text-gray-10 tabular-nums">
+                    {evidenceCount} signal
+                    {evidenceCount === 1 ? "" : "s"}
+                  </span>
+                }
+              >
+                {evidenceUnavailable ? (
+                  <p className="m-0 text-[13px] text-gray-10">
+                    Couldn't load the evidence for this report. Reopen the
+                    report to try again.
+                  </p>
+                ) : signals.length > 0 ? (
+                  <SignalsList signals={signals} />
+                ) : (
+                  <SignalsListSkeleton count={evidenceCount} />
+                )}
+              </RightColumnSection>
+            )}
+            {aboveEvidence}
+            {children}
+          </aside>
 
-            <div className="flex min-w-0 flex-col gap-5">
-              {aboveEvidence}
-              {hasEvidence && (
-                <RightColumnSection
-                  Icon={EvidenceIcon}
-                  title={evidenceSection.title}
-                  collapsible
-                  rightSlot={
-                    <span className="cursor-default select-none text-[12px] text-gray-10 tabular-nums">
-                      {evidenceCount} signal
-                      {evidenceCount === 1 ? "" : "s"}
-                    </span>
-                  }
+          <main className="@5xl:order-none order-1 flex min-w-0 flex-1 flex-col @5xl:px-8 px-6 py-5">
+            {secondaryTab ? (
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList
+                  variant="line"
+                  className="mb-5 h-auto w-full justify-start gap-0.5 border-(--gray-5) border-b"
                 >
-                  {signals.length > 0 ? (
-                    <SignalsList signals={signals} />
-                  ) : (
-                    <SignalsListSkeleton count={evidenceCount} />
-                  )}
-                </RightColumnSection>
-              )}
-              {children}
-            </div>
-          </div>
-        )}
-        {(!secondaryTab || activeTab === "overview") && footer && (
-          <div className="mt-5">{footer}</div>
-        )}
+                  <TabsTrigger value="overview" className="gap-1.5 px-2.5 py-2">
+                    <span className="font-medium text-[14px]">
+                      {summarySection.title}
+                    </span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="secondary"
+                    className="gap-1.5 px-2.5 py-2"
+                  >
+                    <span className="flex items-center gap-1.5 font-medium text-[14px]">
+                      {secondaryTab.label}
+                    </span>
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            ) : (
+              <div className="mb-5 flex items-center gap-2.5 border-(--gray-5) border-b pb-3">
+                <span className="font-semibold text-[14px] text-gray-12">
+                  {summarySection.title}
+                </span>
+                <span className="flex-1" />
+                <span className="text-[12px] text-gray-10">
+                  Generated <RelativeTimestamp timestamp={report.created_at} />
+                </span>
+              </div>
+            )}
+
+            {secondaryTab && activeTab === "secondary" ? (
+              <div className="flex min-w-0 flex-col gap-5">
+                <h1 className="m-0 min-w-0 font-bold text-[24px] text-gray-12 leading-tight tracking-tight">
+                  {displayTitle}
+                </h1>
+                {secondaryTab.content}
+              </div>
+            ) : (
+              <div className="flex min-h-full min-w-0 flex-col gap-6">
+                <div className="flex flex-col gap-2">
+                  <h1 className="m-0 min-w-0 font-bold text-[24px] text-gray-12 leading-tight tracking-tight">
+                    {displayTitle}
+                  </h1>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {report.status !== "ready" && (
+                      <SignalReportStatusBadge status={report.status} />
+                    )}
+                    {report.is_suggested_reviewer && <ForYouBadge />}
+                    <InboxMetaRow>{reportMeta}</InboxMetaRow>
+                  </div>
+                </div>
+                {aboveSummary}
+                <ReportSummaryDocument report={report} />
+                {belowSummary}
+                {footer && <div className="mt-auto">{footer}</div>}
+              </div>
+            )}
+          </main>
+        </div>
         {showDismiss && dismissDialog}
       </div>
     </div>
   );
 }
 
-/**
- * The summary rendered as labeled slots instead of one wall of prose: the
- * lede (the summary's own tl;dr) stays above the fold, the first section
- * opens by default, and the rest sit behind disclosure. Nothing is cut —
- * the reader jumps to the slot they need instead of reading linearly.
- * Heading-less summaries render whole, exactly as before.
- */
-function ReportSummarySlots({
-  report,
-  fallbackTitle,
-  Icon,
-}: {
-  report: SignalReport;
-  fallbackTitle: string;
-  Icon: ComponentType<IconProps>;
-}) {
+function ReportSummaryDocument({ report }: { report: SignalReport }) {
   const split = useMemo(
     () => splitReportSummary(report.summary),
     [report.summary],
   );
   const chartIds = renderableReportChartIds(report.charts);
-  const charts = report.charts && report.charts.length > 0 && (
-    <div className="mt-4">
-      <ReportChartsSection reportId={report.id} charts={report.charts} />
-    </div>
-  );
-
-  const sectionIcon = (title: string): ComponentType<IconProps> => {
-    const normalizedTitle = title.toLowerCase();
-    if (normalizedTitle.includes("problem")) return WarningCircleIcon;
-    if (normalizedTitle.includes("impact")) return ChartLineUpIcon;
-    if (
-      normalizedTitle.includes("solution") ||
-      normalizedTitle.includes("recommend")
-    ) {
-      return LightbulbIcon;
-    }
-    if (
-      normalizedTitle.includes("implementation") ||
-      normalizedTitle.includes("fix")
-    ) {
-      return WrenchIcon;
-    }
-    return TargetIcon;
-  };
 
   if (split.sections.length === 0) {
     return (
-      <DetailSection Icon={Icon} title={fallbackTitle} collapsible>
+      <div className="flex flex-col gap-5">
         <SignalReportSummaryMarkdown
           content={report.summary}
           fallback="No summary yet. The agent is still investigating."
@@ -351,15 +316,17 @@ function ReportSummarySlots({
           pending={report.status === "in_progress"}
           chartIds={chartIds}
         />
-        {charts}
-      </DetailSection>
+        {report.charts && report.charts.length > 0 && (
+          <ReportChartsSection reportId={report.id} charts={report.charts} />
+        )}
+      </div>
     );
   }
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       {split.lede && (
-        <DetailSection Icon={Icon} title={fallbackTitle}>
+        <div className="text-[16px] text-gray-12">
           <SignalReportSummaryMarkdown
             content={split.lede}
             fallback=""
@@ -367,23 +334,21 @@ function ReportSummarySlots({
             pending={report.status === "in_progress"}
             chartIds={chartIds}
           />
-        </DetailSection>
+        </div>
       )}
-      {/* Charts answer "how much and how fast?" more quickly than prose, so
-          keep them above the longer analysis sections. */}
       {report.charts && report.charts.length > 0 && (
-        <DetailSection Icon={ChartLineUpIcon} title="Charts">
+        <div className="flex flex-col gap-3">
           <ReportChartsSection reportId={report.id} charts={report.charts} />
-        </DetailSection>
+        </div>
       )}
       {split.sections.map((section, index) => (
-        <DetailSection
+        <section
           key={`${section.title}-${index}`}
-          Icon={sectionIcon(section.title)}
-          title={section.title}
-          collapsible
-          defaultCollapsed={index > 0}
+          className="flex flex-col gap-2"
         >
+          <h2 className="m-0 font-semibold text-[18px] text-gray-12">
+            {section.title}
+          </h2>
           <SignalReportSummaryMarkdown
             content={section.body}
             fallback=""
@@ -391,8 +356,8 @@ function ReportSummarySlots({
             pending={false}
             chartIds={chartIds}
           />
-        </DetailSection>
+        </section>
       ))}
-    </>
+    </div>
   );
 }

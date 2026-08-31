@@ -292,7 +292,7 @@ export function ReportsInboxView() {
           ) : (
             <>
               {isEmpty ? (
-                <Empty className="mx-auto max-w-md py-16">
+                <Empty className="mx-auto max-w-md flex-none border-0 py-12">
                   <EmptyHeader>
                     <EmptyMedia variant="icon">
                       {hasActiveFilters ? (
@@ -356,7 +356,7 @@ export function ReportsInboxView() {
                   )}
                 </>
               )}
-              <ResolvedSection searchQuery={searchQuery} />
+              {!isEmpty && <ResolvedSection searchQuery={searchQuery} />}
             </>
           )}
         </div>

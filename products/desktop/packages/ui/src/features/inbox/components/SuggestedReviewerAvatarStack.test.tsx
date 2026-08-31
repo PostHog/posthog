@@ -130,7 +130,7 @@ describe("SuggestedReviewerAvatarStack", () => {
     expect(screen.getByText("2 suggested reviewers")).toBeTruthy();
   });
 
-  it("removes the current user and tracks the list action", async () => {
+  it("removes the current user from the reviewer menu", async () => {
     const onCardClick = vi.fn();
     const user = userEvent.setup();
     document.addEventListener("click", onCardClick);
@@ -138,7 +138,15 @@ describe("SuggestedReviewerAvatarStack", () => {
       <SuggestedReviewerAvatarStack report={report} artefacts={artefacts} />,
     );
 
-    const button = screen.getByRole("button", { name: "Not for me" });
+    expect(screen.queryByRole("button", { name: "Not for me" })).toBeNull();
+    await user.click(
+      screen.getByRole("button", {
+        name: "View suggested reviewer rationale",
+      }),
+    );
+    const button = screen.getByRole("button", {
+      name: "Remove me from reviewers",
+    });
 
     await user.click(button);
 
@@ -158,7 +166,8 @@ describe("SuggestedReviewerAvatarStack", () => {
     document.removeEventListener("click", onCardClick);
   });
 
-  it("keeps the personal shortcut visible in triage and out of detail", () => {
+  it("does not render the reviewer action as a report status", async () => {
+    const user = userEvent.setup();
     const { rerender } = render(
       <SuggestedReviewerAvatarStack
         report={report}
@@ -166,8 +175,17 @@ describe("SuggestedReviewerAvatarStack", () => {
         surface="triage"
       />,
     );
-    expect(screen.getByRole("button", { name: "Not for me" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Not for me" })).toBeNull();
     expect(mocks.lastSurface).toBe("triage");
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "View suggested reviewer rationale",
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Remove me from reviewers" }),
+    ).toBeTruthy();
 
     rerender(
       <SuggestedReviewerAvatarStack
