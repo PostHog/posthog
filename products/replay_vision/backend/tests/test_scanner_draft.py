@@ -448,6 +448,8 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             # Goal-flow fields are null on the legacy path: the wizard keeps its own defaults.
             "sampling_mode": None,
             "sampling_rate": None,
+            "model": None,
+            "credit_limit": None,
             "estimated_monthly_observations": None,
         }
 
@@ -714,7 +716,7 @@ class TestFinalizeV2:
 
 
 class TestSolveBudget(_VisionAPITestCase):
-    def _solve(self, *, budget, model_mode="focused", monthly_by_mode=None):
+    def _solve(self, *, budget, model_mode="focused", monthly_by_mode=None, credits_per_observation=1):
         # Counting is ClickHouse's job with its own tests; these assert the dial arithmetic.
         monthly_by_mode = monthly_by_mode or {}
 
@@ -727,7 +729,10 @@ class TestSolveBudget(_VisionAPITestCase):
                 team=self.team,
                 user=self.user,
                 query=None,
-                monthly_scan_budget=budget,
+                # Default 1 credit per observation, so the credit budget equals the recording budget
+                # and these assertions stay about the dial arithmetic, not the price conversion.
+                monthly_credit_budget=budget,
+                credits_per_observation=credits_per_observation,
                 model_mode=model_mode,
             )
 
@@ -768,6 +773,17 @@ class TestSolveBudget(_VisionAPITestCase):
         assert solution.estimated_monthly_observations == round(10_000_000 * MIN_SAMPLING_RATE)
         assert solution.estimated_monthly_observations > 1
 
+    def test_a_pricier_model_buys_fewer_recordings_for_the_same_budget(self):
+        # 1000 credits at 5 credits/observation buys 200 recordings; the matched pool is larger, so
+        # the rate solves down to fit the 200 the budget can actually pay for.
+        solution = self._solve(
+            budget=1_000, credits_per_observation=5, model_mode="comprehensive", monthly_by_mode={"comprehensive": 800}
+        )
+
+        assert solution.sampling_mode == "comprehensive"
+        assert solution.sampling_rate < 1.0
+        assert solution.estimated_monthly_observations <= 200
+
 
 class TestDraftV2(_VisionAPITestCase):
     def _run(self, *, pages=(), generate=None, estimate_error=False):
@@ -789,7 +805,9 @@ class TestDraftV2(_VisionAPITestCase):
                 team=self.team,
                 user=self.user,
                 goal="find out where people give up in billing",
-                monthly_scan_budget=1_000,
+                # 10,000 credits at the default model's 5 credits/observation buys 2,000 recordings,
+                # above the 300 the estimate matches, so the floodgates case stays comprehensive.
+                monthly_credit_budget=10_000,
                 user_access_control=_access_control(allow=True),
             )
 
@@ -801,6 +819,9 @@ class TestDraftV2(_VisionAPITestCase):
         assert draft.sampling_mode is None
         assert draft.sampling_rate is None
         assert draft.estimated_monthly_observations is None
+        # The credit cap and model are the guardrail, so they survive a costing failure.
+        assert draft.credit_limit == 10_000
+        assert draft.model == "gemini-3-flash-preview"
 
     def test_a_pages_query_failure_still_drafts_from_events(self):
         with (
@@ -815,7 +836,7 @@ class TestDraftV2(_VisionAPITestCase):
                 team=self.team,
                 user=self.user,
                 goal="billing",
-                monthly_scan_budget=100,
+                monthly_credit_budget=100,
                 user_access_control=_access_control(allow=True),
             )
 
@@ -831,6 +852,12 @@ class TestDraftV2(_VisionAPITestCase):
         assert draft.sampling_mode == "comprehensive"
         assert draft.sampling_rate == 1.0
         assert draft.estimated_monthly_observations == 300
+
+    def test_the_model_and_credit_cap_reach_the_draft(self):
+        draft = self._run(pages=("/billing",), generate=_draft_v2(model="gemini-3.7-flash"))
+
+        assert draft.model == "gemini-3.7-flash"
+        assert draft.credit_limit == 10_000
 
 
 class TestDraftEndpointGoalFlow(_VisionAPITestCase):
@@ -854,6 +881,8 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
             sampling_mode="comprehensive",
             sampling_rate=0.25,
             estimated_monthly_observations=1_000,
+            model="gemini-3.7-flash",
+            credit_limit=5_000,
         )
 
     def test_budget_with_the_flag_on_takes_the_goal_flow(self):
@@ -863,15 +892,17 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
             patch(f"{_API_MODULE}.draft_scanner_from_goal") as legacy,
         ):
             resp = self.client.post(
-                self.draft_url, data={"goal": "billing give-ups", "monthly_scan_budget": 1000}, format="json"
+                self.draft_url, data={"goal": "billing give-ups", "monthly_credit_budget": 5000}, format="json"
             )
 
         assert resp.status_code == status.HTTP_200_OK
         assert not legacy.called
-        assert v2.call_args.kwargs["monthly_scan_budget"] == 1000
+        assert v2.call_args.kwargs["monthly_credit_budget"] == 5000
         body = resp.json()
         assert body["sampling_mode"] == "comprehensive"
         assert body["sampling_rate"] == 0.25
+        assert body["model"] == "gemini-3.7-flash"
+        assert body["credit_limit"] == 5000
         assert body["estimated_monthly_observations"] == 1000
 
     def test_budget_with_the_flag_off_degrades_to_the_legacy_draft(self):
@@ -883,7 +914,7 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
             patch(_GENERATE_PATH, return_value=_draft()),
         ):
             resp = self.client.post(
-                self.draft_url, data={"goal": "billing give-ups", "monthly_scan_budget": 1000}, format="json"
+                self.draft_url, data={"goal": "billing give-ups", "monthly_credit_budget": 1000}, format="json"
             )
 
         assert resp.status_code == status.HTTP_200_OK
@@ -891,6 +922,8 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
         body = resp.json()
         assert body["sampling_mode"] is None
         assert body["sampling_rate"] is None
+        assert body["model"] is None
+        assert body["credit_limit"] is None
         assert body["estimated_monthly_observations"] is None
 
     def test_no_budget_never_consults_the_flag(self):

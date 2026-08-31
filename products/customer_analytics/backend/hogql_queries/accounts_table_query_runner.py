@@ -8,6 +8,7 @@ from posthog.schema import (
     AccountsTableAccountFieldFilter,
     AccountsTableAccountIdFilter,
     AccountsTableAggregateMetric,
+    AccountsTableAssignedFilter,
     AccountsTableAssignedToFilter,
     AccountsTableCountMetric,
     AccountsTableCountThresholdMetric,
@@ -135,6 +136,8 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     filters.append(contracts.AccountTableTagsFilter(tag_names=tuple(filter_.tagNames)))
                 elif isinstance(filter_, AccountsTableAssignedToFilter):
                     filters.append(contracts.AccountTableAssignedToFilter(user_ids=tuple(filter_.userIds)))
+                elif isinstance(filter_, AccountsTableAssignedFilter):
+                    filters.append(contracts.AccountTableAssignedFilter())
                 elif isinstance(filter_, AccountsTableUnassignedFilter):
                     filters.append(contracts.AccountTableUnassignedFilter())
                 elif isinstance(filter_, AccountsTableAccountIdFilter):

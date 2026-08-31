@@ -23,6 +23,7 @@ import { HEALTH_TAG_TYPES, SUBJECT_TYPE_TAGS, checkDisplayName, checkTypeLabel }
 import { CheckStatusCell } from '../CheckStatusCell'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
 import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
+import { DataQualityGateToggle } from './DataQualityGateToggle'
 import {
     BROWSE_ACTION_ID,
     OverviewStatusFilter,
@@ -121,21 +122,24 @@ export function DataQualityOverview(): JSX.Element {
                             className="w-full md:w-auto"
                         />
                     </div>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => runChecks({ kind: 'all' })}
-                        loading={runningAll}
-                        disabledReason={
-                            checks.length === 0
-                                ? 'There are no checks to run'
-                                : anyRunActive && !runningAll
-                                  ? 'Checks are already running'
-                                  : undefined
-                        }
-                        data-attr="data-quality-overview-run-all"
-                    >
-                        Run all checks
-                    </LemonButton>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <DataQualityGateToggle />
+                        <LemonButton
+                            type="primary"
+                            onClick={() => runChecks({ kind: 'all' })}
+                            loading={runningAll}
+                            disabledReason={
+                                checks.length === 0
+                                    ? 'There are no checks to run'
+                                    : anyRunActive && !runningAll
+                                      ? 'Checks are already running'
+                                      : undefined
+                            }
+                            data-attr="data-quality-overview-run-all"
+                        >
+                            Run all checks
+                        </LemonButton>
+                    </div>
                 </div>
 
                 {overviewSummary && <p className="mb-0 text-secondary">{overviewSummary}</p>}

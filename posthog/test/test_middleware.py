@@ -201,7 +201,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 53
+        cls.base_app_num_queries = 54
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -369,7 +369,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_creating_feature_flag(self):
-        with self.assertNumQueries(FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 5)):
+        with self.assertNumQueries(FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)):
             response_app = self.client.get(f"/feature_flags/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()

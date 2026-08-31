@@ -28,17 +28,21 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelItems", () => ({
 vi.mock("@posthog/ui/features/command-center/commandCenterStore", () => ({
   useCommandCenterStore: () => [] as string[],
 }));
-vi.mock("@posthog/ui/features/canvas/components/ChannelItemRow", () => ({
-  ChannelItemRow: ({
-    item,
+vi.mock("@posthog/ui/features/canvas/components/ChannelItemsPane", () => ({
+  ChannelItemsPane: ({
+    items,
     actions,
   }: {
-    item: { id: string; title: string };
+    items: { key: string; id: string; title: string }[];
     actions: { open: (item: { id: string; title: string }) => void };
   }) => (
-    <button type="button" onClick={() => actions.open(item)}>
-      {item.title}
-    </button>
+    <div>
+      {items.map((item) => (
+        <button key={item.key} type="button" onClick={() => actions.open(item)}>
+          {item.title}
+        </button>
+      ))}
+    </div>
   ),
 }));
 vi.mock("@posthog/ui/features/canvas/components/FeedQueryInput", () => ({
@@ -72,6 +76,7 @@ import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsS
 import { TaskFeedPane } from "./TaskFeedPane";
 
 vi.mock("@posthog/ui/features/canvas/hooks/useProjectTaskFeeds", () => ({
+  useProjectTaskFeeds: () => useTaskFeedsStore.getState().feeds,
   useProjectTaskFeed: (feedId: string) =>
     useTaskFeedsStore.getState().feeds.find((feed) => feed.id === feedId),
 }));

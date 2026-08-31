@@ -5,6 +5,7 @@ import {
     AccountsTableAccountFieldFilter,
     AccountsTableAccountFieldOperator,
     AccountsTableAccountIdFilter,
+    AccountsTableAssignedFilter,
     AccountsTableAssignedToFilter,
     AccountsTableColumn,
     AccountsTableCustomPropertyFilter,
@@ -194,6 +195,7 @@ function customPropertyFilter(
         (operator === AccountsTableCustomPropertyOperator.Contains ||
             operator === AccountsTableCustomPropertyOperator.DoesNotContain) &&
         definition.display_type !== 'text' &&
+        definition.display_type !== 'link' &&
         definition.display_type !== 'select'
     ) {
         return null
@@ -261,9 +263,10 @@ function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFil
     }
     if (input.allRolesUnassigned) {
         filters.push({ kind: 'unassigned' } satisfies AccountsTableUnassignedFilter)
-    }
-    if (input.assignedToFilter.length > 0) {
+    } else if (input.assignedToFilter.length > 0) {
         filters.push({ kind: 'assigned_to', userIds: input.assignedToFilter } satisfies AccountsTableAssignedToFilter)
+    } else {
+        filters.push({ kind: 'assigned' } satisfies AccountsTableAssignedFilter)
     }
     for (const filter of input.accountFilters) {
         const translatedFilter = isAccountPropertyFilter(filter)

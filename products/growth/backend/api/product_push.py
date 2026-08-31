@@ -10,12 +10,10 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.products import Products
-from posthog.schema_enums import ProductKey
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.growth.backend.models import ProductPushCampaign
-from products.growth.backend.product_push.selection import PUSH_PRODUCT_PATHS, project_uses_product
+from products.growth.backend.product_push.selection import project_uses_product, resolve_product_path
 
 
 class ProductPushCampaignSerializer(serializers.ModelSerializer):
@@ -48,18 +46,7 @@ class ProductPushCampaignSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_product_path(self, campaign: ProductPushCampaign) -> str | None:
-        try:
-            product_key = ProductKey(campaign.product_key)
-        except ValueError:
-            return None
-        # Curated mapping first — intent→product inference is ambiguous for
-        # several keys (see PUSH_PRODUCT_PATHS). The inference fallback covers
-        # TAM-scheduled keys outside the push lists.
-        curated_path = PUSH_PRODUCT_PATHS.get(product_key)
-        if curated_path is not None:
-            return curated_path
-        products = Products.get_products_by_intent(product_key)
-        return products[0].path if products else None
+        return resolve_product_path(campaign.product_key)
 
 
 class ProductPushCampaignViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

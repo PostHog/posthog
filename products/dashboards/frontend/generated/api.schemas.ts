@@ -2513,6 +2513,7 @@ export const ChartDisplayTypeApi = {
     BoldNumber: 'BoldNumber',
     Metric: 'Metric',
     ActionsPie: 'ActionsPie',
+    ActionsDonut: 'ActionsDonut',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
     WorldMap: 'WorldMap',
@@ -8343,6 +8344,11 @@ export interface AccountsTableAssignedToFilterApi {
     userIds: number[]
 }
 
+export const AccountsTableAssignedFilterApiValue = {
+    kind: 'assigned',
+} as const
+export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
+
 export const AccountsTableUnassignedFilterApiValue = {
     kind: 'unassigned',
 } as const
@@ -8508,6 +8514,7 @@ export interface AccountsTableQueryApi {
               | AccountsTableSearchFilterApi
               | AccountsTableTagsFilterApi
               | AccountsTableAssignedToFilterApi
+              | AccountsTableAssignedFilterApi
               | AccountsTableUnassignedFilterApi
               | AccountsTableAccountIdFilterApi
               | AccountsTableAccountFieldFilterApi
@@ -8837,6 +8844,7 @@ export interface ChartSettingsApi {
     rightYAxisSettings?: YAxisSettingsApi | null
     scatter?: ScatterChartSettingsApi | null
     seriesBreakdownColumn?: string | null
+    showAnnotations?: boolean | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null
     showPieTotal?: boolean | null

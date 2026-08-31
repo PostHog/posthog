@@ -17,6 +17,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 
+from products.access_control.backend.facade.object_names import display_model
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
@@ -46,14 +47,10 @@ def _inherited_source_display_name(obj: Model, access: ResolvedAccess) -> str | 
     fallback relation (that's where the walk got its id), so it is read off the object — cached
     by Django, free when already loaded — never refetched by id. The name field comes from the
     same registry the settings UI names objects with, so a new fallback parent needs no code here."""
-    from .access_control_settings import (
-        _display_model,  # noqa: PLC0415 — access_control_settings imports this module; deferring breaks the cycle
-    )
-
     if access.source != "parent_object":
         return None
     parent = fallback_parent_object(obj, access.source_resource)
-    display = _display_model(access.source_resource)
+    display = display_model(access.source_resource)
     if parent is None or display is None:
         return None
     name = getattr(parent, display.name_field, None)
@@ -293,6 +290,10 @@ def upsert_access_control(
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
+    # The facade's route walk (object_names.resources_with_object_access_controls) keys on this
+    # marker instead of importing the class
+    object_access_controls = True
+
     # Why a mixin? We want to easily add this to any existing resource, including providing easy helpers for adding access control info such
     # as the current users access level to any response.
     # This mixin does:

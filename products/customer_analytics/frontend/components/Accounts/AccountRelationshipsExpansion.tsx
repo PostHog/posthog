@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonTable, LemonTableColumns, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonModal,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -24,11 +32,19 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
         relationshipDefinitions,
         assignDefinition,
         assignDefinitionId,
+        canDeleteRelationships,
         relationshipSaving,
+        relationshipToDelete,
     } = useValues(accountRelationshipsLogic({ accountId }))
-    const { setDefinitionFilter, setAssignDefinitionId, assignRelationship, endRelationship } = useActions(
-        accountRelationshipsLogic({ accountId })
-    )
+    const {
+        setDefinitionFilter,
+        setAssignDefinitionId,
+        assignRelationship,
+        endRelationship,
+        openDeleteConfirmation,
+        closeDeleteConfirmation,
+        deleteRelationship,
+    } = useActions(accountRelationshipsLogic({ accountId }))
     const destructiveActionRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -74,16 +90,34 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
             key: 'actions',
             width: 0,
             render: (_, relationship) =>
-                relationship.ended_at ? null : (
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconX />}
-                        tooltip={`End this ${relationship.definition.name} assignment`}
-                        disabledReason={
-                            destructiveActionRestrictionReason ?? (relationshipSaving ? 'Saving…' : undefined)
-                        }
-                        onClick={() => endRelationship(relationship)}
-                    />
+                relationship.ended_at && !canDeleteRelationships ? null : (
+                    <div className="flex justify-end gap-1">
+                        {!relationship.ended_at && (
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                tooltip={`End this ${relationship.definition.name} assignment`}
+                                disabledReason={
+                                    destructiveActionRestrictionReason ?? (relationshipSaving ? 'Saving…' : undefined)
+                                }
+                                data-attr="account-relationships-unassign-button"
+                                onClick={() => endRelationship(relationship)}
+                            >
+                                Unassign
+                            </LemonButton>
+                        )}
+                        {canDeleteRelationships && (
+                            <LemonButton
+                                size="xsmall"
+                                status="danger"
+                                icon={<IconTrash />}
+                                tooltip="Delete assignment"
+                                disabledReason={relationshipSaving ? 'Saving…' : undefined}
+                                data-attr="account-relationships-delete-button"
+                                onClick={() => openDeleteConfirmation(relationship)}
+                            />
+                        )}
+                    </div>
                 ),
         },
     ]
@@ -153,6 +187,42 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
                     relationships === null ? 'Failed to load relationships.' : 'No assignments on this account yet.'
                 }
             />
+            <LemonModal
+                isOpen={relationshipToDelete !== null}
+                onClose={() => !relationshipSaving && closeDeleteConfirmation()}
+                title="Delete assignment?"
+                footer={
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            onClick={closeDeleteConfirmation}
+                            disabledReason={relationshipSaving ? 'Deleting…' : undefined}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            status="danger"
+                            loading={relationshipSaving}
+                            data-attr="account-relationships-delete-confirm-button"
+                            onClick={() => {
+                                if (relationshipToDelete) {
+                                    deleteRelationship(relationshipToDelete)
+                                }
+                            }}
+                        >
+                            Delete assignment
+                        </LemonButton>
+                    </>
+                }
+            >
+                {relationshipToDelete && (
+                    <p className="mb-0">
+                        This permanently deletes the {relationshipToDelete.definition.name} assignment. This can't be
+                        undone.
+                    </p>
+                )}
+            </LemonModal>
         </div>
     )
 }

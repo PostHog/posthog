@@ -228,6 +228,11 @@ class AccountTableAssignedToFilter:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AccountTableAssignedFilter:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
 class AccountTableUnassignedFilter:
     pass
 
@@ -285,6 +290,7 @@ AccountTableFilter = (
     AccountTableSearchFilter
     | AccountTableTagsFilter
     | AccountTableAssignedToFilter
+    | AccountTableAssignedFilter
     | AccountTableUnassignedFilter
     | AccountTableAccountIdFilter
     | AccountTableFieldFilter
@@ -706,6 +712,7 @@ class FeatureRequestView:
     can_update: bool = False
     account: FeatureRequestAccountView | None = None
     account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
+    evidence_count: int = 0
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None

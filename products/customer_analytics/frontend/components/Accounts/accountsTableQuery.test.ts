@@ -124,6 +124,7 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
+            { kind: 'assigned' },
             {
                 kind: 'account_field',
                 field: AccountsTableAccountField.IgnoredAt,
@@ -152,7 +153,13 @@ describe('accountsTableQuery', () => {
             })
         )
 
-        expect(plan.query.filters).toEqual([])
+        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+    })
+
+    it('filters the default account list to accounts assigned to someone', () => {
+        const plan = buildAccountsTableQueryPlan(queryInput())
+
+        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
     })
 
     it('translates saved custom-property history display configuration', () => {
@@ -223,6 +230,7 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
+            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,
@@ -248,6 +256,7 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
+            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,
@@ -277,7 +286,27 @@ describe('accountsTableQuery', () => {
             })
         )
 
-        expect(plan.query.filters).toEqual([])
+        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+    })
+
+    it('keeps contains filters for link properties', () => {
+        const linkDefinition = { ...definition, display_type: 'link' } as CustomPropertyDefinitionApi
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: linkDefinition },
+                accountFilters: [customFilter({ operator: PropertyOperator.IContains, value: 'example.com' })],
+            })
+        )
+
+        expect(plan.query.filters).toEqual([
+            { kind: 'assigned' },
+            {
+                kind: 'custom_property',
+                definitionId: CUSTOM_PROPERTY_ID,
+                operator: AccountsTableCustomPropertyOperator.Contains,
+                values: ['example.com'],
+            },
+        ])
     })
 
     it('reads cells directly from keyed rows', () => {

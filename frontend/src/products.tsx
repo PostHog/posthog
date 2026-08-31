@@ -43,6 +43,7 @@ import { configurationRedirect, resolveSettingSlug } from '../../products/error_
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
+import type { NodeDetailSceneTab } from './scenes/models/nodeDetailSceneLogic'
 import {
     ActionType,
     DashboardType,
@@ -123,6 +124,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/models': ['Models', 'models'],
     '/models/dags': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
+    '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
     '/data-management/sources/:sourceId/schemas/:schemaId/:tab': [
@@ -145,6 +147,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
     '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+    '/engineering-analytics/health': ['EngineeringAnalytics', 'engineeringAnalyticsHealth'],
     '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
@@ -193,6 +196,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+    '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
     '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
     '/mcp-servers/server/:id': ['McpGatewayServer', 'mcpGatewayServer'],
     '/mcp-servers/agent/:id': ['McpGatewayAgent', 'mcpGatewayAgent'],
@@ -210,6 +214,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
     '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
     '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
@@ -903,7 +908,11 @@ export const productConfiguration: Record<string, any> = {
     Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
     StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
     StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
-    StreamlitApps: { name: 'Streamlit apps', projectBased: true },
+    StreamlitApps: {
+        name: 'Streamlit apps',
+        description: 'Build and share custom Python apps that run on your PostHog data.',
+        projectBased: true,
+    },
     StreamlitApp: { name: 'Streamlit app', projectBased: true },
     StreamlitAppEdit: { name: 'Edit Streamlit app', projectBased: true },
     Subscriptions: {
@@ -950,7 +959,13 @@ export const productConfiguration: Record<string, any> = {
     },
     UserInterview: { name: 'Interview topic', projectBased: true, activityScope: 'UserInterview' },
     UserInterviewResponse: { name: 'Interview response', projectBased: true, activityScope: 'UserInterview' },
-    VisualReviewIndex: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
+    VisualReviewIndex: {
+        name: 'Visual review',
+        description:
+            'Catch unintended UI changes by reviewing screenshot diffs from CI, with the approved baselines committed back to your repo.',
+        projectBased: true,
+        iconType: 'visual_review',
+    },
     VisualReviewRuns: { name: 'Runs', projectBased: true, iconType: 'visual_review' },
     VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
     VisualReviewSettings: { name: 'Visual review settings', projectBased: true, iconType: 'visual_review' },
@@ -1117,7 +1132,7 @@ export const productUrls = {
         return query ? `/data-ops?${query}` : '/data-ops'
     },
     models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
-    nodeDetail: (id: string): string => `/models/${id}`,
+    nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
         `/data-management/sources/${id}/${tab ?? 'schemas'}`,
@@ -1204,6 +1219,7 @@ export const productUrls = {
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
     engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
+    engineeringAnalyticsHealth: (): string => '/engineering-analytics/health',
     engineeringAnalyticsTeam: (ownerTeam: string): string =>
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
@@ -1311,12 +1327,14 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalytics: (): string => '/mcp-analytics',
     mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
     mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+    mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
     mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     mcpGateway: (): string => '/mcp-servers',
     mcpGatewayTab: (tab: string): string => `/mcp-servers/${tab}`,
@@ -1429,6 +1447,7 @@ export const productUrls = {
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTemplates: (): string => '/replay-vision/new/template',
     replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
     replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
@@ -1661,6 +1680,12 @@ export const fileSystemTypes = {
 
 /** This const is auto-generated, as is the whole file */
 export const productSetupProbes: ProductSetupProbe[] = [
+    {
+        productKey: ProductKey.AI_OBSERVABILITY,
+        hasDataEvents: ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'],
+        staleAfterDays: 90,
+    },
+    { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
     {
         productKey: ProductKey.MCP_ANALYTICS,
         hasDataEvents: ['$mcp_tool_call'],
@@ -2271,7 +2296,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.LOGS],
         category: ProductItemCategory.APP_MONITORING,
         iconType: 'logs' as FileSystemIconType,
-        iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
         href: urls.logs(),
         sceneKey: 'Logs',
         sceneKeys: [
@@ -2295,7 +2320,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-mcp-analytics-light)',
             'var(--color-product-mcp-analytics-dark)',
         ] as FileSystemIconColor,
-        href: urls.mcpAnalyticsDashboard(),
+        href: urls.mcpAnalytics(),
         flag: FEATURE_FLAGS.MCP_ANALYTICS,
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
