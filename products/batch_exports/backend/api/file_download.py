@@ -29,7 +29,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.errors import ExposedCHQueryError
 from posthog.models import Team
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import BatchExportsCountRowsBurstRateThrottle, BatchExportsCountRowsSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.hogql_source import (
@@ -166,23 +166,22 @@ def check_hogql_batch_exports_enabled(team: Team) -> None:
 
 
 def count_rows_for_hogql_batch_export(team: Team, hogql_query: str, timeout: int = 30) -> int:
-    """Count the rows a HogQL batch export would produce if started now.
+    """Count the rows a HogQL query would produce.
 
     Raises:
         UnsupportedHogQLQueryError: If the query cannot power a batch export.
     """
-    # Run the same validation as `create`, so the count rejects exactly the queries that
-    # export creation rejects.
     validate_hogql_query_for_batch_export(hogql_query, team)
 
     record_batch_model = HogQLQueryRecordBatchModel(team_id=team.pk, hogql_query=hogql_query)
     # HogQL exports have no data interval: `create` runs them with a now/now interval.
+    # TODO: We should support these interval or just make it not required.
     now = dt.datetime.now(dt.UTC)
-    # `execute_hogql_query` resolves the query with full team-default modifiers, while the
-    # worker (`create_hogql_context_for_batch_export`) applies team defaults only to the
-    # database it builds and keeps plain default modifiers for printing. Modifier-sensitive
-    # queries can therefore count slightly differently than they export. Acceptable for an
-    # estimate.
+    # `execute_hogql_query` resolves modifiers differently than the batch
+    # export, which could potentially affect counts.
+    # TODO: How big is the difference? Is it worth aligning these two?
+    # Note `execute_hogql_query` only accepts `HogQLGlobalSettings`, so aligning query
+    # settings with the export's `UserHogQLBatchExportQuerySettings` means copying fields over.
     query_response = execute_hogql_query(
         query=record_batch_model.get_count_hogql_query(now, now),
         team=team,
@@ -399,7 +398,7 @@ class FileDownloadBatchExportOnDemandViewSet(
         # `count_rows` runs a ClickHouse query per request, so it needs tighter limits than
         # the default throttles.
         if self.action == "count_rows":
-            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+            return [BatchExportsCountRowsBurstRateThrottle(), BatchExportsCountRowsSustainedRateThrottle()]
         return super().get_throttles()
 
     @extend_schema(
@@ -612,8 +611,8 @@ class FileDownloadBatchExportOnDemandViewSet(
     @action(
         methods=["POST"],
         detail=False,
-        # Write scope even though nothing is persisted: counting runs the user's query on
-        # ClickHouse, so it is gated like `create` rather than like the cheap read actions.
+        # User queries could impact production limits and billing. So, we
+        # require write permissions despite being a "read" operation.
         required_scopes=["batch_export:write"],
         request=FileDownloadCountRowsRequestSerializer,
         responses={
@@ -627,7 +626,7 @@ class FileDownloadBatchExportOnDemandViewSet(
     )
     @validated_request(request_serializer=FileDownloadCountRowsRequestSerializer)
     def count_rows(self, request: ValidatedRequest, *args, **kwargs) -> response.Response:
-        """Count the rows a file download batch export would produce if started now."""
+        """Count the rows a HogQL batch export would produce if started now."""
         check_hogql_batch_exports_enabled(self.team)
 
         try:

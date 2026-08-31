@@ -3593,7 +3593,7 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
     .describe('Request shape for a FileDownload batch export on demand.')
 
 /**
- * Count the rows a file download batch export would produce if started now.
+ * Count the rows a HogQL batch export would produce if started now.
  */
 export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
     .object({

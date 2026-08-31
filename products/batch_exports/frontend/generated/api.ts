@@ -662,7 +662,7 @@ export const getFileDownloadBatchExportsCountRowsCreateUrl = (projectId: string)
 }
 
 /**
- * Count the rows a file download batch export would produce if started now.
+ * Count the rows a HogQL batch export would produce if started now.
  */
 export const fileDownloadBatchExportsCountRowsCreate = async (
     projectId: string,
