@@ -110,7 +110,7 @@
                     "type": "number"
                 }
             ],
-            "description": "* `21` - Can view dashboard\n* `37` - Can edit dashboard"
+            "description": "Who can edit this dashboard.\n\n* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit"
         },
         "tags": {
             "items": {
