@@ -1383,6 +1383,60 @@ class TestPollBackoff:
 
 
 class TestFailRun:
+    MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer"
+
+    @pytest.mark.parametrize(
+        ("reason", "expect_disabled"),
+        [
+            pytest.param(
+                "Source column type changed: 'total_cost' has values that no longer fit its stored type int64",
+                True,
+                id="column_type_changed",
+            ),
+            pytest.param("Decimal value is too large to store in a Decimal128", True, id="decimal_overflow"),
+            pytest.param("Primary key required for incremental syncs", True, id="missing_primary_key"),
+            pytest.param(
+                "XMinioStorageFull: storage backend has reached its minimum free drive threshold",
+                False,
+                id="our_storage_full",
+            ),
+            pytest.param("ExternalDataSchema matching query does not exist", False, id="schema_deleted"),
+            pytest.param("ExternalDataJob matching query does not exist", False, id="job_deleted"),
+            pytest.param("max retries exceeded: the connection is closed", False, id="transient_exhausted"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_only_customer_fixable_failures_disable_the_schema(self, reason, expect_disabled):
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(f"{self.MODULE}.BatchQueue.fail_run", new_callable=AsyncMock),
+            patch(f"{self.MODULE}._update_job_status_to_failed"),
+            patch(f"{self.MODULE}._disable_schema_after_permanent_failure") as mock_disable,
+        ):
+            await consumer._fail_run(batch, reason=reason, conn=consumer._poll_conn)
+
+        assert mock_disable.called is expect_disabled
+
+    @pytest.mark.asyncio
+    async def test_disable_failure_does_not_crash_the_consumer(self):
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(f"{self.MODULE}.BatchQueue.fail_run", new_callable=AsyncMock),
+            patch(f"{self.MODULE}._update_job_status_to_failed"),
+            patch(
+                f"{self.MODULE}._disable_schema_after_permanent_failure",
+                side_effect=Exception("the connection is closed"),
+            ),
+            patch(f"{self.MODULE}.capture_exception") as mock_capture,
+        ):
+            await consumer._fail_run(batch, reason="Source column type changed: 'x'", conn=consumer._poll_conn)
+
+        mock_capture.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_does_not_raise_when_job_status_update_fails(self):
         # A dropped app-DB connection while marking the job Failed must not propagate out of _fail_run.

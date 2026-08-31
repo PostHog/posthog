@@ -115,6 +115,16 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     "ExternalDataJob matching query does not exist",
 )
 
+# The subset of NON_RETRYABLE_ERROR_PATTERNS the customer can fix. These stop the schedule too:
+# the loader fails outside the workflow, so the finalization activity that would otherwise disable
+# the schema never runs, and every later run replays the same failure. Narrower than the full set
+# on purpose. A deleted schema has nothing to disable, and a full object store is our outage.
+DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
+    "is too large to store in a Decimal128",
+    "Primary key required for incremental syncs",
+    "Source column type changed",
+)
+
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
 # Dead results never expire — a terminal job never comes back to life — and eviction
 # drops alive entries first, so a dead verdict survives until the cache overflows
@@ -250,6 +260,19 @@ class DeltaBatchConsumerAdapter:
                 )
             else:
                 logger.exception("fail_run_job_status_update_failed", job_id=batch.job_id, run_uuid=batch.run_uuid)
+                capture_exception(e)
+
+        if any(pattern in reason for pattern in DISABLE_SCHEMA_ERROR_PATTERNS):
+            try:
+                await sync_to_async(_disable_schema_after_permanent_failure)(
+                    schema_id=batch.schema_id,
+                    team_id=batch.team_id,
+                    reason=reason,
+                )
+            except Exception as e:
+                # The run is already failed and the message recorded; a failed disable only means
+                # the next run retries, so log it rather than crashing the consumer.
+                logger.exception("fail_run_disable_schema_failed", schema_id=batch.schema_id, run_uuid=batch.run_uuid)
                 capture_exception(e)
 
         workflow_run_id = batch.metadata.get("workflow_run_id")
@@ -737,6 +760,26 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
         # The job row itself was deleted between the check above and this write (e.g. its
         # source/schema was removed mid-sync) — nothing left to mark failed.
         pass
+
+
+def _disable_schema_after_permanent_failure(*, schema_id: str, team_id: int, reason: str) -> bool:
+    """Stop a schema whose load failed permanently. Returns whether it flipped.
+
+    Reads ``should_sync`` first so a run whose batches fail one after another pauses the Temporal
+    schedule once instead of per batch, and so a schema deleted mid-run is skipped rather than
+    raising out of ``update_should_sync``'s ``get``.
+    """
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
+
+    close_old_connections()
+
+    schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).only("id", "should_sync").first()
+    if schema is None or not schema.should_sync:
+        return False
+
+    update_should_sync(schema_id=schema_id, team_id=team_id, should_sync=False, disable_error_message=reason)
+    logger.warning("fail_run_disabled_schema", schema_id=schema_id, reason=reason)
+    return True
 
 
 def mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:
