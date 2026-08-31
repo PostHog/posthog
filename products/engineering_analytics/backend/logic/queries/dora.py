@@ -60,9 +60,9 @@ _MERGE_SCAN_LOOKBACK = timedelta(days=30)
 # per-repo and small enough that the wider floor costs nothing measurable.
 _DEPLOY_SCAN_SLACK = timedelta(days=7)
 
-# `prod`, `production`, and their regional/suffixed forms (`prod-us`, `production_eu`). Anchored
-# so `preview-pr-123` and `reproduction` do not read as production.
-_PRODUCTION_NAME_PATTERN = re.compile(r"^prod(uction)?([-_.].*)?$")
+# `prod`, `production`, and their regional/suffixed forms (`prod-us`, `Production-EU`), any case.
+# Anchored so `preview-pr-123` and `reproduction` do not read as production.
+_PRODUCTION_NAME_PATTERN = re.compile(r"^prod(uction)?([-_.].*)?$", re.IGNORECASE)
 
 _ENVIRONMENTS_LIMIT = 100
 _TEAMS_LIMIT = 500
