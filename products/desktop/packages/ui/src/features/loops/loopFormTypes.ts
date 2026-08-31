@@ -42,6 +42,10 @@ export interface LoopFormValues {
   /** Optional free text appended after the skill invocation. Only meaningful
    * when `skill` is set. */
   skillContext: string;
+  /** Team skill names attached directly (no instructions-text encoding), for the
+   * hog_flows-backed variant of this feature — see `loopHogFlowMapping.ts`. Always empty for a
+   * Loop-backed form. */
+  skillNames: string[];
   runtimeAdapter: LoopSchemas.LoopRuntimeAdapterEnum;
   model: string;
   reasoningEffort: LoopSchemas.LoopReasoningEffortEnum | null;
@@ -237,6 +241,7 @@ export function emptyLoopFormValues(): LoopFormValues {
     instructions: "",
     skill: null,
     skillContext: "",
+    skillNames: [],
     runtimeAdapter: "claude",
     model: "",
     reasoningEffort: null,
@@ -278,6 +283,7 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
     skillContext: primaryBundle
       ? parseSkillContext(loop.instructions, primaryBundle.skill_name)
       : "",
+    skillNames: [],
     runtimeAdapter: loop.runtime_adapter,
     model: loop.model,
     reasoningEffort: loop.reasoning_effort,

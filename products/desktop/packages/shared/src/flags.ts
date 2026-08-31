@@ -20,6 +20,13 @@ export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
 export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
+/**
+ * Gates the hog_flows-backed variant of the Loops feature: new loops are created as HogFlow
+ * workflows (schedule trigger + "Create AI task" action) instead of Loop records. Existing
+ * Loop-backed loops aren't migrated and won't appear in the UI while this is on. Requires
+ * `LOOPS_FLAG`.
+ */
+export const LOOPS_HOG_FLOWS_FLAG = "loops-hog-flows";
 export const DESKTOP_HOME_FLAG = "desktop-home-flag";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
