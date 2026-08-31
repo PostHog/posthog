@@ -3,6 +3,8 @@ import dataclasses
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
+from django.db import transaction
+
 from slack_sdk.errors import SlackApiError
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
@@ -27,6 +29,8 @@ from ee.tasks.subscriptions.auto_disable import (
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
     DisableReason,
     disable_invalid_subscription,
+    mark_subscription_disabled,
+    notify_subscription_disabled,
 )
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult, get_slack_integration_for_team
 
@@ -38,16 +42,19 @@ LOGGER = get_logger(__name__)
 _MAX_ERROR_DETAIL_RESULTS = 50
 
 
-def persist_auto_disable_result(
+def persist_auto_disable_result_and_disable(
     delivery_id: uuid.UUID,
-    subscription_id: int,
+    subscription: Subscription,
+    reason: DisableReason,
     recipient_results: list[RecipientResult],
-) -> None:
-    updated = SubscriptionDelivery.objects.filter(id=delivery_id, subscription_id=subscription_id).update(
-        recipient_results=[dataclasses.asdict(result) for result in recipient_results]
-    )
-    if updated != 1:
-        raise RuntimeError(f"Subscription delivery {delivery_id} was not found")
+) -> bool:
+    with transaction.atomic():
+        updated = SubscriptionDelivery.objects.filter(id=delivery_id, subscription_id=subscription.id).update(
+            recipient_results=[dataclasses.asdict(result) for result in recipient_results]
+        )
+        if updated != 1:
+            raise RuntimeError(f"Subscription delivery {delivery_id} was not found")
+        return mark_subscription_disabled(subscription, reason)
 
 
 def load_persisted_recipient_results(delivery_id: uuid.UUID, subscription_id: int) -> list[RecipientResult]:
@@ -119,15 +126,19 @@ async def auto_disable_and_return(
         )
     )
     if delivery_id is not None:
-        await database_sync_to_async(persist_auto_disable_result, thread_sensitive=False)(
+        just_disabled = await database_sync_to_async(persist_auto_disable_result_and_disable, thread_sensitive=False)(
             delivery_id,
-            subscription.id,
+            subscription,
+            reason,
             recipient_results,
         )
+        if just_disabled:
+            await database_sync_to_async(notify_subscription_disabled, thread_sensitive=False)(subscription, reason)
+    else:
+        await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     # `_capture_delivery_failed_event` only reads `str(e)` and `type(e).__name__`,
     # so a plain Exception conveys the same info without implying retry semantics.
     _capture_delivery_failed_event(subscription, Exception(reason.description))
-    await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 

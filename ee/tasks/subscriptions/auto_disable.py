@@ -93,7 +93,7 @@ def _get_notification_creator(subscription: Subscription) -> User | None:
     return creator
 
 
-def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
+def mark_subscription_disabled(subscription: Subscription, reason: DisableReason) -> bool:
     # Compare-and-swap so only one racing caller sends the disabled-notification
     # email (UUID4 campaign keys mean MessagingRecord can't dedup the duplicate).
     rowcount = Subscription.objects.filter(pk=subscription.pk, enabled=True).update(enabled=False)
@@ -108,7 +108,7 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
             team_id=subscription.team_id,
             reason=reason.key,
         )
-        return
+        return False
 
     logger.warning(
         "subscription.auto_disabling",
@@ -120,6 +120,10 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
     # SELECT — refresh_from_db() would also drop the eagerly-loaded created_by
     # relation (loaded via select_related at the activity site).
     subscription.enabled = False
+    return True
+
+
+def notify_subscription_disabled(subscription: Subscription, reason: DisableReason) -> None:
 
     try:
         create_subscription_auto_disabled_notification(subscription, reason)
@@ -148,6 +152,11 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
                 error=str(e),
                 exc_info=True,
             )
+
+
+def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
+    if mark_subscription_disabled(subscription, reason):
+        notify_subscription_disabled(subscription, reason)
 
 
 def create_subscription_auto_disabled_notification(subscription: Subscription, reason: DisableReason) -> None:

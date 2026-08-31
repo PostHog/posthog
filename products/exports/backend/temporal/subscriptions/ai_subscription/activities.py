@@ -384,6 +384,7 @@ async def _deliver_ai_subscription(
                 delivery_id=delivery_id,
                 charts=chart_images,
             ),
+            delivery_id=delivery_id,
         )
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,
     # so reaching here means an invariant was violated.

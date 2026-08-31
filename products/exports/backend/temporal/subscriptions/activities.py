@@ -56,7 +56,10 @@ from ee.tasks.subscriptions.failure_notifications import (
     create_subscription_delivery_failure_notification,
     send_subscription_delivery_failure_email,
 )
-from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
+from ee.tasks.subscriptions.slack_subscriptions import (
+    _slack_gallery_feature_enabled,
+    send_slack_message_with_integration_async,
+)
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
 LOGGER = get_logger(__name__)
@@ -449,7 +452,10 @@ async def _deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSub
         return await _deliver_ai_subscription(subscription, inputs, recipient_results)
 
     return await _deliver_insight_dashboard_subscription(
-        subscription, inputs, recipient_results, send_only_to_new_recipients
+        subscription,
+        inputs,
+        recipient_results,
+        send_only_to_new_recipients,
     )
 
 
@@ -561,13 +567,40 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
 
     @database_sync_to_async(thread_sensitive=False)
     def _create() -> uuid.UUID:
-        subscription = Subscription.objects.select_related("insight", "dashboard").get(pk=inputs.subscription_id)
+        # A retry after an older worker created the row must preserve its NULL mode;
+        # delivery interprets that as legacy instead of re-evaluating the rollout flag.
+        existing_delivery = (
+            SubscriptionDelivery.objects.filter(idempotency_key=inputs.idempotency_key)
+            .only("id", "subscription_id", "team_id")
+            .first()
+        )
+        if existing_delivery is not None:
+            if (
+                existing_delivery.subscription_id != inputs.subscription_id
+                or existing_delivery.team_id != inputs.team_id
+            ):
+                raise ValueError("Existing delivery does not match the requested subscription and team")
+            return existing_delivery.id
+
+        subscription = Subscription.objects.select_related("insight", "dashboard", "team__organization").get(
+            pk=inputs.subscription_id
+        )
         if subscription.team_id != inputs.team_id:
             raise ValueError(
                 f"Subscription team_id ({subscription.team_id}) does not match inputs.team_id ({inputs.team_id})"
             )
 
         content_snapshot = build_initial_content_snapshot(subscription)
+        slack_delivery_mode = None
+        if subscription.target_type == Subscription.SubscriptionTarget.SLACK:
+            gallery_requested = subscription.resource_type != Subscription.ResourceType.AI_PROMPT and bool(
+                subscription.delivery_config.get("post_all_insights_in_main_message")
+            )
+            slack_delivery_mode = (
+                SubscriptionDelivery.SlackDeliveryMode.GALLERY
+                if gallery_requested and _slack_gallery_feature_enabled(subscription)
+                else SubscriptionDelivery.SlackDeliveryMode.LEGACY
+            )
 
         delivery, _created = SubscriptionDelivery.objects.get_or_create(
             idempotency_key=inputs.idempotency_key,
@@ -580,6 +613,7 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
                 "target_type": subscription.target_type,
                 "target_value": subscription.target_value,
                 "content_snapshot": content_snapshot,
+                "slack_delivery_mode": slack_delivery_mode,
                 "status": SubscriptionDelivery.Status.STARTING,
             },
         )

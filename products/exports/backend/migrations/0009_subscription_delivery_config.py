@@ -17,4 +17,14 @@ class Migration(migrations.Migration):
             name="slack_gallery_delivery_started_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="subscriptiondelivery",
+            name="slack_delivery_mode",
+            field=models.CharField(
+                blank=True,
+                choices=[("legacy", "Legacy"), ("gallery", "Gallery")],
+                max_length=10,
+                null=True,
+            ),
+        ),
     ]
