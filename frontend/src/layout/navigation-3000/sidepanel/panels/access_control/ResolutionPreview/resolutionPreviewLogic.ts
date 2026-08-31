@@ -73,7 +73,15 @@ export interface resolutionPreviewLogicActions {
 export type resolutionPreviewLogicType = MakeLogicType<resolutionPreviewLogicValues, resolutionPreviewLogicActions>
 
 export const resolutionPreviewLogic = kea<resolutionPreviewLogicType>([
-    path(['products', 'access_control', 'frontend', 'settings', 'resolutionPreviewLogic']),
+    path([
+        'layout',
+        'navigation-3000',
+        'sidepanel',
+        'panels',
+        'access_control',
+        'ResolutionPreview',
+        'resolutionPreviewLogic',
+    ]),
     loaders({
         preview: [
             null as ResolutionPreviewResponse | null,
