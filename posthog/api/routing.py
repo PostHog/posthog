@@ -31,7 +31,6 @@ from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.organization_caching import get_cached_organization
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -519,11 +518,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def organization(self) -> Organization:
         if self._is_team_view:
             return self.team.organization
-        organization_id = self.project.organization_id if self._is_project_view else self.organization_id
-        organization = get_cached_organization(organization_id)
-        if organization is None:
+        try:
+            return Organization.objects.get(
+                id=self.project.organization_id if self._is_project_view else self.organization_id
+            )
+        except (Organization.DoesNotExist, ValueError):
             raise NotFound(detail="Organization not found.")
-        return organization
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         if hasattr(self, "_should_skip_parents_filter") and callable(self._should_skip_parents_filter):
