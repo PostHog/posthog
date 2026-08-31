@@ -11,26 +11,32 @@ not outlive the work it schedules, and after F3 it schedules nothing.
 
 ## Motivation
 
-**One driver: ship the emergency Kafka fallback safely.**
+**One driver: an output owns the configuration it produces with.**
 
 If MSK degrades, capture-analytics must be able to produce to an alternative
-cluster — brokers, TLS, and that cluster's own topic names — on an environment
-variable, with the configuration verified before any traffic moves. Running
-capture against a half-wired cluster is the risk this plan exists to remove.
+cluster — its brokers, its TLS, its own topic names — and we must know the
+configuration is sound before any traffic moves. Running capture against a
+half-wired cluster is the risk this plan exists to remove.
 
-The switch is boot-time and total: `config_resolution::resolve` is the only way
-to obtain a `Config`, so an armed deployment cannot hold a producer pointed at
-the primary. Primary and backup are therefore never live at once, which is what
-keeps the remaining work small — the fallback needs no policy tree, no
-per-target topic table, and none of the deferred steps below.
+The mechanism that buys this is narrow: make an output carry its own connection
+and topic configuration, require that configuration for every output a
+deployment can reach, and verify those topics against that output's own broker
+at boot. A fallback to a second cluster is then *a configuration of an output's
+targets* — no new policy, no new trait, no per-feature code path. That is what
+the target architecture below already describes; this plan just stops deferring
+it behind eleven structural steps.
 
-Steps 1–8 landed the structure this rests on: routing is a pure function, the
-lane decision is pipeline-layer code, sinks are backend mechanism over prepared
+`Output::failover` already composes two arbitrary outputs (Step 7). What it
+lacks is targets that can be configured independently of each other.
+
+Steps 1–8 landed the rest of the structure: routing is a pure function, the lane
+decision is pipeline-layer code, sinks are backend mechanism over prepared
 payloads, and the outputs layer owns multi-target policy behind one produce
-surface. That is enough. The three drivers this plan originally served —
-breaker-driven failover, cluster migration by split/dual-write, and a protobuf
-cutover behind the serialization seam — are real but not urgent, and are
-recorded under **Deferred work** rather than sequenced.
+surface. The drivers this plan originally sequenced — breaker-driven failover,
+cluster migration by split/dual-write, and a protobuf cutover behind the
+serialization seam — are real but not urgent, and are recorded under **Deferred
+work** rather than scheduled. Each becomes cheaper once outputs are
+independently configurable, not more expensive.
 
 ## Target architecture
 
@@ -150,73 +156,76 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 - **Parity proof.** All endpoint/integration suites green; grep proves `Event` call-site-free before the deletion half.
 - **Size.** M/L. May split into per-call-site commits if the diff grows.
 
-### Stage D — the fallback ships
+### Stage D — outputs carry their own configuration
 
-The remaining committed work. Each step is small, ships green, and reverts by
-plain revert. Everything after this stage is deferred, not scheduled.
+The remaining committed work, and it is a mechanism, not a feature: an output
+owns the configuration it produces with. Once that holds, an emergency fallback
+to another cluster is *a configuration of an output's targets* rather than a
+code path — which is what the target architecture said all along.
 
-#### Step F1 · Fallback topics are configuration
+Each step is small, ships green, and reverts by plain revert.
 
-- **Goal.** The emergency switch carries the backup cluster's own topic names,
-  not just its brokers. Separate `CAPTURE_ANALYTICS_KAFKA_EMERGENCY_BACKUP_TOPIC_*`
-  variables, applied by `EmergencyKafkaFallback::apply` alongside hosts and TLS,
-  required while armed and ignored otherwise — the same contract the hosts
-  variable already has.
-- **Why it needs nothing else.** The switch rewrites `Config` at boot, so the
-  resolved config names exactly one cluster. `TopicTable::from(&config)` reads
-  the backup names with no per-target plumbing, no `Output::failover`, and no
-  prep hoist.
-- **Cross-repo.** Removes the reason `posthog-cloud-infra#10065` must mirror
-  MSK-era topic names on warpstream-ingestion, and with it the terraform
-  imports that mirroring forces. Also closes the AI-lane gap: the Bento MSK
-  bridges never see `ingestion-ai-msk-*` on WarpStream, so an armed deployment
-  can name `ingestion-ai-main-*` directly.
-- **Size.** S.
+#### Step F1 · An output owns its connection and its topics
 
-#### Step F2 · Mode-scoped output config
-
-- **Goal.** `TopicTable::check_complete` demands only the destinations the
-  deployment's `CaptureMode` can reach: an Events/Ai pod the analytics family
-  plus the armed fallback set, a Recordings pod main/replay-overflow/dlq. This
-  is what makes `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` armable at all —
-  today it demands all ten destinations on every pod, so no deployment can turn
-  it on.
-- **Arming precondition.** The flag stays off in every deployment until this
-  step lands *and* the chart env is audited for explicitly-blank topic values.
-  The mode-blind check demands every registered topic on every pod, so a
-  recordings or import deployment that sets an analytics topic to `""` would
-  crashloop the fleet at boot rather than degrade.
-- **Parity proof.** Per-mode refusal + anti-over-demand tests.
+- **Goal.** Every leaf output is built from an output-scoped config block —
+  brokers, TLS, and that output's own topic names — instead of reading the one
+  deployment-wide `KafkaConfig`. Two Kafka outputs in the same tree can name
+  different clusters and different topics, because neither consults global
+  state to find out where it produces.
+- **Why this is the whole mechanism.** `Output::failover` already composes two
+  arbitrary outputs (Step 7). It is typed Kafka→S3 today only because `setup`
+  builds it that way. Once a leaf carries its own config, a Kafka→Kafka
+  fallback with its own topic names is a `setup` change and a values file, with
+  no new policy, no new trait, and no per-feature plumbing.
+- **Non-goal.** How any particular fallback is triggered, named, or armed. That
+  is a consumer of this mechanism and is specified separately.
 - **Size.** M.
 
-#### Step F3 · Boot topic verification
+#### Step F2 · A reachable output must be configured
 
-- **Goal.** Probe the *resolved* cluster's metadata for every topic the mode can
-  reach and refuse to start on a missing one, so arming the switch against a
-  half-provisioned backup fails at boot rather than at first produce.
-- **Why it is separate from F2.** `check_complete` is config-only and
-  deliberately never touches a broker — it answers "is this wired?", instantly.
-  F3 answers "does this exist on the cluster we are about to produce to?", which
-  is the question that matters when the cluster changes underneath you.
+- **Goal.** The configuration an output requires is required in code: an output
+  the deployment's `CaptureMode` can reach must be fully configured or capture
+  refuses to boot. Unreachable outputs are not asked for at all — a Recordings
+  pod is never asked to name an error-tracking topic.
+- **Defaults go.** The `#[envconfig(default = ...)]` on each topic field is what
+  makes a missing or misspelled variable resolve to a compiled-in name instead
+  of failing. A reachable output's topics stop being defaulted; an absent or
+  empty value is a boot failure, which is the behaviour the check was always
+  meant to have.
+- **Supersedes** the deployment-wide `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED`
+  flag, which demands all ten destinations on every pod and so can be armed
+  nowhere.
+- **Parity proof.** Per-mode refusal tests, and anti-over-demand tests proving a
+  mode is never asked for an output it cannot reach.
+- **Size.** M.
+
+#### Step F3 · Verify an output's topics against its own broker
+
+- **Goal.** At boot, probe each reachable output's cluster metadata for the
+  topics that output can produce to, and refuse to start on a missing one.
+  Per output, against that output's own broker — so a fallback pointed at a
+  half-provisioned cluster fails before it can take traffic.
+- **Why it is separate from F2.** F2 is config-only and never touches a broker:
+  it answers "is this wired", instantly, with no connect attempt. F3 answers
+  "does this exist on the cluster we are about to produce to", which is the
+  question that matters when the cluster is one this deployment has never
+  written to.
 - **Default off**, armed per deployment: on brokers with topic auto-creation the
   metadata probe can create the topic it is checking, which makes a pass
   meaningless.
 - **Size.** M.
 
-#### Prerequisite · topics must be wired explicitly
+#### What F2 and F3 would already have caught
 
-Every topic field carries an `#[envconfig(default = ...)]`, so a missing or
-misspelled variable resolves to a compiled-in name instead of failing. F2 cannot
-see that, and F3 only catches it when the defaulted name is absent from the
-cluster. The charts side must set every topic a mode reaches before either check
-is armed.
+`KAFKA_REPLAY_OVERFLOW_TOPIC` appears in **no file** in the charts repo, while
+`(Pipeline::Replay, Lane::Overflow) → Destination::SessionReplayOverflow` is a
+reachable route with a passing test. Replay overflow therefore resolves to the
+compiled-in `session_recording_snapshot_item_overflow`, while prod-us replay
+wires `ingestion-sessionreplay-overflow-64` under `KAFKA_OVERFLOW_TOPIC`.
 
-The live example: `KAFKA_REPLAY_OVERFLOW_TOPIC` appears in **no file** in the
-charts repo, while `(Pipeline::Replay, Lane::Overflow) → Destination::SessionReplayOverflow`
-is a reachable route with a passing test — so replay overflow resolves to the
-compiled-in `session_recording_snapshot_item_overflow` while prod-us replay wires
-`ingestion-sessionreplay-overflow-64` under `KAFKA_OVERFLOW_TOPIC`. Confirm
-where that traffic actually lands before arming anything.
+F2 fails that at boot: a reachable output with no configured topic. F3 fails it
+too, if the defaulted name is absent from the cluster. Worth confirming where
+that traffic lands today — unconfirmed, and it predates this plan.
 
 ## Deferred work
 
@@ -362,9 +371,9 @@ When all steps land, the five strata hold:
 | 7 · Outputs layer with policies; composites retired | done | `feat(capture): outputs layer owns the failover policy` |
 | 8a · Call sites on the table | done | `refactor(capture): call sites publish through outputs` |
 | 8b · `Event` retired | done | `refactor(capture): retire v0 Event trait` |
-| F1 · Fallback topics are configuration | pending | `feat(capture): emergency fallback carries its own topic names` |
-| F2 · Mode-scoped output config | pending | `refactor(capture): mode-scoped topic table completeness` |
-| F3 · Boot topic verification | pending | `feat(capture): verify reachable topics against the cluster at boot` |
+| F1 · An output owns its connection and topics | pending | `refactor(capture): outputs carry their own connection and topic config` |
+| F2 · A reachable output must be configured | pending | `feat(capture): require configuration for every reachable output` |
+| F3 · Verify topics against the broker | pending | `feat(capture): verify each output's topics against its own broker at boot` |
 | 10 · Breaker mode (dark) | deferred | `feat(capture): breaker-driven failover mode (dark)` |
 | 11 · v1 convergence | deferred | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
 | 12 · Prep hoist; `PublishEvents` retired | deferred | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
