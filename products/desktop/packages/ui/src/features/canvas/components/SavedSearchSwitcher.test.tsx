@@ -34,8 +34,8 @@ vi.mock("@posthog/quill", async (importOriginal) => {
   };
 });
 
-import type { ReactElement, ReactNode } from "react";
 import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
+import type { ReactElement, ReactNode } from "react";
 import { SavedSearchSwitcher } from "./SavedSearchSwitcher";
 
 describe("SavedSearchSwitcher", () => {
