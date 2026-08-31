@@ -543,16 +543,21 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         run.save(update_fields=["output", "updated_at"])
 
         if result.exit_code != 0:
-            raise RuntimeError(
-                f"Reviewer exited with code {result.exit_code}: "
+            # The reviewer ran over an untrusted PR head, so its stderr can carry repository content
+            # and anything a contributor put where the engine would echo it. Keep that in the worker
+            # log and raise without it, because the text below now reaches run.error.
+            activity.logger.error(
+                f"Reviewer exited with code {result.exit_code} for run {run.id}: "
                 f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
             )
+            raise RuntimeError(f"reviewer exited with code {result.exit_code}")
     except Exception as exc:
-        # Keep the original type in the message: SandboxPhaseError is the retry marker, so it is the
-        # only type the failure record would otherwise show. Scrub it like every other sandbox-derived
-        # string: the config handed to create() carries the minted gateway token, so a provisioning
-        # error can echo it, and this message reaches run.error and the failure event.
-        raise SandboxPhaseError(_scrub_credentials(f"{type(exc).__name__}: {exc}", token, gateway_token)) from exc
+        # Name the failing type and nothing else. Every step in this phase touches the sandbox, whose
+        # output derives from an untrusted PR head, and this message reaches run.error, which anyone
+        # with stamphog:read can read without access to the repository. The setup phase above keeps
+        # its full text: it fails on our own infrastructure, which is what has to be diagnosable, and
+        # the workflow logs the complete error either way.
+        raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
 
     activity.logger.info(f"Reviewer completed for run {run.id}")
     return {"exit_code": result.exit_code}

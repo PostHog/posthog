@@ -249,9 +249,11 @@ def test_failure_once_the_sandbox_exists_is_not_retried(team, stamphog_chain: St
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.FAILED
-    # The stored text names the marker and keeps the original type, which is what makes a failure
-    # diagnosable from the run record rather than only from the worker logs.
-    assert run.error == "SandboxPhaseError: RuntimeError: modal refused the box"
+    # The record names the marker and the failing type, and carries nothing from the sandbox: run.error
+    # is readable with stamphog:read by people who need no access to the repository, and everything in
+    # this phase derives from an untrusted PR head.
+    assert run.error == "SandboxPhaseError: the sandbox phase failed with RuntimeError"
+    assert "modal refused the box" not in (run.error or "")
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
