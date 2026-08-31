@@ -154,9 +154,7 @@ export function LoginForm(): JSX.Element {
                     >
                         <LemonField name="code" label="Verification code">
                             <VerificationCodeInput
-                                autoFocus
                                 data-attr="code-verification"
-                                aria-label="Verification code"
                                 disabled={isCodeVerificationSubmitting}
                                 onComplete={() => {
                                     if (!isCodeVerificationSubmitting) {

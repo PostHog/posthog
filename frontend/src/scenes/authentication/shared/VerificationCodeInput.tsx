@@ -14,10 +14,9 @@ export interface VerificationCodeInputProps {
     /** Fires once every slot is filled, by typing, paste, or autofill. */
     onComplete?: (value: string) => void
     disabled?: boolean
-    autoFocus?: boolean
     status?: 'default' | 'danger'
+    /** Injected by LemonField to associate its label with the first slot. */
     id?: string
-    'aria-label'?: string
     'data-attr'?: string
 }
 
@@ -26,10 +25,8 @@ export function VerificationCodeInput({
     onChange,
     onComplete,
     disabled,
-    autoFocus,
     status = 'default',
     id,
-    'aria-label': ariaLabel,
     'data-attr': dataAttr,
 }: VerificationCodeInputProps): JSX.Element {
     const generatedId = useId()
@@ -46,10 +43,11 @@ export function VerificationCodeInput({
             className={clsx('VerificationCodeInput', status === 'danger' && 'VerificationCodeInput--danger')}
             data-attr={dataAttr}
         >
-            {ariaLabel && (
-                // Base UI drops aria-label on the first slot and expects a <label> for it instead
+            {!id && (
+                // Base UI drops aria-label on the first slot and expects a <label> for it instead.
+                // When LemonField provides the id, its own visible label already fills that role.
                 <label htmlFor={inputId} className="sr-only">
-                    {ariaLabel}
+                    Verification code
                 </label>
             )}
             {Array.from({ length: VERIFICATION_CODE_LENGTH }, (_, index) => (
@@ -57,8 +55,8 @@ export function VerificationCodeInput({
                     key={index}
                     // Slots are excluded from session replay and autocapture like the other auth inputs
                     className="VerificationCodeInput__slot ph-ignore-input"
-                    autoFocus={autoFocus && index === 0}
-                    aria-label={ariaLabel && index > 0 ? `${ariaLabel}, digit ${index + 1}` : undefined}
+                    autoFocus={index === 0}
+                    aria-label={index > 0 ? `Verification code, digit ${index + 1}` : undefined}
                 />
             ))}
         </OTPField.Root>

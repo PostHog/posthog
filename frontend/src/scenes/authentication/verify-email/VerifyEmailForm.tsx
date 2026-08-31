@@ -122,7 +122,6 @@ function VerificationCodeEntry(): JSX.Element {
             }}
         >
             <VerificationCodeInput
-                autoFocus
                 value={verificationCode}
                 onChange={setVerificationCode}
                 onComplete={() => {
@@ -131,7 +130,6 @@ function VerificationCodeEntry(): JSX.Element {
                     }
                 }}
                 disabled={validatedEmailTokenLoading}
-                aria-label="Email verification code"
                 data-attr="verify-email-code"
                 status={verificationCodeError ? 'danger' : 'default'}
             />
