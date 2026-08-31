@@ -33,12 +33,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, set_tags_on_objec
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.event_usage import report_user_action
-from posthog.exceptions import (
-    ClickHouseEstimatedQueryExecutionTimeTooLong,
-    ClickHouseQueryMemoryLimitExceeded,
-    ClickHouseQueryTimeOut,
-    QuotaLimitExceeded,
-)
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -178,14 +173,6 @@ ESTIMATE_RETRY_BACKOFF_SECONDS = 0.5
 # fallback: under pool pressure it is the retryable capacity case. CH_TRANSIENT_ERRORS already carries
 # ClickHouseAtCapacity and ClickHouseClusterMemoryLimitExceeded.
 _RETRYABLE_ESTIMATE_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded, CHQueryErrorQueryWasCancelled)
-# A timeout, a too-slow rejection, or a per-query memory limit already spent real budget and would not
-# finish on a re-run, so map straight to the message. Listed after the retryable set so a transient
-# cluster-memory failure (a ClickHouseQueryMemoryLimitExceeded subclass) still retries.
-_BUDGET_SPENT_ESTIMATE_ERRORS = (
-    ClickHouseQueryTimeOut,
-    ClickHouseEstimatedQueryExecutionTimeTooLong,
-    ClickHouseQueryMemoryLimitExceeded,
-)
 
 
 class ScannerEstimateUnavailable(APIException):
@@ -197,8 +184,11 @@ class ScannerEstimateUnavailable(APIException):
 def estimate_scanner_session_volume_or_retry(**kwargs: Any) -> ScannerVolumeEstimate:
     """`estimate_scanner_session_volume`, but recover a saturated pool instead of leaking a raw 500.
 
-    Retry a fast-failing capacity error once with a short backoff. Map a budget-spent error and an
-    exhausted retry to an actionable 503.
+    Retry a fast-failing capacity error once with a short backoff, then map an exhausted retry to the
+    busy-pool 503. A budget-spent failure (a timeout, a too-slow rejection, or a per-query memory
+    limit) is not caught here: it is deterministic, so a re-run cannot clear it. Letting it propagate
+    keeps its own status (504/512/513) and "narrow your filters" guidance instead of telling the user
+    to retry a query that structurally cannot finish.
     """
     last_error: BaseException | None = None
     for attempt in range(ESTIMATE_MAX_ATTEMPTS):
@@ -209,8 +199,6 @@ def estimate_scanner_session_volume_or_retry(**kwargs: Any) -> ScannerVolumeEsti
         except _RETRYABLE_ESTIMATE_ERRORS as error:
             last_error = error
             logger.warning("replay_vision.scanner_estimate_retry", attempt=attempt, error=str(error))
-        except _BUDGET_SPENT_ESTIMATE_ERRORS as error:
-            raise ScannerEstimateUnavailable() from error
     raise ScannerEstimateUnavailable() from last_error
 
 

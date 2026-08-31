@@ -17,7 +17,12 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import CHQueryErrorQueryWasCancelled
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
@@ -3511,16 +3516,25 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertIn("busy", resp.json()["detail"])
         self.assertEqual(mock_estimate.call_count, ESTIMATE_MAX_ATTEMPTS)
 
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut, 504),
+            ("too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong, 512),
+            ("memory", ClickHouseQueryMemoryLimitExceeded, 513),
+        ]
+    )
     @patch("products.replay_vision.backend.api.scanners.time.sleep")
     @patch("products.replay_vision.backend.api.scanners.estimate_scanner_session_volume")
-    def test_estimate_maps_a_timeout_without_re_running_the_query(
-        self, mock_estimate: MagicMock, _mock_sleep: MagicMock
+    def test_estimate_keeps_a_budget_spent_errors_native_status_without_re_running(
+        self, _name: str, error_class: type, expected_status: int, mock_estimate: MagicMock, _mock_sleep: MagicMock
     ) -> None:
-        mock_estimate.side_effect = ClickHouseQueryTimeOut()
+        # A query that already spent its budget won't finish on a re-run. Each failure keeps its own
+        # actionable status and "narrow your filters" guidance instead of the busy-pool 503, and is
+        # not retried.
+        mock_estimate.side_effect = error_class()
         resp = self.client.post(self.estimate_url, data={}, format="json")
-        # A query that already spent its budget won't finish on a re-run, so it maps after one attempt.
-        self.assertEqual(resp.status_code, 503, resp.json())
-        self.assertIn("busy", resp.json()["detail"])
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+        self.assertNotIn("busy", resp.json()["detail"])
         self.assertEqual(mock_estimate.call_count, 1)
 
 
