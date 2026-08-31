@@ -54,6 +54,8 @@ def reverse_accessor_edges() -> list[str]:
         for field in model._meta.get_fields(include_hidden=False):
             if not (field.is_relation and field.concrete and field.related_model):
                 continue
+            if field.model is not model:
+                continue  # a concrete parent's field — only the parent installs the reverse descriptor
             target = field.related_model
             if not target.__module__.startswith(FIRST_PARTY):
                 continue
