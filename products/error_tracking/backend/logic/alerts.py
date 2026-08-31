@@ -173,9 +173,30 @@ def delete_alert(team_id: int, alert_id: UUID | str) -> bool:
     return deleted > 0
 
 
+def _validate_filter_surface(filters: dict[str, Any]) -> None:
+    # Delivery evaluates filters without person, group, or cohort context, and
+    # native alerts have no bytecode refresh when actions or test-account
+    # definitions change. Reject what cannot be honored instead of silently
+    # mis-evaluating it.
+    unsupported_keys = [key for key in ("actions", "filter_test_accounts") if filters.get(key)]
+    if unsupported_keys:
+        raise AlertValidationError(f"Alert filters do not support {', '.join(unsupported_keys)}.")
+    property_lists = [filters.get("properties") or []]
+    for entity in filters.get("events") or []:
+        if isinstance(entity, dict):
+            property_lists.append(entity.get("properties") or [])
+    for property_list in property_lists:
+        for property_filter in property_list:
+            if isinstance(property_filter, dict) and property_filter.get("type") not in (None, "event"):
+                raise AlertValidationError(
+                    f"Alert filters support event properties only, got: {property_filter.get('type')}."
+                )
+
+
 def _compile_filters(team_id: int, filters: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(filters, dict):
         raise AlertValidationError("Alert filters must be an object.")
+    _validate_filter_surface(filters)
     team = Team.objects.get(id=team_id)
     compiled = compile_filters_bytecode(dict(filters), team)
     if compiled.get("bytecode_error"):
