@@ -674,3 +674,19 @@ def test_live_scope_limits_validation_to_the_given_files(paths: tuple[str, ...],
 
 def test_live_scope_ignores_stale_owners_outside_the_diff() -> None:
     assert "team-bogus" not in _live_scope(_OWNERS_BY_FILE, ("owners.yaml",))
+
+
+def test_resolver_reads_through_an_injected_source() -> None:
+    files = {
+        "owners.yaml": "version: 1\nowners: [team-root]\n",
+        "posthog/temporal/owners.yaml": "version: 1\nowners: [team-batch]\n",
+    }
+
+    class DictSource:
+        def read(self, path: str) -> str | None:
+            return files.get(path)
+
+    resolver = OwnersResolver(source=DictSource())
+    assert resolver.resolve("posthog/temporal/test_run.py").owners == ["team-batch"]
+    assert resolver.resolve("posthog/other.py").owners == ["team-root"]
+    assert resolver.resolve("posthog/temporal/test_run.py").source == "posthog/temporal/owners.yaml"

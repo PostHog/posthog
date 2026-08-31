@@ -85284,9 +85284,9 @@ export namespace Schemas {
       runner: string;
       /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
       nodeid: string;
-      /** Repo-relative path of the test file, as Trunk reports it. */
+      /** Repo-relative path of the test file, empty when neither the repository nor Trunk places it. */
       file: string;
-      /** Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' when no in-retention span carries one. */
+      /** Owning team slug from the repository's ownership files, or 'unowned' when the test's file cannot be placed or no team claims its path. */
       owner_team: string;
       /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
       status: string;

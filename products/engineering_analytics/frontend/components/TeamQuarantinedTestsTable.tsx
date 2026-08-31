@@ -25,7 +25,7 @@ export function TeamQuarantinedTestsTable({
             // nodeid truncates instead of pushing the table wider than the scene.
             className: 'w-full max-w-0',
             render: (_, row) => {
-                // Rust and Storybook rows carry no file path in Trunk's data.
+                // A test the repository could not place carries no file path to link to.
                 const url =
                     row.trunkUrl ?? (row.file ? `https://github.com/${repository}/blob/master/${row.file}` : null)
                 if (!url) {

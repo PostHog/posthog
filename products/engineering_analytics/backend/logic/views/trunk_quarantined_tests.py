@@ -21,6 +21,9 @@ def build_query(table: str) -> str:
             name
         ) AS nodeid,
         file,
+        -- What places a test in the repo when ``file`` is empty: a path for jest, Playwright and
+        -- Storybook, the crate for Rust.
+        any(parent) AS parent,
         any(status) AS status,
         any(quarantine_setting) AS quarantine_setting,
         any(test_case_id) AS test_case_id,
@@ -36,6 +39,7 @@ def build_query(table: str) -> str:
                 parent LIKE '%.stories.tsx', 'storybook',
                 'jest'
             ) AS runner,
+            ifNull(parent, '') AS parent,
             ifNull(file, '') AS file,
             ifNull(name, '') AS name,
             ifNull(classname, '') AS classname,
