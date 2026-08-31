@@ -53,6 +53,11 @@ class TestHogQLAggregationIntegration(BaseTest):
             ("uniq_exact_if", "uniqExactIf(properties.revenue, properties.paid)"),
             ("sum_if", "sumIf(properties.revenue, properties.paid)"),
             ("avg_if", "avgIf(properties.revenue, properties.paid)"),
+            # A FILTER / WITHIN GROUP clause is dropped by the rebuild too, so the aggregate would
+            # silently run over every row. The filter case keeps one argument; the within-group
+            # case has none, so both branches of the extraction must reject it.
+            ("filter_where", "sum(properties.revenue) FILTER (WHERE properties.paid)"),
+            ("within_group", "quantile(0.5) WITHIN GROUP (ORDER BY properties.revenue)"),
         ]
     )
     def test_rejects_compound_aggregate_expressions(self, _name: str, expr: str):

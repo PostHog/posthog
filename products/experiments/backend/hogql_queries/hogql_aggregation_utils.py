@@ -62,6 +62,15 @@ def extract_aggregation_and_inner_expr(
         # It's an aggregation function
         aggregation_function = expr.name
 
+        # Only name, args, params, and distinct survive the rebuild onto the per-row value column.
+        # A FILTER (WHERE ...), ORDER BY, or WITHIN GROUP clause would be dropped, so the aggregate
+        # would silently run over every row and report a wrong number. Reject it instead.
+        if expr.filter_expr is not None or expr.order_by is not None or expr.within_group is not None:
+            raise ValidationError(
+                "HogQL metric expressions must use a plain aggregation, e.g. sum(properties.revenue). "
+                "Clauses like FILTER (WHERE ...), ORDER BY, or WITHIN GROUP are not supported."
+            )
+
         # Get the inner expression
         if expr.args and len(expr.args) > 0:
             # Only the first argument survives the rebuild onto the per-row value column.
