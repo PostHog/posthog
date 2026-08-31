@@ -1,7 +1,10 @@
 import re
 import logging
-from collections.abc import Iterable, Iterator
+from collections import defaultdict
+from collections.abc import Iterable, Iterator, Sequence
+from datetime import UTC, datetime, timedelta
 from functools import cached_property
+from itertools import batched
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -12,12 +15,41 @@ import dns.resolver
 from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
 
+from posthog.dataclasses import frozen
+
 if TYPE_CHECKING:
     from types_boto3_ses.client import SESClient
     from types_boto3_sesv2.client import SESV2Client
     from types_boto3_sesv2.type_defs import RecommendationTypeDef
 
 logger = logging.getLogger(__name__)
+
+# DELIVERY_COMPLAINT is the complaint denominator rather than SEND, because AWS defines it as
+# deliveries excluding recipients at ISPs it has no feedback-loop agreement with.
+ISP_METRICS: tuple[str, ...] = ("SEND", "DELIVERY", "PERMANENT_BOUNCE", "COMPLAINT", "DELIVERY_COMPLAINT")
+
+# SES caps a BatchGetMetricData request at ten queries.
+METRIC_QUERY_BATCH_SIZE = 10
+
+
+@frozen
+class IspDailyPoint:
+    date: str
+    emails_sent: int
+    delivery_rate: float
+    bounce_rate: float
+
+
+@frozen
+class IspSendingMetrics:
+    isp: str
+    emails_sent: int
+    delivery_rate: float
+    bounce_rate: float
+    # None when the provider runs no feedback loop, so complaints are unmeasurable rather than zero.
+    complaint_rate: float | None
+    # Oldest bucket first. Buckets SES returned nothing for are absent rather than zero-filled.
+    daily: tuple[IspDailyPoint, ...]
 
 
 class SESProvider:
@@ -471,3 +503,112 @@ class SESProvider:
         except (ClientError, BotoCoreError) as e:
             logger.exception(f"SES API error deleting identity: {e}")
             raise
+
+    def get_identity_isp_metrics(
+        self,
+        domains: Sequence[str],
+        window_days: int,
+        isps: Sequence[str] | None = None,
+    ) -> list[IspSendingMetrics]:
+        """
+        Sending health per mailbox provider, over the given sending domains.
+
+        Counts are summed across `domains` because VDM's EMAIL_IDENTITY dimension is per verified
+        domain, while a project's rates are project-wide. Providers that received nothing in the
+        window are omitted rather than shown as a row of zeros.
+        """
+        isps = list(isps) if isps is not None else list(settings.SES_ISP_DIMENSIONS)
+        # Several senders can share one domain. A duplicate would query the same series twice and
+        # sum it in twice, inflating volume.
+        domains = list(dict.fromkeys(domains))
+        if not domains or not isps:
+            return []
+
+        # VDM rejects the whole batch if either bound is a partial day, so the window is whole UTC
+        # days ending at the last midnight. Today is therefore excluded.
+        end = datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = end - timedelta(days=window_days)
+
+        # Dimensions filter rather than group, and the response echoes only the query id, so a
+        # per-provider breakdown needs one query per (domain, provider, metric) and a local index
+        # back to what each id asked for.
+        queries: list[dict[str, Any]] = []
+        query_subjects: dict[str, tuple[str, str]] = {}
+        for domain in domains:
+            for isp in isps:
+                for metric in ISP_METRICS:
+                    query_id = f"q{len(queries)}"
+                    query_subjects[query_id] = (isp, metric)
+                    queries.append(
+                        {
+                            "Id": query_id,
+                            "Namespace": "VDM",
+                            "Metric": metric,
+                            "Dimensions": {"EMAIL_IDENTITY": domain, "ISP": isp},
+                            "StartDate": start,
+                            "EndDate": end,
+                        }
+                    )
+
+        series: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        for batch in batched(queries, METRIC_QUERY_BATCH_SIZE, strict=False):
+            response = self.ses_v2_client.batch_get_metric_data(Queries=list(batch))  # type: ignore[arg-type]
+            for result in response.get("Results", []):
+                isp, metric = query_subjects[result["Id"]]
+                buckets = series[(isp, metric)]
+                # AWS documents Values as "cumulative / sum" without saying which, so this reads
+                # them as per-bucket counts. If they are running totals, summed deliveries overshoot
+                # sends and every provider pins to a 100% delivery rate against the clamp below.
+                for timestamp, value in zip(result.get("Timestamps", []), result.get("Values", []), strict=False):
+                    buckets[timestamp.date().isoformat()] += value
+            for error in response.get("Errors", []):
+                # A per-query failure leaves that metric at zero, which understates a rate rather
+                # than breaking the panel. Log it so a systematic failure stays visible. A
+                # malformed ISP name is different: SES fails the whole request, which the caller
+                # turns into an absent breakdown.
+                logger.warning(
+                    "SES metric query failed",
+                    extra={
+                        "query": query_subjects.get(error.get("Id", "")),
+                        "code": error.get("Code"),
+                        "message": error.get("Message"),
+                    },
+                )
+
+        rows: list[IspSendingMetrics] = []
+        for isp in isps:
+            sent_by_date = series[(isp, "SEND")]
+            emails_sent = sum(sent_by_date.values())
+            if emails_sent == 0:
+                continue
+            delivered_by_date = series[(isp, "DELIVERY")]
+            bounced_by_date = series[(isp, "PERMANENT_BOUNCE")]
+            complaint_base = sum(series[(isp, "DELIVERY_COMPLAINT")].values())
+            rows.append(
+                IspSendingMetrics(
+                    isp=isp,
+                    emails_sent=emails_sent,
+                    # Feedback can arrive after the window closes, so a rate can exceed its
+                    # denominator at the boundary. Clamp, as the project-wide rates do.
+                    delivery_rate=min(1.0, sum(delivered_by_date.values()) / emails_sent),
+                    bounce_rate=min(1.0, sum(bounced_by_date.values()) / emails_sent),
+                    complaint_rate=(
+                        min(1.0, sum(series[(isp, "COMPLAINT")].values()) / complaint_base) if complaint_base else None
+                    ),
+                    daily=tuple(
+                        IspDailyPoint(
+                            date=date,
+                            emails_sent=sent,
+                            delivery_rate=min(1.0, delivered_by_date.get(date, 0) / sent),
+                            bounce_rate=min(1.0, bounced_by_date.get(date, 0) / sent),
+                        )
+                        # A rate over zero sends is undefined, and zero-filling draws a cliff in
+                        # the trend that never happened.
+                        for date, sent in sorted(sent_by_date.items())
+                        if sent > 0
+                    ),
+                )
+            )
+
+        rows.sort(key=lambda row: -row.emails_sent)
+        return rows

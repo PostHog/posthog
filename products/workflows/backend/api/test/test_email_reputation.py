@@ -10,12 +10,14 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.providers.ses import IspDailyPoint, IspSendingMetrics
 
 
 class TestEmailReputationAPI(APIBaseTest):
@@ -37,19 +39,32 @@ class TestEmailReputationAPI(APIBaseTest):
         )
 
     def _get_reputation(
-        self, totals_by_source: dict, query: str = "", aws_tenant: dict | None | Exception = None
+        self,
+        totals_by_source: dict,
+        query: str = "",
+        aws_tenant: dict | None | Exception = None,
+        isp_metrics: list | Exception | None = None,
+        isp_flag_enabled: bool = True,
     ) -> dict:
         provider = MagicMock()
         if isinstance(aws_tenant, Exception):
             provider.get_tenant_reputation.side_effect = aws_tenant
         else:
             provider.get_tenant_reputation.return_value = aws_tenant
+        if isinstance(isp_metrics, Exception):
+            provider.get_identity_isp_metrics.side_effect = isp_metrics
+        else:
+            provider.get_identity_isp_metrics.return_value = isp_metrics or []
         with (
             patch(
                 "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source",
                 return_value=totals_by_source,
             ),
             patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
+            patch(
+                "products.workflows.backend.api.hog_flow._isp_breakdown_enabled",
+                return_value=isp_flag_enabled,
+            ),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation{query}")
         assert response.status_code == status.HTTP_200_OK
@@ -243,6 +258,101 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["email_sending_suspended_at"] == suspended_at.isoformat().replace("+00:00", "Z")
         assert data["email_sending_suspension_reason"] == "critical bounce rate"
 
+    def _verify_sending_domain(self, domain: str = "mail.example.com") -> None:
+        Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id=domain,
+            config={"domain": domain, "provider": "ses", "verified": True},
+        )
+
+    def test_reputation_endpoint_returns_the_per_provider_breakdown(self):
+        self._verify_sending_domain()
+
+        body = self._get_reputation(
+            {},
+            isp_metrics=[
+                IspSendingMetrics(
+                    isp="Gmail",
+                    emails_sent=900,
+                    delivery_rate=0.97,
+                    bounce_rate=0.01,
+                    complaint_rate=None,
+                    daily=(IspDailyPoint(date="2026-08-01", emails_sent=900, delivery_rate=0.97, bounce_rate=0.01),),
+                ),
+                IspSendingMetrics(
+                    isp="Yahoo",
+                    emails_sent=100,
+                    delivery_rate=0.99,
+                    bounce_rate=0.0,
+                    complaint_rate=0.002,
+                    daily=(),
+                ),
+            ],
+        )
+
+        assert body["isps"] == [
+            {
+                "isp": "Gmail",
+                "emails_sent": 900,
+                "delivery_rate": 0.97,
+                "bounce_rate": 0.01,
+                # Null rather than 0 — Gmail runs no feedback loop, so a complaint rate would be
+                # a number we can't actually measure.
+                "complaint_rate": None,
+                "daily": [
+                    {
+                        "date": "2026-08-01",
+                        "emails_sent": 900,
+                        "delivery_rate": 0.97,
+                        "bounce_rate": 0.01,
+                    }
+                ],
+            },
+            {
+                "isp": "Yahoo",
+                "emails_sent": 100,
+                "delivery_rate": 0.99,
+                "bounce_rate": 0.0,
+                "complaint_rate": 0.002,
+                "daily": [],
+            },
+        ]
+
+    def test_reputation_endpoint_still_loads_when_the_provider_breakdown_fails(self):
+        # The breakdown is an addition to the rates display; SES being unreachable must not take
+        # the whole reputation page down with it.
+        self._verify_sending_domain()
+
+        body = self._get_reputation(
+            {"src": {"email_sent": 100, "email_bounced_hard": 1}},
+            isp_metrics=Exception("SES timeout"),
+        )
+
+        assert body["isps"] == []
+        assert body["reputation"]["emails_sent"] == 100
+
+    def test_reputation_endpoint_withholds_the_breakdown_without_the_feature_flag(self):
+        self._verify_sending_domain()
+
+        body = self._get_reputation(
+            {"src": {"email_sent": 100, "email_bounced_hard": 1}},
+            isp_metrics=[
+                IspSendingMetrics(
+                    isp="Gmail",
+                    emails_sent=90,
+                    delivery_rate=0.99,
+                    bounce_rate=0.01,
+                    complaint_rate=None,
+                    daily=(),
+                )
+            ],
+            isp_flag_enabled=False,
+        )
+
+        assert body["isps"] == []
+        assert body["reputation"]["emails_sent"] == 100
+
 
 @pytest.mark.ee
 class TestEmailReputationAccessControl(APIBaseTest):
@@ -285,12 +395,24 @@ class TestEmailReputationAccessControl(APIBaseTest):
             "reputation_impact": "HIGH",
             "findings": [],
         }
+        provider.get_identity_isp_metrics.return_value = [
+            IspSendingMetrics(
+                isp="Gmail",
+                emails_sent=100,
+                delivery_rate=0.9,
+                bounce_rate=0.05,
+                complaint_rate=None,
+                daily=(),
+            )
+        ]
         with (
             patch(
                 "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source",
                 return_value={str(flow.id): {"email_sent": 100, "email_bounced_hard": 5}},
             ),
             patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
+            # Enabled, so what the assertion below tests is the access-control gate, not the flag.
+            patch("products.workflows.backend.api.hog_flow._isp_breakdown_enabled", return_value=True),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
 
@@ -298,4 +420,5 @@ class TestEmailReputationAccessControl(APIBaseTest):
         data = response.json()
         assert data["aws"] is None
         assert data["reputation"] is None
+        assert data["isps"] == []
         assert [row["hog_flow_id"] for row in data["workflows"]] == [str(flow.id)]

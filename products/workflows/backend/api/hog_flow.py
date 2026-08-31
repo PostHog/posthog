@@ -21,6 +21,7 @@ from django.utils.dateparse import parse_datetime
 
 import requests
 import structlog
+import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
@@ -80,6 +81,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team
 from posthog.models.filters import Filter
+from posthog.models.integration import Integration
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -2069,6 +2071,95 @@ def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
     return value
 
 
+ISP_METRICS_CACHE_SECONDS = 5 * 60
+ISP_METRICS_ERROR_CACHE_SECONDS = 60
+# Bounds the BatchGetMetricData fan-out: every extra domain costs one query per provider per
+# metric. A project with more sending domains gets a breakdown over its first few.
+ISP_METRICS_MAX_DOMAINS = 5
+# Shared with FEATURE_FLAGS in frontend/src/lib/constants.tsx.
+ISP_SENDING_HEALTH_FLAG = "workflows-isp-sending-health"
+
+
+def _isp_breakdown_enabled(team: Team) -> bool:
+    # Fail closed: a flag-eval error hides the breakdown.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                ISP_SENDING_HEALTH_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+            )
+        )
+    except Exception:
+        logger.warning(
+            "workflows.isp_sending_health_flag_check_failed_defaulting_off",
+            team_id=team.id,
+            exc_info=True,
+        )
+        return False
+
+
+def _fetch_isp_metrics(team_id: int, window_days: int) -> list[dict[str, Any]]:
+    """
+    Per-mailbox-provider sending health for the project's verified domains, cached like the tenant
+    reputation above and for the same reason: the endpoint reloads on every search keystroke.
+
+    Returns an empty list rather than raising when SES is unreachable or VDM is not collecting yet,
+    because the breakdown adds to the rates display and must not stop it loading.
+    """
+    cache_key = f"workflows_ses_isp_metrics_{team_id}_{window_days}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached["value"]
+
+    # Dedupe before the cap, so duplicates do not consume the budget and drop real domains.
+    domains = list(
+        dict.fromkeys(
+            domain
+            for domain in Integration.objects.filter(team_id=team_id, kind="email", config__verified=True)
+            .order_by("id")
+            .values_list("config__domain", flat=True)
+            if domain
+        )
+    )[:ISP_METRICS_MAX_DOMAINS]
+    if not domains:
+        cache.set(cache_key, {"value": []}, ISP_METRICS_CACHE_SECONDS)
+        return []
+
+    try:
+        rows = SESProvider().get_identity_isp_metrics(domains, window_days=window_days)
+    except Exception:
+        logger.exception("Failed to fetch SES per-ISP metrics", team_id=team_id)
+        cache.set(cache_key, {"value": []}, ISP_METRICS_ERROR_CACHE_SECONDS)
+        return []
+
+    value = [
+        {
+            "isp": row.isp,
+            "emails_sent": row.emails_sent,
+            "delivery_rate": row.delivery_rate,
+            "bounce_rate": row.bounce_rate,
+            "complaint_rate": row.complaint_rate,
+            "daily": [
+                {
+                    "date": point.date,
+                    "emails_sent": point.emails_sent,
+                    "delivery_rate": point.delivery_rate,
+                    "bounce_rate": point.bounce_rate,
+                }
+                for point in row.daily
+            ],
+        }
+        for row in rows
+    ]
+    cache.set(cache_key, {"value": value}, ISP_METRICS_CACHE_SECONDS)
+    return value
+
+
 class EmailSendingRatesSerializer(serializers.Serializer):
     """Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics."""
 
@@ -2154,6 +2245,57 @@ class AwsTenantReputationSerializer(serializers.Serializer):
     )
 
 
+class IspDailyPointSerializer(serializers.Serializer):
+    """One bucket of a provider's sending history."""
+
+    date = serializers.CharField(read_only=True, help_text="Bucket date, as an ISO 8601 calendar date.")
+    emails_sent = serializers.IntegerField(read_only=True, help_text="Emails sent to this provider on this date.")
+    delivery_rate = serializers.FloatField(
+        read_only=True, help_text="Emails this provider accepted on this date, divided by emails sent to it (0-1)."
+    )
+    bounce_rate = serializers.FloatField(
+        read_only=True, help_text="Hard bounces at this provider on this date, divided by emails sent to it (0-1)."
+    )
+
+
+class IspSendingHealthSerializer(serializers.Serializer):
+    """How one mailbox provider treated this project's email, from AWS SES's own delivery data."""
+
+    isp = serializers.CharField(
+        read_only=True,
+        help_text="The recipient mailbox provider, as AWS names it — for example Gmail or Yahoo.",
+    )
+    emails_sent = serializers.IntegerField(read_only=True, help_text="Emails sent to this provider during the window.")
+    delivery_rate = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Emails this provider accepted, divided by emails sent to it (0-1). Acceptance is not "
+            "inbox placement: a provider can accept a message and still file it as spam."
+        ),
+    )
+    bounce_rate = serializers.FloatField(
+        read_only=True,
+        help_text="Hard (permanent) bounces at this provider, divided by emails sent to it (0-1).",
+    )
+    complaint_rate = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Spam complaints from this provider, divided by the deliveries it reports complaints "
+            "for (0-1). Null when the provider runs no feedback loop, so complaints are "
+            "unmeasurable here rather than zero."
+        ),
+    )
+    daily = IspDailyPointSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Sending history for this provider, oldest first, so a drop can be dated rather than "
+            "averaged into the window. Dates this provider received nothing are omitted."
+        ),
+    )
+
+
 class TeamEmailReputationResponseSerializer(serializers.Serializer):
     aws = AwsTenantReputationSerializer(
         allow_null=True,
@@ -2176,6 +2318,14 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         many=True,
         read_only=True,
         help_text="Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50.",
+    )
+    isps = IspSendingHealthSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Sending health per mailbox provider, busiest first. Empty when the caller lacks "
+            "project-wide workflow access, no sending domain is verified, or AWS has no data yet."
+        ),
     )
     email_sending_suspended = serializers.BooleanField(
         read_only=True,
@@ -4752,6 +4902,13 @@ class HogFlowViewSet(
                     "aws": _fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
                     "reputation": reputation,
                     "workflows": workflow_rows,
+                    # Same project-wide gate as `reputation`: the breakdown pools every workflow's
+                    # email for a sending domain, so object-level grants alone don't earn it.
+                    "isps": (
+                        _fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS)
+                        if can_read_all_workflows and _isp_breakdown_enabled(self.team)
+                        else []
+                    ),
                     "email_sending_suspended": suspended_at is not None,
                     "email_sending_suspended_at": suspended_at,
                     "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",

@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useCallback, useMemo } from 'react'
 
 import { DefaultTooltip, Sparkline as QuillSparklineChart, useChartTheme } from '@posthog/quill-charts'
-import type { Series, TooltipContext } from '@posthog/quill-charts'
+import type { Series, TooltipContext, ValueDomain } from '@posthog/quill-charts'
 
 import { getColorVar } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -41,6 +41,30 @@ export interface SparklineProps {
     sortTooltipByCount?: boolean
     /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
     renderTooltipValue?: (value: number) => string
+    /**
+     * X-axis value range to highlight as a translucent box behind the bars. Values are
+     * in the x-axis's own units: epoch ms for a time scale (positioned with sub-bar
+     * precision), or a label for a category scale. Used to mirror an external selection
+     * (e.g. the rows currently visible in a paired virtualized list) onto the chart.
+     * Callers pass an already-ordered `xMin <= xMax`; pass `null`/`undefined` to clear.
+     */
+    highlightedRange?: { xMin: number | string; xMax: number | string } | null
+    /**
+     * Bar indices that are still being ingested (incomplete). Those bars render with a faded
+     * diagonal-hatch fill, and hovering one adds `tooltip` to the hover tooltip. Used to flag the
+     * most recent bucket(s) when ingestion hasn't caught up. Pass `null`/`undefined` or an empty
+     * `indices` array to clear.
+     */
+    incompleteBars?: { indices: number[]; tooltip?: string } | null
+    /**
+     * Let the pointer move onto the tooltip without dismissing it, so a tooltip taller than its
+     * max height can be scrolled. Off by default: an interactive tooltip sits over the canvas and
+     * would swallow clicks meant for the chart (e.g. clickable markers or drag-to-select).
+     */
+    interactiveTooltip?: boolean
+    /** Pin the value axis instead of auto-scaling to the data, so sparklines in a column stay
+     *  comparable to each other. */
+    valueDomain?: ValueDomain
 }
 
 function normalizeSparklineData(
@@ -112,6 +136,7 @@ export function Sparkline({
     hideZerosInTooltip = false,
     sortTooltipByCount = false,
     renderTooltipValue,
+    valueDomain,
 }: SparklineProps): JSX.Element {
     const theme = useChartTheme()
 
@@ -156,6 +181,7 @@ export function Sparkline({
                 labels={chartLabels}
                 theme={theme}
                 type={type}
+                valueDomain={valueDomain}
                 fill
                 className="h-full"
                 tooltip={renderTooltip}

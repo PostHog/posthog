@@ -2,6 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { Sparkline } from 'lib/components/Sparkline'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -9,6 +12,7 @@ import type {
     AwsTenantReputationApi,
     AwsTenantReputationHealthEnumApi,
     EmailSendingRatesApi,
+    IspSendingHealthApi,
     WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -134,12 +138,105 @@ function AwsFindings({ aws }: { aws: AwsTenantReputationApi }): JSX.Element | nu
     )
 }
 
+// A single point is a reading, not a trend, so the column stays empty until there are two.
+const MIN_TREND_POINTS = 2
+
+function DeliveryTrend({ isp }: { isp: IspSendingHealthApi }): JSX.Element | null {
+    if (isp.daily.length < MIN_TREND_POINTS) {
+        return null
+    }
+    return (
+        <Sparkline
+            data={isp.daily.map((point) => point.delivery_rate * 100)}
+            labels={isp.daily.map((point) => point.date)}
+            name={`${isp.isp} delivery rate (%)`}
+            type="line"
+            renderTooltipValue={(value) => `${value.toFixed(1)}%`}
+            // Fixed 0-100 rather than auto-scaled per row: these are read against each other, and
+            // an auto-scaled axis draws a steady 40% provider identically to a steady 98% one.
+            valueDomain={{ min: 0, max: 100 }}
+            // Sizes Sparkline's own container: without a height it grows to fill the table cell
+            // and the chart bleeds across rows.
+            className="h-8 w-28"
+        />
+    )
+}
+
+function IspBreakdown({ isps }: { isps: readonly IspSendingHealthApi[] }): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_ISP_SENDING_HEALTH] || isps.length === 0) {
+        return null
+    }
+    return (
+        <div className="mt-4 space-y-2" data-attr="workflows-reputation-isp-breakdown">
+            <MetricLabel
+                label="By mailbox provider"
+                tooltip={`One provider filtering your email is invisible in the project-wide rates above, which pool every provider together. ${WINDOW_TOOLTIP}`}
+            />
+            <LemonTable
+                dataSource={[...isps]}
+                rowKey={(row) => row.isp}
+                columns={[
+                    {
+                        title: 'Provider',
+                        key: 'isp',
+                        render: (_, row: IspSendingHealthApi) => <span className="font-semibold">{row.isp}</span>,
+                    },
+                    {
+                        title: 'Delivery rate',
+                        key: 'delivery_rate',
+                        align: 'right',
+                        render: (_, row: IspSendingHealthApi) => (
+                            <Tooltip title="Emails this provider accepted, divided by emails sent to it. Accepting a message is not the same as putting it in the inbox: a provider can accept your email and still file it as spam.">
+                                <span className="tabular-nums cursor-default">{formatRate(row.delivery_rate)}</span>
+                            </Tooltip>
+                        ),
+                    },
+                    {
+                        title: 'Delivery trend',
+                        key: 'delivery_trend',
+                        tooltip: 'Every provider is drawn on the same 0-100% axis, so rows can be compared by height.',
+                        render: (_, row: IspSendingHealthApi) => <DeliveryTrend isp={row} />,
+                    },
+                    {
+                        title: 'Bounce rate',
+                        key: 'bounce_rate',
+                        align: 'right',
+                        render: (_, row: IspSendingHealthApi) => <RateCell rate={row.bounce_rate} kind="bounce" />,
+                    },
+                    {
+                        title: 'Complaint rate',
+                        key: 'complaint_rate',
+                        align: 'right',
+                        render: (_, row: IspSendingHealthApi) =>
+                            row.complaint_rate === null ? (
+                                <Tooltip title="This provider does not report spam complaints back to senders, so there is no rate to show. Watch its delivery rate instead.">
+                                    <span className="text-secondary cursor-default">Not reported</span>
+                                </Tooltip>
+                            ) : (
+                                <RateCell rate={row.complaint_rate} kind="complaint" />
+                            ),
+                    },
+                    {
+                        title: 'Emails sent',
+                        key: 'emails_sent',
+                        align: 'right',
+                        render: (_, row: IspSendingHealthApi) => humanFriendlyNumber(row.emails_sent),
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
 function TeamRatesCard({
     reputation,
     aws,
+    isps,
 }: {
     reputation: EmailSendingRatesApi | null
     aws: AwsTenantReputationApi | null
+    isps: readonly IspSendingHealthApi[]
 }): JSX.Element {
     return (
         <div className="border rounded p-4 bg-surface-primary">
@@ -180,12 +277,13 @@ function TeamRatesCard({
                 </div>
             )}
             {aws && <AwsFindings aws={aws} />}
+            <IspBreakdown isps={isps} />
         </div>
     )
 }
 
 export function WorkflowsReputation(): JSX.Element {
-    const { awsReputation, teamReputation, workflowSnapshots, reputationResponseLoading, search } =
+    const { awsReputation, teamReputation, ispSendingHealth, workflowSnapshots, reputationResponseLoading, search } =
         useValues(workflowsReputationLogic)
     const { setSearch } = useActions(workflowsReputationLogic)
 
@@ -203,7 +301,7 @@ export function WorkflowsReputation(): JSX.Element {
                 We judge and enforce reputation per project.
             </LemonBanner>
             {teamReputation || awsReputation ? (
-                <TeamRatesCard reputation={teamReputation} aws={awsReputation} />
+                <TeamRatesCard reputation={teamReputation} aws={awsReputation} isps={ispSendingHealth} />
             ) : (
                 !reputationResponseLoading && (
                     <div className="border rounded p-4 text-secondary">

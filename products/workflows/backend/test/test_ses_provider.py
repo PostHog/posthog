@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Optional
 
 import pytest
@@ -584,3 +585,145 @@ class TestGetAccountReputation(TestCase):
 
         with pytest.raises(KeyError):
             self.provider.get_account_reputation()
+
+
+class TestGetIdentityIspMetrics(TestCase):
+    def setUp(self):
+        patcher = patch("products.workflows.backend.providers.ses.boto3.client")
+        mock_boto3_client = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mock_client = mock_boto3_client.return_value
+        self.provider = SESProvider()
+
+    def _serve(self, values_by_subject: dict[tuple[str, str], int]) -> None:
+        """Answer each batch from a {(isp, metric): value} table, defaulting anything absent to 0."""
+
+        def respond(Queries):
+            return {
+                "Results": [
+                    {
+                        "Id": query["Id"],
+                        "Timestamps": [datetime(2026, 8, 1, tzinfo=UTC)],
+                        "Values": [values_by_subject.get((query["Dimensions"]["ISP"], query["Metric"]), 0)],
+                    }
+                    for query in Queries
+                ]
+            }
+
+        self.mock_client.batch_get_metric_data.side_effect = lambda Queries: respond(Queries)
+
+    def _serve_series(self, values_by_subject: dict[tuple[str, str], dict[str, int]]) -> None:
+        """Answer from a {(isp, metric): {date: value}} table, so a query spans several buckets."""
+
+        def respond(Queries):
+            results = []
+            for query in Queries:
+                buckets = values_by_subject.get((query["Dimensions"]["ISP"], query["Metric"]), {})
+                results.append(
+                    {
+                        "Id": query["Id"],
+                        "Timestamps": [datetime.fromisoformat(date) for date in sorted(buckets)],
+                        "Values": [buckets[date] for date in sorted(buckets)],
+                    }
+                )
+            return {"Results": results}
+
+        self.mock_client.batch_get_metric_data.side_effect = lambda Queries: respond(Queries)
+
+    def test_daily_series_is_ordered_and_merged_across_domains(self):
+        # Two domains reporting the same days have to land in one bucket per day, or the trend
+        # draws each domain as its own point and every rate is computed against half the sends.
+        self._serve_series(
+            {
+                ("Gmail", "SEND"): {"2026-08-02": 50, "2026-08-01": 100},
+                ("Gmail", "DELIVERY"): {"2026-08-02": 10, "2026-08-01": 95},
+            }
+        )
+
+        rows = self.provider.get_identity_isp_metrics(
+            [TEST_DOMAIN, "other.posthog.com"], window_days=30, isps=["Gmail"]
+        )
+
+        assert [(point.date, point.emails_sent, point.delivery_rate) for point in rows[0].daily] == [
+            ("2026-08-01", 200, 0.95),
+            ("2026-08-02", 100, 0.2),
+        ]
+
+    def test_daily_series_skips_buckets_with_no_sends(self):
+        self._serve_series(
+            {
+                ("Gmail", "SEND"): {"2026-08-01": 10, "2026-08-02": 0},
+                ("Gmail", "DELIVERY"): {"2026-08-01": 9, "2026-08-02": 0},
+            }
+        )
+
+        rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail"])
+
+        assert [point.date for point in rows[0].daily] == ["2026-08-01"]
+
+    @parameterized.expand(
+        [
+            # A provider that reports complaints: the rate is complaints over the deliveries it
+            # reports them for, NOT over everything we sent it.
+            ("reporting_provider", 40, 4, 0.1),
+            # SES excludes recipients at providers it has no feedback-loop agreement with from
+            # DELIVERY_COMPLAINT. A zero base means unmeasurable, which must not read as 0%.
+            ("provider_without_a_feedback_loop", 0, 0, None),
+        ]
+    )
+    def test_complaint_rate_is_measured_against_delivery_complaint(
+        self, _name: str, delivery_complaint: int, complaints: int, expected: Optional[float]
+    ):
+        self._serve(
+            {
+                ("Gmail", "SEND"): 100,
+                ("Gmail", "DELIVERY"): 95,
+                ("Gmail", "DELIVERY_COMPLAINT"): delivery_complaint,
+                ("Gmail", "COMPLAINT"): complaints,
+            }
+        )
+
+        rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail"])
+
+        assert [row.complaint_rate for row in rows] == [expected]
+
+    def test_counts_are_summed_across_the_projects_sending_domains(self):
+        # Each domain is queried separately because EMAIL_IDENTITY is per verified domain, but a
+        # project's rates are project-wide, so the two domains' counts have to add up.
+        self._serve({("Gmail", "SEND"): 50, ("Gmail", "DELIVERY"): 40, ("Gmail", "PERMANENT_BOUNCE"): 5})
+
+        rows = self.provider.get_identity_isp_metrics(
+            [TEST_DOMAIN, "other.posthog.com"], window_days=30, isps=["Gmail"]
+        )
+
+        assert len(rows) == 1
+        assert rows[0].emails_sent == 100
+        assert rows[0].delivery_rate == 0.8
+        assert rows[0].bounce_rate == 0.1
+
+    def test_queries_are_batched_within_the_ses_ten_query_limit(self):
+        self._serve({("Gmail", "SEND"): 1, ("Yahoo", "SEND"): 1, ("Outlook", "SEND"): 1})
+
+        self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail", "Yahoo", "Outlook"])
+
+        batches = [kwargs["Queries"] for _, kwargs in self.mock_client.batch_get_metric_data.call_args_list]
+        # 3 providers x 5 metrics = 15 queries, and SES rejects a batch of more than ten.
+        assert [len(batch) for batch in batches] == [10, 5]
+        sent = {(query["Dimensions"]["ISP"], query["Metric"]) for batch in batches for query in batch}
+        assert len(sent) == 15
+
+    def test_providers_that_received_nothing_are_omitted(self):
+        # Without this a silent provider divides by zero; a row of zeros would also read as a
+        # delivery problem rather than as "we never mailed anyone here".
+        self._serve({("Gmail", "SEND"): 10, ("Gmail", "DELIVERY"): 10})
+
+        rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail", "Yahoo"])
+
+        assert [row.isp for row in rows] == ["Gmail"]
+
+    def test_busiest_provider_is_reported_first(self):
+        self._serve({("Gmail", "SEND"): 10, ("Yahoo", "SEND"): 90})
+
+        rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail", "Yahoo"])
+
+        assert [row.isp for row in rows] == ["Yahoo", "Gmail"]
