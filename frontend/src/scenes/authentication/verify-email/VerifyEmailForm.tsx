@@ -168,7 +168,7 @@ export function VerifyEmailForm(): JSX.Element {
     // The address that received the code. This is the new address if an email change is pending,
     // else the account address. Without a session, for example on a fresh signup, the page uses the
     // address the signup or login form stored in this browser. It stays unset in a different browser.
-    const verificationEmail = user?.pending_email ?? user?.email ?? getPendingVerificationEmail() ?? undefined
+    const verificationEmail = user?.pending_email ?? user?.email ?? getPendingVerificationEmail(uuid) ?? undefined
 
     if (view === 'success') {
         return (

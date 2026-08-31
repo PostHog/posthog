@@ -584,8 +584,9 @@ export const loginLogic = kea<loginLogicType>([
                     if (code === 'verify_email_pending' && typeof detail === 'string') {
                         // detail carries the user uuid; the verification page has the code entry form
                         lemonToast.info('Verify your email to continue. We just sent you a new code.')
-                        // The verify page has no session in this state, so store the address for its copy
-                        setPendingVerificationEmail(email)
+                        // The verify page has no session in this state, so store the address for its copy.
+                        // detail carries the user uuid, which keys the stored value.
+                        setPendingVerificationEmail(detail, email)
                         const next: string | undefined = router.values.searchParams.next
                         router.actions.push(urls.verifyEmail(detail), next ? { next } : {})
                         throw e

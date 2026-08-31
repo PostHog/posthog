@@ -529,9 +529,11 @@ export const signupLogic = kea<signupLogicType>([
                         posthog.capture('signup completed with passkey')
                     }
 
-                    if (res.redirect_url?.includes('/verify_email') && signupData.email) {
-                        // The verify page has no session yet, so store the address for its copy
-                        setPendingVerificationEmail(signupData.email)
+                    // The verify page has no session yet, so store the address for its copy,
+                    // keyed by the user uuid from the redirect path
+                    const verifyUuid = res.redirect_url?.match(/\/verify_email\/([^/?#]+)/)?.[1]
+                    if (verifyUuid && signupData.email) {
+                        setPendingVerificationEmail(verifyUuid, signupData.email)
                     }
                     // it's ok to trust the url sent from the server
                     // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
