@@ -16,6 +16,7 @@ const config: SignalScoutConfigApi = {
     description: 'Watches revenue changes.',
     scout_origin: 'custom',
     owners: [],
+    delete_disabled_reason: null,
     enabled: true,
     status: 'active',
     pause_reason: null,

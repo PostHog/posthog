@@ -2314,6 +2314,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "them through the skill API instead."
         ),
     )
+    delete_disabled_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why the current caller cannot delete this scout, or `null` when they can. Deleting a "
+            "scout that has `owners` is restricted to those owners and to project admins, so this "
+            "names the owners to ask. Use it as the disabled reason on a delete control instead of "
+            "deciding locally: the delete endpoint enforces the same rule and answers 403. Always "
+            "`null` for an unowned scout, and for a caller that does not receive `owners`."
+        ),
+    )
     enabled = serializers.BooleanField(
         read_only=True,
         help_text=(
@@ -2465,6 +2474,13 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         owners = (self.context.get("owners_by_skill_name") or {}).get(obj.skill_name, [])
         return list(UserBasicSerializer(owners, many=True).data)
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_delete_disabled_reason(self, obj: SignalScoutConfig) -> str | None:
+        # Resolved for the whole fleet by `scout_config_context`, which holds only the scouts the
+        # caller is blocked from. A serializer built without the context reports no reason, which
+        # matches how the other context-fed fields degrade: the endpoint still enforces the rule.
+        return (self.context.get("delete_denial_by_skill_name") or {}).get(obj.skill_name)
+
     class Meta:
         model = SignalScoutConfig
         fields = [
@@ -2473,6 +2489,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "description",
             "scout_origin",
             "owners",
+            "delete_disabled_reason",
             "enabled",
             "status",
             "pause_reason",

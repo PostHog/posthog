@@ -18,7 +18,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import OAuthApplication
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import (
@@ -2469,6 +2469,81 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not SignalScoutConfig.all_teams.filter(id=config.id).exists()
+
+    @parameterized.expand(
+        [
+            ("the_owner", True, False, status.HTTP_204_NO_CONTENT),
+            ("a_teammate_who_is_not_an_owner", False, False, status.HTTP_403_FORBIDDEN),
+            ("a_project_admin", False, True, status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_destroy_of_an_owned_scout_is_restricted_to_owners_and_project_admins(
+        self, _name: str, caller_owns_it: bool, caller_is_admin: bool, expected_status: int
+    ) -> None:
+        # Editor access to skills reaches every scout on the project, so without this gate any
+        # editor can permanently delete a teammate's scout along with its run history.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self._make_skill("signals-scout-checkout")
+        owner = (
+            self.user if caller_owns_it else User.objects.create_and_join(self.organization, "ada@example.com", None)
+        )
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=owner
+        )
+        if caller_is_admin:
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+        response = self.client.delete(self._detail_url(str(config.id)))
+
+        assert response.status_code == expected_status
+        row_survived = expected_status == status.HTTP_403_FORBIDDEN
+        assert SignalScoutConfig.all_teams.filter(id=config.id).exists() is row_survived
+
+    def test_destroy_denial_names_the_owners_to_ask(self) -> None:
+        # The 403 has to say who can do it, or the blocked user has no next step.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self._make_skill("signals-scout-checkout")
+        owner = User.objects.create_and_join(self.organization, "ada@example.com", None)
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=owner
+        )
+
+        response = self.client.delete(self._detail_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == (
+            "Only an owner or a project admin can delete this scout. Ask ada@example.com or a project admin."
+        )
+
+    @parameterized.expand([("the_owner", True), ("a_teammate_who_is_not_an_owner", False)])
+    def test_list_reports_the_delete_denial_the_endpoint_would_answer(self, _name: str, caller_owns_it: bool) -> None:
+        # The fleet UI disables its delete button from this field, so a field that disagreed with
+        # `destroy` would either hide a legitimate delete or walk the user into a 403.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self._make_skill("signals-scout-checkout")
+        owner = (
+            self.user if caller_owns_it else User.objects.create_and_join(self.organization, "ada@example.com", None)
+        )
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=owner
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        reason = response.json()[0]["delete_disabled_reason"]
+        assert reason is None if caller_owns_it else isinstance(reason, str)
+
+    def test_list_reports_no_delete_denial_for_an_unowned_scout(self) -> None:
+        # An unowned scout keeps the plain editor bar, which is what makes the orphan-cleanup path
+        # still reachable when the owners went away with the archived skill.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["delete_disabled_reason"] is None
 
     def test_destroy_unknown_id_returns_404(self) -> None:
         response = self.client.delete(self._detail_url("00000000-0000-0000-0000-000000000000"))

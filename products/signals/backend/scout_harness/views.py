@@ -48,6 +48,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.dataclasses import frozen
+from posthog.event_usage import report_user_action
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
@@ -176,6 +177,8 @@ from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     create_skill,
     resolve_skill_owners_for_names,
+    skill_retirement_denial,
+    skill_retirement_denials,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade import api as tasks_facade
@@ -1951,12 +1954,13 @@ def _canonical_team(view: TeamAndOrgViewSetMixin) -> Team:
 
 
 def scout_config_context(team: Team, skill_names: list[str], request: Request) -> dict[str, Any]:
-    """Serializer context for `SignalScoutConfigSerializer`: skill metadata plus skill owners.
+    """Serializer context for `SignalScoutConfigSerializer`: skill metadata, owners, and the
+    per-scout delete gate.
 
-    Both maps are keyed on `skill_name` and resolved for the whole set at once, so listing the
+    All three maps are keyed on `skill_name` and resolved for the whole set at once, so listing the
     fleet stays a fixed number of queries instead of one per scout. They are built together
-    because the serializer reads both, and a caller that passed only one would quietly serialize
-    every scout as unowned.
+    because the serializer reads all of them, and a caller that passed only one would quietly
+    serialize every scout as unowned and deletable.
     """
     # Owner identities are member PII. The sandbox token carries `signal_scout:read`, so without
     # this gate a scout run could list the owners of every custom scout on the team through
@@ -1973,6 +1977,13 @@ def scout_config_context(team: Team, skill_names: list[str], request: Request) -
         # `skill_name`), so they hold across edits to the skill body. `created_by` / `enabled_by`
         # on the config row say who last flipped a switch, which is a different question.
         "owners_by_skill_name": owners_by_skill_name,
+        # The same rule `destroy` enforces, resolved on the read so the fleet UI can disable the
+        # delete button with the reason instead of guessing the answer and hitting a 403. Derived
+        # from the owner map above, so a caller that never sees owners never sees the reason either
+        # (the message names them).
+        "delete_denial_by_skill_name": skill_retirement_denials(
+            team=team, owners_by_skill_name=owners_by_skill_name, user=cast(User, request.user), subject="scout"
+        ),
     }
 
 
@@ -2358,6 +2369,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=None,
         responses={
             204: OpenApiResponse(description="Config deleted."),
+            403: OpenApiResponse(
+                description="The scout has owners and the caller is neither one of them nor a project admin."
+            ),
             404: OpenApiResponse(description="Config not found for this project."),
         },
         summary="Delete a scout config",
@@ -2366,21 +2380,50 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was "
             "archived or deleted — it lingers in `list` with an empty `description`, never runs (the "
             "coordinator skips it and the skill can't load), but can't otherwise be removed over the "
-            "API. Deletion is activity-logged. Note: if the skill still exists, the coordinator "
-            "re-creates a default-schedule config on its next tick — to retire a live scout, archive "
-            "its skill (or set `enabled=false` to make it inert) rather than deleting the config."
+            "API. Restricted to the scout's `owners` and to project admins when the scout has owners; "
+            "an unowned scout keeps the plain `signal_scout:write` bar. Deletion is activity-logged. "
+            "Note: if the skill still exists, the coordinator re-creates a default-schedule config on "
+            "its next tick — to retire a live scout, archive its skill (or set `enabled=false` to make "
+            "it inert) rather than deleting the config."
         ),
         operation_id="signals_scout_config_destroy",
     )
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        team_id = _canonical_team_id(self)
+        team = _canonical_team(self)
         config_id = _parse_run_id_or_404(kwargs)
-        config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
+        config = SignalScoutConfig.objects.unscoped().filter(team_id=team.id, id=config_id).first()
         if config is None:
             raise exceptions.NotFound()
+        # `signal_scout:write` plus canonical-team access is the bar for tuning a scout, and tuning is
+        # reversible. Removing the config is not: the row carries the schedule, the emit posture, and
+        # the lifecycle history the fleet reads, and the fleet UI pairs this call with archiving the
+        # skill. So deletion asks for the per-scout claim on top, rather than a scope that reaches
+        # every scout on the project. The rule lives in the skills product, since archiving the skill
+        # is the other half of the same act.
+        denial = skill_retirement_denial(
+            team=team, skill_name=config.skill_name, user=cast(User, request.user), subject="scout"
+        )
+        if denial is not None:
+            raise exceptions.PermissionDenied(denial)
+        # Read the origin while the skill row is still reachable. An orphaned config whose skill is
+        # already gone drops out of the map, which reads as "custom" the same way the list does.
+        skill_info = _skill_info_for(team.id, [config.skill_name]).get(config.skill_name)
         # Delete on the instance (not the queryset) so ModelActivityMixin's delete hook fires —
         # config changes drive spend and are activity-logged, removals included.
         config.delete()
+        # The activity log answers "who deleted this scout" inside one project. This event is how the
+        # fleet's deletion rate is measurable across teams, which the activity log cannot report.
+        report_user_action(
+            cast(User, request.user),
+            "signals_scout_config_deleted",
+            properties={
+                "team_id": team.id,
+                "skill_name": config.skill_name,
+                "scout_origin": skill_info.origin if skill_info else "custom",
+            },
+            team=team,
+            request=request,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(

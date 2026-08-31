@@ -9,6 +9,8 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import (
     LLMSkill,
@@ -833,3 +835,62 @@ def set_skill_owners(team: Team, skill_name: str, users: list[User]) -> list[Use
             # write context-independent (works outside a request too).
             _owner_qs(team).create(team=team, skill_name=skill_name, user=user)
     return resolve_skill_owners(team, skill_name)
+
+
+def user_is_project_admin(user: User, team: Team) -> bool:
+    """True for organization admins/owners, and for members explicitly granted admin on the project.
+
+    `explicit=True` skips the open-project default, which reports every organization member as a
+    project admin when the project has no access controls configured. Without it, an owner gate built
+    on this would pass for every member of such a project.
+    """
+    access = UserAccessControl(user=user, team=team)
+    return access.is_organization_admin or bool(access.check_access_level_for_object(team, "admin", explicit=True))
+
+
+def skill_retirement_denial(*, team: Team, skill_name: str, user: User, subject: str) -> str | None:
+    """The reason `user` may not retire this skill, or None when they may. `subject` names the thing
+    the caller is removing ("scout"), so the message reads in the caller's terms.
+
+    Retirement is a stronger act than an edit: `archive_skill` tombstones every version of the body,
+    and for a scout the run history stops being reachable from the fleet. Every other write bar on
+    these surfaces is project-wide, so on its own it lets anyone who can edit skills destroy a
+    teammate's work. Ownership is the per-skill claim that already exists, so retirement asks for it,
+    the same way publishing to the community does. Project admins are allowed too, because somebody
+    has to be able to clean up after a member who left.
+
+    A skill with no owners keeps the caller's existing write bar. Owner rows drop out when a member
+    loses project access, and a skill can be created with an explicit empty owner list, so an unowned
+    skill has nobody to name as the person to ask. Failing closed there would strand exactly the rows
+    the cleanup paths exist to remove.
+    """
+    owners = resolve_skill_owners(team, skill_name)
+    if not owners or any(owner.pk == user.pk for owner in owners):
+        return None
+    if user_is_project_admin(user, team):
+        return None
+    return _retirement_denial_message(owners, subject)
+
+
+def skill_retirement_denials(
+    *, team: Team, owners_by_skill_name: dict[str, list[User]], user: User, subject: str
+) -> dict[str, str]:
+    """Batch form of `skill_retirement_denial`, keyed on skill name and holding only the blocked ones.
+
+    Takes an owner map the caller already resolved and answers the project-admin leg once, so listing
+    a whole fleet costs one access-control read rather than one per skill. See
+    `skill_retirement_denial` for why retirement asks for ownership at all.
+    """
+    blocked = {
+        skill_name: owners
+        for skill_name, owners in owners_by_skill_name.items()
+        if owners and all(owner.pk != user.pk for owner in owners)
+    }
+    if not blocked or user_is_project_admin(user, team):
+        return {}
+    return {skill_name: _retirement_denial_message(owners, subject) for skill_name, owners in blocked.items()}
+
+
+def _retirement_denial_message(owners: list[User], subject: str) -> str:
+    named = ", ".join(owner.email for owner in owners)
+    return f"Only an owner or a project admin can delete this {subject}. Ask {named} or a project admin."

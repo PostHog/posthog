@@ -40,6 +40,7 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         description: 'Investigates recurring checkout failures.',
         scout_origin: 'custom',
         owners: [],
+        delete_disabled_reason: null,
         enabled: false,
         status: 'paused_by_user',
         pause_reason: null,

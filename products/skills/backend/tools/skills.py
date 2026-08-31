@@ -26,8 +26,9 @@ from products.skills.backend.api.skill_services import (
     get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
+    skill_retirement_denial,
 )
-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+from products.skills.backend.models.skills import SCOUT_SKILL_CATEGORY, LLMSkill, LLMSkillFile, category_for_skill_name
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolFatalError
@@ -494,6 +495,15 @@ class ArchiveLLMSkillTool(MaxTool):
         return [("llm_skill", "editor")]
 
     async def _arun_impl(self, skill_name: str) -> tuple[str, None]:
+        # The same owner gate the archive endpoint applies. The tool acts as the user who asked, so
+        # without it an agent is a way around a rule that holds for the person driving it.
+        if category_for_skill_name(skill_name) == SCOUT_SKILL_CATEGORY:
+            denial = await database_sync_to_async(skill_retirement_denial)(
+                team=self._team, skill_name=skill_name, user=self._user, subject="scout"
+            )
+            if denial is not None:
+                raise MaxToolFatalError(denial)
+
         try:
             versions = await database_sync_to_async(archive_skill)(self._team, skill_name)
         except LLMSkillNotFoundError:

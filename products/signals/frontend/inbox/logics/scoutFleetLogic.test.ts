@@ -48,6 +48,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     description: 'Finds error trends.',
     scout_origin: 'canonical',
     owners: [],
+    delete_disabled_reason: null,
     enabled: true,
     status: 'active',
     pause_reason: null,
