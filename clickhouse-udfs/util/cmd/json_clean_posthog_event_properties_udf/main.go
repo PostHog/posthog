@@ -1122,6 +1122,7 @@ func borrowedString(b []byte) string {
 	if len(b) == 0 {
 		return ""
 	}
+	// nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- b owns the bytes for every use of the borrowed string.
 	return unsafe.String(unsafe.SliceData(b), len(b))
 }
 
@@ -1129,6 +1130,7 @@ func borrowedBytes(s string) []byte {
 	if len(s) == 0 {
 		return nil
 	}
+	// nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block -- callers only read the slice while s remains live.
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
