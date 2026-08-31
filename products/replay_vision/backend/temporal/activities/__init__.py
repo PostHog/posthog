@@ -1,9 +1,6 @@
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
 )
-from products.replay_vision.backend.temporal.activities.auto_materialize import (
-    auto_materialize_scanner_properties_activity,
-)
 from products.replay_vision.backend.temporal.activities.backfill import (
     advance_backfill_cursor_activity,
     delete_backfill_schedule_activity,
@@ -68,7 +65,6 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
 __all__ = [
     "advance_backfill_cursor_activity",
     "advance_scanner_watermark_activity",
-    "auto_materialize_scanner_properties_activity",
     "delete_backfill_schedule_activity",
     "find_backfill_candidates_activity",
     "pause_backfill_schedule_activity",

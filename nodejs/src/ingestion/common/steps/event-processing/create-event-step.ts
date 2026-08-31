@@ -1,8 +1,10 @@
 import { Message } from 'node-rdkafka'
 import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { parseTeamsList } from '~/common/utils/env-utils'
 import { createEvent } from '~/ingestion/common/steps/event-processing/create-event'
+import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, Person, PreIngestionEvent } from '~/types'
@@ -38,6 +40,8 @@ export interface CreateEventStepInput {
     historicalMigration: boolean
     headers: EventHeaders
     message: Message
+    eventUsageRecord?: EventUsageRecord
+    eventUsageBatch?: UsageRecordBatch
 }
 
 export interface CreateEventStepResult<O extends string> {
@@ -45,6 +49,8 @@ export interface CreateEventStepResult<O extends string> {
     teamId: number
     headers: EventHeaders
     message: Message
+    eventUsageRecord?: EventUsageRecord
+    eventUsageBatch?: UsageRecordBatch
 }
 
 export function createCreateEventStep<O extends string, T extends CreateEventStepInput>(
@@ -54,7 +60,16 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
     const exposureDuplicationTeams = parseTeamsList(experimentExposureDuplicationTeams)
 
     return function createEventStep(input) {
-        const { person, preparedEvent, processPerson, historicalMigration, headers, message } = input
+        const {
+            person,
+            preparedEvent,
+            processPerson,
+            historicalMigration,
+            headers,
+            message,
+            eventUsageRecord,
+            eventUsageBatch,
+        } = input
 
         const capturedAt = headers.now ?? null
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
@@ -84,6 +99,8 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
             teamId: preparedEvent.teamId,
             headers,
             message,
+            eventUsageRecord,
+            eventUsageBatch,
         }
 
         return Promise.resolve(ok(result, []))

@@ -453,7 +453,26 @@ class BatchConsumer:
             # scans the whole queue and can outlast the health server's startup
             # grace window, and a pod liveness-killed mid-sweep can never boot.
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-            await self._recovery_sweep_with_timeout()
+            try:
+                await self._recovery_sweep_with_timeout()
+            except psycopg.OperationalError as e:
+                # Mirrors _recovery_loop's handling of the same call: a queue DB that
+                # isn't reachable yet on startup must not crash the consumer, since the
+                # periodic recovery loop tolerates the identical failure once running.
+                if _is_dns_resolution_transient_error(e):
+                    logger.warning(self._event("startup_sweep_dns_unavailable"), error=str(e))
+                elif _is_server_not_ready_error(e):
+                    logger.warning(self._event("startup_sweep_db_starting_up"), error=str(e))
+                elif _is_connect_timeout_error(e):
+                    logger.warning(self._event("startup_sweep_connect_timeout"), error=str(e))
+                elif _is_admin_shutdown_error(e):
+                    logger.warning(self._event("startup_sweep_admin_shutdown"), error=str(e))
+                else:
+                    logger.exception(self._event("startup_sweep_error"))
+                    capture_exception(e)
+            except Exception as e:
+                logger.exception(self._event("startup_sweep_error"))
+                capture_exception(e)
             self._recovery_task = asyncio.create_task(self._recovery_loop())
 
             while not self._shutdown.is_set():

@@ -39,9 +39,11 @@ import type {
     SchemaSceneTab,
 } from '../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
+import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
+import type { NodeDetailSceneTab } from './scenes/models/nodeDetailSceneLogic'
 import {
     ActionType,
     DashboardType,
@@ -122,6 +124,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/models': ['Models', 'models'],
     '/models/dags': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
+    '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
     '/data-management/sources/:sourceId/schemas/:schemaId/:tab': [
@@ -144,6 +147,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
     '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+    '/engineering-analytics/health': ['EngineeringAnalytics', 'engineeringAnalyticsHealth'],
     '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
@@ -164,6 +168,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
+    '/experiments': ['Experiments', 'experiments'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
@@ -208,6 +213,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
     '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
     '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
@@ -219,6 +225,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/inbox/:tab': ['Inbox', 'inbox'],
     '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
     '/inbox/scouts/findings': ['Inbox', 'inbox'],
+    '/inbox/scouts/runs': ['Inbox', 'inbox'],
+    '/inbox/reports/triage': ['Inbox', 'inbox'],
     '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
     '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
     '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
@@ -250,6 +258,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
     '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
     '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
+    '/visual_review/repos/:repoId/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
     '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
         'VisualReviewSnapshotHistory',
         'visualReviewSnapshotHistory',
@@ -394,19 +403,24 @@ export const productRedirects: Record<
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
     '/data-warehouse': () => urls.sources(),
+    '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/engineering-analytics': '/engineering-analytics/overview',
     '/engineering-analytics/authors': '/engineering-analytics/overview',
-    '/error_tracking/configuration': (_params, searchParams, hashParams) => {
-        const { tab, ...restSearchParams } = searchParams
-        return combineUrl(
-            '/error_tracking',
-            { ...restSearchParams, activeTab: 'configuration' },
-            { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
-        ).url
-    },
+    '/error_tracking/configuration': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error_tracking/settings': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error_tracking/settings/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error_tracking/symbol_sets': (_params, searchParams, hashParams) =>
+        configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
+    '/error_tracking/symbol-sets': (_params, searchParams, hashParams) =>
+        configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
     '/logs/sampling/new': (_params, searchParams, hashParams) =>
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
@@ -691,6 +705,14 @@ export const productConfiguration: Record<string, any> = {
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
+    Experiments: {
+        projectBased: true,
+        name: 'Experiments',
+        activityScope: ActivityScope.EXPERIMENT,
+        description:
+            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
+        iconType: 'experiment',
+    },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
@@ -885,7 +907,11 @@ export const productConfiguration: Record<string, any> = {
     Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
     StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
     StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
-    StreamlitApps: { name: 'Streamlit apps', projectBased: true },
+    StreamlitApps: {
+        name: 'Streamlit apps',
+        description: 'Build and share custom Python apps that run on your PostHog data.',
+        projectBased: true,
+    },
     StreamlitApp: { name: 'Streamlit app', projectBased: true },
     StreamlitAppEdit: { name: 'Edit Streamlit app', projectBased: true },
     Subscriptions: {
@@ -932,7 +958,13 @@ export const productConfiguration: Record<string, any> = {
     },
     UserInterview: { name: 'Interview topic', projectBased: true, activityScope: 'UserInterview' },
     UserInterviewResponse: { name: 'Interview response', projectBased: true, activityScope: 'UserInterview' },
-    VisualReviewIndex: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
+    VisualReviewIndex: {
+        name: 'Visual review',
+        description:
+            'Catch unintended UI changes by reviewing screenshot diffs from CI, with the approved baselines committed back to your repo.',
+        projectBased: true,
+        iconType: 'visual_review',
+    },
     VisualReviewRuns: { name: 'Runs', projectBased: true, iconType: 'visual_review' },
     VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
     VisualReviewSettings: { name: 'Visual review settings', projectBased: true, iconType: 'visual_review' },
@@ -942,6 +974,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'visual_review',
     },
     VisualReviewSnapshotOverview: { name: 'Snapshots', projectBased: true, iconType: 'visual_review' },
+    VisualReviewFlakiness: { name: 'Flakiness', projectBased: true, iconType: 'visual_review' },
     Heatmaps: {
         name: 'Heatmaps',
         projectBased: true,
@@ -1098,7 +1131,7 @@ export const productUrls = {
         return query ? `/data-ops?${query}` : '/data-ops'
     },
     models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
-    nodeDetail: (id: string): string => `/models/${id}`,
+    nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
         `/data-management/sources/${id}/${tab ?? 'schemas'}`,
@@ -1185,6 +1218,7 @@ export const productUrls = {
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
     engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
+    engineeringAnalyticsHealth: (): string => '/engineering-analytics/health',
     engineeringAnalyticsTeam: (ownerTeam: string): string =>
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
@@ -1292,6 +1326,7 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalytics: (): string => '/mcp-analytics',
     mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
@@ -1410,6 +1445,7 @@ export const productUrls = {
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTemplates: (): string => '/replay-vision/new/template',
     replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
     replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
@@ -1425,12 +1461,14 @@ export const productUrls = {
     codeReview: (): string => '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
+    inboxTriage: (): string => '/inbox/reports/triage',
     inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
         const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
         return `/inbox/scouts/${skillName}${segment}`
     },
     inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
     inboxFindings: (): string => '/inbox/scouts/findings',
+    inboxRuns: (): string => '/inbox/scouts/runs',
     skills: (): string => '/skills',
     skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (
@@ -1483,6 +1521,7 @@ export const productUrls = {
     visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
     visualReviewRepoRuns: (repoId: string): string => `/visual_review/repos/${repoId}/runs`,
     visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
+    visualReviewFlakiness: (repoId: string): string => `/visual_review/repos/${repoId}/flakiness`,
     visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
         `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     webAnalytics: (): string => `/web`,
@@ -1639,6 +1678,11 @@ export const fileSystemTypes = {
 
 /** This const is auto-generated, as is the whole file */
 export const productSetupProbes: ProductSetupProbe[] = [
+    {
+        productKey: ProductKey.AI_OBSERVABILITY,
+        hasDataEvents: ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'],
+        staleAfterDays: 90,
+    },
     {
         productKey: ProductKey.MCP_ANALYTICS,
         hasDataEvents: ['$mcp_tool_call'],
@@ -1810,6 +1854,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
             'var(--color-product-product-tours-light)',
             'var(--color-product-product-tours-dark)',
         ] as FileSystemIconColor,
+        flag: FEATURE_FLAGS.PRODUCT_TOURS,
     },
     {
         path: `Survey`,
@@ -1981,7 +2026,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.ANALYTICS,
         iconType: 'data_warehouse',
         href: urls.dataCatalog(),
-        flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
         tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
@@ -2273,7 +2317,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-mcp-analytics-light)',
             'var(--color-product-mcp-analytics-dark)',
         ] as FileSystemIconColor,
-        href: urls.mcpAnalyticsDashboard(),
+        href: urls.mcpAnalytics(),
         flag: FEATURE_FLAGS.MCP_ANALYTICS,
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
@@ -2587,6 +2631,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'VisualReviewSettings',
             'VisualReviewSnapshotHistory',
             'VisualReviewSnapshotOverview',
+            'VisualReviewFlakiness',
         ],
     },
     {

@@ -70,7 +70,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         assert str(response.json()["organization_member"]) == str(self.organization_membership.id)
 
     def test_create_role_override(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(name="Analyst", organization=self.organization)
         response = self._post(
@@ -158,7 +158,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_list_with_multiple_rules(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(name="Analyst", organization=self.organization)
 
@@ -185,7 +185,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
     def test_cross_org_role_rejected(self):
         from posthog.models import Organization
 
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         other_org = Organization.objects.create(name="Other org")
         other_role = Role.objects.create(name="Other org role", organization=other_org)
@@ -220,7 +220,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
     def test_delete_cross_org_role_rejected(self):
         from posthog.models import Organization
 
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         other_org = Organization.objects.create(name="Other org")
         other_role = Role.objects.create(name="Other org role", organization=other_org)

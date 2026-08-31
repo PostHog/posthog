@@ -670,7 +670,7 @@ def SHARDED_EVENTS_RECENT_TABLE_SQL():
         EVENTS_TABLE_BASE_SQL
         + """PARTITION BY toStartOfDay(inserted_at)
 ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-TTL toDateTime(inserted_at) + INTERVAL 7 DAY
+TTL toDate(inserted_at) + INTERVAL 9 DAY
 {storage_policy}
 SETTINGS ttl_only_drop_parts = 1
 """

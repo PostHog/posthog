@@ -14,6 +14,7 @@ import {
     EVALUATION_RUNS_QUERY_LIMIT,
 } from './evaluations/constants'
 import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
+import type { SummarizeRequestApi } from './generated/api.schemas'
 import {
     AnthropicDocumentMessage,
     AnthropicImageMessage,
@@ -290,6 +291,33 @@ export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEven
  */
 export function isTraceLevel(item: LLMTrace | LLMTraceEvent): item is LLMTrace {
     return !isLLMEvent(item)
+}
+
+/**
+ * Days either side of the entity's own timestamp to search for it, instead of the endpoint's 30-day
+ * default. Narrow keeps the lookup off traces that reuse a customer-supplied ID, and a single trace
+ * rarely spans longer than this.
+ */
+const SUMMARIZATION_LOOKUP_WINDOW_DAYS = 1
+
+/**
+ * Date window for summarization requests that reference a trace or event by ID.
+ *
+ * The endpoint refetches the entity itself, so the window is all it has to find it by. Callers that
+ * cannot produce a usable timestamp get an empty range, which leaves the endpoint's own default in
+ * place rather than sending a window that excludes the entity.
+ */
+export function getSummarizationLookupDateRange(
+    createdAt: string | undefined
+): Pick<SummarizeRequestApi, 'date_from' | 'date_to'> {
+    const timestamp = createdAt ? dayjs(createdAt) : null
+    if (!timestamp?.isValid()) {
+        return {}
+    }
+    return {
+        date_from: timestamp.subtract(SUMMARIZATION_LOOKUP_WINDOW_DAYS, 'day').toISOString(),
+        date_to: timestamp.add(SUMMARIZATION_LOOKUP_WINDOW_DAYS, 'day').toISOString(),
+    }
 }
 
 function normalizeSessionId(value: unknown): string | null {

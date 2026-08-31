@@ -83,6 +83,7 @@ export function Exporter(props: ExportedData): JSX.Element {
         inline_query_results: inlineQueryResults,
         query,
         query_results: queryResults,
+        query_title: queryTitle,
         themes,
         accessToken,
         exportToken,
@@ -226,6 +227,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                         <LazyQueryScene
                             query={query}
                             queryResults={queryResults}
+                            title={queryTitle}
                             themes={themes!}
                             exportOptions={exportOptions}
                         />

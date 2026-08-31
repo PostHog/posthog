@@ -33,6 +33,7 @@ const HOG_FLOW_FIELDS = [
     'trigger_masking',
     'conversion',
     'exit_condition',
+    'email_sending_rate_limit',
     'edges',
     'actions',
     'encrypted_inputs',

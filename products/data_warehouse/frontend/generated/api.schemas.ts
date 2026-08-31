@@ -1907,9 +1907,15 @@ export interface CredentialApi {
     readonly id: string
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @maxLength 500 */
+    /**
+     * Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).
+     * @maxLength 500
+     */
     access_key: string
-    /** @maxLength 500 */
+    /**
+     * Secret for the access key. Stored encrypted and never returned by the API.
+     * @maxLength 500
+     */
     access_secret: string
 }
 
@@ -2089,6 +2095,7 @@ export interface CredentialApi {
  * * `Ebay` - Ebay
  * * `Commercetools` - Commercetools
  * * `LightspeedRetail` - LightspeedRetail
+ * * `Shipmail` - Shipmail
  * * `ShipStation` - ShipStation
  * * `ConstantContact` - ConstantContact
  * * `Mailgun` - Mailgun
@@ -2101,6 +2108,7 @@ export interface CredentialApi {
  * * `Gladly` - Gladly
  * * `Qualtrics` - Qualtrics
  * * `AzureDevOps` - AzureDevOps
+ * * `RoktAds` - RoktAds
  * * `Rollbar` - Rollbar
  * * `Opsgenie` - Opsgenie
  * * `IncidentIo` - IncidentIo
@@ -3169,6 +3177,7 @@ export interface CredentialApi {
  * * `SideShift` - SideShift
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
+ * * `Trino` - Trino
  * * `Easybill` - Easybill
  * * `Bexio` - Bexio
  * * `Umami` - Umami
@@ -3218,6 +3227,23 @@ export interface CredentialApi {
  * * `Airwallex` - Airwallex
  * * `Polymarket` - Polymarket
  * * `Kalshi` - Kalshi
+ * * `Capterra` - Capterra
+ * * `GooglePostmasterTools` - GooglePostmasterTools
+ * * `Growi` - Growi
+ * * `Clarify` - Clarify
+ * * `DatoCMS` - DatoCMS
+ * * `WPSOffice` - WPSOffice
+ * * `TeraBox` - TeraBox
+ * * `SimonData` - SimonData
+ * * `CommissionJunction` - CommissionJunction
+ * * `Liveblocks` - Liveblocks
+ * * `NationBuilder` - NationBuilder
+ * * `Tana` - Tana
+ * * `Zenchef` - Zenchef
+ * * `Lovable` - Lovable
+ * * `Anvil` - Anvil
+ * * `Coolify` - Coolify
+ * * `SocialPilot` - SocialPilot
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3398,6 +3424,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Ebay: 'Ebay',
     Commercetools: 'Commercetools',
     LightspeedRetail: 'LightspeedRetail',
+    Shipmail: 'Shipmail',
     ShipStation: 'ShipStation',
     ConstantContact: 'ConstantContact',
     Mailgun: 'Mailgun',
@@ -3410,6 +3437,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Gladly: 'Gladly',
     Qualtrics: 'Qualtrics',
     AzureDevOps: 'AzureDevOps',
+    RoktAds: 'RoktAds',
     Rollbar: 'Rollbar',
     Opsgenie: 'Opsgenie',
     IncidentIo: 'IncidentIo',
@@ -4478,6 +4506,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SideShift: 'SideShift',
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
+    Trino: 'Trino',
     Easybill: 'Easybill',
     Bexio: 'Bexio',
     Umami: 'Umami',
@@ -4527,6 +4556,23 @@ export const ExternalDataSourceTypeEnumApi = {
     Airwallex: 'Airwallex',
     Polymarket: 'Polymarket',
     Kalshi: 'Kalshi',
+    Capterra: 'Capterra',
+    GooglePostmasterTools: 'GooglePostmasterTools',
+    Growi: 'Growi',
+    Clarify: 'Clarify',
+    DatoCMS: 'DatoCMS',
+    WPSOffice: 'WPSOffice',
+    TeraBox: 'TeraBox',
+    SimonData: 'SimonData',
+    CommissionJunction: 'CommissionJunction',
+    Liveblocks: 'Liveblocks',
+    NationBuilder: 'NationBuilder',
+    Tana: 'Tana',
+    Zenchef: 'Zenchef',
+    Lovable: 'Lovable',
+    Anvil: 'Anvil',
+    Coolify: 'Coolify',
+    SocialPilot: 'SocialPilot',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -4545,6 +4591,9 @@ export type TableApiColumnsItem = { [key: string]: unknown }
  */
 export type TableApiExternalSchema = { [key: string]: unknown } | null
 
+/**
+ * Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.
+ */
 export type TableApiOptions = { [key: string]: unknown }
 
 /**
@@ -4552,12 +4601,26 @@ export type TableApiOptions = { [key: string]: unknown }
  */
 export interface TableApi {
     readonly id: string
-    /** @nullable */
+    /**
+     * Whether the table is soft-deleted and hidden from queries.
+     * @nullable
+     */
     deleted?: boolean | null
-    /** @maxLength 128 */
+    /**
+     * Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.
+     * @maxLength 128
+     */
     name: string
     /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
     readonly hogql_name: string
+    /** File format of the objects the pattern matches. Every matched file must share this format.
+     *
+     * * `CSV` - CSV
+     * * `CSVWithNames` - CSVWithNames
+     * * `Parquet` - Parquet
+     * * `JSONEachRow` - JSON
+     * * `Delta` - Delta
+     * * `DeltaS3Wrapper` - DeltaS3Wrapper */
     format: TableFormatEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -4572,13 +4635,17 @@ export interface TableApi {
      * * `materialized_view` - materialized_view
      * * `demo` - demo */
     readonly created_via: TableCreatedViaEnumApi | null
-    /** @maxLength 500 */
+    /**
+     * HTTPS URL of the files to read, with `*` matching any part of a path segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage.
+     * @maxLength 500
+     */
     url_pattern: string
     credential: CredentialApi
     readonly columns: readonly TableApiColumnsItem[]
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema: TableApiExternalSchema
+    /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: TableApiOptions
     /**
      * The effective access level the user has for this object
@@ -4603,6 +4670,9 @@ export type PatchedTableApiColumnsItem = { [key: string]: unknown }
  */
 export type PatchedTableApiExternalSchema = { [key: string]: unknown } | null
 
+/**
+ * Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.
+ */
 export type PatchedTableApiOptions = { [key: string]: unknown }
 
 /**
@@ -4610,12 +4680,26 @@ export type PatchedTableApiOptions = { [key: string]: unknown }
  */
 export interface PatchedTableApi {
     readonly id?: string
-    /** @nullable */
+    /**
+     * Whether the table is soft-deleted and hidden from queries.
+     * @nullable
+     */
     deleted?: boolean | null
-    /** @maxLength 128 */
+    /**
+     * Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.
+     * @maxLength 128
+     */
     name?: string
     /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
     readonly hogql_name?: string
+    /** File format of the objects the pattern matches. Every matched file must share this format.
+     *
+     * * `CSV` - CSV
+     * * `CSVWithNames` - CSVWithNames
+     * * `Parquet` - Parquet
+     * * `JSONEachRow` - JSON
+     * * `Delta` - Delta
+     * * `DeltaS3Wrapper` - DeltaS3Wrapper */
     format?: TableFormatEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string
@@ -4630,13 +4714,17 @@ export interface PatchedTableApi {
      * * `materialized_view` - materialized_view
      * * `demo` - demo */
     readonly created_via?: TableCreatedViaEnumApi | null
-    /** @maxLength 500 */
+    /**
+     * HTTPS URL of the files to read, with `*` matching any part of a path segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage.
+     * @maxLength 500
+     */
     url_pattern?: string
     credential?: CredentialApi
     readonly columns?: readonly PatchedTableApiColumnsItem[]
     readonly external_data_source?: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema?: PatchedTableApiExternalSchema
+    /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: PatchedTableApiOptions
     /**
      * The effective access level the user has for this object

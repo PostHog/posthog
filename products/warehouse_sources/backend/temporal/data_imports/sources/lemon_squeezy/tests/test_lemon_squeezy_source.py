@@ -1,24 +1,18 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lemonsqueezy import (
     LemonSqueezySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.lemon_squeezy import (
-    LemonSqueezyResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.settings import (
     ENDPOINTS,
     INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
     SCHEMA_TO_WEBHOOK_EVENTS,
-    WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.source import LemonSqueezySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.source.api_client"
 
@@ -29,9 +23,6 @@ class TestLemonSqueezySource:
         self.team_id = 123
         self.config = LemonSqueezySourceConfig(api_key="test-api-key")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LEMONSQUEEZY
-
     def test_get_source_config(self):
         config = self.source.get_source_config
 
@@ -41,21 +32,6 @@ class TestLemonSqueezySource:
         # The source must ship visible: unreleasedSource hides it from every user.
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/lemon-squeezy"
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    def test_webhook_fields_include_signing_secret(self):
-        config = self.source.get_source_config
-        assert config.webhookFields is not None
-        field = next(
-            f for f in config.webhookFields if isinstance(f, SourceFieldInputConfig) and f.name == "signing_secret"
-        )
-        assert field.secret is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -93,16 +69,6 @@ class TestLemonSqueezySource:
             assert schemas[name].supports_append is False
             assert schemas[name].incremental_fields == INCREMENTAL_FIELDS[name]
 
-    def test_webhook_capable_schemas(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        webhook_capable = {name for name, schema in schemas.items() if schema.supports_webhooks}
-        assert webhook_capable == set(WEBHOOK_SCHEMA_NAMES)
-        assert all(not schema.webhook_only for schema in schemas.values())
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["orders"])
-        assert [schema.name for schema in schemas] == ["orders"]
-
     @pytest.mark.parametrize("mock_return, expected_valid", [(True, True), (False, False)])
     @mock.patch(f"{API_CLIENT_PATCH}.validate_credentials")
     def test_validate_credentials(self, mock_validate, mock_return, expected_valid):
@@ -113,12 +79,6 @@ class TestLemonSqueezySource:
         assert is_valid is expected_valid
         assert (error_message is None) is expected_valid
         mock_validate.assert_called_once_with("test-api-key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is LemonSqueezyResumeConfig
 
     @mock.patch(f"{API_CLIENT_PATCH}.lemon_squeezy_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source):

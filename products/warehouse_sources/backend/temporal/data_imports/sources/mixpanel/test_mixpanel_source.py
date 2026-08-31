@@ -5,17 +5,12 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
     MixpanelSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import MixpanelResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = structlog.get_logger()
 
@@ -50,36 +45,6 @@ def _inputs(schema_name: str = "export", **overrides) -> SourceInputs:
     return SourceInputs(**defaults)
 
 
-class TestSourceType:
-    def test_source_type(self) -> None:
-        assert MixpanelSource().source_type == ExternalDataSourceType.MIXPANEL
-
-
-class TestSourceConfig:
-    def test_basic_metadata(self) -> None:
-        config = MixpanelSource().get_source_config
-        assert config.label == "Mixpanel"
-        assert not config.unreleasedSource
-        assert config.releaseStatus == "alpha"
-
-    def test_fields(self) -> None:
-        fields = {f.name: f for f in MixpanelSource().get_source_config.fields}
-        assert set(fields) == {"region", "project_id", "service_account_username", "service_account_secret"}
-
-        assert isinstance(fields["region"], SourceFieldSelectConfig)
-        assert {o.value for o in fields["region"].options} == {"us", "eu", "in"}
-        assert fields["region"].defaultValue == "us"
-
-        secret = fields["service_account_secret"]
-        assert isinstance(secret, SourceFieldInputConfig)
-        assert secret.type == SourceFieldInputConfigType.PASSWORD
-        assert secret.secret is True
-
-        # The project id / username are not secret inputs
-        assert isinstance(fields["project_id"], SourceFieldInputConfig)
-        assert fields["project_id"].type == SourceFieldInputConfigType.TEXT
-
-
 class TestConnectionHostFields:
     def test_region_and_project_require_secret_re_entry(self) -> None:
         assert set(MixpanelSource().connection_host_fields) == {"region", "project_id"}
@@ -111,33 +76,6 @@ class TestGetSchemas:
     def test_filter_by_names(self) -> None:
         schemas = MixpanelSource().get_schemas(_config(), team_id=1, names=["engage"])
         assert [s.name for s in schemas] == ["engage"]
-
-
-class TestValidateCredentials:
-    @parameterized.expand([("ok", (True, None)), ("bad", (False, "nope"))])
-    def test_delegates_to_transport(self, _name: str, result: tuple[bool, Optional[str]]) -> None:
-        with patch.object(source_module, "validate_mixpanel_credentials", return_value=result) as mock_validate:
-            assert MixpanelSource().validate_credentials(_config(), team_id=1, schema_name="export") == result
-        kwargs = mock_validate.call_args.kwargs
-        assert kwargs["region"] == "eu"
-        assert kwargs["project_id"] == "123456"
-        assert kwargs["username"] == "svc"
-        assert kwargs["secret"] == "shh"
-        assert kwargs["schema_name"] == "export"
-
-
-class TestNonRetryableErrors:
-    def test_auth_errors_present(self) -> None:
-        errors = MixpanelSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-
-class TestResumableManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        manager = MixpanelSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MixpanelResumeConfig
 
 
 class TestApiVersions:

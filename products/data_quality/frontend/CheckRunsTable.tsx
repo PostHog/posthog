@@ -1,10 +1,8 @@
-import { LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 
 import { CHECK_STATUS_TAG_TYPES } from './checksConstants'
 import type { DataQualityCheckRunApi } from './generated/api.schemas'
@@ -22,9 +20,6 @@ export function CheckRunsTable({ runs, loading }: CheckRunsTableProps): JSX.Elem
             loading={loading}
             nouns={['run', 'runs']}
             emptyState="No runs yet"
-            expandable={{
-                expandedRowRender: (run) => <CheckRunQuery run={run} />,
-            }}
             columns={[
                 {
                     title: 'Status',
@@ -69,19 +64,5 @@ export function CheckRunsTable({ runs, loading }: CheckRunsTableProps): JSX.Elem
                 },
             ]}
         />
-    )
-}
-
-function CheckRunQuery({ run }: { run: DataQualityCheckRunApi }): JSX.Element {
-    if (!run.compiled_query) {
-        return <span className="text-secondary text-xs">Query no longer retained</span>
-    }
-    return (
-        <div className="flex flex-col gap-2 py-2">
-            <CodeSnippet language={Language.SQL} compact>
-                {run.compiled_query}
-            </CodeSnippet>
-            <Link to={urls.sqlEditor({ query: run.compiled_query })}>Open in SQL editor</Link>
-        </div>
     )
 }

@@ -25,7 +25,7 @@ export function FleetMemoryCallout() {
 
   return (
     <Link
-      to="/code/agents/scouts/scratchpad"
+      to="/agents/scouts/scratchpad"
       className="flex w-full items-center gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 text-left no-underline transition-colors duration-150 hover:border-(--gray-6) hover:bg-(--gray-2)"
     >
       <NotebookIcon size={20} className="shrink-0 text-(--iris-9)" />

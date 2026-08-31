@@ -1,5 +1,6 @@
 import {
   BRAINROT_CELL,
+  makeCanvasCellValue,
   makeTerminalCellValue,
 } from "@posthog/core/command-center/grid";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -114,13 +115,11 @@ describe("commandCenterStore", () => {
       ]);
     });
 
-    it("focuses the cell, clears its creating state, and marks the grid curated", () => {
-      useCommandCenterStore.setState({ creatingCells: [3] });
+    it("focuses the cell and marks the grid curated", () => {
       useCommandCenterStore.getState().setBrainrotCell(3);
       const state = useCommandCenterStore.getState();
       expect(state.activeCellIndex).toBe(3);
       expect(state.activeTaskId).toBeNull();
-      expect(state.creatingCells).toEqual([]);
       expect(state.hasAutofilled).toBe(true);
     });
 
@@ -147,13 +146,11 @@ describe("commandCenterStore", () => {
       ]);
     });
 
-    it("focuses the cell, clears its creating state, and marks the grid curated", () => {
-      useCommandCenterStore.setState({ creatingCells: [3] });
+    it("focuses the cell and marks the grid curated", () => {
       useCommandCenterStore.getState().setTerminalCell(3, "term-1");
       const state = useCommandCenterStore.getState();
       expect(state.activeCellIndex).toBe(3);
       expect(state.activeTaskId).toBeNull();
-      expect(state.creatingCells).toEqual([]);
       expect(state.hasAutofilled).toBe(true);
     });
 
@@ -165,6 +162,35 @@ describe("commandCenterStore", () => {
         null,
         null,
       ]);
+    });
+  });
+
+  describe("setCanvasCell", () => {
+    it("stores one canvas once and focuses its cell", () => {
+      useCommandCenterStore.getState().setCanvasCell(1, "canvas-1");
+      useCommandCenterStore.getState().setCanvasCell(3, "canvas-1");
+
+      const state = useCommandCenterStore.getState();
+      expect(state.cells).toEqual([
+        null,
+        null,
+        null,
+        makeCanvasCellValue("canvas-1"),
+      ]);
+      expect(state.activeCellIndex).toBe(3);
+      expect(state.activeTaskId).toBeNull();
+      expect(state.hasAutofilled).toBe(true);
+    });
+
+    it("clears a pending canvas placement", () => {
+      useCommandCenterStore.getState().requestPlacement({
+        kind: "canvas",
+        id: "canvas-1",
+        title: "Activation overview",
+      });
+      useCommandCenterStore.getState().setCanvasCell(2, "canvas-1");
+
+      expect(useCommandCenterStore.getState().pendingPlacement).toBeNull();
     });
   });
 
@@ -219,20 +245,6 @@ describe("commandCenterStore", () => {
       expect(state.activeCellIndex).toBe(0);
     });
 
-    // Otherwise a "creating" spinner sits on a tile that now holds a session.
-    it("stops marking a filled cell as creating", () => {
-      useCommandCenterStore.setState({
-        cells: [null, null, null, null],
-        creatingCells: [1, 2],
-      });
-
-      useCommandCenterStore
-        .getState()
-        .applyPlacement({ layout: "2x2", cells: [null, "a", null, null] });
-
-      expect(useCommandCenterStore.getState().creatingCells).toEqual([2]);
-    });
-
     it("marks the grid curated so autofill can't stuff it later", () => {
       useCommandCenterStore
         .getState()
@@ -244,10 +256,15 @@ describe("commandCenterStore", () => {
 
   describe("pending placement", () => {
     it("keeps the requested task available until placement is canceled", () => {
-      useCommandCenterStore.getState().requestPlacement("t1", "Fix signup");
+      useCommandCenterStore.getState().requestPlacement({
+        kind: "task",
+        id: "t1",
+        title: "Fix signup",
+      });
       expect(useCommandCenterStore.getState().pendingPlacement).toEqual({
-        taskId: "t1",
-        taskTitle: "Fix signup",
+        kind: "task",
+        id: "t1",
+        title: "Fix signup",
       });
 
       useCommandCenterStore.getState().cancelPlacement();
@@ -255,7 +272,11 @@ describe("commandCenterStore", () => {
     });
 
     it("clears the request when the task is assigned", () => {
-      useCommandCenterStore.getState().requestPlacement("t1", "Fix signup");
+      useCommandCenterStore.getState().requestPlacement({
+        kind: "task",
+        id: "t1",
+        title: "Fix signup",
+      });
       useCommandCenterStore.getState().assignTask(2, "t1");
       expect(useCommandCenterStore.getState().pendingPlacement).toBeNull();
       expect(useCommandCenterStore.getState().cells[2]).toBe("t1");

@@ -315,6 +315,54 @@ database "posthog" {
     }
   }
 
+  table "billing_usage_records" {
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_billing_usage_records"
+      sharding_key    = "cityHash64(team_id)"
+    }
+  }
+
   table "channel_definition" {
     order_by = ["domain", "kind"]
     settings = {
@@ -4911,6 +4959,58 @@ database "posthog" {
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_app_metrics2"
       replica_name = "{replica}"
+    }
+  }
+
+  table "sharded_billing_usage_records" {
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
     }
   }
 

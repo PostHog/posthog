@@ -12,6 +12,8 @@ function tab(id: string, position: number): BrowserTab {
   return {
     id,
     windowId: "w1",
+    href: null,
+    viewState: null,
     dashboardId: null,
     taskId: null,
     channelId: null,

@@ -13,7 +13,7 @@ export interface ResponderAgentDefinition {
   alpha?: boolean;
 }
 
-export interface ResponderAgentGroup {
+interface ResponderAgentGroup {
   label: string;
   agents: ResponderAgentDefinition[];
 }

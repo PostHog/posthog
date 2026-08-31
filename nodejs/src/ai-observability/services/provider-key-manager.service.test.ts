@@ -1,6 +1,6 @@
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
-import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { insertProviderKey } from '../_tests/fixtures'
@@ -15,11 +15,10 @@ describe('ProviderKeyManagerService', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         manager = new ProviderKeyManagerService(hub.postgres, hub.pubSub)
 
-        const team = await getTeam(hub.postgres, 2)
-        teamId = await createTeam(hub.postgres, team!.organization_id)
+        const { team } = await createTestTeamFixture(hub.postgres)
+        teamId = team.id
         providerKey = await insertProviderKey(hub.postgres, teamId)
     })
 

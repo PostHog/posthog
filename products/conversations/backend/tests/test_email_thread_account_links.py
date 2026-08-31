@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -93,14 +95,48 @@ class TestEmailThreadAccountLinks(BaseTest):
             ],
         )
 
+        reply_sent_at = self.message.sent_at + timedelta(minutes=1)
+        reply_comment = Comment.objects.create(
+            team=self.team,
+            scope=EMAIL_THREAD_COMMENT_SCOPE,
+            item_id=str(self.thread.id),
+            content="Reply update",
+        )
+        EmailThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=self.thread,
+            comment=reply_comment,
+            message_id="<account-thread-reply@example.com>",
+            in_reply_to=self.message.message_id,
+            references=[self.message.message_id],
+            sent_at=reply_sent_at,
+            sender_email="csm@example.com",
+            sender_name="CSM",
+            to_recipients=[{"name": "Customer", "email": "customer@example.com"}],
+            cc_recipients=[],
+            sender_authenticated=True,
+            direction=EmailThreadMessageDirection.OUTBOUND,
+            source_type="mailgun",
+            source_id="<account-thread-reply@example.com>",
+        )
+        self.thread.last_message_at = reply_sent_at
+        self.thread.message_count = 2
+        self.thread.preview = "Reply update"
+        self.thread.save(update_fields=["last_message_at", "message_count", "preview", "updated_at"])
+
         summaries, count = list_account_email_threads(self.team.id, "account-1")
         message_page = list_account_email_thread_messages(self.team.id, "account-1", str(self.thread.id))
         assert count == 1
         assert len(summaries) == 1
         assert summaries[0].subject == "Account review"
+        assert summaries[0].last_message is not None
+        assert summaries[0].last_message.sender.name == "CSM"
+        assert summaries[0].last_message.sender.email == "csm@example.com"
+        assert summaries[0].last_message.sent_at == reply_sent_at
+        assert summaries[0].last_message.direction == "outbound"
         assert message_page is not None
         messages, message_count = message_page
-        assert message_count == 1
+        assert message_count == 2
         assert messages[0].content == "Latest update"
         assert messages[0].sender_authenticated is True
         assert messages[0].to_recipients[0].email == "csm@example.com"

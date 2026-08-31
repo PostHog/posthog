@@ -270,6 +270,23 @@ export interface _MetricAnomalyReportApi {
     series: _MetricSeriesApi
 }
 
+export interface _MetricErrorSpikeApi {
+    /** When the error spike was detected, ISO 8601. */
+    detected_at: string
+    /** Error Tracking issue that spiked. */
+    issue_id: string
+    /**
+     * Issue name, if one is set.
+     * @nullable
+     */
+    issue_name: string | null
+}
+
+export interface _MetricErrorSpikesResponseApi {
+    /** Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet scoped to a specific metric's service. */
+    results: _MetricErrorSpikeApi[]
+}
+
 /**
  * * `gauge` - gauge
  * * `sum` - sum
@@ -506,6 +523,33 @@ export interface _HasMetricsResponseApi {
     hasMetrics: boolean
 }
 
+export interface _MetricsOverviewServiceApi {
+    /** Service that reported metrics inside the window. */
+    service_name: string
+    /** Distinct metric names this service reported in the window. */
+    metric_names: number
+    /** Distinct series (metric + label-set combinations) this service reported in the window. */
+    series: number
+    /** When this service's newest datapoint arrived, ISO 8601. */
+    last_seen: string
+}
+
+export interface _MetricsOverviewResponseApi {
+    /**
+     * When the newest datapoint arrived across all series, ISO 8601. Unlike the counts this ignores the window, so it still answers 'when did ingestion stop'. Null when nothing was ever ingested.
+     * @nullable
+     */
+    last_seen: string | null
+    /** Distinct metric names reported inside the window. */
+    metric_names: number
+    /** Distinct series (metric + label-set combinations) reported inside the window. */
+    series: number
+    /** Length of the rollup window in seconds, so consumers can label the counts. */
+    lookback_seconds: number
+    /** Per-service rollup for the window, largest series count first. Capped at the 500 largest. */
+    services: _MetricsOverviewServiceApi[]
+}
+
 export interface _MetricGroupByApi {
     /**
      * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -576,7 +620,7 @@ export interface _MetricQueryBodyApi {
      * * `exponential_histogram` - exponential_histogram
      * * `summary` - summary */
     metricType?: OtelMetricTypeEnumApi | null
-    /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+    /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
      *
      * * `sum` - sum
      * * `avg` - avg
@@ -780,6 +824,17 @@ export type MetricsAttributesRetrieveParams = {
     search?: string
 }
 
+export type MetricsErrorSpikesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) for the spike window. ISO 8601.
+     */
+    dateFrom: string
+    /**
+     * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
+     */
+    dateTo?: string
+}
+
 export type MetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
@@ -787,6 +842,11 @@ export type MetricsValuesRetrieveParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+     * @maxLength 1024
+     */
+    service?: string
     /**
      * Substring filter (case-insensitive) applied to metric names.
      * @maxLength 255

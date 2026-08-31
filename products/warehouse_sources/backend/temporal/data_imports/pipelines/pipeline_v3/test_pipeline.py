@@ -96,6 +96,7 @@ class TestAttemptScopedRunUuid:
             partition_keys=None,
             partition_format=None,
             partition_mode=None,
+            cdc_write_mode=None,
         )
 
         with (
@@ -189,3 +190,122 @@ class TestExtractionFailureDoesNotCleanupS3:
                 await pipeline.run()
 
         s3_writer.cleanup.assert_not_called()
+
+
+# Both properties below are silent when wrong: a `full_refresh` overwrites the customer's table
+# with one micro-batch of changes, and a missing `cdc_write_mode` turns off enrichment and position
+# resolution while every other test still passes.
+class TestCDCSourceWiring:
+    def _build(self, cdc_write_mode: str | None) -> tuple[PipelineV3, MagicMock]:
+        mock_job = MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1")
+        mock_schema = MagicMock(
+            id="schema-1",
+            source_id="source-1",
+            is_incremental=False,
+            is_webhook=False,
+            is_xmin=False,
+            is_append=False,
+            table=None,
+            primary_key_columns=["id"],
+            partition_count=None,
+            partition_size=None,
+            partitioning_keys=None,
+            partition_format=None,
+            partition_mode=None,
+            partition_count_override=None,
+            partition_size_override=None,
+            partitioning_keys_override=None,
+            partition_mode_override=None,
+        )
+        mock_resource = MagicMock(
+            name="users",
+            primary_keys=["id"],
+            partition_count=None,
+            partition_size=None,
+            partition_keys=None,
+            partition_format=None,
+            partition_mode=None,
+            cdc_write_mode=cdc_write_mode,
+        )
+
+        base = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+        with (
+            patch(f"{base}.current_activity_attempt", return_value=1),
+            patch(f"{base}.current_workflow_id", return_value="wf-1"),
+            patch(f"{base}.current_workflow_run_id", return_value="wfrun-abc"),
+            patch(f"{base}.S3BatchWriter"),
+            patch(f"{base}.PostgresProducer") as mock_producer_cls,
+            patch(f"{base}.DeltaTableRef"),
+        ):
+            pipeline: PipelineV3 = PipelineV3(
+                source_response=mock_resource,
+                logger=_make_logger(),
+                job_id="job-1",
+                reset_pipeline=False,
+                shutdown_monitor=MagicMock(),
+                resumable_source_manager=None,
+                models=ImportJobModels(
+                    job=mock_job, schema=mock_schema, source=MagicMock(source_type="Postgres"), table=None
+                ),
+            )
+        return pipeline, mock_producer_cls
+
+    def test_a_cdc_run_writes_incrementally_and_carries_its_write_mode(self) -> None:
+        pipeline, mock_producer_cls = self._build("incremental_merge")
+
+        assert pipeline._is_incremental is True
+        assert mock_producer_cls.call_args.kwargs["sync_type"] == "cdc"
+        assert mock_producer_cls.call_args.kwargs["cdc_write_mode"] == "incremental_merge"
+
+    def test_a_non_cdc_run_is_unaffected(self) -> None:
+        pipeline, mock_producer_cls = self._build(None)
+
+        assert pipeline._is_incremental is False
+        assert mock_producer_cls.call_args.kwargs["sync_type"] == "full_refresh"
+        assert mock_producer_cls.call_args.kwargs["cdc_write_mode"] is None
+
+
+class TestCDCSeqProvenanceSurvivesStaging:
+    def test_the_stamp_survives_every_extract_side_hop(self) -> None:
+        # The loader gates all position resolution on the provenance stamp. If any hop between the
+        # buffer read and the loader's parquet read strips field metadata, resolution silently turns
+        # itself off: the floor never advances, files re-merge every run, and every other test still
+        # passes. Chain mirrors PipelineV3.run: normalize → evolve against a Delta-derived schema
+        # (which carries no arrow metadata) → batcher concat → staged-parquet round trip.
+        import io
+
+        import pyarrow as pa
+        import deltalake
+        import pyarrow.parquet as pq
+
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+            CDC_SEQ_COLUMN,
+            CDC_SEQ_PROVENANCE,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+            evolve_pyarrow_schema,
+            normalize_table_column_names,
+        )
+
+        table = pa.table({"id": pa.array([1, 2], pa.int64())}).append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array([10, 20], pa.int64())
+        )
+        # The target as Delta reports it: same columns plus one this batch lacks, and no arrow
+        # field metadata (Delta stores none), which is what could strip the stamp on evolve.
+        target_fields: list[pa.Field] = [
+            pa.field("id", pa.int64()),
+            pa.field(CDC_SEQ_COLUMN, pa.int64()),
+            pa.field("extra", pa.string()),
+        ]
+        delta_schema = deltalake.Schema.from_arrow(pa.schema(target_fields))
+
+        staged = pa.concat_tables(
+            [evolve_pyarrow_schema(normalize_table_column_names(table), delta_schema)] * 2,
+            promote_options="permissive",
+        )
+        buf = io.BytesIO()
+        pq.write_table(staged, buf)
+        buf.seek(0)
+
+        assert has_engine_seq(pq.read_table(buf))
