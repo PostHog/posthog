@@ -55,7 +55,7 @@ AVOIDABLE_CATEGORIES: frozenset[str] = frozenset(
 # ---------- alive set ----------
 
 
-@dataclass
+@dataclass(frozen=False)
 class AliveSet:
     """What survives in the final schema after every migration applies."""
 
@@ -192,7 +192,7 @@ def classify_op(op: dict[str, Any], alive: AliveSet, last_alter: dict[tuple[str,
 # ---------- breakdown ----------
 
 
-@dataclass
+@dataclass(frozen=False)
 class WasteBreakdown:
     """Aggregated waste analysis for the whole run."""
 

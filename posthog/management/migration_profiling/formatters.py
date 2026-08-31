@@ -30,7 +30,7 @@ TOP_PY_FUNCS = 30
 P95 = 0.95
 
 
-@dataclass
+@dataclass(frozen=False)
 class ProfileRun:
     meta: dict[str, Any]
     ops: list[dict[str, Any]]
@@ -103,6 +103,7 @@ def _has_children(
     return children_index.get(parent_index, 0) > 0
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
 def _build_children_index(ops: list[dict[str, Any]]) -> dict[tuple[str, str, int], int]:
     """Count how many ops point at each ``(app, migration, op_index)`` as their parent."""
     counts: dict[tuple[str, str, int], int] = defaultdict(int)

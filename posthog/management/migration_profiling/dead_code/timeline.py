@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from posthog.management.migration_profiling.dead_code.parser import OperationNode, ParsedMigration
 
 
-@dataclass
+@dataclass(frozen=False)
 class TimelineEvent:
     app: str
     migration_name: str
@@ -25,7 +25,7 @@ class TimelineEvent:
         return self.operation.class_name
 
 
-@dataclass
+@dataclass(frozen=False)
 class Timeline:
     """Indexed view of every operation across every migration.
 

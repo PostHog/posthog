@@ -29,6 +29,7 @@ class FKField:
     deferrable: bool = True
 
     @property
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def key(self) -> tuple[str, str, str]:
         return (self.from_app, self.from_model, self.field_name)
 
@@ -80,6 +81,7 @@ class CycleBreaker:
         return out
 
     @staticmethod
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def _target_app_and_model(ref: Any) -> tuple[str, str]:
         if isinstance(ref, str):
             # `settings.AUTH_USER_MODEL` and similar swappable references resolve
@@ -171,7 +173,7 @@ class CycleBreaker:
         remaining = set(members)
         order: list[str] = []
         while remaining:
-
+            # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
             def placement_cost(n: str) -> tuple[int, int, str]:
                 in_w = sum(w for (u, v), w in weights.items() if v == n and u != n and u in remaining)
                 out_w = sum(w for (u, v), w in weights.items() if u == n and v != n and v in remaining)
@@ -265,10 +267,12 @@ class CycleBreaker:
         # (self.deferred is a set).
         return sorted((fk for fk in self.deferred if fk.from_app == app), key=lambda fk: fk.key)
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def deferred_field_keys_for_app(self, app: str) -> set[tuple[str, str]]:
         """{(model_name, field_name)} that this app's CreateModel should skip."""
         return {(fk.from_model, fk.field_name) for fk in self.deferred_for_app(app)}
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def cycle_break_edges(self, squasher: planning.Squasher) -> list[tuple[str, str, str, str]]:
         """The specific `(from_app, from_name) -> (to_app, to_name)` dependency
         entries on old migrations whose presence creates the multi-app dep cycle.

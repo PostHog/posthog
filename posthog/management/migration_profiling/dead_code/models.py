@@ -28,7 +28,7 @@ class Confidence(Enum):
         return cls.LOW
 
 
-@dataclass
+@dataclass(frozen=False)
 class Finding:
     """A single detector hit."""
 

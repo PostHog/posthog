@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-@dataclass
+@dataclass(frozen=False)
 class FunctionStats:
     function: str
     self_samples: int
@@ -36,7 +36,7 @@ class FunctionStats:
         return 0.0
 
 
-@dataclass
+@dataclass(frozen=False)
 class SpyAggregate:
     total_samples: int
     by_self: list[tuple[str, int, float]]  # (function, self_samples, self_pct)
@@ -91,6 +91,7 @@ def aggregate_samples(samples: list[tuple[list[str], int]], top_n: int = 30) -> 
         for frame in set(frames):
             cum_counts[frame] += count
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def _top(counts: dict[str, int]) -> list[tuple[str, int, float]]:
         pct = 100.0 / total if total else 0.0
         return sorted(

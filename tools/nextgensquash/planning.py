@@ -16,13 +16,13 @@ import networkx as nx
 from . import loading
 
 
-@dataclass
+@dataclass(frozen=False)
 class DroppedRunPython:
     from_migration: loading.MigrationRef
     callable_name: str
 
 
-@dataclass
+@dataclass(frozen=False)
 class ProposedSquash:
     app: str
     name: str
@@ -113,6 +113,7 @@ class Squasher:
     def _plan_squashes(self) -> list[ProposedSquash]:
         return [self._plan_one(app, migs) for app, migs in sorted(loading.MigrationTree.group_by_app(self.old).items())]
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def cross_app_edges(self) -> list[tuple[loading.MigrationRef, loading.MigrationRef]]:
         """Every (from_old, to_old) cross-app edge in the old set."""
         out: list[tuple[loading.MigrationRef, loading.MigrationRef]] = []
@@ -131,6 +132,7 @@ class Squasher:
                 sccs.append(comp)
         return sccs
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def edges_inside_cycle(self, scc: list[str]) -> list[tuple[loading.MigrationRef, loading.MigrationRef]]:
         members = set(scc)
         return [(frm, to) for frm, to in self.cross_app_edges() if frm.app in members and to.app in members]

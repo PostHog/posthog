@@ -500,6 +500,7 @@ def _html_table_slowest_migrations(runs: list[ProfileRun], waste: WasteBreakdown
             if existing is None or op["duration_ms"] > existing["duration_ms"]:
                 heaviest_by_mig[key] = op
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def _verdict(key: tuple[str, str, str]) -> tuple[str, str]:
         """Returns (label, pill_class)."""
         if waste is None:

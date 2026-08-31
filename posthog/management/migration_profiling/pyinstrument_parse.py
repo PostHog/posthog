@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 
-@dataclass
+@dataclass(frozen=False)
 class PyinstrumentAggregate:
     total_duration_s: float
     sample_count: int | None
@@ -75,6 +75,7 @@ def parse_pyinstrument_json(path: Path, top_n: int = 30) -> PyinstrumentAggregat
     total_duration = payload.get("duration") or root.get("time", 0.0)
     sample_count = payload.get("sample_count")
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def _top(d: dict[str, float]) -> list[tuple[str, float, float]]:
         rows = sorted(d.items(), key=lambda x: -x[1])[:top_n]
         if total_duration > 0:

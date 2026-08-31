@@ -48,7 +48,7 @@ MAX_SQL_PER_OP = 1000
 PARAMS_REPR_LIMIT = 256
 
 
-@dataclass
+@dataclass(frozen=False)
 class _Frame:
     record: OpRecord
     monotonic_start: float
@@ -59,7 +59,7 @@ class _Frame:
     target_connection_alias: str | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class _ProfilerState:
     fp: IO[str]
     database: str

@@ -14,7 +14,7 @@ import pytest
 from posthog.management.migration_profiling.metadata import EXTRACTORS, STATE_ONLY_OPERATIONS, extract
 
 
-@dataclass
+@dataclass(frozen=False)
 class _FakeOp:
     name: str = ""
 

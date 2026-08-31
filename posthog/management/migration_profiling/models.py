@@ -15,7 +15,7 @@ SCHEMA_VERSION = 1
 SQL_TRUNCATION_LIMIT = 4096
 
 
-@dataclass
+@dataclass(frozen=False)
 class SqlRecord:
     sql: str
     sql_truncated: bool
@@ -28,7 +28,7 @@ class SqlRecord:
         return asdict(self)
 
 
-@dataclass
+@dataclass(frozen=False)
 class OpRecord:
     database: str
     app_label: str

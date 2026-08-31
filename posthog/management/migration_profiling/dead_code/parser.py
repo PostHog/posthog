@@ -40,7 +40,7 @@ _POSITIONAL_ARGS: dict[str, list[str]] = {
 }
 
 
-@dataclass
+@dataclass(frozen=False)
 class OperationNode:
     """One element of a Migration's ``operations = [...]`` list."""
 
@@ -55,7 +55,7 @@ class OperationNode:
     runpython_is_explicit_noop: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class ParsedMigration:
     """A migration file parsed into structured operation metadata."""
 

@@ -10,6 +10,7 @@ State handling is inherited unchanged.
 """
 
 from django.db import migrations
+from django.db.models.constraints import BaseConstraint
 
 
 def _table_constraints(schema_editor, table: str) -> dict:
@@ -53,6 +54,10 @@ class AddIndexIfMissing(migrations.AddIndex):
 
 
 class AddConstraintIfMissing(migrations.AddConstraint):
+    # django-stubs omits these runtime attributes on AddConstraint.
+    model_name: str
+    constraint: BaseConstraint
+
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.model_name)
         if not self.allow_migrate_model(schema_editor.connection.alias, model):

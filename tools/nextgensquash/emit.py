@@ -25,7 +25,7 @@ from posthog.migration_helpers import squash_idempotent
 from . import cyclebreak, planning
 
 
-@dataclass
+@dataclass(frozen=False)
 class SquashFile:
     app: str
     name: str
@@ -156,7 +156,10 @@ class Emitter:
         return [ms for (app, _), ms in self.state.models.items() if app == self.app]
 
     def _create_model_op(
-        self, ms: Any, skip_fields: set[str]
+        self,
+        ms: Any,
+        skip_fields: set[str],
+        # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     ) -> tuple[Any, list[Any], list[Any], list[tuple[str, Any]]]:
         """Build a CreateModel that omits `skip_fields` plus any index/constraint
         referencing those fields. Return the CreateModel plus deferred indexes,
@@ -298,6 +301,7 @@ class Emitter:
             order = sorted(by_name)
         return [by_name[n] for n in order]
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def _cross_app_dependencies(self, skip_fields_by_model: dict[str, set[str]]) -> list[tuple[str, str]]:
         """Declare deps on foreign apps that this app's models reach via FK.
 
@@ -337,6 +341,7 @@ class Emitter:
                     )
         return sorted(deps)
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def _carried_run_before(self) -> list[tuple[str, str]]:
         """Preserve run_before guarantees of claimed migrations whose target is
         outside the old set (third-party or young) — e.g. posthog.0745 must run
@@ -353,6 +358,7 @@ class Emitter:
                     out.add(rb.key)
         return sorted(out)
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def _third_party_dependencies(self) -> list[tuple[str, str]]:
         """Report (never emit) deps of claimed migrations into apps this repo
         does not manage — e.g. posthog.0886 -> social_django.0010_uid_db_index.
@@ -381,6 +387,7 @@ class Emitter:
                     best[dep.app] = dep.name
         return sorted(best.items())
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def _replaces(self) -> list[tuple[str, str]]:
         """Claim every old migration for this app, including the transitive
         members of any squash already on disk. Install will strip `replaces` from
@@ -632,6 +639,7 @@ class Emitter:
 
         return [op for op in kept if op is not None]
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def _schema_addons_deps(self, prior_squash: str) -> list[tuple[str, str]]:
         """Deps for 0003_schema_addons: this app's prior squash (initial or
         finalize) plus every other claimed app's *leaf* squash — old RunSQL

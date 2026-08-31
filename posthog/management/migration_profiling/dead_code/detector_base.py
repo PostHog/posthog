@@ -25,7 +25,7 @@ from posthog.management.migration_profiling.dead_code.parser import ParsedMigrat
 from posthog.management.migration_profiling.dead_code.timeline import Timeline
 
 
-@dataclass
+@dataclass(frozen=False)
 class AnalysisContext:
     """Everything a detector needs in one place.
 

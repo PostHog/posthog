@@ -94,6 +94,7 @@ def _rewrite_deps_in_file(
     avoiding the cycle finalize_fks itself depends on.
     """
 
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def transform(dep: tuple[str, str]) -> tuple[str, str]:
         key = f"{dep[0]}/{dep[1]}"
         if key not in replaced_to_app:

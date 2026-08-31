@@ -49,6 +49,7 @@ class MigrationRef:
         return f"{self.app}.{self.name}"
 
     @property
+    # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def key(self) -> tuple[str, str]:
         return (self.app, self.name)
 
@@ -61,7 +62,7 @@ class OpInfo:
     target: str | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class Migration:
     ref: MigrationRef
     file_path: Path
@@ -183,7 +184,10 @@ class MigrationTree:
     )
 
     def partition(
-        self, cutoff: date, include_prior_squashes: bool = True
+        self,
+        cutoff: date,
+        include_prior_squashes: bool = True,
+        # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     ) -> tuple[dict[tuple[str, str], Migration], dict[tuple[str, str], Migration]]:
         old: dict[tuple[str, str], Migration] = {}
         young: dict[tuple[str, str], Migration] = {}
