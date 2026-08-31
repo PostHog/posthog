@@ -2101,6 +2101,83 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Verify the href falls back to base URL with discussion panel
         assert mocked_email_messages[0].properties["href"] == f"{settings.SITE_URL}#panel=discussion"
 
+    def test_send_discussions_mentioned_renders_the_comment_formatting(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email="mentioned@posthog.com", password=None, first_name="Kyle"
+        )
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Kyle two things:\nship it\ntell support",
+            rich_content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "ph-mention", "attrs": {"id": mentioned_user.id}},
+                            {"type": "text", "text": " two "},
+                            {"type": "text", "text": "things", "marks": [{"type": "bold"}]},
+                            {"type": "text", "text": ":"},
+                        ],
+                    },
+                    {
+                        "type": "bulletList",
+                        "content": [
+                            {
+                                "type": "listItem",
+                                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "ship it"}]}],
+                            },
+                            {
+                                "type": "listItem",
+                                "content": [
+                                    {"type": "paragraph", "content": [{"type": "text", "text": "tell support"}]}
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+            scope="Replay",
+            item_id="test-replay-id",
+            created_by=self.user,
+        )
+
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="/replay/test-replay-id",
+        )
+
+        # The rendered body carries inlined styles, so match on the tag boundaries rather than
+        # whole elements.
+        html_body = mocked_email_messages[0].html_body
+        assert ">@Kyle</strong>" in html_body
+        assert ">things</strong>" in html_body
+        assert html_body.count("<li>") == 2
+
+    def test_send_discussions_mentioned_renders_plain_text_content_safely(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email="mentioned@posthog.com", password=None
+        )
+        comment = Comment.objects.create(
+            team=self.team,
+            content="first line\nsecond <b>line</b>",
+            scope="Replay",
+            item_id="test-replay-id",
+            created_by=self.user,
+        )
+
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="/replay/test-replay-id",
+        )
+
+        html_body = mocked_email_messages[0].html_body
+        assert "first line<br>second &lt;b&gt;line&lt;/b&gt;" in html_body
+
     @parameterized.expand(["task", "task_artifact", "desktop_canvas"])
     def test_send_discussions_mentioned_skips_desktop_comments(self, MockEmailMessage: MagicMock, scope: str) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

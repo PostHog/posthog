@@ -8,6 +8,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import OuterRef, Subquery
 from django.utils import timezone
+from django.utils.html import linebreaks
 
 import structlog
 import posthoganalytics
@@ -17,6 +18,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
+from posthog.comment.formatting import rich_content_to_html_fragment
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.event_usage import groups
@@ -1611,6 +1613,22 @@ def send_error_tracking_issue_assigned(assignment_id: str | uuid.UUID, assigner_
     message.send()
 
 
+def _comment_body_html(comment: Comment, mentioned_user_ids: list[int]) -> str:
+    """
+    Render a comment for an email body. `Comment.rich_content` is the editor's document and the
+    only place the writer's formatting survives; `Comment.content` is a flattened copy that keeps
+    the words and drops the paragraphs, lists, and emphasis. Comments written before the editor
+    stored a document have `content` alone, so those keep their line breaks at least.
+    """
+    mention_labels = {
+        user.id: user.first_name or user.email
+        for user in User.objects.filter(id__in=mentioned_user_ids).only("id", "first_name", "email")
+    }
+    fragment = rich_content_to_html_fragment(comment.rich_content, mention_labels)
+    # `linebreaks` leaves its input raw unless told otherwise, and a comment is user-written.
+    return fragment or linebreaks(comment.content or "", autoescape=True)
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], slug: str) -> None:
     with new_context():
@@ -1657,7 +1675,7 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             template_name="discussions_mentioned",
             template_context={
                 "commenter": commenter,
-                "content": comment.content,
+                "content_html": _comment_body_html(comment, mentioned_user_ids),
                 "team": team,
                 "href": href,
             },

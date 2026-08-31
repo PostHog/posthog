@@ -186,6 +186,72 @@
         box-shadow: 0px 16px 16px -16px rgba(0, 0, 0, 0.25);
     }
 
+    /* Someone else's writing quoted inside an email, e.g. the comment you were mentioned in.
+       Mail clients have no default for most of these, so the rich text needs its own rules. */
+
+    .quoted-body {
+        border-left: 3px solid #d9d9d9;
+        padding-left: 16px;
+        margin: 24px 0;
+    }
+
+    .quoted-body p,
+    .quoted-body ul,
+    .quoted-body ol,
+    .quoted-body pre {
+        margin: 0 0 12px;
+    }
+
+    .quoted-body ul,
+    .quoted-body ol {
+        padding-left: 24px;
+    }
+
+    .quoted-body h1,
+    .quoted-body h2,
+    .quoted-body h3,
+    .quoted-body h4,
+    .quoted-body h5,
+    .quoted-body h6 {
+        font-size: 18px;
+        margin: 0 0 8px;
+    }
+
+    .quoted-body blockquote {
+        margin: 0 0 12px;
+        padding-left: 12px;
+        border-left: 3px solid #d9d9d9;
+        color: #5f5f5f;
+    }
+
+    .quoted-body code {
+        font-family: 'SFMono-Regular', Consolas, monospace;
+        font-size: 14px;
+        background-color: #ebebeb;
+        border-radius: 3px;
+        padding: 1px 4px;
+    }
+
+    .quoted-body pre {
+        background-color: #ebebeb;
+        border-radius: 3px;
+        padding: 12px;
+    }
+
+    .quoted-body pre code {
+        background-color: transparent;
+        padding: 0;
+    }
+
+    .quoted-body img {
+        max-width: 100%;
+    }
+
+    .quoted-body hr {
+        border: none;
+        border-top: 1px solid #d9d9d9;
+    }
+
     /* Header & Footer */
 
     .header {
