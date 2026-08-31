@@ -172,6 +172,7 @@ export function WorkflowsTable(): JSX.Element {
                         to={urls.workflow(item.id, 'workflow')}
                         title={item.name}
                         description={item.description}
+                        truncateDescription
                     />
                 )
             },

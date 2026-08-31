@@ -662,6 +662,7 @@ mod tests {
             exception_list: ExceptionList(vec![]),
             proposed_issue_name: None,
             proposed_issue_description: None,
+            proposed_issue_severity: None,
             debug_images: vec![],
             props: HashMap::new(),
             uuid: Uuid::now_v7(),
