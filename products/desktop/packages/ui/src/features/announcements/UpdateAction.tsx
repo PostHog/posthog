@@ -4,6 +4,7 @@ import {
   ANALYTICS_EVENTS,
   type AnnouncementProperties,
 } from "@posthog/shared/analytics-events";
+import { requestInstallUpdate } from "@posthog/ui/features/updates/installUpdateGuard";
 import {
   useInstallUpdate,
   useUpdateView,
@@ -113,9 +114,11 @@ export function UpdateAction({
         disabled={status === "installing"}
         onClick={() => {
           trackClick();
-          onInstallHandoff?.();
-          void installUpdate().then((installed) => {
-            if (!installed) onInstallFailed?.();
+          requestInstallUpdate(() => {
+            onInstallHandoff?.();
+            void installUpdate().then((installed) => {
+              if (!installed) onInstallFailed?.();
+            });
           });
         }}
       >

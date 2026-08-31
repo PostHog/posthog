@@ -1,13 +1,14 @@
 import { ArrowsClockwise, Gift, X } from "@phosphor-icons/react";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { requestInstallUpdate } from "@posthog/ui/features/updates/installUpdateGuard";
 import { useUpdateBannerStore } from "@posthog/ui/features/updates/updateBannerStore";
+import { useUpdateInterruptStore } from "@posthog/ui/features/updates/updateInterruptStore";
 import { useUpdateModalStore } from "@posthog/ui/features/updates/updateModalStore";
 import {
   useInstallUpdate,
   useUpdateView,
 } from "@posthog/ui/features/updates/updateStore";
 import { Spin, Spinner } from "@posthog/ui/primitives/Spinner";
-import { Box } from "@radix-ui/themes";
 import { AnimatePresence, motion } from "framer-motion";
 
 interface UpdateBannerProps {
@@ -18,6 +19,10 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
   const { status, version, availableVersion, downloadPercent, isEnabled } =
     useUpdateView();
   const installUpdate = useInstallUpdate();
+  const waitingForAgents = useUpdateInterruptStore(
+    (state) => state.waitingForIdle,
+  );
+  const requestInstall = () => requestInstallUpdate(() => void installUpdate());
   const openModal = useUpdateModalStore((state) => state.open);
   const canDismiss = useSettingsStore(
     (state) => state.dismissibleUpdateBanners,
@@ -82,11 +87,13 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
                 <button
                   type="button"
                   className="flex items-center gap-1.5 rounded-2 border border-(--green-a5) bg-(--green-a3) px-2.5 py-1 font-medium text-(--green-11) text-[13px] transition-colors hover:bg-(--green-a4)"
-                  onClick={() => void installUpdate()}
+                  onClick={requestInstall}
                 >
                   <Gift size={14} weight="duotone" />
                   <span>
-                    {version ? `${version} ready` : "Update ready"} — Restart
+                    {waitingForAgents
+                      ? "Restarting when agents finish"
+                      : `${version ? `${version} ready` : "Update ready"} — Restart`}
                   </span>
                 </button>
                 {canDismiss && (
@@ -202,13 +209,15 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
                       {version ? `${version} ready` : "Update ready"}
                     </span>
                     <span className="text-[11px] text-[var(--green-a11)]">
-                      Restart to apply
+                      {waitingForAgents
+                        ? "Restarting when agents finish"
+                        : "Restart to apply"}
                     </span>
                   </button>
                   <button
                     type="button"
                     className="shrink-0 rounded-2 bg-[var(--green-a4)] px-2 py-1 font-medium text-[12px] text-[var(--green-11)] transition-colors hover:bg-[var(--green-a5)]"
-                    onClick={() => void installUpdate()}
+                    onClick={requestInstall}
                   >
                     Restart
                   </button>
@@ -272,7 +281,7 @@ function BannerCard({ children }: { children: React.ReactNode }) {
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
     >
-      <Box className="p-2">{children}</Box>
+      <div className="p-2">{children}</div>
     </motion.div>
   );
 }

@@ -1,6 +1,7 @@
 import { X } from "@phosphor-icons/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { useBlockingAnnouncementVisible } from "@posthog/ui/features/announcements/useAnnouncementVisible";
+import { requestInstallUpdate } from "@posthog/ui/features/updates/installUpdateGuard";
 import { ReleaseNotesSections } from "@posthog/ui/features/updates/ReleaseNotesSections";
 import { parseReleaseNotes } from "@posthog/ui/features/updates/releaseNotes";
 import { useUpdateModalStore } from "@posthog/ui/features/updates/updateModalStore";
@@ -170,7 +171,13 @@ export function UpdateAvailableModal() {
               Later
             </Button>
             {isReady ? (
-              <Button size="2" onClick={() => void installUpdate()}>
+              <Button
+                size="2"
+                onClick={() => {
+                  close();
+                  requestInstallUpdate(() => void installUpdate());
+                }}
+              >
                 Restart to update
               </Button>
             ) : isDownloading ? (

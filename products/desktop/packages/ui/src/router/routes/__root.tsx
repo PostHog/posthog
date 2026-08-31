@@ -61,6 +61,7 @@ import { RemoteBranchCheckoutDialog } from "@posthog/ui/features/task-detail/com
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { TourOverlay } from "@posthog/ui/features/tour/components/TourOverlay";
 import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailableModal";
+import { UpdateInterruptDialog } from "@posthog/ui/features/updates/UpdateInterruptDialog";
 import { WhatsNewModal } from "@posthog/ui/features/updates/WhatsNewModal";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { AnimatedLogo } from "@posthog/ui/primitives/AnimatedLogo";
@@ -496,6 +497,7 @@ function RootLayout() {
         {billingEnabled && <UsageLimitModal />}
         <AnnouncementsHost />
         <UpdateAvailableModal />
+        <UpdateInterruptDialog />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />
         <FeedbackModal
