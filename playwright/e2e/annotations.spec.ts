@@ -15,16 +15,18 @@ test.describe('Annotations', () => {
 
     test('Annotations loaded', async ({ page }) => {
         // Check that the annotations page loaded with key elements visible.
-        // Scope to the scene title — a bare 'Annotations' heading match also hits the
+        // Scope to the scene title, a bare 'Annotations' heading match also hits the
         // empty-state "Welcome to Annotations!" h2 (substring match) and trips strict mode.
         await expect(page.getByTestId('scene-name').getByRole('heading', { name: 'Annotations' })).toBeVisible()
-        await expect(page.getByRole('button', { name: 'New annotation' })).toBeVisible()
-        await expect(page.locator('[data-attr="annotations-content"]')).toBeVisible()
+        // The setup empty state replaces the table until the first annotation exists, and
+        // both render a create button under this data-attr. Assert the attr rather than the
+        // label so the check holds whichever of the two the project is currently showing.
+        await expect(page.getByTestId('create-annotation')).toBeVisible()
     })
 
     test('Create annotation', async ({ page }) => {
         // Wait for the create button to be visible before clicking
-        const createButton = page.getByRole('button', { name: 'New annotation' })
+        const createButton = page.getByTestId('create-annotation')
         await expect(createButton).toBeVisible()
         await createButton.click()
 
