@@ -16,6 +16,7 @@ import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModa
 
 type StoryArgs = SubscriptionsModalProps & {
     formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit'
+    narrow?: boolean
 }
 
 const DASHBOARD = {
@@ -164,9 +165,46 @@ const AI_PROMPT_SUBSCRIPTIONS = [
     }),
 ]
 
+const AI_REPORT_NO_CONTEXT = {
+    ...createMockSubscription({
+        id: 31,
+        resource_type: 'ai_prompt',
+        title: 'Weekly product report',
+        prompt: 'Summarize important product changes from the last week.',
+        target_type: 'email',
+        target_value: 'reports@example.com',
+        created_by: mockBasicUser,
+    }),
+    contexts: [],
+}
+
+const AI_REPORT_MIXED_CONTEXT = {
+    ...AI_REPORT_NO_CONTEXT,
+    id: 32,
+    title: 'Activation and retention report',
+    prompt: 'Compare activation and retention trends from the last week.',
+    contexts: [
+        { dashboard_id: 1, dashboard_name: 'Product overview' },
+        { insight_id: 12, insight_short_id: 'ins12', insight_name: 'Signup conversion' },
+    ],
+}
+
+const AI_REPORT_MAX_CONTEXT = {
+    ...AI_REPORT_MIXED_CONTEXT,
+    id: 33,
+    title: 'Product health report',
+    contexts: [
+        ...AI_REPORT_MIXED_CONTEXT.contexts,
+        { insight_id: 13, insight_short_id: 'ins13', insight_name: 'Weekly retention' },
+    ],
+}
+
+const AI_REPORT_CONTEXT_STORIES = [AI_REPORT_NO_CONTEXT, AI_REPORT_MIXED_CONTEXT, AI_REPORT_MAX_CONTEXT]
+
 const AI_PROMPT_PARAMETERS = {
     featureFlags: {
         [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
+        [FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]: true,
     },
 }
 
@@ -185,7 +223,7 @@ const meta: Meta<StoryArgs> = {
         },
     },
     render: (args) => {
-        const { formScenario = 'default', ...props } = args
+        const { formScenario = 'default', narrow = false, ...props } = args
         const aiSummaryAtLimit = formScenario === 'ai-summary-limit'
         const freeTierSubscriptionCount = formScenario === 'free-tier-limit' ? 5 : undefined
         const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
@@ -196,6 +234,9 @@ const meta: Meta<StoryArgs> = {
             ? DASHBOARD_SUBSCRIPTIONS
             : INSIGHT_SUBSCRIPTIONS
         const dashboardInsightSubscriptions: SubscriptionType[] = INSIGHT_SUBSCRIPTIONS
+        const selectedSubscription =
+            AI_REPORT_CONTEXT_STORIES.find((subscription) => subscription.id === props.subscriptionId) ??
+            createMockSubscription()
 
         useStorybookMocks({
             get: {
@@ -222,10 +263,12 @@ const meta: Meta<StoryArgs> = {
 
                     return { count: results.length, results }
                 },
-                '/api/environments/:id/subscriptions/:subId': createMockSubscription(),
-                ...(freeTierSubscriptionCount !== undefined
-                    ? { '/api/projects/:id/subscriptions/': { count: freeTierSubscriptionCount, results: [] } }
-                    : {}),
+                '/api/environments/:id/subscriptions/:subId': selectedSubscription,
+                '/api/projects/:id/subscriptions/': {
+                    count: freeTierSubscriptionCount ?? 0,
+                    results: [],
+                },
+                '/api/projects/:id/subscriptions/:subId/deliveries/': { count: 0, results: [] },
                 '/api/projects/:id/subscriptions/summary_quota': aiSummaryAtLimit
                     ? { active_count: 10, limit: 10, at_limit: true }
                     : { active_count: 0, limit: 10, at_limit: false },
@@ -236,7 +279,7 @@ const meta: Meta<StoryArgs> = {
 
         return (
             <div>
-                <div className="p-4 bg-border">
+                <div className={narrow ? 'p-4 bg-border max-w-md' : 'p-4 bg-border'}>
                     <SubscriptionsModal
                         {...(props as SubscriptionsModalProps)}
                         closeModal={() => {
@@ -303,4 +346,19 @@ export const DashboardWithSubscriptions: Story = {
 export const InsightWithSubscriptions: Story = {
     parameters: AI_PROMPT_PARAMETERS,
     args: { subscriptionId: null, insightShortId: 'ins11' as InsightShortId },
+}
+
+export const AIReportWithNoContext: Story = {
+    parameters: { ...AI_PROMPT_PARAMETERS, pageUrl: `/subscriptions/${AI_REPORT_NO_CONTEXT.id}/edit` },
+    args: { subscriptionId: AI_REPORT_NO_CONTEXT.id },
+}
+
+export const AIReportWithMixedContext: Story = {
+    parameters: { ...AI_PROMPT_PARAMETERS, pageUrl: `/subscriptions/${AI_REPORT_MIXED_CONTEXT.id}/edit` },
+    args: { subscriptionId: AI_REPORT_MIXED_CONTEXT.id },
+}
+
+export const AIReportAtContextLimit: Story = {
+    parameters: { ...AI_PROMPT_PARAMETERS, pageUrl: `/subscriptions/${AI_REPORT_MAX_CONTEXT.id}/edit` },
+    args: { subscriptionId: AI_REPORT_MAX_CONTEXT.id, narrow: true },
 }

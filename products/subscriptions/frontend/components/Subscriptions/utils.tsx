@@ -13,6 +13,7 @@ import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/quer
 import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
+export const MAX_CONTEXTS = 3
 
 export function requestSubscriptionWizardCancellation({
     onCancel,
