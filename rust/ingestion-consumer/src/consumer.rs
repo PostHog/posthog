@@ -624,63 +624,12 @@ impl IngestionConsumer {
     ) -> anyhow::Result<u32> {
         let mut handles = Vec::with_capacity(pending.len());
         for sub_batch in pending {
-            let dispatcher = Arc::clone(dispatcher);
-            let PendingSubBatch {
-                worker,
-                routing_keys,
-                key_offsets,
-                message_count,
-                pending,
-            } = sub_batch;
-            let bid = batch_id.to_string();
-
-            handles.push(tokio::spawn(async move {
-                match pending.wait().await {
-                    Ok(accepted) => {
-                        // Advance ACK high-water marks before the resolve, which
-                        // may evict the keys' sentinel state.
-                        dispatcher.on_sub_batch_acked(&key_offsets);
-                        dispatcher.on_sub_batch_resolved(
-                            &worker,
-                            message_count,
-                            &routing_keys,
-                            from_flush,
-                            false,
-                        );
-                        dispatcher.record_send_outcome(&worker, false);
-                        accepted
-                    }
-                    Err(send_err) => {
-                        // Re-defer the failed messages first, so the ref-count drop
-                        // in `on_sub_batch_resolved` doesn't evict the pin while the
-                        // key still has work to replay. On the flush path this pairs
-                        // with the `clears_deferral` decrement in the resolve, so the
-                        // outstanding count nets to unchanged (never dipping to zero)
-                        // and the key keeps deferring across the retry.
-                        // Backpressure (a busy worker) is transient, not a fault:
-                        // re-route the work but do not count it against the
-                        // worker's health, so passive health tracks real faults.
-                        let SendError {
-                            error,
-                            messages,
-                            fence_guard,
-                        } = send_err;
-                        let is_fault = !error.is_backpressure();
-                        dispatcher.defer_failed(&bid, messages);
-                        // Stashed: let the worker stream stop fencing new arrivals.
-                        drop(fence_guard);
-                        dispatcher.on_sub_batch_resolved(
-                            &worker,
-                            message_count,
-                            &routing_keys,
-                            from_flush,
-                            true,
-                        );
-                        dispatcher.record_send_outcome(&worker, is_fault);
-                        0
-                    }
-                }
-            }));
+            handles.push(tokio::spawn(Self::resolve_send(
+                Arc::clone(dispatcher),
+                batch_id.to_string(),
+                sub_batch,
+                from_flush,
+            )));
         }
 
         let mut accepted = 0u32;
@@ -688,6 +637,63 @@ impl IngestionConsumer {
             accepted += handle.await?;
         }
         Ok(accepted)
+    }
+
+    /// Resolve one pre-ordered send. A failed send must return its messages to
+    /// the dispatcher before releasing the stream fence, then resolve its pin
+    /// and record worker health; changing that order can let newer work for the
+    /// key overtake the failed messages.
+    async fn resolve_send(
+        dispatcher: Arc<Dispatcher>,
+        batch_id: String,
+        pending_sub_batch: PendingSubBatch,
+        from_flush: bool,
+    ) -> u32 {
+        let PendingSubBatch {
+            worker,
+            routing_keys,
+            key_offsets,
+            message_count,
+            pending,
+        } = pending_sub_batch;
+
+        match pending.wait().await {
+            Ok(accepted) => {
+                // Advance ACK high-water marks before the resolve, which may
+                // evict the keys' sentinel state.
+                dispatcher.on_sub_batch_acked(&key_offsets);
+                dispatcher.on_sub_batch_resolved(
+                    &worker,
+                    message_count,
+                    &routing_keys,
+                    from_flush,
+                    false,
+                );
+                dispatcher.record_send_outcome(&worker, false);
+                accepted
+            }
+            Err(send_err) => {
+                // Re-defer before resolving so the key stays pinned through the
+                // retry. A backpressured worker is transient, not a fault.
+                let SendError {
+                    error,
+                    messages,
+                    fence_guard,
+                } = send_err;
+                let is_fault = !error.is_backpressure();
+                dispatcher.defer_failed(&batch_id, messages);
+                drop(fence_guard);
+                dispatcher.on_sub_batch_resolved(
+                    &worker,
+                    message_count,
+                    &routing_keys,
+                    from_flush,
+                    true,
+                );
+                dispatcher.record_send_outcome(&worker, is_fault);
+                0
+            }
+        }
     }
 
     /// Collect messages from Kafka until the first of `batch_size` messages,
