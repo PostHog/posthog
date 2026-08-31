@@ -5,7 +5,8 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { SignalReport, SignalReportStatus } from '../types'
+import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
+import { INBOX_SCOPE_FOR_YOU, SignalReport, SignalReportStatus } from '../types'
 import { InboxReportList, InboxReportCardProps } from './InboxReportList'
 
 // The list chrome is unrelated to paging and pulls in its own scout/filter endpoints.
@@ -39,6 +40,7 @@ function makeReport(id: string): SignalReport {
 
 describe('InboxReportList', () => {
     let requestedOffsets: (string | null)[]
+    let listIsEmpty: boolean
 
     beforeAll(() => {
         // jsdom has no IntersectionObserver; the infinite-scroll sentinel needs one.
@@ -56,6 +58,9 @@ describe('InboxReportList', () => {
     beforeEach(() => {
         intersectObservedElement = null
         requestedOffsets = []
+        listIsEmpty = false
+        // Filter state is persisted, so a filter one case sets would otherwise carry into the next.
+        localStorage.clear()
         useMocks({
             get: {
                 // Reviewer scope loads alongside the list; an empty map keeps it out of the way.
@@ -67,6 +72,9 @@ describe('InboxReportList', () => {
                     // The tab badge fires a separate count-only request; don't count it as a page.
                     if (limit !== '1') {
                         requestedOffsets.push(offset)
+                    }
+                    if (listIsEmpty) {
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
                     }
                     const page = offset === '0' || offset === null ? '1' : '2'
                     return [
@@ -99,5 +107,28 @@ describe('InboxReportList', () => {
 
         await screen.findByText('Report page-2')
         expect(requestedOffsets).toEqual(['0', '1'])
+    })
+
+    it('blames the filter when a narrowed list is empty, instead of the tab copy', async () => {
+        // The tab's own copy claims the project has nothing of this kind. On a filtered zero-row
+        // response it tells the user their inbox is empty when it is not, with no hint that a
+        // filter is what emptied it and no way to clear it.
+        listIsEmpty = true
+        inboxFiltersLogic.mount()
+        inboxFiltersLogic.actions.setFilters({
+            scope: INBOX_SCOPE_FOR_YOU,
+            sourceProductFilter: [],
+            scoutFilter: [],
+            priorityFilter: ['P1'],
+            sortField: 'priority',
+            sortDirection: 'asc',
+            searchQuery: '',
+        })
+
+        render(<InboxReportList tabKey="reports" Card={StubCard} emptyState={{ content: <div>No reports yet</div> }} />)
+
+        expect(await screen.findByText('No reports match this view')).toBeInTheDocument()
+        expect(screen.getByText('Clear filters')).toBeInTheDocument()
+        expect(screen.queryByText('No reports yet')).not.toBeInTheDocument()
     })
 })

@@ -47,6 +47,8 @@ describe('reportListLogic', () => {
             scope: INBOX_SCOPE_FOR_YOU as InboxScope,
             hasUserChosenScope: false,
             hasResolvedUser: true,
+            hasActiveFilters: false,
+            hasSettledDefaultScope: false,
             count: 0 as number | null,
         }
 
@@ -74,6 +76,12 @@ describe('reportListLogic', () => {
             ['user not resolved yet', { hasResolvedUser: false }],
             // Count request in flight / failed (null) is not treated as "zero".
             ['count not loaded', { count: null }],
+            // The filter emptied the count, so it says nothing about what is assigned to the user.
+            // Switching scope here widens the view they just narrowed.
+            ['a filter is active', { hasActiveFilters: true }],
+            // The landing decision was already taken, so a list that empties later in the session
+            // must not move the user off the scope they are reading.
+            ['the scope default already settled', { hasSettledDefaultScope: true }],
         ])('stays put when %s', (_label, override) => {
             expect(shouldDefaultToEntireProject({ ...base, ...override })).toBe(false)
         })

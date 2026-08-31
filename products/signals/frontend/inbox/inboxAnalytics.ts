@@ -284,6 +284,9 @@ export function captureInboxViewed(params: {
     reportsTabCount: number | null
     hasActiveFilters: boolean
     sourceProductFilter: string[]
+    /** Scout skill_name slugs the view is narrowed to. Without it a scout-filtered empty list is
+     * indistinguishable from an unfiltered one in the event stream. */
+    scoutFilter: string[]
     priorityFilter: string[]
     scope: string
 }): void {
@@ -296,6 +299,7 @@ export function captureInboxViewed(params: {
         is_empty: params.totalCount === 0,
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,
+        scout_filter: params.scoutFilter,
         priority_filter: params.priorityFilter,
         scope: params.scope,
         ...priorityBreakdown(params.reports),
