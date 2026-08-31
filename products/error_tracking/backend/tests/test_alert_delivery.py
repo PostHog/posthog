@@ -673,6 +673,93 @@ class TestAlertFilterEvaluation(AlertTestMixin):
         client.chat_postMessage.assert_not_called()
 
 
+class TestAlertThrottlingAndOutcomes(AlertTestMixin):
+    def _set_throttle(self, alert, seconds: int) -> None:
+        with team_scope(self.team.id):
+            ErrorTrackingAlert.objects.filter(id=alert.id).update(throttle_seconds=seconds)
+
+    def _prune_threads(self, alert) -> None:
+        with team_scope(self.team.id):
+            ErrorTrackingAlertThread.objects.filter(alert=alert).delete()
+
+    def test_opener_throttle_limits_reopened_conversations(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
+        # After a thread is pruned, the next opener inside the window stays quiet.
+        self._prune_threads(alert)
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created", notification_id="n-2")) == 0
+
+        client.chat_postMessage.assert_called_once()
+        with team_scope(self.team.id):
+            assert not ErrorTrackingAlertThread.objects.filter(alert=alert).exists()
+
+    def test_zero_throttle_never_limits(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
+        self._prune_threads(alert)
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created", notification_id="n-2")) == 1
+
+        assert client.chat_postMessage.call_count == 2
+
+    def test_throttle_window_claimer_can_retry(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        self._set_throttle(alert, 3600)
+        client.chat_postMessage.side_effect = [Exception("transient"), {"channel": "C0123", "ts": "111.222"}]
+        inputs = self._inputs("$error_tracking_issue_created")
+
+        with self.assertRaises(AlertDeliveryError):
+            deliver_alert_notifications(inputs)
+        # The failed attempt claimed the window; its own retry must still deliver.
+        assert deliver_alert_notifications(inputs) == 1
+
+    def test_successful_delivery_records_outcome_and_resets_failures(self):
+        self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        with team_scope(self.team.id):
+            alert.destinations.update(consecutive_failures=2, last_error="boom")
+
+        deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        with team_scope(self.team.id):
+            destination = alert.destinations.get()
+        assert destination.last_delivered_at is not None
+        assert destination.consecutive_failures == 0
+
+    def test_failed_delivery_records_outcome(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        client.chat_postMessage.side_effect = Exception("channel archived")
+
+        with self.assertRaises(AlertDeliveryError):
+            deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        with team_scope(self.team.id):
+            destination = alert.destinations.get()
+        assert destination.consecutive_failures == 1
+        assert "channel archived" in destination.last_error
+        assert destination.last_failure_at is not None
+        assert destination.last_delivered_at is None
+
+    def test_unusable_integration_records_config_gap(self):
+        self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        with team_scope(self.team.id):
+            alert.destinations.update(integration=None)
+
+        deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        with team_scope(self.team.id):
+            destination = alert.destinations.get()
+        assert "integration" in destination.last_error
+        assert destination.consecutive_failures == 1
+
+
 class TestAlertDeliveryDispatch(AlertTestMixin):
     def _dispatch(self) -> None:
         start_alert_delivery_workflow(
