@@ -1,16 +1,29 @@
+import uuid
+from datetime import timedelta
+
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone as django_timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Organization, Team
+from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Loop, Task, TaskRun
+from products.tasks.backend.facade import api as tasks_api
+from products.tasks.backend.facade.contracts import (
+    AdvanceStagedTaskInput,
+    CapabilityManifestDTO,
+    CreateStagedTaskInput,
+    PublicationLeaseReservationDTO,
+    RepositoryBaseBindingDTO,
+    RepositoryGrantBindingDTO,
+)
+from products.tasks.backend.models import Loop, Task, TaskPublicationLease, TaskRun, TaskStagedRunTransition
 from products.tasks.backend.temporal.client import (
     execute_task_processing_workflow,
     execute_task_processing_workflow_async,
@@ -119,12 +132,19 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
             handle.query.assert_not_awaited()
 
 
-@override_settings(DEBUG=False)
+@override_settings(DEBUG=False, GITHUB_APP_SLUG="posthog")
 class TestExecuteTaskProcessingWorkflow(TestCase):
     def setUp(self) -> None:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create(email="test@example.com")
+        self.github_integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITHUB,
+            integration_id="staged-installation-1",
+            config={"installation_id": "staged-installation-1"},
+            errors="",
+        )
         self.task = Task.objects.create(
             team=self.team,
             created_by=self.user,
@@ -183,6 +203,77 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0].kwargs["properties"]["error_type"], "workflow_start_failed")
+
+    def test_startup_failure_revokes_staged_execution_capability(self) -> None:
+        caller_id = uuid.uuid4()
+        created = tasks_api.create_staged_task(
+            CreateStagedTaskInput(
+                team_id=self.team.id,
+                caller_id=caller_id,
+                actor_id=self.user.id,
+                idempotency_key="staged-startup-analysis",
+                origin_product=Task.OriginProduct.WORKFLOW,
+                title="Staged task",
+                description="Staged task",
+                repository="posthog/posthog",
+                repository_grant=RepositoryGrantBindingDTO(
+                    repository="posthog/posthog",
+                    github_integration_id=self.github_integration.id,
+                    github_installation_id="staged-installation-1",
+                    grant_version="1",
+                ),
+                repository_base=RepositoryBaseBindingDTO(
+                    repository="posthog/posthog", base_sha="a" * 40, base_branch="main"
+                ),
+                analysis_manifest=CapabilityManifestDTO(version=1, phase="analysis", capabilities=("read",)),
+            )
+        )
+        source = TaskRun.objects.get(id=created.analysis_run_id)
+        source.state.update(snapshot_external_id="modal-analysis-snapshot", sandbox_backend="modal")
+        source.save(update_fields=["state"])
+        advanced = tasks_api.advance_staged_task(
+            AdvanceStagedTaskInput(
+                team_id=self.team.id,
+                caller_id=caller_id,
+                task_id=created.task_id,
+                source_run_id=source.id,
+                idempotency_key="staged-startup-execution",
+                execution_manifest=CapabilityManifestDTO(version=1, phase="execution", capabilities=("read",)),
+                reservation=PublicationLeaseReservationDTO(
+                    logical_artifact_key="staged-startup-artifact",
+                    action_key="staged-startup",
+                    repository="posthog/posthog",
+                    base_sha="a" * 40,
+                    base_branch="main",
+                    commit_message="Create draft",
+                    pr_title="Draft",
+                    pr_body="",
+                    github_integration_id=self.github_integration.id,
+                    github_installation_id="staged-installation-1",
+                    grant_version="1",
+                    starts_before=django_timezone.now() + timedelta(minutes=4),
+                    expires_at=django_timezone.now() + timedelta(minutes=5),
+                ),
+            )
+        )
+        run = TaskRun.objects.get(id=advanced.execution_run_id)
+        client = Mock()
+        client.start_workflow = AsyncMock(side_effect=RuntimeError("temporal unavailable"))
+
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+            patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=False),
+            patch("products.tasks.backend.models.posthoganalytics.capture"),
+        ):
+            execute_task_processing_workflow(
+                task_id=str(run.task_id), run_id=str(run.id), team_id=run.team_id, create_pr=False
+            )
+
+        assert advanced.publication_lease_id is not None
+        lease = TaskPublicationLease.objects.unscoped().get(id=advanced.publication_lease_id)
+        transition = TaskStagedRunTransition.objects.unscoped().get(id=advanced.transition_id)
+        self.assertEqual(lease.status, TaskPublicationLease.Status.REVOKED)
+        self.assertEqual(transition.status, TaskStagedRunTransition.Status.CANCELLED)
 
     @parameterized.expand([("sync",), ("async",)])
     def test_does_not_overwrite_run_that_already_started(self, executor: str) -> None:
@@ -288,6 +379,7 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
 
 
 @override_settings(DEBUG=False)
+@override_settings(GITHUB_APP_SLUG="posthog")
 class TestRedispatchOrphanedTaskRun(TestCase):
     def setUp(self) -> None:
         self.organization = Organization.objects.create(name="Test Org")

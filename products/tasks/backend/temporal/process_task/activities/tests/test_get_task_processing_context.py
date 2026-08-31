@@ -1,3 +1,4 @@
+import uuid
 from typing import Any
 
 import pytest
@@ -27,6 +28,14 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.facade import api as tasks_api
+from products.tasks.backend.facade.contracts import (
+    AdvanceStagedTaskInput,
+    CapabilityManifestDTO,
+    CreateStagedTaskInput,
+    RepositoryBaseBindingDTO,
+    RepositoryGrantBindingDTO,
+)
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
@@ -212,6 +221,102 @@ class TestGetTaskProcessingContextActivity:
 
     def _cleanup_task(self, task):
         task.soft_delete()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_repositoryless_staged_experiment_execution_needs_no_workspace(self, activity_environment, team, user):
+        created = tasks_api.create_staged_task(
+            CreateStagedTaskInput(
+                team_id=team.id,
+                caller_id=uuid.uuid4(),
+                actor_id=user.id,
+                idempotency_key="repositoryless-experiment-execution",
+                origin_product=Task.OriginProduct.WORKFLOW,
+                title="Repositoryless experiment draft",
+                description="Create a draft experiment without a repository.",
+                analysis_manifest=CapabilityManifestDTO(version=1, phase="analysis", capabilities=("read",)),
+                repository=None,
+                repository_grant=None,
+                repository_base=None,
+                mcp_scope_preset="pulse_analysis",
+            )
+        )
+        analysis_run = Task.objects.get(id=created.task_id).runs.get(id=created.analysis_run_id)
+        analysis_run.state = {
+            **analysis_run.state,
+            "snapshot_external_id": "modal-analysis-snapshot",
+            "sandbox_backend": "modal",
+        }
+        analysis_run.save(update_fields=["state", "updated_at"])
+        task_state = Task.objects.get(id=created.task_id).state
+        assert isinstance(task_state, dict)
+        caller_id = task_state.get("staged_caller_id")
+        assert isinstance(caller_id, str)
+        advanced = tasks_api.advance_staged_task(
+            AdvanceStagedTaskInput(
+                team_id=team.id,
+                caller_id=uuid.UUID(caller_id),
+                task_id=created.task_id,
+                source_run_id=created.analysis_run_id,
+                idempotency_key="repositoryless-experiment-execution",
+                execution_manifest=CapabilityManifestDTO(
+                    version=1,
+                    phase="execution",
+                    capabilities=("read", "experiment_draft"),
+                ),
+                reservation=None,
+            )
+        )
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=str(advanced.execution_run_id)),
+        )
+
+        assert result.repository is None
+        assert result.credential_free_repository is False
+        assert result.has_github_credentials is False
+
+    @pytest.mark.django_db(transaction=True)
+    def test_repository_backed_staged_analysis_is_credential_free(
+        self, activity_environment, team, user, github_integration
+    ):
+        github_integration.integration_id = "installation-1"
+        github_integration.save(update_fields=["integration_id"])
+        caller_id = uuid.uuid4()
+        created = tasks_api.create_staged_task(
+            CreateStagedTaskInput(
+                team_id=team.id,
+                caller_id=caller_id,
+                actor_id=user.id,
+                idempotency_key="repository-backed-analysis",
+                origin_product=Task.OriginProduct.WORKFLOW,
+                title="Repository-backed analysis",
+                description="Analyze a repository without GitHub credentials.",
+                analysis_manifest=CapabilityManifestDTO(version=1, phase="analysis", capabilities=("read",)),
+                repository="posthog/posthog",
+                repository_grant=RepositoryGrantBindingDTO(
+                    repository="posthog/posthog",
+                    github_integration_id=github_integration.id,
+                    github_installation_id="installation-1",
+                    grant_version="1",
+                ),
+                repository_base=RepositoryBaseBindingDTO(
+                    repository="posthog/posthog",
+                    base_sha="a" * 40,
+                    base_branch="main",
+                ),
+                mcp_scope_preset="pulse_analysis",
+            )
+        )
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=str(created.analysis_run_id)),
+        )
+
+        assert result.repository == "posthog/posthog"
+        assert result.credential_free_repository is True
+        assert result.allowed_domains is not None
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_success(self, activity_environment, test_task):

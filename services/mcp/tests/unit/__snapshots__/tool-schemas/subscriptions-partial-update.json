@@ -146,6 +146,57 @@
             "minimum": 1,
             "type": "number"
         },
+        "proactive_config": {
+            "description": "Optional standing consent and limits for proactive follow-up on future AI report deliveries.",
+            "properties": {
+                "create_draft_pr": {
+                    "default": false,
+                    "description": "Whether Pulse may create one draft pull request on a future delivery.",
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "default": false,
+                    "description": "Whether future AI report deliveries may run proactive follow-up.",
+                    "type": "boolean"
+                },
+                "public_research_subject_id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Optional eligible reviewed public research subject. Omit to disable public research."
+                },
+                "repository": {
+                    "anyOf": [
+                        {
+                            "maxLength": 255,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Exact repository in owner/repository format. Required before draft pull requests are allowed."
+                },
+                "repository_integration_id": {
+                    "anyOf": [
+                        {
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Exact GitHub integration selected with the repository for draft pull request authorization."
+                }
+            },
+            "type": "object"
+        },
         "prompt": {
             "anyOf": [
                 {

@@ -324,6 +324,23 @@ rules:
                               |StreamlitApp
                               |Subscription
                               |SubscriptionContext
+                              |ActionProposal
+                              |DeliveryLedger
+                              |EvidenceRawBody
+                              |EvidenceSet
+                              |EvidenceToolCall
+                              |OutcomeObservation
+                              |OutcomePlan
+                              |ProactiveSubscriptionConfig
+                              |PublicResearchSubject
+                              |PulseRun
+                              |RepositoryGrant
+                              |RunAction
+                              |TaskDraftPublication
+                              |TaskPublicationGateLedger
+                              |TaskPublicationGatePolicy
+                              |TaskPublicationLease
+                              |TaskStagedRunTransition
                               |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
@@ -694,6 +711,23 @@ rules:
                         |StreamlitApp
                         |Subscription
                         |SubscriptionContext
+                        |ActionProposal
+                        |DeliveryLedger
+                        |EvidenceRawBody
+                        |EvidenceSet
+                        |EvidenceToolCall
+                        |OutcomeObservation
+                        |OutcomePlan
+                        |ProactiveSubscriptionConfig
+                        |PublicResearchSubject
+                        |PulseRun
+                        |RepositoryGrant
+                        |RunAction
+                        |TaskDraftPublication
+                        |TaskPublicationGateLedger
+                        |TaskPublicationGatePolicy
+                        |TaskPublicationLease
+                        |TaskStagedRunTransition
                         |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive

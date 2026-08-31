@@ -43,6 +43,11 @@ from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_ports,
     enforced_egress_domains,
 )
+from products.tasks.backend.logic.services.credential_free_workspace import (
+    PULSE_CREDENTIAL_FREE_MATERIALIZATION_ALLOWED_DOMAINS,
+    PULSE_CREDENTIAL_FREE_RUNTIME_ALLOWED_DOMAINS,
+    resolve_credential_free_repository_workspace,
+)
 from products.tasks.backend.logic.services.network_policy import (
     EffectiveNetworkPolicy,
     NetworkPolicyValidationError,
@@ -53,6 +58,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
+from products.tasks.backend.logic.services.staged_task_runs import validate_staged_execution_for_provisioning
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
@@ -149,6 +155,7 @@ class TaskProcessingContext:
     # and out-of-band consumers route deterministically for the run's whole life.
     sandbox_backend: str = "modal"
     dev_stack_preview_enabled: bool = False
+    credential_free_repository: bool = False
 
     @property
     def mode(self) -> str:
@@ -161,7 +168,7 @@ class TaskProcessingContext:
     @property
     def auto_publish(self) -> bool:
         """User-opted auto-publish: the agent pushes and opens a draft PR on completion."""
-        return (self.state or {}).get("auto_publish") is True
+        return not self.credential_free_repository and (self.state or {}).get("auto_publish") is True
 
     @property
     def has_github_credentials(self) -> bool:
@@ -169,6 +176,8 @@ class TaskProcessingContext:
 
     @property
     def repositories(self) -> list[str]:
+        if self.credential_free_repository:
+            return [self.repository] if self.repository else []
         repositories = (self.state or {}).get("repositories")
         if isinstance(repositories, list) and all(isinstance(repository, str) for repository in repositories):
             return repositories
@@ -305,6 +314,8 @@ class TaskProcessingContext:
 
     @property
     def branch(self) -> str | None:
+        if self.credential_free_repository:
+            return None
         # Prefer the dedicated model field; fall back to state for backward compatibility
         if self._branch:
             return self._branch
@@ -857,6 +868,11 @@ def _resolve_sandbox_backend(
     return "hogland" if enabled else "modal"
 
 
+def _validate_staged_execution_context(task: Task, task_run: TaskRun, state: dict, sandbox_backend: str) -> None:
+    """Compatibility shim for tests and callers while validation lives in the Tasks service."""
+    validate_staged_execution_for_provisioning(str(task_run.id), sandbox_backend)
+
+
 def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
     debug_domains = _get_debug_only_domains() if settings.DEBUG else []
     debug_ports = _get_debug_only_ports() if settings.DEBUG else []
@@ -1005,6 +1021,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     assert task.created_by is not None
 
     state = task_run.state or {}
+    credential_free_repository = state.get("credential_free_checkout") is True
     actor_user = get_task_run_credential_user(task, state)
     if is_slack_interaction_state(state) and actor_user is None:
         raise TaskInvalidStateError(
@@ -1069,7 +1086,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     # A per-run image (picked at task start) wins over the environment's image.
     state_custom_image_id = state.get("custom_image_id")
-    if state_custom_image_id:
+    if state_custom_image_id and not credential_free_repository:
         state_custom_image = SandboxCustomImage.get_accessible_for_task(
             image_id=state_custom_image_id, team_id=task.team_id, task_created_by_id=task.created_by_id
         )
@@ -1085,6 +1102,18 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     repositories = state.get("repositories")
     run_repository = repositories[0] if isinstance(repositories, list) and repositories else task.repository
+    if credential_free_repository:
+        credential_free_workspace = resolve_credential_free_repository_workspace(run_id, "modal")
+        if credential_free_workspace is None:
+            raise TaskInvalidStateError(
+                "Credential-free staged workspace is missing its durable manifest",
+                {"task_id": str(task.id), "run_id": run_id},
+                cause=RuntimeError("credential_free_workspace_missing"),
+            )
+        run_repository = credential_free_workspace.repository
+        allowed_domains = list(PULSE_CREDENTIAL_FREE_MATERIALIZATION_ALLOWED_DOMAINS)
+        sandbox_environment_name = "credential-free-repository"
+        environment_custom_image_name = None
 
     log_with_activity_context(
         "Task processing context created",
@@ -1143,7 +1172,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     context_layer_enabled = context_layer_facade.is_context_layer_enabled(
         organization_id=organization_id, distinct_id=distinct_id
     )
-    use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
+    use_modal_network_allowlist = credential_free_repository or _is_modal_network_allowlist_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
@@ -1188,6 +1217,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         state=state,
     )
     use_modal_vm_sandbox = vm_sandbox_decision.use_vm_sandbox
+    if credential_free_repository:
+        use_modal_vm_sandbox = False
     emit_agent_log(
         run_id,
         "debug",
@@ -1294,6 +1325,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_network_allowlist=use_modal_network_allowlist,
         custom_image_name=custom_image_name,
     )
+    if credential_free_repository:
+        sandbox_backend = "modal"
+    _validate_staged_execution_context(task, task_run, state, sandbox_backend)
     emit_agent_log(
         run_id,
         "debug",
@@ -1344,7 +1378,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_babysit_enabled,
-        context_layer_enabled=context_layer_enabled,
+        context_layer_enabled=context_layer_enabled and not credential_free_repository,
         state=state,
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
@@ -1353,7 +1387,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             list(effective_network_policy.modal_domains) if effective_network_policy is not None else None
         ),
         agentsh_domain_allowlist=(
-            list(effective_network_policy.agentsh_domains) if effective_network_policy is not None else None
+            list(_compile_effective_network_policy(list(PULSE_CREDENTIAL_FREE_RUNTIME_ALLOWED_DOMAINS)).agentsh_domains)
+            if credential_free_repository
+            else list(effective_network_policy.agentsh_domains)
+            if effective_network_policy is not None
+            else None
         ),
         network_policy_fingerprint=(
             effective_network_policy.fingerprint if effective_network_policy is not None else None
@@ -1386,6 +1424,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
         sandbox_backend=sandbox_backend,
+        credential_free_repository=credential_free_repository,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
         # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
         # so ACP runs never even evaluate it.

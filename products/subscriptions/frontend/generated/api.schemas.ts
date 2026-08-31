@@ -82,6 +82,35 @@ export interface SubscriptionInsightContextApi {
 
 export type SubscriptionContextApi = SubscriptionDashboardContextApi | SubscriptionInsightContextApi
 
+export interface ProactiveSubscriptionConfigApi {
+    /** Whether future AI report deliveries may run proactive follow-up. */
+    enabled?: boolean
+    /**
+     * Exact repository in owner/repository format. Required before draft pull requests are allowed.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    /**
+     * Exact GitHub integration selected with the repository for draft pull request authorization.
+     * @minimum 1
+     * @nullable
+     */
+    repository_integration_id?: number | null
+    /** Whether Pulse may create one draft pull request on a future delivery. */
+    create_draft_pr?: boolean
+    /**
+     * Optional eligible reviewed public research subject. Omit to disable public research.
+     * @nullable
+     */
+    public_research_subject_id?: string | null
+    /**
+     * Server-issued active repository grant for the selected repository. It cannot be chosen by clients.
+     * @nullable
+     */
+    readonly repository_grant_id: string | null
+}
+
 /**
  * * `email` - Email
  * * `slack` - Slack
@@ -223,6 +252,8 @@ export interface SubscriptionApi {
     ai_prompt_config?: AIPromptConfigApi
     /** Dashboards and insights that ground this AI report. Deleted resources are omitted. */
     readonly contexts: readonly SubscriptionContextApi[]
+    /** Standing proactive follow-up configuration for future AI report deliveries. */
+    readonly proactive_config: ProactiveSubscriptionConfigApi
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -347,6 +378,30 @@ export const SubscriptionWriteApiByweekdayItem = {
     Sunday: 'sunday',
 } as const
 
+export interface ProactiveSubscriptionConfigWriteApi {
+    /** Whether future AI report deliveries may run proactive follow-up. */
+    enabled?: boolean
+    /**
+     * Exact repository in owner/repository format. Required before draft pull requests are allowed.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    /**
+     * Exact GitHub integration selected with the repository for draft pull request authorization.
+     * @minimum 1
+     * @nullable
+     */
+    repository_integration_id?: number | null
+    /** Whether Pulse may create one draft pull request on a future delivery. */
+    create_draft_pr?: boolean
+    /**
+     * Optional eligible reviewed public research subject. Omit to disable public research.
+     * @nullable
+     */
+    public_research_subject_id?: string | null
+}
+
 /**
  * Standard Subscription serializer.
  */
@@ -386,6 +441,8 @@ export interface SubscriptionWriteApi {
      * @maxItems 3
      */
     contexts?: SubscriptionWriteApiContextsItem[]
+    /** Optional standing consent and limits for proactive follow-up on future AI report deliveries. */
+    proactive_config?: ProactiveSubscriptionConfigWriteApi
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -540,6 +597,8 @@ export interface PatchedSubscriptionWriteApi {
      * @maxItems 3
      */
     contexts?: PatchedSubscriptionWriteApiContextsItem[]
+    /** Optional standing consent and limits for proactive follow-up on future AI report deliveries. */
+    proactive_config?: ProactiveSubscriptionConfigWriteApi
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -750,6 +809,558 @@ export interface PaginatedSubscriptionDeliveryListApi {
     results: SubscriptionDeliveryApi[]
 }
 
+/**
+ * * `adopted` - adopted
+ * * `dismissed` - dismissed
+ */
+export type OutcomeDecisionEnumApi = (typeof OutcomeDecisionEnumApi)[keyof typeof OutcomeDecisionEnumApi]
+
+export const OutcomeDecisionEnumApi = {
+    Adopted: 'adopted',
+    Dismissed: 'dismissed',
+} as const
+
+export interface OutcomeDecisionApi {
+    /** Whether to adopt or dismiss this advice-only recommendation.
+     *
+     * * `adopted` - adopted
+     * * `dismissed` - dismissed */
+    decision: OutcomeDecisionEnumApi
+}
+
+export interface OutcomeDecisionDTOApi {
+    /** Stable outcome plan that records this advice decision. */
+    plan_id: string
+    /** Stable advice-only recommendation receiving this decision. */
+    action_id: string
+    /** Current explicit decision: adopted or dismissed.
+     *
+     * * `adopted` - adopted
+     * * `dismissed` - dismissed */
+    adoption_status: OutcomeDecisionEnumApi
+    /** Current server-owned measurement lifecycle state. */
+    readout_status: string
+    /**
+     * When the recommendation was most recently adopted, if adopted.
+     * @nullable
+     */
+    adopted_at: string | null
+    /** When the current explicit decision was recorded. */
+    decision_at: string
+    /** Server-known identifier of the person who made the decision. */
+    decided_by_id: number
+    /**
+     * Scheduled readout time after adoption, if any.
+     * @nullable
+     */
+    next_readout_at: string | null
+}
+
+export interface RepositoryOptionApi {
+    /** Exact repository currently authorizable by the requesting user, in owner/repository format. */
+    repository: string
+    /**
+     * Exact active GitHub integration that authorizes this repository binding.
+     * @minimum 1
+     */
+    repository_integration_id: number
+}
+
+export interface PublicResearchSubjectOptionApi {
+    /** Stable identifier of the reviewed public research subject. */
+    id: string
+    /** Human-readable name of the reviewed public research subject. */
+    display_name: string
+    /** Canonical public domain covered by this research subject. */
+    canonical_domain: string
+}
+
+export interface ProactiveConfigurationOptionsApi {
+    /** Whether proactive subscription configuration is enabled for this server. */
+    proactive_available: boolean
+    /** Whether the server currently allows new draft pull request automation. */
+    draft_pr_available: boolean
+    /** Repositories that the requesting user can currently authorize for a draft pull request. */
+    repositories: RepositoryOptionApi[]
+    /** Eligible reviewed public research subjects while public research is enabled. */
+    public_research_subjects: PublicResearchSubjectOptionApi[]
+}
+
+export interface PulseExperimentVariantApi {
+    /**
+     * New variant key. It cannot identify an existing feature flag.
+     * @maxLength 100
+     * @pattern ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$
+     */
+    key: string
+    /**
+     * Display name for this variant.
+     * @maxLength 400
+     */
+    name: string
+}
+
+/**
+ * * `event` - event
+ * * `action` - action
+ */
+export type PulseExperimentMetricRefKindEnumApi =
+    (typeof PulseExperimentMetricRefKindEnumApi)[keyof typeof PulseExperimentMetricRefKindEnumApi]
+
+export const PulseExperimentMetricRefKindEnumApi = {
+    Event: 'event',
+    Action: 'action',
+} as const
+
+export interface PulseExperimentMetricRefApi {
+    /** Metric reference type. Pulse accepts only an event name or an action ID.
+     *
+     * * `event` - event
+     * * `action` - action */
+    kind: PulseExperimentMetricRefKindEnumApi
+    /**
+     * Existing event name when kind is event.
+     * @maxLength 400
+     */
+    event_name?: string
+    /**
+     * Existing project action ID when kind is action.
+     * @minimum 1
+     */
+    action_id?: number
+}
+
+export interface PulseExperimentDraftApi {
+    /**
+     * Name for the new inert experiment draft.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Testable hypothesis recorded on the draft.
+     * @maxLength 1200
+     */
+    hypothesis: string
+    /**
+     * Optional explanation of the proposed change.
+     * @maxLength 1200
+     */
+    description?: string
+    /**
+     * Plain-language audience or behavior targeted by the draft.
+     * @maxLength 600
+     */
+    target_description: string
+    /**
+     * Two to five new variants. Rollout percentages are derived server-side.
+     * @minItems 2
+     * @maxItems 5
+     */
+    variants: PulseExperimentVariantApi[]
+    /** One existing event or action used as the primary metric. */
+    primary_metric: PulseExperimentMetricRefApi
+    /**
+     * Up to nine existing event or action references used as secondary metrics.
+     * @maxItems 9
+     */
+    secondary_metrics?: PulseExperimentMetricRefApi[]
+}
+
+/**
+ * * `verified` - verified
+ */
+export type PulseExperimentDraftResponseStatusEnumApi =
+    (typeof PulseExperimentDraftResponseStatusEnumApi)[keyof typeof PulseExperimentDraftResponseStatusEnumApi]
+
+export const PulseExperimentDraftResponseStatusEnumApi = {
+    Verified: 'verified',
+} as const
+
+export interface PulseExperimentDraftResponseApi {
+    /** Reserved Pulse artifact that owns this draft. */
+    artifact_id: string
+    /** Selected Pulse action fulfilled by this draft. */
+    action_id: string
+    /**
+     * Created inert experiment draft.
+     * @minimum 1
+     */
+    experiment_id: number
+    /**
+     * Created inactive zero-traffic feature flag.
+     * @minimum 1
+     */
+    feature_flag_id: number
+    /** Whether the draft was verified and recorded.
+     *
+     * * `verified` - verified */
+    status: PulseExperimentDraftResponseStatusEnumApi
+}
+
+export interface ArtifactLinkDTOApi {
+    /** Server-owned prepared artifact kind. */
+    kind: string
+    /** Current server-owned artifact state. */
+    status: string
+    /**
+     * Authoritative verified artifact URL, when safe to expose.
+     * @nullable
+     */
+    external_url: string | null
+    /**
+     * Verified external lifecycle state, when available.
+     * @nullable
+     */
+    external_state: string | null
+    /**
+     * Bounded server-owned artifact failure code, if any.
+     * @nullable
+     */
+    failure_code: string | null
+    /**
+     * Server task that prepared this artifact, if any.
+     * @nullable
+     */
+    task_id: string | null
+    /**
+     * Execution task-run identifier for this artifact, if any.
+     * @nullable
+     */
+    execution_task_run_id: string | null
+    /**
+     * Verified experiment identifier for an experiment artifact, if any.
+     * @nullable
+     */
+    experiment_id: number | null
+}
+
+export interface EvidenceProvenanceDTOApi {
+    tool_name: string
+    tool_schema_version: string
+    /** @nullable */
+    started_at: string | null
+    /** @nullable */
+    completed_at: string | null
+    result_truncated: boolean
+    /** @nullable */
+    error_class: string | null
+}
+
+export interface PublicResearchCitationHistoryDTOApi {
+    evidence_id: string
+    canonical_url: string
+    /** @nullable */
+    title: string | null
+    retrieved_at: string
+}
+
+export interface PublicationGateHistoryDTOApi {
+    label: string
+    status: string
+}
+
+export interface BuildTestGateSummaryDTOApi {
+    status: string
+    /** @nullable */
+    completed_at: string | null
+    /** @nullable */
+    failure_code: string | null
+    gates: PublicationGateHistoryDTOApi[]
+}
+
+export interface RunActionHistoryDTOApi {
+    /** Safe prepared artifacts for this recommendation. */
+    artifacts: ArtifactLinkDTOApi[]
+    /** Stable recommendation identifier. */
+    id: string
+    /** Stable server-generated recommendation key. */
+    action_key: string
+    /** Recommendation or prepared-action kind. */
+    kind: string
+    /** Safe recommendation title. */
+    title: string
+    /** Safe recommendation rationale. */
+    rationale: string
+    /** Safe expected impact summary. */
+    expected_impact: string
+    /** Server-ranked recommendation position. */
+    rank: number
+    /** Whether the server selected this action for implementation. */
+    implementation_selected: boolean
+    /** Current server-owned action state. */
+    status: string
+    /**
+     * Safe reason this recommendation is timely.
+     * @nullable
+     */
+    why_now: string | null
+    /**
+     * Bounded recommendation confidence, if available.
+     * @nullable
+     */
+    confidence: string | null
+    /** Estimated implementation effort. */
+    effort: string
+    /**
+     * Safe metric name used for the recommendation.
+     * @nullable
+     */
+    metric_name: string | null
+    /**
+     * Metric unit.
+     * @nullable
+     */
+    metric_unit: string | null
+    /**
+     * Intended metric direction.
+     * @nullable
+     */
+    metric_direction: string | null
+    /**
+     * Expected-change interpretation.
+     * @nullable
+     */
+    expected_change_type: string | null
+    /**
+     * Lower expected change bound.
+     * @nullable
+     */
+    expected_change_lower: string | null
+    /**
+     * Upper expected change bound.
+     * @nullable
+     */
+    expected_change_upper: string | null
+    /**
+     * Readout delay in days, if measurable.
+     * @nullable
+     */
+    readout_after_days: number | null
+    /**
+     * Linked server-owned outcome plan, if any.
+     * @nullable
+     */
+    plan_id: string | null
+    /**
+     * Outcome-plan baseline value, if any.
+     * @nullable
+     */
+    baseline_value: string | null
+    /**
+     * Start of the baseline interval, if any.
+     * @nullable
+     */
+    baseline_from: string | null
+    /**
+     * End of the baseline interval, if any.
+     * @nullable
+     */
+    baseline_to: string | null
+    /**
+     * Current outcome adoption state, if measurable.
+     * @nullable
+     */
+    adoption_status: string | null
+    /**
+     * Bounded source of the current adoption state, if any.
+     * @nullable
+     */
+    adoption_source: string | null
+    /**
+     * Most recent adoption timestamp, if adopted.
+     * @nullable
+     */
+    adopted_at: string | null
+    /**
+     * Timestamp of the current manual decision, if any.
+     * @nullable
+     */
+    decision_at: string | null
+    /**
+     * Person who made the current manual decision, if any.
+     * @nullable
+     */
+    decided_by_id: number | null
+    /**
+     * Current outcome readout lifecycle state, if measurable.
+     * @nullable
+     */
+    readout_status: string | null
+    /**
+     * Next scheduled outcome readout, if any.
+     * @nullable
+     */
+    next_readout_at: string | null
+    /** Safe bounded evidence provenance. */
+    evidence: EvidenceProvenanceDTOApi[]
+    /** Safe bounded public research citations. */
+    citations: PublicResearchCitationHistoryDTOApi[]
+    /** Verified build and test gate result, if relevant. */
+    build_test_gate: BuildTestGateSummaryDTOApi | null
+}
+
+/**
+ * * `count` - count
+ */
+export type MetricUnitEnumApi = (typeof MetricUnitEnumApi)[keyof typeof MetricUnitEnumApi]
+
+export const MetricUnitEnumApi = {
+    Count: 'count',
+} as const
+
+export interface OutcomeReadoutHistoryDTOApi {
+    /** Safe artifacts prepared for the source recommendation. */
+    artifacts: ArtifactLinkDTOApi[]
+    /** Stable immutable outcome observation identifier. */
+    id: string
+    /** Outcome plan measured by this readout. */
+    plan_id: string
+    /** Source recommendation for this readout. */
+    action_id: string
+    /** Safe source recommendation title. */
+    recommendation_title: string
+    /** Adapter-owned identity for the count scalar. */
+    metric_name: string
+    /** Adapter-owned count scalar unit.
+     *
+     * * `count` - count */
+    metric_unit: MetricUnitEnumApi
+    /** Server-owned baseline metric value. */
+    baseline_value: string
+    /** Start of the baseline interval. */
+    baseline_from: string
+    /** End of the baseline interval. */
+    baseline_to: string
+    /**
+     * Observed metric value, if measurement succeeded.
+     * @nullable
+     */
+    observed_value: string | null
+    /**
+     * Start of the observed interval, if available.
+     * @nullable
+     */
+    observed_from: string | null
+    /**
+     * End of the observed interval, if available.
+     * @nullable
+     */
+    observed_to: string | null
+    /**
+     * Observed absolute change, if available.
+     * @nullable
+     */
+    absolute_delta: string | null
+    /**
+     * Observed relative change, if available.
+     * @nullable
+     */
+    relative_delta: string | null
+    /** Immutable observation state. */
+    status: string
+    /** Server-owned outcome verdict. */
+    verdict: string
+    /**
+     * Server-derived readout confidence, if available.
+     * @nullable
+     */
+    confidence: string | null
+    /**
+     * Bounded measurement failure code, if any.
+     * @nullable
+     */
+    failure_code: string | null
+}
+
+export interface DeliveryHistoryDTOApi {
+    status: string
+    /** @nullable */
+    failure_code: string | null
+    /** @nullable */
+    accepted_at: string | null
+}
+
+export interface PulseRunHistoryDTOApi {
+    /** Bounded safe recommendation history. */
+    actions: RunActionHistoryDTOApi[]
+    /** Immutable authorized outcome readouts, shown before recommendations. */
+    readouts: OutcomeReadoutHistoryDTOApi[]
+    /** Stable proactive run identifier. */
+    id: string
+    /** Subscription that owns this run. */
+    subscription_id: number
+    /** Delivery that triggered this run. */
+    delivery_id: string
+    /** Terminal or current Pulse run state. */
+    status: string
+    /**
+     * When the run began, if started.
+     * @nullable
+     */
+    started_at: string | null
+    /**
+     * When the run finished, if terminal.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * Analysis task identifier, if any.
+     * @nullable
+     */
+    task_id: string | null
+    /**
+     * Analysis task-run identifier, if any.
+     * @nullable
+     */
+    analysis_task_run_id: string | null
+    /**
+     * Execution task-run identifier, if any.
+     * @nullable
+     */
+    execution_task_run_id: string | null
+    /**
+     * Bounded run failure code, if any.
+     * @nullable
+     */
+    failure_code: string | null
+    /**
+     * Bounded reason a run was skipped, if any.
+     * @nullable
+     */
+    skip_reason: string | null
+    /** Bounded delivery outcomes for this run. */
+    deliveries: DeliveryHistoryDTOApi[]
+}
+
+/**
+ * Server-derived measurement arguments. Only the adapter-owned time window differs from baseline.
+ */
+export type PulseOutcomeReplayResponseApiComparisonArguments = { [key: string]: unknown }
+
+/**
+ * Server-validated value selector for the returned measurement result.
+ */
+export type PulseOutcomeReplayResponseApiSelector = { [key: string]: string }
+
+export interface PulseOutcomeReplayResponseApi {
+    /** Claimed outcome plan this replay instruction is bound to. */
+    plan_id: string
+    /**
+     * Only supported read-only measurement tool the current sandbox may execute.
+     * @maxLength 100
+     */
+    tool_name: string
+    /**
+     * Schema version that must match the returned measurement tool call.
+     * @maxLength 32
+     */
+    tool_schema_version: string
+    /** Server-derived measurement arguments. Only the adapter-owned time window differs from baseline. */
+    comparison_arguments: PulseOutcomeReplayResponseApiComparisonArguments
+    /** Server-validated value selector for the returned measurement result. */
+    selector: PulseOutcomeReplayResponseApiSelector
+}
+
 export type SubscriptionsListParams = {
     /**
      * Filter by creator user UUID.
@@ -833,6 +1444,14 @@ export const SubscriptionsDeliveriesListStatus = {
     Skipped: 'skipped',
     Starting: 'starting',
 } as const
+
+export type SubscriptionsPulseHistoryListParams = {
+    /**
+     * Subscription whose bounded proactive delivery history to return.
+     * @minimum 1
+     */
+    subscription_id: number
+}
 
 export type SubscriptionsSummaryQuotaRetrieve200 = {
     active_count: number

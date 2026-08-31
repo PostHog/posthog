@@ -16,6 +16,7 @@ from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GitHubAuthenticationError,
     OAuthTokenError,
+    TaskInvalidStateError,
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.connection_token import (
@@ -172,10 +173,20 @@ class GetSandboxForRepositoryOutput:
     dev_stack_preview_sized: bool = False
 
 
+def _reject_credential_free_legacy_provisioning(ctx: TaskProcessingContext) -> None:
+    if ctx.credential_free_repository:
+        raise TaskInvalidStateError(
+            "Credential-free staged execution requires split sandbox provisioning",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=RuntimeError("credential_free_legacy_provisioning_unsupported"),
+        )
+
+
 @activity.defn
 @asyncify
 def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandboxForRepositoryOutput:
     ctx = input.context
+    _reject_credential_free_legacy_provisioning(ctx)
 
     with log_activity_execution(
         "get_sandbox_for_repository",
@@ -184,7 +195,6 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         has_repo = ctx.repository is not None
         repository: str | None = ctx.repository
         github_integration_id: int | None = ctx.github_integration_id
-
         snapshot = None
         used_snapshot = False
         snapshot_source = "none"

@@ -16,6 +16,15 @@ export const MOCK_SUBSCRIPTION_USER = {
     hedgehog_config: null,
 } as const
 
+const DISABLED_PROACTIVE_CONFIG = {
+    enabled: false,
+    repository: null,
+    repository_integration_id: null,
+    create_draft_pr: false,
+    repository_grant_id: null,
+    public_research_subject_id: null,
+}
+
 export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     id: 1,
     resource_type: ResourceTypeEnumApi.Insight,
@@ -24,6 +33,7 @@ export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     insight_short_id: 'abc123',
     resource_name: 'North star metric',
     contexts: [],
+    proactive_config: DISABLED_PROACTIVE_CONFIG,
     title: 'Weekly rollup',
     dashboard_export_insights: [],
     target_type: TargetTypeEnumApi.Email,
@@ -56,6 +66,7 @@ export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     insight_short_id: null,
     resource_name: 'Company overview',
     contexts: [],
+    proactive_config: DISABLED_PROACTIVE_CONFIG,
     title: 'Dashboard digest',
     dashboard_export_insights: [101],
     target_type: TargetTypeEnumApi.Slack,

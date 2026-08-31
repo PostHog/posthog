@@ -18,7 +18,7 @@ import { InsightShortId, SubscriptionType } from '~/types'
 
 import type { SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { subscriptionLogic, SubscriptionFormType, SubscriptionLogicProps } from './subscriptionLogic'
+import { subscriptionLogic, SubscriptionLogicProps } from './subscriptionLogic'
 import { MAX_CONTEXTS } from './utils'
 
 jest.mock('posthog-js')
@@ -692,7 +692,11 @@ describe('subscriptionLogic', () => {
         ],
     ])('records the channel recency for %s', async (_label, subscription, expectedIds) => {
         await expectLogic(newLogic, () => {
-            newLogic.actions.submitSubscriptionSuccess({ ...subscription, contexts: [] } as SubscriptionFormType)
+            newLogic.actions.submitSubscriptionSuccess({
+                ...newLogic.values.subscription,
+                ...subscription,
+                contexts: [],
+            })
         }).toFinishListeners()
 
         expect(getRecentSlackChannelIds(7)).toEqual(expectedIds)

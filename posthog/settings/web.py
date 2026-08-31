@@ -101,6 +101,7 @@ PRODUCTS_APPS = [
     "products.product_analytics.backend.apps.ProductAnalyticsConfig",
     "products.wizard.backend.apps.WizardConfig",
     "products.exports.backend.apps.ExportsConfig",
+    "products.subscriptions.backend.apps.SubscriptionsConfig",
     "products.annotations.backend.apps.AnnotationsConfig",
     "products.batch_exports.backend.apps.BatchExportsConfig",
     "products.engineering_analytics.backend.apps.EngineeringAnalyticsConfig",
@@ -698,6 +699,7 @@ SPECTACULAR_SETTINGS = {
         "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
         "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
         "PropertyGroupOperator": ["AND", "OR"],
+        "OutcomeDecisionEnum": ["adopted", "dismissed"],
         # `mode` is a generic field name; name the Redshift batch-export mode set explicitly.
         "RedshiftExportModeEnum": ["INSERT", "COPY"],
         # `severity` is shared by a data quality check, its overview projection, and the severity a

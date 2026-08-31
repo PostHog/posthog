@@ -1,7 +1,8 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.conf import settings
 from django.http.response import HttpResponseBase
@@ -12,33 +13,53 @@ from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
     get_content_response,
     save_content_from_file as _save_content_from_file,
 )
-from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext as InvalidExportContext,
     RetryableExportError as RetryableExportError,
 )
+from products.product_analytics.backend.facade.api import viewable_insight_ids_for_user
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
 JSONL_EXPORT_FORMAT = ExportedAsset.ExportFormat.JSONL
+_AI_REPORT_SNAPSHOT_KEY = "ai_report"
 
 # Caps the whole workflow including retries; callers block on this, so it must stay
 # well under the web tier's request timeout.
 RENDER_TIMEOUT = timedelta(seconds=90)
 EXPORT_WORKFLOW_TIMEOUT = timedelta(minutes=35)
+
+
+@frozen
+class AuthorizedSubscription:
+    id: int
+    resource_type: str
+
+
+@frozen
+class PersistedAIReportDelivery:
+    delivery_id: UUID
+    base_report: str
+    target_type: str
+    target_value: str
 
 
 def create_export_asset_async(
@@ -88,6 +109,253 @@ def create_export_asset_async(
 
 def get_export_asset(*, team_id: int, asset_id: int) -> ExportedAsset | None:
     return ExportedAsset.objects.filter(team_id=team_id, id=asset_id).first()
+
+
+def subscription_exists_for_team(*, team_id: int, subscription_id: int) -> bool:
+    """Whether an active subscription belongs to one team."""
+    return Subscription.objects.filter(team_id=team_id, id=subscription_id, deleted=False).exists()
+
+
+def get_persisted_ai_report_delivery(
+    *, team_id: int, subscription_id: int, delivery_id: UUID
+) -> PersistedAIReportDelivery | None:
+    """Return the persisted recipient-safe AI report for one exact delivery binding."""
+    delivery = (
+        SubscriptionDelivery.objects.filter(
+            id=delivery_id,
+            team_id=team_id,
+            subscription_id=subscription_id,
+            subscription__prompt__isnull=False,
+            subscription__dashboard__isnull=True,
+            subscription__insight__isnull=True,
+        )
+        .values("content_snapshot", "target_type", "target_value")
+        .first()
+    )
+    if delivery is None:
+        return None
+    snapshot = delivery["content_snapshot"]
+    report = snapshot.get(_AI_REPORT_SNAPSHOT_KEY) if isinstance(snapshot, dict) else None
+    if not isinstance(report, str) or not report:
+        return None
+    target_type = delivery["target_type"]
+    target_value = delivery["target_value"]
+    return PersistedAIReportDelivery(
+        delivery_id=delivery_id,
+        base_report=report,
+        target_type=target_type,
+        target_value=target_value,
+    )
+
+
+def get_authorized_subscription(*, team: Team, user: User, subscription_id: int) -> AuthorizedSubscription | None:
+    """Resolve a subscription only when the caller can read its underlying resource."""
+    subscription = (
+        Subscription.objects.filter(team_id=team.id, id=subscription_id, deleted=False)
+        .select_related("insight", "dashboard")
+        .first()
+    )
+    if subscription is None:
+        return None
+    access_control = UserAccessControl(user=user, team=team)
+    if subscription.resource_type == Subscription.ResourceType.AI_PROMPT:
+        if not access_control.check_access_level_for_resource("query", "viewer"):
+            return None
+        contexts = (
+            SubscriptionContext.objects.for_team(team.id)
+            .filter(subscription_id=subscription.id)
+            .select_related("dashboard", "insight")
+        )
+        for context in contexts:
+            target = context.dashboard if context.dashboard_id is not None else context.insight
+            if target is None or not access_control.check_access_level_for_object(target, "viewer"):
+                return None
+            if context.dashboard_id is not None:
+                for tile in DashboardTile.objects.filter(
+                    dashboard_id=context.dashboard_id, insight_id__isnull=False
+                ).select_related("insight"):
+                    if tile.insight is not None and not access_control.check_access_level_for_object(
+                        tile.insight, "viewer"
+                    ):
+                        return None
+    elif subscription.insight is not None:
+        if not access_control.check_access_level_for_object(subscription.insight, "viewer"):
+            return None
+    elif subscription.dashboard is not None and not access_control.check_access_level_for_object(
+        subscription.dashboard, "viewer"
+    ):
+        return None
+    return AuthorizedSubscription(id=subscription.id, resource_type=subscription.resource_type)
+
+
+def snapshot_contexts_are_viewable(*, team: Team, user: User, contexts: object) -> bool:
+    """Check immutable run snapshot contexts against the caller's current access."""
+    if not isinstance(contexts, list) or len(contexts) > 3:
+        return False
+    parsed_contexts: list[tuple[str, int]] = []
+    insight_ids: set[int] = set()
+    for context in contexts:
+        if not isinstance(context, dict) or set(context) not in ({"dashboard_id"}, {"insight_id"}):
+            return False
+        key, identifier = next(iter(context.items()))
+        if not isinstance(identifier, int) or identifier < 1:
+            return False
+        parsed_contexts.append((key, identifier))
+        if key == "insight_id":
+            insight_ids.add(identifier)
+
+    viewable_insight_ids = viewable_insight_ids_for_user(team=team, user=user, insight_ids=insight_ids)
+    access_control = UserAccessControl(user=user, team=team)
+    for key, identifier in parsed_contexts:
+        if key == "insight_id":
+            if identifier not in viewable_insight_ids:
+                return False
+            continue
+        target = Dashboard.objects.filter(team_id=team.id, id=identifier).first()
+        if target is None or not access_control.check_access_level_for_object(target, "viewer"):
+            return False
+        for tile in DashboardTile.objects.filter(dashboard_id=identifier, insight_id__isnull=False).select_related(
+            "insight"
+        ):
+            if tile.insight is not None and not access_control.check_access_level_for_object(tile.insight, "viewer"):
+                return False
+    return True
+
+
+def snapshot_contexts_are_viewable_preloaded(
+    *, team: Team, user: User, contexts_by_key: Mapping[UUID, object]
+) -> set[UUID]:
+    """Return snapshot keys whose contexts are viewable using bulk-loaded targets."""
+    parsed_contexts_by_key: dict[UUID, list[tuple[str, int]]] = {}
+    insight_ids: set[int] = set()
+    dashboard_ids: set[int] = set()
+    for key, contexts in contexts_by_key.items():
+        if not isinstance(contexts, list) or len(contexts) > 3:
+            continue
+        parsed_contexts: list[tuple[str, int]] = []
+        for context in contexts:
+            if not isinstance(context, dict) or set(context) not in ({"dashboard_id"}, {"insight_id"}):
+                parsed_contexts = []
+                break
+            context_type, identifier = next(iter(context.items()))
+            if not isinstance(identifier, int) or identifier < 1:
+                parsed_contexts = []
+                break
+            parsed_contexts.append((context_type, identifier))
+            if context_type == "dashboard_id":
+                dashboard_ids.add(identifier)
+            else:
+                insight_ids.add(identifier)
+        else:
+            parsed_contexts_by_key[key] = parsed_contexts
+
+    dashboards_by_id = {
+        dashboard.id: dashboard for dashboard in Dashboard.objects.filter(team_id=team.id, id__in=dashboard_ids)
+    }
+    dashboard_tiles_by_dashboard_id: dict[int, list[DashboardTile]] = {
+        dashboard_id: [] for dashboard_id in dashboard_ids
+    }
+    for tile in DashboardTile.objects.filter(dashboard_id__in=dashboard_ids, insight_id__isnull=False).select_related(
+        "insight"
+    ):
+        dashboard_tiles_by_dashboard_id.setdefault(tile.dashboard_id, []).append(tile)
+
+    viewable_insight_ids = viewable_insight_ids_for_user(team=team, user=user, insight_ids=insight_ids)
+    access_control = UserAccessControl(user=user, team=team)
+    visible_keys: set[UUID] = set()
+    for key, contexts in parsed_contexts_by_key.items():
+        is_viewable = True
+        for context_type, identifier in contexts:
+            if context_type == "insight_id":
+                if identifier not in viewable_insight_ids:
+                    is_viewable = False
+                    break
+                continue
+            target = dashboards_by_id.get(identifier)
+            if target is None or not access_control.check_access_level_for_object(target, "viewer"):
+                is_viewable = False
+                break
+            for tile in dashboard_tiles_by_dashboard_id.get(identifier, []):
+                if tile.insight is None or not access_control.check_access_level_for_object(tile.insight, "viewer"):
+                    is_viewable = False
+                    break
+            if not is_viewable:
+                break
+        if is_viewable:
+            visible_keys.add(key)
+    return visible_keys
+
+
+def subscription_snapshot_contexts_are_authorized(
+    *, team: Team, user: User, subscription_id: int, contexts: object
+) -> bool:
+    subscription = get_authorized_subscription(team=team, user=user, subscription_id=subscription_id)
+    if subscription is None or subscription.resource_type != Subscription.ResourceType.AI_PROMPT:
+        return False
+    if not snapshot_contexts_are_viewable(team=team, user=user, contexts=contexts):
+        return False
+    if not isinstance(contexts, list):
+        return False
+
+    current_contexts = {
+        ("dashboard_id", dashboard_id) if dashboard_id is not None else ("insight_id", insight_id)
+        for dashboard_id, insight_id in SubscriptionContext.objects.for_team(team.id)
+        .filter(subscription_id=subscription_id)
+        .values_list("dashboard_id", "insight_id")
+    }
+    snapshot_contexts = {(key, identifier) for context in contexts for key, identifier in context.items()}
+    return len(snapshot_contexts) == len(contexts) and snapshot_contexts == current_contexts
+
+
+def subscription_snapshot_contexts_are_authorized_preloaded(
+    *,
+    team: Team,
+    user: User,
+    subscription: Subscription,
+    contexts: Sequence[SubscriptionContext],
+    dashboard_tiles_by_dashboard_id: Mapping[int, Sequence[DashboardTile]],
+    access_control: UserAccessControl,
+) -> bool:
+    """Check a scheduled AI subscription using only caller-provided bulk-loaded rows."""
+    if (
+        subscription.team_id != team.id
+        or subscription.deleted
+        or subscription.resource_type != Subscription.ResourceType.AI_PROMPT
+        or not access_control.check_access_level_for_resource("query", "viewer")
+        or len(contexts) > 3
+    ):
+        return False
+    snapshot_contexts: set[tuple[str, int]] = set()
+    for context in contexts:
+        if context.team_id != team.id or context.subscription_id != subscription.id:
+            return False
+        target: Dashboard | Insight | None
+        identifier: int | None
+        if context.dashboard_id is not None:
+            target = context.dashboard
+            key = "dashboard_id"
+            identifier = context.dashboard_id
+            tiles = dashboard_tiles_by_dashboard_id.get(identifier, ())
+        else:
+            target = context.insight
+            key = "insight_id"
+            identifier = context.insight_id
+            tiles = ()
+        if (
+            identifier is None
+            or target is None
+            or target.team_id != team.id
+            or (key == "insight_id" and target.deleted)
+            or not access_control.check_access_level_for_object(target, "viewer")
+        ):
+            return False
+        snapshot_contexts.add((key, identifier))
+        for tile in tiles:
+            if tile.dashboard_id != identifier or tile.insight is None:
+                return False
+            if not access_control.check_access_level_for_object(tile.insight, "viewer"):
+                return False
+    return len(snapshot_contexts) == len(contexts)
 
 
 def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -> HttpResponseBase:

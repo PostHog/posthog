@@ -91,6 +91,7 @@ APIScopeObject = Literal[
     "organization_member",
     "person",
     "plugin",
+    "pulse_experiment_draft",
     "product_enablement",
     "product_tour",
     "project",
@@ -173,6 +174,10 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # MCP Store uses it to deny the human/member control plane and force the
         # agent through its own explicit gateway grants.
         "mcp_builtin_agent",
+        # Server-only mutation capability for the one approved Pulse experiment-draft tool.
+        # A subscriptions-owned issuer must validate the run and selected action before minting it;
+        # OAuth consent, personal API keys, and browser sessions must never grant it.
+        "pulse_experiment_draft",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.

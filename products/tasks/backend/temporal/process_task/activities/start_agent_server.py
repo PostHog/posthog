@@ -38,7 +38,11 @@ from products.tasks.backend.temporal.metrics import (
     record_network_enforcement,
     sandbox_runtime_label,
 )
-from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
+from products.tasks.backend.temporal.oauth import (
+    create_oauth_access_token_for_run,
+    is_pulse_mcp_scope_posture,
+    resolve_task_run_mcp_scopes,
+)
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
@@ -355,6 +359,7 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
 
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
+    scopes = resolve_task_run_mcp_scopes(scopes, ctx.state)
     task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
     try:
         actor_user = get_task_run_credential_user(task, ctx.state)
@@ -407,27 +412,32 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
     )
-    include_personal = _include_personal_mcp_for_task(task)
-    user_mcp_configs = get_user_mcp_server_configs(
-        token=access_token,
-        team_id=ctx.team_id,
-        user_id=actor_user.id if actor_user else None,
-        include_personal=include_personal,
-        interaction_origin=ctx.interaction_origin,
-        allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
-        origin_product=task.origin_product,
-        task_agent_key=task.mcp_builtin_agent_key,
-        credential_owner_id=task.mcp_credential_owner_id,
-        allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
-    )
-    if user_mcp_configs:
-        mcp_configs = mcp_configs + user_mcp_configs
+    relayed_names: list[str] = []
+    pulse_scoped = is_pulse_mcp_scope_posture(scopes)
+    if not ctx.credential_free_repository and not pulse_scoped:
+        include_personal = _include_personal_mcp_for_task(task)
+        user_mcp_configs = get_user_mcp_server_configs(
+            token=access_token,
+            team_id=ctx.team_id,
+            user_id=actor_user.id if actor_user else None,
+            include_personal=include_personal,
+            interaction_origin=ctx.interaction_origin,
+            allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
+            origin_product=task.origin_product,
+            task_agent_key=task.mcp_builtin_agent_key,
+            credential_owner_id=task.mcp_credential_owner_id,
+            allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
+        )
+        if user_mcp_configs:
+            mcp_configs = mcp_configs + user_mcp_configs
 
-    imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
-    if imported_mcp_configs:
-        mcp_configs = mcp_configs + imported_mcp_configs
+        imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+        if imported_mcp_configs:
+            mcp_configs = mcp_configs + imported_mcp_configs
 
-    relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+        relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    elif pulse_scoped:
+        emit_agent_log(ctx.run_id, "debug", "Pulse staged manifest excludes personal, shared, and imported MCP servers")
     if relayed_names:
         emit_agent_log(
             ctx.run_id,
@@ -500,8 +510,8 @@ def _invoke_start_agent_server(
             task_id=ctx.task_id,
             run_id=ctx.run_id,
             mode=ctx.mode,
-            create_pr=ctx.create_pr,
-            auto_publish=ctx.auto_publish,
+            create_pr=False if ctx.credential_free_repository else ctx.create_pr,
+            auto_publish=False if ctx.credential_free_repository else ctx.auto_publish,
             interaction_origin=ctx.interaction_origin,
             branch=params.protected_base_branch,
             agent_runtime=ctx.task_runtime,
@@ -523,6 +533,7 @@ def _invoke_start_agent_server(
             wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
+            credential_free_repository=ctx.credential_free_repository,
         )
 
         # Record the boot identity so same-actor follow-ups within the

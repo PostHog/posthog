@@ -1,6 +1,7 @@
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
+from io import BytesIO
 
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +10,18 @@ from django.test import SimpleTestCase, override_settings
 import requests
 from parameterized import parameterized
 
-from posthog.egress.firecrawl.client import FirecrawlNotConfigured, FirecrawlScrapeFailed, scrape
+from posthog.egress.firecrawl.client import (
+    MAX_FIRECRAWL_RESPONSE_BYTES,
+    FirecrawlNotConfigured,
+    FirecrawlPublicTargetRejected,
+    FirecrawlScrape,
+    FirecrawlScrapeFailed,
+    FirecrawlSearchFailed,
+    FirecrawlSearchResult,
+    scrape,
+    scrape_public_url,
+    search_public_web,
+)
 from posthog.egress.firecrawl.limiter import consume_firecrawl_sync, firecrawl_account_key
 from posthog.egress.limiter.policies import Priority, resolve_policy
 
@@ -33,7 +45,7 @@ _SUCCESSFUL_SCRAPE = {
 def _response(status: int, body: str) -> requests.Response:
     response = requests.models.Response()
     response.status_code = status
-    response._content = body.encode()
+    response.raw = BytesIO(body.encode())
     return response
 
 
@@ -50,6 +62,16 @@ def _firecrawl_answers(response: requests.Response) -> Iterator[tuple[MagicMock,
 
 @override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
 class TestFirecrawlEgress(SimpleTestCase):
+    def test_scrape_translates_a_transport_failure(self) -> None:
+        with (
+            patch(
+                "posthog.egress.firecrawl.client.firecrawl_request",
+                side_effect=requests.ConnectionError("connection reset"),
+            ),
+            self.assertRaises(FirecrawlScrapeFailed),
+        ):
+            scrape("https://example.com", source="test")
+
     def test_scrape_sends_the_request_shape_firecrawl_documents(self) -> None:
         # Firecrawl reads camelCase body keys and ignores unknown ones, so a snake_case slip would
         # silently scrape whole-page boilerplate instead of the main content, with no error to notice.
@@ -60,6 +82,7 @@ class TestFirecrawlEgress(SimpleTestCase):
         kwargs = request.call_args.kwargs
         assert kwargs["headers"]["Authorization"] == f"Bearer {_FAKE_API_KEY}"
         assert kwargs["json"] == {"url": "https://example.com", "formats": ["summary"], "onlyMainContent": True}
+        assert kwargs["stream"] is True
 
     def test_scrape_maps_the_documented_response_onto_the_result(self) -> None:
         # title, description and creditsUsed live under `metadata`, not alongside the formats, so
@@ -86,6 +109,12 @@ class TestFirecrawlEgress(SimpleTestCase):
         # Firecrawl answers 200 with `success: false` for pages it could not fetch, so a caller that
         # only checked the HTTP status would treat a failed scrape as a page with no content.
         with _firecrawl_answers(_response(status, body)), self.assertRaises(FirecrawlScrapeFailed):
+            scrape("https://example.com", source="test")
+
+    def test_scrape_rejects_a_response_over_its_decompressed_byte_budget(self) -> None:
+        response = _response(200, "x" * (MAX_FIRECRAWL_RESPONSE_BYTES + 1))
+
+        with _firecrawl_answers(response), self.assertRaisesRegex(FirecrawlScrapeFailed, "response budget"):
             scrape("https://example.com", source="test")
 
     @override_settings(FIRECRAWL_API_KEY="")
@@ -115,3 +144,132 @@ class TestFirecrawlEgress(SimpleTestCase):
         # The policy reads settings through getattr defaults, which would swallow a renamed or
         # misspelled setting and quietly pin the budget to the code default forever.
         assert resolve_policy(firecrawl_account_key()).limits == ((7, 60.0), (11, 3600.0))
+
+
+class TestPublicFirecrawlTargets(SimpleTestCase):
+    @override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
+    def test_public_search_translates_a_transport_failure(self) -> None:
+        with (
+            patch(
+                "posthog.egress.firecrawl.client.firecrawl_request",
+                side_effect=requests.ConnectionError("connection reset"),
+            ),
+            self.assertRaises(FirecrawlSearchFailed),
+        ):
+            search_public_web(
+                "Example market trends",
+                source="subscriptions_pulse_research",
+                allowed_domains=("example.com",),
+            )
+
+    @override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
+    def test_public_search_uses_reviewed_domains_without_scraping_results(self) -> None:
+        response = {
+            "success": True,
+            "data": {
+                "web": [
+                    {
+                        "url": "https://www.example.com/research",
+                        "title": "  Example research  ",
+                        "description": "A public result",
+                    }
+                ]
+            },
+        }
+        with (
+            patch(
+                "posthog.egress.firecrawl.client.socket.getaddrinfo",
+                return_value=[(2, 1, 6, "", ("93.184.216.34", 443))],
+            ),
+            _firecrawl_answers(_response(200, json.dumps(response))) as (request, _consume),
+        ):
+            results = search_public_web(
+                "Example market trends",
+                source="subscriptions_pulse_research",
+                allowed_domains=("example.com",),
+                limit=3,
+            )
+
+        assert results == (
+            FirecrawlSearchResult(
+                url="https://www.example.com/research",
+                title="Example research",
+                description="A public result",
+            ),
+        )
+        assert request.call_args.args == ("POST", "https://api.firecrawl.dev/v2/search")
+        assert request.call_args.kwargs["json"] == {
+            "query": "Example market trends",
+            "limit": 3,
+            "sources": ["web"],
+            "includeDomains": ["example.com"],
+        }
+        assert "scrapeOptions" not in request.call_args.kwargs["json"]
+        assert request.call_args.kwargs["stream"] is True
+
+    @override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
+    def test_public_search_discards_results_outside_reviewed_domains(self) -> None:
+        response = {
+            "success": True,
+            "data": {"web": [{"url": "https://unreviewed.example/research", "title": "Unreviewed"}]},
+        }
+        with _firecrawl_answers(_response(200, json.dumps(response))):
+            results = search_public_web(
+                "Example market trends",
+                source="subscriptions_pulse_research",
+                allowed_domains=("example.com",),
+            )
+
+        assert results == ()
+
+    def test_public_scrape_rejects_private_or_unapproved_hosts_before_calling_provider(self) -> None:
+        with (
+            self.assertRaises(FirecrawlPublicTargetRejected),
+            patch("posthog.egress.firecrawl.client.scrape") as scrape_mock,
+        ):
+            scrape_public_url(
+                "http://127.0.0.1/latest/meta-data",
+                source="subscriptions_pulse_research",
+                allowed_domains=("example.com",),
+            )
+
+        scrape_mock.assert_not_called()
+
+    def test_public_scrape_checks_each_dns_answer_and_the_provider_final_url(self) -> None:
+        provider_result = FirecrawlScrape(url="https://www.example.com/market", markdown="Bounded public content")
+        with (
+            patch(
+                "posthog.egress.firecrawl.client.socket.getaddrinfo",
+                return_value=[(2, 1, 6, "", ("93.184.216.34", 443))],
+            ),
+            patch("posthog.egress.firecrawl.client.scrape", return_value=provider_result) as scrape_mock,
+        ):
+            result = scrape_public_url(
+                "https://example.com/market",
+                source="subscriptions_pulse_research",
+                allowed_domains=("example.com",),
+            )
+
+        assert result == provider_result
+        scrape_mock.assert_called_once_with(
+            "https://example.com/market",
+            source="subscriptions_pulse_research",
+            formats=("markdown",),
+            lockdown=True,
+        )
+
+    def test_public_scrape_rejects_provider_redirect_outside_reviewed_domains(self) -> None:
+        provider_result = FirecrawlScrape(url="https://other.example/redirect", markdown="Untrusted")
+        with (
+            patch(
+                "posthog.egress.firecrawl.client.socket.getaddrinfo",
+                return_value=[(2, 1, 6, "", ("93.184.216.34", 443))],
+            ),
+            patch("posthog.egress.firecrawl.client.scrape", return_value=provider_result),
+            self.assertRaises(FirecrawlPublicTargetRejected),
+        ):
+            scrape_public_url(
+                "https://example.com/market",
+                source="subscriptions_pulse_research",
+                allowed_domains=("example.com",),
+            )

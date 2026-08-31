@@ -21,6 +21,7 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
+    PrepareSandboxForRepositoryInput,
     PrepareSandboxForRepositoryOutput,
     _dev_stack_preview_resources,
     _prepare_posthog_desktop_cloud_task,
@@ -28,6 +29,7 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     _sandbox_image_kind,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
+    prepare_sandbox_for_repository,
 )
 
 
@@ -122,6 +124,43 @@ def test_skips_desktop_workspace_preparation_when_warm_flag_is_off(mocker):
     )
 
     sandbox.execute.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_credential_free_repository_preparation_never_resolves_github_credentials(
+    mocker, activity_environment, test_task
+):
+    task_run = test_task.create_run()
+    context = TaskProcessingContext(
+        task_id=str(test_task.id),
+        run_id=str(task_run.id),
+        team_id=test_task.team_id,
+        team_uuid=str(test_task.team.uuid),
+        organization_id=str(test_task.team.organization_id),
+        github_integration_id=test_task.github_integration_id,
+        repository=test_task.repository,
+        distinct_id="distinct-id",
+        state=task_run.state,
+        credential_free_repository=True,
+    )
+    github_token = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",
+        return_value="github-token",
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
+        return_value="access-token",
+    )
+
+    prepared = async_to_sync(activity_environment.run)(
+        prepare_sandbox_for_repository,
+        PrepareSandboxForRepositoryInput(context=context),
+    )
+
+    assert prepared.github_token == ""
+    assert "GITHUB_TOKEN" not in prepared.environment_variables
+    assert "GH_TOKEN" not in prepared.environment_variables
+    github_token.assert_not_called()
 
 
 def test_desktop_workspace_preparation_failure_is_non_retryable(mocker):

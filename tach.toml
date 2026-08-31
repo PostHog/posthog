@@ -67,6 +67,7 @@ depends_on = [
     "products.replay_vision",
     "products.skills",
     "products.revenue_analytics",
+    "products.subscriptions",
     "products.surveys",
     "products.tasks",
     "products.business_knowledge",
@@ -130,6 +131,7 @@ depends_on = [
     "products.slack_app",
     "products.stamphog",
     "products.streamlit_apps",
+    "products.subscriptions",
     "products.surveys",
     "products.tasks",
     "products.tracing",
@@ -299,8 +301,16 @@ layer = "modules"
 
 [[modules]]
 path = "products.subscriptions"
-depends_on = []
+depends_on = ["ee", "posthog", "products.experiments", "products.exports", "products.tasks"]
 layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.subscriptions",
+]
 
 [[modules]]
 path = "products.support"
@@ -859,6 +869,7 @@ depends_on = [
     "products.posthog_ai",
     "products.signals",
     "products.slack_app", "products.access_control",
+    "products.subscriptions",
 ]
 layer = "modules"
 
@@ -1289,7 +1300,7 @@ from = [
 
 [[modules]]
 path = "products.exports"
-depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control"]
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control", "products.subscriptions"]
 layer = "modules"
 
 [[modules]]

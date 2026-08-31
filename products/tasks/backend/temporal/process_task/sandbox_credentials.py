@@ -514,6 +514,6 @@ class GitHubSandboxCredential:
 
 def build_sandbox_credentials(ctx: "TaskProcessingContext") -> list[SandboxCredential]:
     credentials: list[SandboxCredential] = []
-    if ctx.has_github_credentials:
+    if ctx.has_github_credentials and not ctx.credential_free_repository:
         credentials.append(GitHubSandboxCredential())
     return credentials

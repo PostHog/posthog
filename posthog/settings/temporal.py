@@ -235,6 +235,10 @@ TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
+# Pulse defaults to the analytics fleet for backwards-compatible registration. Production
+# can move it to a dedicated landing zone in two deployments: start the new poller first,
+# then set this value on the subscription workers that dispatch the child workflow.
+PULSE_TASK_QUEUE = _set_temporal_task_queue(os.getenv("PULSE_TASK_QUEUE", "analytics-platform-task-queue"))
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 # The XGBoost-based session surfacing scoring sweep runs on the session-replay

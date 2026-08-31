@@ -77,6 +77,12 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
+        if ctx.credential_free_repository:
+            return RefreshSandboxCredentialsOutput(
+                next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS,
+                refreshed_kinds=[],
+                no_credentials_left=True,
+            )
         try:
             # The early connect-time read goes through retry_on_db_connection_drop: the
             # long-lived worker pools connections via pgbouncer, so a pool recycle / failover

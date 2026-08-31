@@ -5,6 +5,7 @@ import datetime as dt
 import dataclasses
 from datetime import datetime
 
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone as tz
 
@@ -14,9 +15,12 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.facade.api import subscription_snapshot_contexts_are_authorized_preloaded
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
@@ -28,6 +32,7 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_insight_delivery_snapshot,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    BuildScheduledProactiveSnapshotManifestInputs,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
@@ -37,12 +42,19 @@ from products.exports.backend.temporal.subscriptions.types import (
     DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
+    LoadScheduledProactiveSnapshotInputs,
     NoExportableInsightsContext,
     NoExportableInsightsReason,
     RecipientResult,
     UpdateDeliveryRecordInputs,
 )
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.contracts import ScheduledPulseEligibilityInput
+from products.subscriptions.backend.facade.temporal import (
+    ProactiveDispatchSnapshot,
+    build_scheduled_proactive_dispatch_manifest,
+    resolve_scheduled_proactive_dispatch_manifest,
+)
 
 from ee.tasks.subscriptions import _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
@@ -188,34 +200,115 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     now_with_buffer = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
     await LOGGER.ainfo("Fetching due subscriptions", deadline=now_with_buffer)
 
-    @database_sync_to_async(thread_sensitive=False)
-    def get_subscriptions() -> list[DueSubscription]:
-        return [
-            DueSubscription(
-                subscription_id=sub["id"],
-                team_id=sub["team_id"],
-                distinct_id=str(sub["created_by__distinct_id"])
-                if sub["created_by__distinct_id"]
-                else str(sub["team_id"]),
-                next_delivery_date=sub["next_delivery_date"].isoformat() if sub["next_delivery_date"] else None,
-                resource_type=Subscription.derive_resource_type(sub["insight_id"], sub["dashboard_id"], sub["prompt"]),
-            )
-            for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
-            .exclude(dashboard__deleted=True)
-            .exclude(insight__deleted=True)
-            # Skip relationless subs — derive_resource_type raises on them, and one bad row would fail the whole batch.
-            .exclude(
-                Q(insight_id__isnull=True) & Q(dashboard_id__isnull=True) & (Q(prompt__isnull=True) | Q(prompt=""))
-            )
-            .values(
-                "id", "team_id", "created_by__distinct_id", "next_delivery_date", "insight_id", "dashboard_id", "prompt"
-            )
-        ]
-
-    subscriptions = await get_subscriptions()
+    subscriptions = await database_sync_to_async(_get_due_subscriptions, thread_sensitive=False)(now_with_buffer)
     await LOGGER.ainfo("Fetched due subscriptions", count=len(subscriptions))
 
     return subscriptions
+
+
+def _get_due_subscriptions(now_with_buffer: dt.datetime) -> list[DueSubscription]:
+    return [
+        DueSubscription(
+            subscription_id=sub["id"],
+            team_id=sub["team_id"],
+            distinct_id=str(sub["created_by__distinct_id"]) if sub["created_by__distinct_id"] else str(sub["team_id"]),
+            next_delivery_date=sub["next_delivery_date"].isoformat() if sub["next_delivery_date"] else None,
+            resource_type=Subscription.derive_resource_type(sub["insight_id"], sub["dashboard_id"], sub["prompt"]),
+        )
+        for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
+        .exclude(dashboard__deleted=True)
+        .exclude(insight__deleted=True)
+        .exclude(Q(insight_id__isnull=True) & Q(dashboard_id__isnull=True) & (Q(prompt__isnull=True) | Q(prompt="")))
+        .values(
+            "id", "team_id", "created_by__distinct_id", "next_delivery_date", "insight_id", "dashboard_id", "prompt"
+        )
+    ]
+
+
+def _build_scheduled_proactive_snapshot_manifest(
+    inputs: BuildScheduledProactiveSnapshotManifestInputs,
+) -> str | None:
+    """Build one immutable manifest while deduplicating schedule-wide authorization checks."""
+    if not inputs.subscription_ids or not getattr(settings, "PULSE_PROACTIVE_ENABLED", False):
+        return None
+    subscriptions = list(
+        Subscription.objects.select_related("team", "created_by")
+        .filter(id__in=set(inputs.subscription_ids), deleted=False, enabled=True)
+        .order_by("id")
+    )
+    subscriptions = [
+        subscription
+        for subscription in subscriptions
+        if subscription.resource_type == Subscription.ResourceType.AI_PROMPT and subscription.created_by is not None
+    ]
+    subscription_ids = [subscription.id for subscription in subscriptions]
+    contexts_by_subscription: dict[int, list[SubscriptionContext]] = {}
+    for context in (
+        SubscriptionContext.objects.unscoped()
+        .filter(subscription_id__in=subscription_ids)
+        .select_related("dashboard", "insight")
+    ):
+        contexts_by_subscription.setdefault(context.subscription_id, []).append(context)
+    dashboard_ids = [
+        context.dashboard_id
+        for contexts in contexts_by_subscription.values()
+        for context in contexts
+        if context.dashboard_id is not None
+    ]
+    dashboard_tiles_by_dashboard_id: dict[int, list[DashboardTile]] = {}
+    for tile in DashboardTile.objects.filter(dashboard_id__in=dashboard_ids, insight_id__isnull=False).select_related(
+        "insight"
+    ):
+        dashboard_tiles_by_dashboard_id.setdefault(tile.dashboard_id, []).append(tile)
+    access_controls: dict[tuple[int, int], UserAccessControl] = {}
+    proactive_inputs: list[ScheduledPulseEligibilityInput] = []
+    for subscription in subscriptions:
+        actor = subscription.created_by
+        if actor is None:
+            continue
+        contexts = contexts_by_subscription.get(subscription.id, [])
+        context_payloads: list[dict[str, int]] = []
+        for context in contexts:
+            if context.dashboard_id is not None:
+                context_payloads.append({"dashboard_id": context.dashboard_id})
+            elif context.insight_id is not None:
+                context_payloads.append({"insight_id": context.insight_id})
+        access_control = access_controls.setdefault(
+            (subscription.team_id, actor.id), UserAccessControl(user=actor, team=subscription.team)
+        )
+        proactive_inputs.append(
+            ScheduledPulseEligibilityInput(
+                team_id=subscription.team_id,
+                subscription_id=subscription.id,
+                prompt=subscription.prompt or "",
+                contexts=context_payloads,
+                actor_id=actor.id,
+                integration_id=subscription.integration_id,
+                contexts_authorized=subscription_snapshot_contexts_are_authorized_preloaded(
+                    team=subscription.team,
+                    user=actor,
+                    subscription=subscription,
+                    contexts=contexts,
+                    dashboard_tiles_by_dashboard_id=dashboard_tiles_by_dashboard_id,
+                    access_control=access_control,
+                ),
+            )
+        )
+    return build_scheduled_proactive_dispatch_manifest(proactive_inputs)
+
+
+@temporalio.activity.defn
+def build_scheduled_proactive_snapshot_manifest(
+    inputs: BuildScheduledProactiveSnapshotManifestInputs,
+) -> str | None:
+    return _build_scheduled_proactive_snapshot_manifest(inputs)
+
+
+@temporalio.activity.defn
+def load_scheduled_proactive_snapshot(
+    inputs: LoadScheduledProactiveSnapshotInputs,
+) -> ProactiveDispatchSnapshot | None:
+    return resolve_scheduled_proactive_dispatch_manifest(inputs.manifest_ref, inputs.team_id, inputs.subscription_id)
 
 
 @temporalio.activity.defn

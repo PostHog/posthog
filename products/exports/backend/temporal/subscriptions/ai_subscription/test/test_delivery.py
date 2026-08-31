@@ -1,5 +1,7 @@
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -14,6 +16,9 @@ from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
+    _deliver_ai_subscription_with_pulse_bundle,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
@@ -25,6 +30,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     build_ai_subscription_report,
     build_chart_image_urls,
     render_ai_email_html,
+    render_pulse_delivery_appendix,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
@@ -40,12 +46,17 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     AiReportResult,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
-from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
+from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_WINDOW_END_KEY,
+    DeliverSubscriptionInputs,
+    SubscriptionTriggerType,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
+_ACTIVITIES = "products.exports.backend.temporal.subscriptions.ai_subscription.activities"
 
 _PARA = "a" * (SLACK_MRKDWN_SECTION_LIMIT - 100)
 _DELIVERY_ID = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -101,6 +112,212 @@ class TestRenderAIEmailHtml:
         )
 
         assert html.count(_CHART["title"]) == 1
+
+
+class TestRenderPulseDeliveryAppendix:
+    def test_appends_only_the_frozen_safe_action_fields(self) -> None:
+        rendered = render_pulse_delivery_appendix(
+            json.dumps(
+                {
+                    "version": "pulse_delivery_bundle:v1",
+                    "base_report": "must not duplicate",
+                    "actions": [
+                        {
+                            "rank": 1,
+                            "kind": "draft_pr",
+                            "title": "Fix signup",
+                            "why": "Activation is down",
+                            "impact": "Improve conversion",
+                            "task_result": {
+                                "status": "completed",
+                                "artifacts": [{"kind": "draft_pr", "status": "verified"}],
+                            },
+                            "provenance": [
+                                {"tool_name": "query_insight"},
+                                {"tool_name": "bad`\n[link](https://attacker.example)"},
+                            ],
+                            "links": {"pull_request": "https://github.com/posthog/posthog/pull/42"},
+                            "raw_evidence": "must not leak",
+                        }
+                    ],
+                    "failures": [{"scope": "run", "code": "timeout"}],
+                }
+            ).encode(),
+        )
+
+        assert rendered.markdown.startswith("must not duplicate")
+        assert "## Proactive actions" in rendered.markdown
+        assert "Fix signup" in rendered.markdown
+        assert "Activation is down" in rendered.markdown
+        assert "Improve conversion" in rendered.markdown
+        assert "Evidence: `query_insight`" in rendered.markdown
+        assert "attacker.example" not in rendered.markdown
+        assert "Some Pulse work did not finish before the delivery deadline." in rendered.markdown
+        assert "timeout" not in rendered.markdown
+        assert "must not leak" not in rendered.markdown
+        assert rendered.trusted_links == (("Pull Request", "https://github.com/posthog/posthog/pull/42"),)
+
+    @pytest.mark.parametrize("content", [b"{}", b"[]", b"not json"])
+    def test_rejects_an_invalid_frozen_bundle(self, content: bytes) -> None:
+        with pytest.raises(ValueError, match="Pulse delivery bundle"):
+            render_pulse_delivery_appendix(content)
+
+    @pytest.mark.parametrize(
+        "links,expected",
+        [
+            ({"pull_request": "javascript:alert(1)"}, ()),
+            ({"pull_request": "https://attacker.example/owner/repo/pull/42"}, ()),
+            ({"pull_request": "https://github.com/owner/repo/pull/%34%32"}, ()),
+            ({"pull_request": "https://github.com/owner/repo/pull/42\nhttps://attacker.example"}, ()),
+            ({"experiment": "/project/0/experiments/2"}, ()),
+            ({"experiment": "/project/1/experiments/0"}, ()),
+            ({"experiment": "/project/1/experiments/2?next=https://attacker.example"}, ()),
+            ({"experiment": "/project/1/experiments/2"}, (("Experiment", "/project/1/experiments/2"),)),
+        ],
+    )
+    def test_accepts_only_exact_server_owned_artifact_links(
+        self, links: dict[str, str], expected: tuple[tuple[str, str], ...]
+    ) -> None:
+        content = json.dumps(
+            {
+                "version": "pulse_delivery_bundle:v1",
+                "base_report": "# Report",
+                "actions": [
+                    {
+                        "rank": 1,
+                        "title": "Action",
+                        "why": "Why",
+                        "impact": "Impact",
+                        "links": links,
+                    }
+                ],
+                "failures": [],
+            }
+        ).encode()
+
+        assert render_pulse_delivery_appendix(content).trusted_links == expected
+
+    def test_email_keeps_only_a_trusted_bundle_link_outside_markdown(self) -> None:
+        with (
+            patch(f"{_DELIVERY}.EmailMessage") as email_message,
+            patch(f"{_DELIVERY}.get_unsubscribe_token", return_value="token"),
+            patch(f"{_DELIVERY}.raise_if_delivery_rejected"),
+        ):
+            send_email_ai_subscription_report(
+                email="a@posthog.com",
+                subscription=_mock_subscription(),
+                markdown="[unsafe](https://attacker.example/path)",
+                delivery_run_id="run-1",
+                delivery_id=_DELIVERY_ID,
+                trusted_links=(("Pull Request", "https://github.com/posthog/posthog/pull/42"),),
+            )
+
+        rendered_html = email_message.call_args.kwargs["template_context"]["rendered_html"]
+        assert "attacker.example" not in rendered_html
+        assert 'href="https://github.com/posthog/posthog/pull/42"' in rendered_html
+
+    @pytest.mark.asyncio
+    async def test_slack_keeps_only_a_trusted_bundle_link_outside_markdown(self) -> None:
+        integration = _mock_integration(REQUIRED_SLACK_SCOPES)
+        deliver = AsyncMock(return_value=MagicMock())
+        with patch(f"{_DELIVERY}.deliver_slack_message_data", deliver):
+            await send_slack_ai_subscription_report(
+                subscription=_mock_subscription(),
+                markdown="[unsafe](https://attacker.example/path)",
+                integration=integration,
+                delivery_id=_DELIVERY_ID,
+                trusted_links=(("Pull Request", "https://github.com/posthog/posthog/pull/42"),),
+            )
+
+        message = deliver.call_args.args[2]
+        text = " ".join(block["text"]["text"] for block in message.blocks if block["type"] == "section")
+        assert "attacker.example" not in text
+        assert "<https://github.com/posthog/posthog/pull/42|Pull Request>" in text
+
+
+@pytest.mark.asyncio
+async def test_pulse_email_delivery_renders_one_frozen_bundle_and_finishes_accepted() -> None:
+    subscription = _mock_subscription()
+    subscription.team_id = 1
+    subscription.target_type = Subscription.SubscriptionTarget.EMAIL
+    subscription.target_value = "a@posthog.com"
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=2,
+        exported_asset_ids=[],
+        total_insight_count=0,
+        delivery_id=_DELIVERY_ID,
+        pulse_delivery_ledger_id=uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+    )
+    attempt = MagicMock()
+    attempt.content = (
+        b'{"version":"pulse_delivery_bundle:v1","base_report":"# Frozen report","actions":[{"rank":1,"title":"Fix signup",'
+        b'"why":"Activation fell","impact":"Improve conversion","task_result":{"status":"completed"},'
+        b'"links":{}}],"failures":[]}'
+    )
+    attempt.provider_idempotency_key = "pulse-key"
+    send_email = MagicMock()
+    finish = MagicMock()
+
+    with (
+        patch(f"{_ACTIVITIES}.pulse_facade.begin_pulse_delivery_bundle", return_value=attempt),
+        patch(f"{_ACTIVITIES}.pulse_facade.finish_pulse_delivery_bundle", finish),
+        patch(f"{_ACTIVITIES}.send_email_ai_subscription_report", send_email),
+        patch(f"{_ACTIVITIES}.temporalio.activity.info", return_value=SimpleNamespace(workflow_run_id="run-1")),
+    ):
+        result = await _deliver_ai_subscription_with_pulse_bundle(
+            subscription=subscription,
+            inputs=inputs,
+            recipient_results=[],
+            markdown="# Base report",
+            delivery_id=_DELIVERY_ID,
+            chart_images=[],
+        )
+
+    assert [recipient.status for recipient in result.recipient_results] == ["success"]
+    assert send_email.call_args.kwargs["markdown"].startswith("# Frozen report")
+    assert "# Base report" not in send_email.call_args.kwargs["markdown"]
+    assert send_email.call_args.kwargs["provider_idempotency_key"] == "pulse-key"
+    assert finish.call_args.args[0].outcome == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_pulse_email_delivery_marks_an_ambiguous_provider_failure_unknown() -> None:
+    subscription = _mock_subscription()
+    subscription.team_id = 1
+    subscription.target_type = Subscription.SubscriptionTarget.EMAIL
+    subscription.target_value = "a@posthog.com"
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=2,
+        exported_asset_ids=[],
+        total_insight_count=0,
+        delivery_id=_DELIVERY_ID,
+        pulse_delivery_ledger_id=uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+    )
+    attempt = MagicMock()
+    attempt.content = (
+        b'{"version":"pulse_delivery_bundle:v1","base_report":"# Frozen report","actions":[],"failures":[]}'
+    )
+    attempt.provider_idempotency_key = "pulse-key"
+    finish = MagicMock()
+
+    with (
+        patch(f"{_ACTIVITIES}.pulse_facade.begin_pulse_delivery_bundle", return_value=attempt),
+        patch(f"{_ACTIVITIES}.pulse_facade.finish_pulse_delivery_bundle", finish),
+        patch(f"{_ACTIVITIES}.send_email_ai_subscription_report", side_effect=RuntimeError("timeout")),
+        patch(f"{_ACTIVITIES}.temporalio.activity.info", return_value=SimpleNamespace(workflow_run_id="run-1")),
+        pytest.raises(RuntimeError, match="timeout"),
+    ):
+        await _deliver_ai_subscription_with_pulse_bundle(
+            subscription=subscription,
+            inputs=inputs,
+            recipient_results=[],
+            markdown="# Base report",
+            delivery_id=_DELIVERY_ID,
+            chart_images=[],
+        )
+
+    assert finish.call_args.args[0].outcome == "delivery_unknown"
+    assert finish.call_args.args[0].failure_code == "provider_exception"
 
 
 class TestExternalUrlExfilGuard:

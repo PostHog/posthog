@@ -59,7 +59,7 @@ class TestGenerateConfigYaml(TestCase):
         self.assertIsInstance(parsed, dict)
 
 
-class TestGeneratePolicyYaml(TestCase):
+class TestGeneratePolicyYaml(SimpleTestCase):
     def setUp(self):
         super().setUp()
         # LOGGING uses disable_existing_loggers, so any test that re-applies
@@ -72,6 +72,14 @@ class TestGeneratePolicyYaml(TestCase):
         allow_rule = next(rule for rule in policy["command_rules"] if rule["name"] == "allow-all-commands")
         self.assertEqual(allow_rule["commands"], ["*"])
         self.assertEqual(allow_rule["decision"], "allow")
+
+    def test_credential_free_mode_denies_publication_and_http_clients(self):
+        policy = yaml.safe_load(generate_policy_yaml(["example.com"], credential_free_repository=True))
+        denied_commands = {
+            command for rule in policy["command_rules"] if rule["decision"] == "deny" for command in rule["commands"]
+        }
+        self.assertTrue({"gh", "git push", "curl", "wget", "WebFetch"} <= denied_commands)
+        self.assertEqual(policy["network_rules"][-1]["name"], "default-deny-network")
 
     def test_passes_through_provided_domains(self):
         domains = ["github.com", "custom.example.com"]
@@ -459,6 +467,37 @@ class TestBashEnvScript(SimpleTestCase):
             for path in (env_file, github_env_file, oauth_env_file):
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
+    def test_credential_free_initialization_removes_credential_files_and_unsets_github_tokens(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            github_env_file = Path(temp_dir) / "github env"
+            oauth_env_file = Path(temp_dir) / "oauth env"
+            script_file = Path(temp_dir) / "bash env.sh"
+            github_env_file.write_bytes(b"GITHUB_TOKEN=ghs_stale\x00")
+            oauth_env_file.write_bytes(b"POSTHOG_PERSONAL_API_KEY=oauth_stale\x00")
+            script_file.write_text(
+                generate_bash_env_script(
+                    str(env_file), str(github_env_file), str(oauth_env_file), credential_free_repository=True
+                )
+            )
+
+            subprocess.run(
+                ["bash", str(script_file)],
+                check=True,
+                env={"PATH": os.environ["PATH"], "GITHUB_TOKEN": "ghs_current", "GH_TOKEN": "ghs_current"},
+            )
+            sourced = subprocess.run(
+                ["bash", "-c", 'printf "%s|%s" "$GH_TOKEN" "$GITHUB_TOKEN"'],
+                check=True,
+                capture_output=True,
+                text=True,
+                env={"PATH": os.environ["PATH"], "BASH_ENV": str(script_file)},
+            )
+
+            self.assertFalse(github_env_file.exists())
+            self.assertFalse(oauth_env_file.exists())
+            self.assertEqual(sourced.stdout, "|")
+
     def test_initialization_fails_for_untrusted_credential_file_type(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             env_file = Path(temp_dir) / "agent env"
@@ -507,6 +546,42 @@ class TestBuildExecPrefix(TestCase):
 
 @override_settings(DEBUG=True, SANDBOX_PROVIDER="modal")
 class TestModalSandboxAgentShWrapping(TestCase):
+    @parameterized.expand(
+        [
+            ("claude", None, True),
+            ("pi", "claude", False),
+            (None, "codex", False),
+        ]
+    )
+    def test_credential_free_runtime_rejects_non_claude_and_pi(self, agent_runtime, runtime_adapter, expected):
+        from products.tasks.backend.logic.services.sandbox import SandboxBase
+
+        self.assertEqual(SandboxBase.credential_free_runtime_is_supported(agent_runtime, runtime_adapter), expected)
+
+    @parameterized.expand([("modal",), ("docker",)])
+    def test_credential_free_command_disables_web_tools(self, provider):
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+
+        sandbox: ModalSandbox | DockerSandbox
+        if provider == "modal":
+            sandbox = ModalSandbox.__new__(ModalSandbox)
+        else:
+            sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox.id = "sb-test"
+
+        command = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=False,
+            allowed_domains=["registry.npmjs.org"],
+            disable_web_tools=True,
+        )
+
+        self.assertIn("--disableWebTools true", command)
+
     def test_command_without_domains_skips_agentsh_exec(self):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 

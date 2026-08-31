@@ -23,6 +23,15 @@ const MOCK_USER = {
     hedgehog_config: null,
 } as const
 
+const DISABLED_PROACTIVE_CONFIG = {
+    enabled: false,
+    repository: null,
+    repository_integration_id: null,
+    create_draft_pr: false,
+    repository_grant_id: null,
+    public_research_subject_id: null,
+}
+
 const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
     {
         id: 1,
@@ -32,6 +41,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         insight_short_id: 'abc123',
         resource_name: 'North star metric',
         contexts: [],
+        proactive_config: DISABLED_PROACTIVE_CONFIG,
         title: 'This is a really long subscription name that does something important for the team every week',
         dashboard_export_insights: [],
         target_type: TargetTypeEnumApi.Email,
@@ -55,6 +65,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         insight_short_id: null,
         resource_name: 'Company overview',
         contexts: [],
+        proactive_config: DISABLED_PROACTIVE_CONFIG,
         title: 'Some slack notification that does something',
         dashboard_export_insights: [101, 102],
         target_type: TargetTypeEnumApi.Slack,
@@ -78,6 +89,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         insight_short_id: 'ghi789',
         resource_name: 'Weekly KPIs',
         contexts: [],
+        proactive_config: DISABLED_PROACTIVE_CONFIG,
         title: 'Some test on an insight',
         dashboard_export_insights: [],
         target_type: TargetTypeEnumApi.Email,
@@ -100,6 +112,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         insight_short_id: 'activation-insight',
         resource_name: 'Activation funnel',
         contexts: [],
+        proactive_config: DISABLED_PROACTIVE_CONFIG,
         title: 'Slack delivery to internal automation',
         dashboard_export_insights: [],
         target_type: TargetTypeEnumApi.Slack,
@@ -122,6 +135,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         insight_short_id: 'disabled-insight',
         resource_name: 'Activation funnel',
         contexts: [],
+        proactive_config: DISABLED_PROACTIVE_CONFIG,
         title: 'Auto-paused after integration broke',
         dashboard_export_insights: [],
         target_type: TargetTypeEnumApi.Slack,
@@ -145,6 +159,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         insight_short_id: null,
         resource_name: null,
         contexts: [],
+        proactive_config: DISABLED_PROACTIVE_CONFIG,
         prompt: 'Summarize weekly signups and flag any anomalies worth a closer look',
         title: 'AI weekly digest',
         dashboard_export_insights: [],
@@ -187,6 +202,7 @@ function buildMockSubscriptions(total: number): SubscriptionApi[] {
             insight_short_id: isInsight ? `short${n}` : null,
             resource_name: `Quarterly metrics ${n}`,
             contexts: [],
+            proactive_config: DISABLED_PROACTIVE_CONFIG,
             title: `Digest ${n}`,
             dashboard_export_insights: [],
             target_type: isSlack ? TargetTypeEnumApi.Slack : TargetTypeEnumApi.Email,

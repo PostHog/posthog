@@ -116,6 +116,25 @@ class TaskRunDTO:
 
 
 @dataclass(frozen=True)
+class CompletedPostHogMCPToolCallDTO:
+    """A completed PostHog MCP call reconstructed from one task run's ACP log.
+
+    ``result`` is the JSON object returned by the MCP tool: direct calls prefer
+    ``structuredContent`` and otherwise use a JSON text content block. The
+    object is deliberately not interpreted here, so consumers own their domain
+    validation instead of Tasks learning product-specific tool schemas.
+    """
+
+    tool_call_id: str
+    tool_name: str
+    arguments: dict[str, object]
+    result: dict[str, object]
+    completed_at: datetime
+    is_error: bool
+    is_truncated: bool
+
+
+@dataclass(frozen=True)
 class WizardPrReadyEmailContextDTO:
     """Everything ``send_wizard_pr_ready_email`` needs to read off a task run's PR-ready state."""
 
@@ -761,6 +780,248 @@ class SandboxSnapshotDTO:
     external_id: str
     status: str
     repos: list[str] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CapabilityManifestDTO:
+    """An immutable, server-validated capability set for one staged TaskRun phase."""
+
+    version: int
+    phase: Literal["analysis", "execution"]
+    capabilities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StagedTaskCapabilityBindingDTO:
+    team_id: int
+    task_id: UUID
+    task_run_id: UUID
+    caller_id: UUID
+    actor_id: int
+
+
+@dataclass(frozen=True)
+class ListAuthorizableRepositoriesInput:
+    """Identity used to list repositories a user may explicitly authorize for an automation."""
+
+    team_id: int
+    user_id: int
+
+
+@dataclass(frozen=True)
+class ResolveRepositoryAuthorizationInput:
+    """The user-selected repository to revalidate before granting automation access."""
+
+    team_id: int
+    user_id: int
+    repository: str
+    github_integration_id: int | None = None
+
+
+@dataclass(frozen=True)
+class AuthorizableRepositoryDTO:
+    """A write-capable repository binding, without any credential material."""
+
+    repository: str
+    github_integration_id: int
+    github_installation_id: str
+
+
+@dataclass(frozen=True)
+class RepositoryGrantBindingDTO:
+    """Trusted repository authorization selected by the caller's grant service."""
+
+    repository: str
+    github_integration_id: int
+    github_installation_id: str
+    grant_version: str
+
+
+@dataclass(frozen=True)
+class RepositoryBaseBindingDTO:
+    """An exact repository base resolved by Tasks through the bound GitHub integration."""
+
+    repository: str
+    base_sha: str
+    base_branch: str
+
+
+@dataclass(frozen=True)
+class ResolveStagedRepositoryBaseInput:
+    team_id: int
+    repository_grant: RepositoryGrantBindingDTO
+
+
+@dataclass(frozen=True)
+class PublicationLeaseReservationDTO:
+    """The caller's durable artifact reservation, copied into a Tasks-owned lease."""
+
+    logical_artifact_key: str
+    action_key: str
+    repository: str
+    base_sha: str
+    base_branch: str
+    commit_message: str
+    pr_title: str
+    pr_body: str
+    github_integration_id: int
+    github_installation_id: str
+    grant_version: str
+    starts_before: datetime
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
+class CreateStagedTaskInput:
+    """Caller-neutral request to create an analysis TaskRun exactly once.
+
+    ``context_window`` caps the agent model's input context window; it is not a total token-spend limit.
+    """
+
+    team_id: int
+    caller_id: UUID
+    actor_id: int
+    idempotency_key: str
+    origin_product: str
+    title: str
+    description: str
+    analysis_manifest: CapabilityManifestDTO
+    repository: str | None = None
+    repository_grant: RepositoryGrantBindingDTO | None = None
+    repository_base: RepositoryBaseBindingDTO | None = None
+    output_schema: dict | None = None
+    mcp_scope_preset: Literal["read_only", "pulse_analysis"] = "read_only"
+    context_window: Literal["200k", "1m"] | None = None
+
+
+@dataclass(frozen=True)
+class CreatedStagedTaskDTO:
+    task_id: UUID
+    analysis_run_id: UUID
+    team_id: int
+
+
+@dataclass(frozen=True)
+class GetStagedTaskByIdempotencyInput:
+    team_id: int
+    caller_id: UUID
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
+class GetStagedExecutionByIdempotencyInput:
+    team_id: int
+    caller_id: UUID
+    task_id: UUID
+    source_run_id: UUID
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
+class AdvanceStagedTaskInput:
+    """Activate the one execution run after the caller's durable reservation."""
+
+    team_id: int
+    caller_id: UUID
+    task_id: UUID
+    source_run_id: UUID
+    idempotency_key: str
+    execution_manifest: CapabilityManifestDTO
+    reservation: PublicationLeaseReservationDTO | None
+
+
+@dataclass(frozen=True)
+class AdvancedStagedTaskDTO:
+    task_id: UUID
+    analysis_run_id: UUID
+    execution_run_id: UUID
+    transition_id: UUID
+    publication_lease_id: UUID | None
+    team_id: int
+
+
+@dataclass(frozen=True)
+class RevokeStagedTaskCapabilitiesInput:
+    """Caller-neutral cancellation or timeout request for a staged execution capability."""
+
+    team_id: int
+    caller_id: UUID
+    task_id: UUID
+    source_run_id: UUID
+
+
+@dataclass(frozen=True)
+class RevokeStagedTaskCapabilitiesDTO:
+    revoked: bool
+
+
+@dataclass(frozen=True)
+class CancelStagedTaskInput:
+    """Caller-bound request to revoke and cancel one staged successor run."""
+
+    team_id: int
+    caller_id: UUID
+    task_id: UUID
+    source_run_id: UUID
+
+
+@dataclass(frozen=True)
+class CancelStagedTaskDTO:
+    revoked: bool
+    outcome: str
+    execution_run_id: UUID | None
+
+
+@dataclass(frozen=True)
+class GetStagedDraftPublicationInput:
+    """Caller-bound read of the one publication leased to a staged successor."""
+
+    team_id: int
+    caller_id: UUID
+    task_id: UUID
+    source_run_id: UUID
+    execution_run_id: UUID
+    publication_lease_id: UUID
+
+
+@dataclass(frozen=True)
+class GetStagedArtifactLifecycleInput:
+    """Caller-bound read of lifecycle state for one staged draft publication."""
+
+    team_id: int
+    caller_id: UUID
+    task_id: UUID
+    source_run_id: UUID
+    execution_run_id: UUID
+    publication_lease_id: UUID
+
+
+@dataclass(frozen=True)
+class PublicationGateDTO:
+    """Safe delivery-history summary; gate logs remain in Tasks object storage."""
+
+    label: str
+    status: str
+
+
+@dataclass(frozen=True)
+class StagedDraftPublicationDTO:
+    status: str
+    pr_number: int | None
+    pr_url: str | None
+    gate_status: str | None = None
+    gate_completed_at: datetime | None = None
+    gates: tuple[PublicationGateDTO, ...] = ()
+
+
+@dataclass(frozen=True)
+class StagedArtifactLifecycleDTO:
+    """Verified Tasks-owned lifecycle state for one exact pull-request artifact."""
+
+    state: Literal["open", "merged", "closed", "unknown"]
+    pr_number: int | None
+    pr_url: str | None
+    changed_at: datetime | None = None
 
 
 @dataclass(frozen=True)

@@ -9,14 +9,22 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    OutcomeDecisionApi,
+    OutcomeDecisionDTOApi,
     PaginatedSubscriptionDeliveryListApi,
     PaginatedSubscriptionListApi,
     PatchedSubscriptionWriteApi,
+    ProactiveConfigurationOptionsApi,
+    PulseExperimentDraftApi,
+    PulseExperimentDraftResponseApi,
+    PulseOutcomeReplayResponseApi,
+    PulseRunHistoryDTOApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
     SubscriptionWriteApi,
     SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
+    SubscriptionsPulseHistoryListParams,
     SubscriptionsSummaryQuotaRetrieve200,
 } from './api.schemas'
 
@@ -215,6 +223,112 @@ export const subscriptionsDeliveriesRetrieve = async (
     options?: RequestInit
 ): Promise<SubscriptionDeliveryApi> => {
     return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSubscriptionsPulseActionsDecisionCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/subscriptions/pulse/actions/${id}/decision/`
+}
+
+/**
+ * Record an explicit adoption or dismissal for one advice-only proactive recommendation.
+ */
+export const subscriptionsPulseActionsDecisionCreate = async (
+    projectId: string,
+    id: string,
+    outcomeDecisionApi: OutcomeDecisionApi,
+    options?: RequestInit
+): Promise<OutcomeDecisionDTOApi> => {
+    return apiMutator<OutcomeDecisionDTOApi>(getSubscriptionsPulseActionsDecisionCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(outcomeDecisionApi),
+    })
+}
+
+export const getSubscriptionsPulseConfigurationOptionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/subscriptions/pulse/configuration-options/`
+}
+
+/**
+ * Return the current user's safe proactive subscription configuration options. Repository options are limited to repositories the user can currently authorize.
+ */
+export const subscriptionsPulseConfigurationOptionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ProactiveConfigurationOptionsApi> => {
+    return apiMutator<ProactiveConfigurationOptionsApi>(getSubscriptionsPulseConfigurationOptionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSubscriptionsPulseExperimentDraftsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/subscriptions/pulse/experiment-drafts/`
+}
+
+/**
+ * Create the one inert experiment draft reserved for this staged Pulse task.
+ */
+export const subscriptionsPulseExperimentDraftsCreate = async (
+    projectId: string,
+    pulseExperimentDraftApi: PulseExperimentDraftApi,
+    options?: RequestInit
+): Promise<PulseExperimentDraftResponseApi> => {
+    return apiMutator<PulseExperimentDraftResponseApi>(getSubscriptionsPulseExperimentDraftsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pulseExperimentDraftApi),
+    })
+}
+
+export const getSubscriptionsPulseHistoryListUrl = (projectId: string, params: SubscriptionsPulseHistoryListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/subscriptions/pulse/history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/subscriptions/pulse/history/`
+}
+
+/**
+ * Return bounded proactive delivery history without raw evidence bodies.
+ */
+export const subscriptionsPulseHistoryList = async (
+    projectId: string,
+    params: SubscriptionsPulseHistoryListParams,
+    options?: RequestInit
+): Promise<PulseRunHistoryDTOApi[]> => {
+    return apiMutator<PulseRunHistoryDTOApi[]>(getSubscriptionsPulseHistoryListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSubscriptionsPulseOutcomeReplaysRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/subscriptions/pulse/outcome-replays/${id}/`
+}
+
+/**
+ * Return the one server-derived comparison call for a claimed Pulse outcome. The instruction is available only to its active task-bound analysis sandbox.
+ */
+export const subscriptionsPulseOutcomeReplaysRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PulseOutcomeReplayResponseApi> => {
+    return apiMutator<PulseOutcomeReplayResponseApi>(getSubscriptionsPulseOutcomeReplaysRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

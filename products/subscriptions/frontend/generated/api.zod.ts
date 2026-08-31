@@ -17,6 +17,10 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 36
 
 export const subscriptionsCreateBodyContextsMax = 3
 
+export const subscriptionsCreateBodyProactiveConfigOneEnabledDefault = false
+export const subscriptionsCreateBodyProactiveConfigOneRepositoryMax = 255
+
+export const subscriptionsCreateBodyProactiveConfigOneCreateDraftPrDefault = false
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -106,6 +110,37 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
+        proactive_config: zod
+            .object({
+                enabled: zod
+                    .boolean()
+                    .default(subscriptionsCreateBodyProactiveConfigOneEnabledDefault)
+                    .describe('Whether future AI report deliveries may run proactive follow-up.'),
+                repository: zod
+                    .string()
+                    .max(subscriptionsCreateBodyProactiveConfigOneRepositoryMax)
+                    .nullish()
+                    .describe(
+                        'Exact repository in owner\/repository format. Required before draft pull requests are allowed.'
+                    ),
+                repository_integration_id: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Exact GitHub integration selected with the repository for draft pull request authorization.'
+                    ),
+                create_draft_pr: zod
+                    .boolean()
+                    .default(subscriptionsCreateBodyProactiveConfigOneCreateDraftPrDefault)
+                    .describe('Whether Pulse may create one draft pull request on a future delivery.'),
+                public_research_subject_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe('Optional eligible reviewed public research subject. Omit to disable public research.'),
+            })
+            .optional()
+            .describe('Optional standing consent and limits for proactive follow-up on future AI report deliveries.'),
         target_type: zod
             .enum(['email', 'slack'])
             .describe('\* `email` - Email\n\* `slack` - Slack')
@@ -205,6 +240,10 @@ export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 36
 
 export const subscriptionsUpdateBodyContextsMax = 3
 
+export const subscriptionsUpdateBodyProactiveConfigOneEnabledDefault = false
+export const subscriptionsUpdateBodyProactiveConfigOneRepositoryMax = 255
+
+export const subscriptionsUpdateBodyProactiveConfigOneCreateDraftPrDefault = false
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsUpdateBodyBysetposMin = -2147483648
@@ -294,6 +333,37 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
+        proactive_config: zod
+            .object({
+                enabled: zod
+                    .boolean()
+                    .default(subscriptionsUpdateBodyProactiveConfigOneEnabledDefault)
+                    .describe('Whether future AI report deliveries may run proactive follow-up.'),
+                repository: zod
+                    .string()
+                    .max(subscriptionsUpdateBodyProactiveConfigOneRepositoryMax)
+                    .nullish()
+                    .describe(
+                        'Exact repository in owner\/repository format. Required before draft pull requests are allowed.'
+                    ),
+                repository_integration_id: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Exact GitHub integration selected with the repository for draft pull request authorization.'
+                    ),
+                create_draft_pr: zod
+                    .boolean()
+                    .default(subscriptionsUpdateBodyProactiveConfigOneCreateDraftPrDefault)
+                    .describe('Whether Pulse may create one draft pull request on a future delivery.'),
+                public_research_subject_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe('Optional eligible reviewed public research subject. Omit to disable public research.'),
+            })
+            .optional()
+            .describe('Optional standing consent and limits for proactive follow-up on future AI report deliveries.'),
         target_type: zod
             .enum(['email', 'slack'])
             .describe('\* `email` - Email\n\* `slack` - Slack')
@@ -393,6 +463,10 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoM
 
 export const subscriptionsPartialUpdateBodyContextsMax = 3
 
+export const subscriptionsPartialUpdateBodyProactiveConfigOneEnabledDefault = false
+export const subscriptionsPartialUpdateBodyProactiveConfigOneRepositoryMax = 255
+
+export const subscriptionsPartialUpdateBodyProactiveConfigOneCreateDraftPrDefault = false
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
@@ -482,6 +556,37 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
+        proactive_config: zod
+            .object({
+                enabled: zod
+                    .boolean()
+                    .default(subscriptionsPartialUpdateBodyProactiveConfigOneEnabledDefault)
+                    .describe('Whether future AI report deliveries may run proactive follow-up.'),
+                repository: zod
+                    .string()
+                    .max(subscriptionsPartialUpdateBodyProactiveConfigOneRepositoryMax)
+                    .nullish()
+                    .describe(
+                        'Exact repository in owner\/repository format. Required before draft pull requests are allowed.'
+                    ),
+                repository_integration_id: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Exact GitHub integration selected with the repository for draft pull request authorization.'
+                    ),
+                create_draft_pr: zod
+                    .boolean()
+                    .default(subscriptionsPartialUpdateBodyProactiveConfigOneCreateDraftPrDefault)
+                    .describe('Whether Pulse may create one draft pull request on a future delivery.'),
+                public_research_subject_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe('Optional eligible reviewed public research subject. Omit to disable public research.'),
+            })
+            .optional()
+            .describe('Optional standing consent and limits for proactive follow-up on future AI report deliveries.'),
         target_type: zod
             .enum(['email', 'slack'])
             .describe('\* `email` - Email\n\* `slack` - Slack')
@@ -579,3 +684,116 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Standard Subscription serializer.')
+
+/**
+ * Record an explicit adoption or dismissal for one advice-only proactive recommendation.
+ */
+export const SubscriptionsPulseActionsDecisionCreateBody = /* @__PURE__ */ zod.object({
+    decision: zod
+        .enum(['adopted', 'dismissed'])
+        .describe('\* `adopted` - adopted\n\* `dismissed` - dismissed')
+        .describe(
+            'Whether to adopt or dismiss this advice-only recommendation.\n\n\* `adopted` - adopted\n\* `dismissed` - dismissed'
+        ),
+})
+
+/**
+ * Create the one inert experiment draft reserved for this staged Pulse task.
+ */
+export const subscriptionsPulseExperimentDraftsCreateBodyNameMax = 400
+
+export const subscriptionsPulseExperimentDraftsCreateBodyHypothesisMax = 1200
+
+export const subscriptionsPulseExperimentDraftsCreateBodyDescriptionDefault = ``
+export const subscriptionsPulseExperimentDraftsCreateBodyDescriptionMax = 1200
+
+export const subscriptionsPulseExperimentDraftsCreateBodyTargetDescriptionMax = 600
+
+export const subscriptionsPulseExperimentDraftsCreateBodyVariantsItemKeyMax = 100
+
+export const subscriptionsPulseExperimentDraftsCreateBodyVariantsItemKeyRegExp = new RegExp(
+    '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$'
+)
+export const subscriptionsPulseExperimentDraftsCreateBodyVariantsItemNameMax = 400
+
+export const subscriptionsPulseExperimentDraftsCreateBodyVariantsMin = 2
+export const subscriptionsPulseExperimentDraftsCreateBodyVariantsMax = 5
+
+export const subscriptionsPulseExperimentDraftsCreateBodyPrimaryMetricOneEventNameMax = 400
+
+export const subscriptionsPulseExperimentDraftsCreateBodySecondaryMetricsItemEventNameMax = 400
+
+export const subscriptionsPulseExperimentDraftsCreateBodySecondaryMetricsMax = 9
+
+export const SubscriptionsPulseExperimentDraftsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(subscriptionsPulseExperimentDraftsCreateBodyNameMax)
+        .describe('Name for the new inert experiment draft.'),
+    hypothesis: zod
+        .string()
+        .max(subscriptionsPulseExperimentDraftsCreateBodyHypothesisMax)
+        .describe('Testable hypothesis recorded on the draft.'),
+    description: zod
+        .string()
+        .max(subscriptionsPulseExperimentDraftsCreateBodyDescriptionMax)
+        .default(subscriptionsPulseExperimentDraftsCreateBodyDescriptionDefault)
+        .describe('Optional explanation of the proposed change.'),
+    target_description: zod
+        .string()
+        .max(subscriptionsPulseExperimentDraftsCreateBodyTargetDescriptionMax)
+        .describe('Plain-language audience or behavior targeted by the draft.'),
+    variants: zod
+        .array(
+            zod.object({
+                key: zod
+                    .string()
+                    .max(subscriptionsPulseExperimentDraftsCreateBodyVariantsItemKeyMax)
+                    .regex(subscriptionsPulseExperimentDraftsCreateBodyVariantsItemKeyRegExp)
+                    .describe('New variant key. It cannot identify an existing feature flag.'),
+                name: zod
+                    .string()
+                    .max(subscriptionsPulseExperimentDraftsCreateBodyVariantsItemNameMax)
+                    .describe('Display name for this variant.'),
+            })
+        )
+        .min(subscriptionsPulseExperimentDraftsCreateBodyVariantsMin)
+        .max(subscriptionsPulseExperimentDraftsCreateBodyVariantsMax)
+        .describe('Two to five new variants. Rollout percentages are derived server-side.'),
+    primary_metric: zod
+        .object({
+            kind: zod
+                .enum(['event', 'action'])
+                .describe('\* `event` - event\n\* `action` - action')
+                .describe(
+                    'Metric reference type. Pulse accepts only an event name or an action ID.\n\n\* `event` - event\n\* `action` - action'
+                ),
+            event_name: zod
+                .string()
+                .max(subscriptionsPulseExperimentDraftsCreateBodyPrimaryMetricOneEventNameMax)
+                .optional()
+                .describe('Existing event name when kind is event.'),
+            action_id: zod.number().min(1).optional().describe('Existing project action ID when kind is action.'),
+        })
+        .describe('One existing event or action used as the primary metric.'),
+    secondary_metrics: zod
+        .array(
+            zod.object({
+                kind: zod
+                    .enum(['event', 'action'])
+                    .describe('\* `event` - event\n\* `action` - action')
+                    .describe(
+                        'Metric reference type. Pulse accepts only an event name or an action ID.\n\n\* `event` - event\n\* `action` - action'
+                    ),
+                event_name: zod
+                    .string()
+                    .max(subscriptionsPulseExperimentDraftsCreateBodySecondaryMetricsItemEventNameMax)
+                    .optional()
+                    .describe('Existing event name when kind is event.'),
+                action_id: zod.number().min(1).optional().describe('Existing project action ID when kind is action.'),
+            })
+        )
+        .max(subscriptionsPulseExperimentDraftsCreateBodySecondaryMetricsMax)
+        .optional()
+        .describe('Up to nine existing event or action references used as secondary metrics.'),
+})

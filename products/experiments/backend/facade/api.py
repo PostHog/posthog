@@ -5,15 +5,43 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
+from decimal import Decimal
+from typing import Literal
+
+from django.db import transaction
+
 from rest_framework.exceptions import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.models.experiment import Experiment as ExperimentModel
+from products.experiments.backend.models.experiment import (
+    Experiment as ExperimentModel,
+    ExperimentMetricResult,
+)
+from products.experiments.backend.pulse_experiment_draft_service import (
+    create_pulse_experiment_draft_experiment as create_pulse_experiment_draft_experiment_model,
+    resolve_or_create_pulse_experiment_draft_flag as resolve_or_create_pulse_experiment_draft_flag_model,
+)
 
-from .contracts import CreateExperimentInput, Experiment
+from .contracts import (
+    CreateExperimentInput,
+    Experiment,
+    FeatureFlag,
+    PulseExperimentDraftInput,
+    PulseExperimentLifecycleDTO,
+)
+
+
+@frozen
+class _PulsePrimaryMetricResult:
+    state: Literal["not_ready", "measured", "inconclusive"]
+    observed_value: Decimal | None = None
+    delta: Decimal | None = None
+    confidence: Decimal | None = None
+    verdict: Literal["improved", "flat", "regressed", "inconclusive"] | None = None
 
 
 def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInput) -> Experiment:
@@ -86,6 +114,127 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
     )
 
     # Convert model to DTO
+    return _experiment_model_to_dto(experiment_model)
+
+
+def create_pulse_experiment_draft(
+    *, team: Team, user: User, feature_flag_key: str, input_dto: PulseExperimentDraftInput
+) -> Experiment:
+    """Create an inert, new-flag experiment draft from a server-owned Pulse proposal."""
+    flag = resolve_or_create_pulse_experiment_draft_flag(
+        team=team,
+        user=user,
+        feature_flag_key=feature_flag_key,
+        input_dto=input_dto,
+    )
+    with transaction.atomic():
+        return create_pulse_experiment_draft_experiment(
+            team=team,
+            user=user,
+            feature_flag_id=flag.id,
+            feature_flag_key=flag.key,
+            input_dto=input_dto,
+        )
+
+
+def get_pulse_experiment_lifecycle(*, team_id: int, experiment_id: int) -> PulseExperimentLifecycleDTO | None:
+    """Return only model-owned lifecycle and cached primary-result state for one experiment."""
+    experiment = ExperimentModel.objects.filter(id=experiment_id, team_id=team_id).first()
+    if experiment is None:
+        return None
+    state = _pulse_experiment_state(experiment)
+    primary_metric_result = _pulse_primary_metric_result(experiment)
+    return PulseExperimentLifecycleDTO(
+        experiment_id=experiment.id,
+        state=state,
+        launched_at=experiment.start_date,
+        ended_at=experiment.end_date,
+        result_state=primary_metric_result.state,
+        observed_value=primary_metric_result.observed_value,
+        delta=primary_metric_result.delta,
+        confidence=primary_metric_result.confidence,
+        verdict=primary_metric_result.verdict,
+        experiment_path=f"/experiments/{experiment.id}",
+    )
+
+
+def _pulse_experiment_state(experiment: ExperimentModel) -> Literal["draft", "launched", "ended", "deleted"]:
+    if experiment.deleted:
+        return "deleted"
+    if experiment.end_date is not None:
+        return "ended"
+    if experiment.start_date is not None:
+        return "launched"
+    return "draft"
+
+
+def _pulse_primary_metric_result(
+    experiment: ExperimentModel,
+) -> _PulsePrimaryMetricResult:
+    """Expose only a proven scalar outcome contract; cached query payloads are otherwise inconclusive."""
+    metric_uuid = _primary_metric_uuid(experiment)
+    if metric_uuid is None:
+        return _PulsePrimaryMetricResult(state="not_ready")
+    result = (
+        ExperimentMetricResult.objects.filter(
+            experiment=experiment,
+            metric_uuid=metric_uuid,
+            status=ExperimentMetricResult.Status.COMPLETED,
+        )
+        .order_by("-completed_at", "-query_to")
+        .first()
+    )
+    if result is None:
+        return _PulsePrimaryMetricResult(state="not_ready")
+    return _PulsePrimaryMetricResult(state="not_ready")
+
+
+def _primary_metric_uuid(experiment: ExperimentModel) -> str | None:
+    ordered = experiment.primary_metrics_ordered_uuids
+    if isinstance(ordered, list) and ordered and isinstance(ordered[0], str):
+        return ordered[0]
+    metrics = experiment.metrics
+    if not isinstance(metrics, list) or not metrics or not isinstance(metrics[0], dict):
+        return None
+    metric_uuid = metrics[0].get("uuid")
+    return metric_uuid if isinstance(metric_uuid, str) else None
+
+
+def resolve_or_create_pulse_experiment_draft_flag(
+    *, team: Team, user: User, feature_flag_key: str, input_dto: PulseExperimentDraftInput
+) -> FeatureFlag:
+    """Resolve the one exact inert feature flag that belongs to a Pulse proposal."""
+    flag = resolve_or_create_pulse_experiment_draft_flag_model(
+        team=team,
+        user=user,
+        feature_flag_key=feature_flag_key,
+        input_dto=input_dto,
+    )
+    return FeatureFlag(
+        id=flag.id,
+        key=flag.key,
+        active=flag.active,
+        created_at=flag.created_at,
+        name=flag.name,
+    )
+
+
+def create_pulse_experiment_draft_experiment(
+    *,
+    team: Team,
+    user: User,
+    feature_flag_id: int,
+    feature_flag_key: str,
+    input_dto: PulseExperimentDraftInput,
+) -> Experiment:
+    """Create the experiment alongside the caller's durable Artifact finalization."""
+    experiment_model = create_pulse_experiment_draft_experiment_model(
+        team=team,
+        user=user,
+        feature_flag_id=feature_flag_id,
+        feature_flag_key=feature_flag_key,
+        input_dto=input_dto,
+    )
     return _experiment_model_to_dto(experiment_model)
 
 

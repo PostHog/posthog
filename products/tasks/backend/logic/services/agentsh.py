@@ -11,6 +11,7 @@ from django.core.validators import DomainNameValidator
 import yaml
 
 from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
+from products.tasks.backend.logic.services.credential_free_workspace import build_credential_free_agentsh_policy
 
 logger = logging.getLogger(__name__)
 
@@ -273,6 +274,8 @@ def generate_bash_env_script(
     env_file: str = ENV_FILE,
     github_env_file: str = GITHUB_ENV_FILE,
     oauth_env_file: str = OAUTH_ENV_FILE,
+    *,
+    credential_free_repository: bool = False,
 ) -> str:
     """
     Generate the script sourced via ``BASH_ENV`` and used to initialize its env file.
@@ -287,6 +290,7 @@ def generate_bash_env_script(
     quoted_github_env_file = shlex.quote(github_env_file)
     quoted_oauth_env_file = shlex.quote(oauth_env_file)
     excluded_entries = "|".join(f"{name}=*" for name in (*_MANAGED_CREDENTIAL_ENV_KEYS, *_EXCLUDED_AGENT_ENV_KEYS))
+    credential_free = "1" if credential_free_repository else "0"
     return f"""\
 if [[ "${{BASH_SOURCE[0]}}" == "$0" ]]; then
   set -euo pipefail
@@ -304,6 +308,11 @@ if [[ "${{BASH_SOURCE[0]}}" == "$0" ]]; then
   done < <(env -0)
   chmod 600 "$env_tmp"
   mv "$env_tmp" {quoted_env_file}
+
+  if [[ "{credential_free}" == "1" ]]; then
+    rm -f {quoted_github_env_file} {quoted_oauth_env_file}
+    exit 0
+  fi
 
   github_token="${{GITHUB_TOKEN:-${{GH_TOKEN:-}}}}"
   if [[ -n "$github_token" ]]; then
@@ -335,6 +344,9 @@ if [[ "${{BASH_SOURCE[0]}}" == "$0" ]]; then
 fi
 
 unset GH_TOKEN GITHUB_TOKEN
+if [[ "{credential_free}" == "1" ]]; then
+  return 0
+fi
 while IFS= read -r -d $'\\0' kv 2>/dev/null; do
   case "$kv" in
     GH_TOKEN=*|GITHUB_TOKEN=*) export "$kv" ;;
@@ -415,13 +427,21 @@ def generate_config_yaml(*, enable_ptrace: bool = True, full_trace: bool = True)
     return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
 
-def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
+def generate_policy_yaml(allowed_domains: list[str] | None = None, *, credential_free_repository: bool = False) -> str:
     """Generate agentsh policy YAML.
 
     When allowed_domains is set, only those domains (plus infrastructure and
     settings-derived sandbox hosts) are reachable and everything else is
     denied.  When None, all network traffic is allowed (audit-only mode).
     """
+    if credential_free_repository:
+        if allowed_domains is None:
+            raise ValueError("credential_free_repository_requires_network_policy")
+        prod_domains = list(allowed_domains)
+        for domain in enforced_egress_domains():
+            if domain not in prod_domains:
+                prod_domains.append(domain)
+        return yaml.dump(build_credential_free_agentsh_policy(prod_domains), default_flow_style=False, sort_keys=False)
     if allowed_domains is not None:
         prod_domains = list(allowed_domains)
         for domain in enforced_egress_domains():

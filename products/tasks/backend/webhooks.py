@@ -3,6 +3,7 @@ import uuid
 import hashlib
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
+from datetime import datetime
 
 from django.conf import settings
 from django.db import OperationalError, connections, router, transaction
@@ -292,6 +293,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # same-branch webhook for a different PR from marking this run's PR as merged.
         if pr_url in claimed_pr_urls:
             _record_run_pr_merged(task_run)
+            _record_webhook_pr_lifecycle(task_run=task_run, pr_url=pr_url, state="merged", pull_request=pull_request)
         # Ungated on the pr_url match above: unlike the run-bookkeeping calls, this keys off
         # task_id (reports_for_task_filter), not output.pr_url, so the same-branch trust rule
         # doesn't apply — a merged PR resolves its report.
@@ -303,6 +305,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # Same trust rule as the merge branch: only the run that claims this PR URL.
         if pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
+            _record_webhook_pr_lifecycle(task_run=task_run, pr_url=pr_url, state="closed", pull_request=pull_request)
         # Ungated for the same reason as the merge branch's resolve call: a closed-unmerged PR
         # archives (suppresses) its report so it leaves the inbox instead of lingering.
         _transition_signal_reports_for_task(
@@ -448,6 +451,26 @@ def _record_run_pr_merged(task_run: TaskRun) -> None:
     except Exception:
         logger.warning("github_pr_webhook_pr_merged_events_failed", run_id=str(task_run.id), exc_info=True)
     _complete_wizard_run_on_merge(task_run)
+
+
+def _record_webhook_pr_lifecycle(*, task_run: TaskRun, pr_url: str, state: str, pull_request: dict) -> None:
+    """Record signed-webhook terminal state separately from poller-written PR output."""
+    changed_at = pull_request.get("merged_at" if state == "merged" else "closed_at")
+    if not isinstance(changed_at, str):
+        return
+    try:
+        parsed = datetime.fromisoformat(changed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return
+    if parsed.tzinfo is None:
+        return
+    try:
+        task_run.output = TaskRun.update_output_atomic(
+            task_run.id,
+            updates={"webhook_pr_lifecycle": {"pr_url": pr_url, "state": state, "changed_at": parsed.isoformat()}},
+        )
+    except Exception:
+        logger.warning("github_pr_webhook_record_lifecycle_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _complete_wizard_run_on_merge(task_run: TaskRun) -> None:

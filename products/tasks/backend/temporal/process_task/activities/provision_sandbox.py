@@ -46,6 +46,10 @@ from products.tasks.backend.logic.services.connection_token import (
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
+from products.tasks.backend.logic.services.credential_free_workspace import (
+    build_credential_free_workspace_scrub_command,
+    resolve_credential_free_repository_workspace,
+)
 from products.tasks.backend.logic.services.network_policy import (
     EffectiveNetworkPolicy,
     NetworkPolicyValidationError,
@@ -250,6 +254,29 @@ def _compile_sandbox_network_policy(allowed_domains: list[str]) -> EffectiveNetw
     )
 
 
+def _materialize_credential_free_repository(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
+    workspace = resolve_credential_free_repository_workspace(ctx.run_id, ctx.sandbox_backend)
+    if workspace is None:
+        raise TaskInvalidStateError(
+            "Credential-free sandbox has no durable repository manifest",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=RuntimeError("credential_free_workspace_missing"),
+        )
+    result = sandbox.execute(
+        build_credential_free_workspace_scrub_command(
+            repository=workspace.repository,
+            base_sha=workspace.base_sha,
+        ),
+        timeout_seconds=5 * 60,
+    )
+    if result.exit_code != 0:
+        raise TaskInvalidStateError(
+            "Credential-free repository materialization could not be verified",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=RuntimeError((result.stderr or result.stdout or "materialization failed")[:1_000]),
+        )
+
+
 def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
     return list(_compile_sandbox_network_policy(allowed_domains).modal_domains)
 
@@ -260,6 +287,17 @@ def _apply_modal_network_policy(
     *,
     use_vm_sandbox: bool,
 ) -> None:
+    if ctx.credential_free_repository and (
+        not ctx.use_modal_network_allowlist
+        or ctx.allowed_domains is None
+        or ctx.modal_domain_allowlist is None
+        or ctx.network_policy_fingerprint is None
+    ):
+        raise SandboxNetworkPolicyError(
+            "Credential-free repository sandboxes require a verified Modal network policy.",
+            {"run_id": ctx.run_id},
+            cause=RuntimeError("credential_free_modal_policy_missing"),
+        )
     if ctx.allowed_domains is None:
         return
     if use_vm_sandbox and not ctx.use_modal_network_allowlist:
@@ -354,6 +392,9 @@ def _resolve_sandbox_github_token(
     string on failure, never the full token); the full credential path keeps its raise-on-failure
     contract for repo-backed runs that can't work without credentials.
     """
+    if ctx.credential_free_repository:
+        return ""
+
     if ctx.github_read_access and not has_repo:
         github_token = get_readonly_github_token(ctx.team_id) or ""
         emit_agent_log(
@@ -504,7 +545,7 @@ def _build_environment_variables(
                     f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
                 )
 
-    if github_token:
+    if github_token and not ctx.credential_free_repository:
         environment_variables["GITHUB_TOKEN"] = github_token
         environment_variables["GH_TOKEN"] = github_token
 
@@ -875,6 +916,8 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 "debug",
                 "Warming the prebaked dev stack in the background (compose host aliases + dockerd)",
             )
+        if ctx.credential_free_repository and actual_used_snapshot:
+            _materialize_credential_free_repository(sandbox, ctx)
         create_ms = sandbox_creation_timer.elapsed_ms
         snapshot_outcome = (
             "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"
@@ -1063,6 +1106,9 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     cause=RuntimeError(error_output[:200]),
                 )
 
+        if ctx.credential_free_repository:
+            _materialize_credential_free_repository(sandbox, ctx)
+
         # A fresh single-repository run checks its requested branch out in the next
         # activity. Resumes clone that branch directly, and multi-repo runs do not run
         # the checkout activity, so prepare them here once their final source exists.
@@ -1213,6 +1259,10 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
+        if ctx.credential_free_repository:
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+            _materialize_credential_free_repository(sandbox, ctx)
+            return
         task = _load_task(ctx)
 
         actor_user = get_task_run_credential_user(task, ctx.state)

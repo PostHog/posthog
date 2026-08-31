@@ -229,10 +229,6 @@ from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
 )
-from products.pulse.backend.temporal.registry import (
-    ACTIVITIES as PULSE_ACTIVITIES,
-    WORKFLOWS as PULSE_WORKFLOWS,
-)
 from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
@@ -253,6 +249,10 @@ from products.signals.backend.temporal import (
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
     WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as PULSE_ACTIVITIES,
+    WORKFLOWS as PULSE_WORKFLOWS,
 )
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -393,12 +393,15 @@ _task_queue_specs = [
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS + PULSE_WORKFLOWS + SYNC_EVENTS_RETENTION_WORKFLOWS,
-        EXPORT_ACTIVITIES
-        + SUBSCRIPTION_ACTIVITIES
-        + ALERT_ACTIVITIES
-        + PULSE_ACTIVITIES
-        + SYNC_EVENTS_RETENTION_ACTIVITIES,
+        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS + SYNC_EVENTS_RETENTION_WORKFLOWS,
+        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES + SYNC_EVENTS_RETENTION_ACTIVITIES,
+    ),
+    # Separately routable landing zone for proactive subscription work. It defaults
+    # to the analytics queue until a dedicated poller has been deployed.
+    (
+        settings.PULSE_TASK_QUEUE,
+        PULSE_WORKFLOWS,
+        PULSE_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,

@@ -24,6 +24,7 @@ from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE, PosthogMcpScopes
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
+from products.tasks.backend.logic.services.staged_task_runs import terminalize_staged_task_run
 from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
@@ -440,7 +441,7 @@ def _fire_loop_committed(
 
         now = django_timezone.now()
         non_terminal_runs = list(
-            TaskRun.objects.select_for_update().filter(
+            TaskRun.objects.filter(
                 team_id=loop.team_id,
                 state__loop_id=str(loop.id),
                 status__in=_NON_TERMINAL_TASK_RUN_STATUSES,
@@ -456,7 +457,15 @@ def _fire_loop_committed(
         active_runs = [run for run in non_terminal_runs if run.updated_at > stale_cutoff]
         stale_run_ids = [run.id for run in non_terminal_runs if run.updated_at <= stale_cutoff]
         if stale_run_ids:
-            TaskRun.objects.filter(id__in=stale_run_ids).update(
+            staged_run_ids = {
+                run.id
+                for run in non_terminal_runs
+                if run.id in stale_run_ids
+                and terminalize_staged_task_run(
+                    str(run.id), status=TaskRun.Status.FAILED, error_message=_STALE_RUN_REAP_MESSAGE
+                )
+            }
+            TaskRun.objects.filter(id__in=[run_id for run_id in stale_run_ids if run_id not in staged_run_ids]).update(
                 status=TaskRun.Status.FAILED,
                 error_message=_STALE_RUN_REAP_MESSAGE,
                 completed_at=now,
@@ -472,7 +481,12 @@ def _fire_loop_committed(
                 # actually winds down. The terminal-status guard in update_task_run_status keeps
                 # a late natural completion from resurrecting the cancelled status.
                 cancelled_workflow_ids = [run.workflow_id for run in active_runs]
-                TaskRun.objects.filter(id__in=[run.id for run in active_runs]).update(
+                staged_run_ids = {
+                    run.id
+                    for run in active_runs
+                    if terminalize_staged_task_run(str(run.id), status=TaskRun.Status.CANCELLED)
+                }
+                TaskRun.objects.filter(id__in=[run.id for run in active_runs if run.id not in staged_run_ids]).update(
                     status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now
                 )
             # ALLOW falls through and creates a new run alongside the active ones.

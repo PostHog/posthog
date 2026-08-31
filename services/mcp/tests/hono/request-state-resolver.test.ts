@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockSessionStore, mockTokenStore } = vi.hoisted(() => ({
+const { mockApiKeyScopes, mockSessionStore, mockTokenStore } = vi.hoisted(() => ({
+    mockApiKeyScopes: ['*'] as string[],
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
 }))
@@ -63,7 +64,7 @@ vi.mock('@/hono/request-context', () => {
                 getContext: vi.fn(async () => ({
                     stateManager: {
                         setDefaultOrganizationAndProject: vi.fn(async () => {}),
-                        getApiKey: vi.fn(async () => ({ scopes: ['*'], scoped_teams: [] })),
+                        getApiKey: vi.fn(async () => ({ scopes: [...mockApiKeyScopes], scoped_teams: [] })),
                         getAiConsentGiven: vi.fn(async () => undefined),
                         getOrFetchGroupTypes: vi.fn(async () => undefined),
                         getEnvironmentPrompt: vi.fn(async () => undefined),
@@ -104,11 +105,11 @@ function makeResolver(): RequestStateResolver {
     return makeResolverWithCatalog().resolver
 }
 
-function makeResolverWithCatalog(): {
+function makeResolverWithCatalog(tools: { name: string; scopes: string[] }[] = []): {
     resolver: RequestStateResolver
     getFilteredTools: ReturnType<typeof vi.fn>
 } {
-    const getFilteredTools = vi.fn(() => [])
+    const getFilteredTools = vi.fn(() => tools)
     const catalog = {
         getFilteredTools,
     }
@@ -120,6 +121,7 @@ function makeResolverWithCatalog(): {
 
 describe('RequestStateResolver MCP client contexts', () => {
     beforeEach(() => {
+        mockApiKeyScopes.splice(0, mockApiKeyScopes.length, '*')
         mockSessionStore.clear()
         mockTokenStore.clear()
     })
@@ -380,5 +382,51 @@ describe('RequestStateResolver MCP client contexts', () => {
                 ? expect.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
                 : expect.not.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
         )
+    })
+
+    it('enforces the exact Pulse manifest after every catalog allowlist', async () => {
+        const analysisScopes = [
+            'action:read',
+            'alert:read',
+            'annotation:read',
+            'cohort:read',
+            'dashboard:read',
+            'data_catalog:read',
+            'error_tracking:read',
+            'event_definition:read',
+            'experiment:read',
+            'feature_flag:read',
+            'insight:read',
+            'metrics:read',
+            'property_definition:read',
+            'query:read',
+            'subscription:read',
+            'warehouse_objects:read',
+            'warehouse_table:read',
+            'warehouse_view:read',
+            'web_analytics:read',
+            'internal_run:read',
+            'llm_gateway:read',
+        ]
+        const catalogTools = [
+            { name: 'experiment-get', scopes: ['experiment:read'] },
+            { name: 'execute-sql', scopes: ['query:read'] },
+            { name: 'agent-feedback', scopes: [] },
+            { name: 'experiment-pulse-draft-create', scopes: ['pulse_experiment_draft:write'] },
+        ]
+
+        mockApiKeyScopes.splice(0, mockApiKeyScopes.length, ...analysisScopes)
+        const analysis = await makeResolverWithCatalog(catalogTools).resolver.resolve(makeProps({ mode: 'tools' }))
+
+        expect(analysis.allTools.map((tool) => tool.name)).toEqual(['experiment-get'])
+        expect(analysis.gatewayToolsEnabled).toBe(false)
+        expect(analysis.renderUiEnabled).toBe(false)
+
+        mockApiKeyScopes.push('pulse_experiment_draft:write')
+        const execution = await makeResolverWithCatalog(catalogTools).resolver.resolve(
+            makeProps({ mcpSessionId: 'mcp-session-2', mode: 'tools' })
+        )
+
+        expect(execution.allTools.map((tool) => tool.name)).toEqual(['experiment-get', 'experiment-pulse-draft-create'])
     })
 })

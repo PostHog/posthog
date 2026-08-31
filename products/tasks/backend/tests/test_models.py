@@ -1,12 +1,13 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
 from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, models, transaction
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
@@ -27,8 +28,11 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
+    TaskDraftPublication,
     TaskOwnershipChangedError,
+    TaskPublicationLease,
     TaskRun,
+    TaskStagedRunTransition,
     TaskThreadMessage,
     bump_task_activity,
 )
@@ -2061,3 +2065,316 @@ class TestTaskRunGetSandboxEnvironment(TestCase):
     def test_returns_none_for_malformed_environment_id(self):
         run = self._create_run("not-a-uuid")
         self.assertIsNone(run.get_sandbox_environment())
+
+
+class TestTaskStagedRunTransitionAndPublicationLease(TestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Staged tasks org")
+        self.team = Team.objects.create(organization=self.organization, name="Staged tasks team")
+        self.scope = team_scope(self.team.id, canonical=True)
+        self.scope.__enter__()
+
+    def tearDown(self) -> None:
+        self.scope.__exit__(None, None, None)
+
+    def _create_task_with_runs(self) -> tuple[Task, TaskRun, TaskRun]:
+        task = Task.objects.create(
+            team=self.team,
+            title=f"Staged task {uuid.uuid4()}",
+            description="Analyze then execute",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        source_run = TaskRun.objects.create(task=task, team=self.team)
+        successor_run = TaskRun.objects.create(task=task, team=self.team)
+        return task, source_run, successor_run
+
+    def _create_transition(self, *, caller_id: uuid.UUID | None = None) -> TaskStagedRunTransition:
+        task, source_run, successor_run = self._create_task_with_runs()
+        return TaskStagedRunTransition.objects.create(
+            team=self.team,
+            caller_id=caller_id or uuid.uuid4(),
+            task=task,
+            source_task_run=source_run,
+            successor_task_run=successor_run,
+            source_workspace_snapshot_ref="snapshots/analysis.tar.zst",
+            requested_capability_manifest={"version": 1, "capabilities": ["read"]},
+            idempotency_key=f"stage-{uuid.uuid4()}",
+        )
+
+    def _create_lease(
+        self,
+        *,
+        transition: TaskStagedRunTransition | None = None,
+        logical_artifact_key: str | None = None,
+    ) -> TaskPublicationLease:
+        transition = transition or self._create_transition()
+        successor_task_run = transition.successor_task_run
+        assert successor_task_run is not None
+        return TaskPublicationLease.objects.create(
+            team=self.team,
+            caller_id=transition.caller_id,
+            task=transition.task,
+            staged_run_transition=transition,
+            task_run=successor_task_run,
+            logical_artifact_key=logical_artifact_key or f"artifact-{uuid.uuid4()}",
+            idempotency_key=f"lease-{uuid.uuid4()}",
+            repository="posthog/posthog",
+            base_sha="a" * 40,
+            base_branch="main",
+            head_branch=f"codex/staged-{uuid.uuid4()}",
+            github_integration_id=1,
+            github_installation_id="installation-1",
+            action_key=f"action-{uuid.uuid4()}",
+            grant_version="1",
+            starts_before=django_timezone.now() + timedelta(minutes=9),
+            expires_at=django_timezone.now() + timedelta(minutes=10),
+        )
+
+    def _create_draft_publication(self, *, lease: TaskPublicationLease | None = None) -> TaskDraftPublication:
+        lease = lease or self._create_lease()
+        return TaskDraftPublication.objects.create(
+            team=self.team,
+            lease=lease,
+            repository=lease.repository,
+            base_sha=lease.base_sha,
+            base_branch=lease.base_branch or "main",
+            commit_message=lease.commit_message or "Create draft",
+            pr_title=lease.pr_title or "Draft",
+            pr_body=lease.pr_body or "",
+            commit_author_name=lease.commit_author_name or "PostHog",
+            commit_author_email=lease.commit_author_email or "tasks@example.com",
+            commit_timestamp=lease.commit_timestamp or 1_700_000_000,
+            branch=f"codex/{lease.id.hex}",
+            expected_github_app_slug=lease.expected_github_app_slug or "posthog",
+            expected_github_app_login=lease.expected_github_app_login or "posthog[bot]",
+        )
+
+    def test_staged_transition_allows_one_logical_task(self) -> None:
+        transition = self._create_transition()
+        self.assertEqual(transition.source_workspace_snapshot_ref, "snapshots/analysis.tar.zst")
+        another_source_run = TaskRun.objects.create(task=transition.task, team=self.team)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TaskStagedRunTransition.objects.create(
+                    team=self.team,
+                    caller_id=uuid.uuid4(),
+                    task=transition.task,
+                    source_task_run=another_source_run,
+                    source_workspace_snapshot_ref="snapshots/other.tar.zst",
+                    requested_capability_manifest={"version": 1},
+                    idempotency_key=f"stage-{uuid.uuid4()}",
+                )
+
+    def test_staged_transition_rejects_missing_snapshot_and_reused_run(self) -> None:
+        task, source_run, successor_run = self._create_task_with_runs()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TaskStagedRunTransition.objects.create(
+                    team=self.team,
+                    caller_id=uuid.uuid4(),
+                    task=task,
+                    source_task_run=source_run,
+                    successor_task_run=successor_run,
+                    source_workspace_snapshot_ref="",
+                    requested_capability_manifest={"version": 1},
+                    idempotency_key=f"stage-{uuid.uuid4()}",
+                )
+
+        transition = self._create_transition()
+        other_task, other_source_run, _ = self._create_task_with_runs()
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TaskStagedRunTransition.objects.create(
+                    team=self.team,
+                    caller_id=uuid.uuid4(),
+                    task=other_task,
+                    source_task_run=other_source_run,
+                    successor_task_run=transition.successor_task_run,
+                    source_workspace_snapshot_ref="snapshots/reused.tar.zst",
+                    requested_capability_manifest={"version": 1},
+                    idempotency_key=f"stage-{uuid.uuid4()}",
+                )
+
+    def test_staged_transition_and_lease_require_caller_ownership(self) -> None:
+        task, source_run, successor_run = self._create_task_with_runs()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TaskStagedRunTransition.objects.create(
+                    team=self.team,
+                    task=task,
+                    source_task_run=source_run,
+                    successor_task_run=successor_run,
+                    source_workspace_snapshot_ref="snapshots/missing-caller.tar.zst",
+                    requested_capability_manifest={"version": 1},
+                    idempotency_key=f"stage-{uuid.uuid4()}",
+                )
+
+        transition = self._create_transition()
+        successor_task_run = transition.successor_task_run
+        assert successor_task_run is not None
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TaskPublicationLease.objects.create(
+                    team=self.team,
+                    task=transition.task,
+                    staged_run_transition=transition,
+                    task_run=successor_task_run,
+                    logical_artifact_key=f"artifact-{uuid.uuid4()}",
+                    idempotency_key=f"lease-{uuid.uuid4()}",
+                    repository="posthog/posthog",
+                    base_sha="a" * 40,
+                    base_branch="main",
+                    head_branch=f"codex/staged-{uuid.uuid4()}",
+                    github_integration_id=1,
+                    github_installation_id="installation-1",
+                    action_key=f"action-{uuid.uuid4()}",
+                    grant_version="1",
+                    starts_before=django_timezone.now() + timedelta(minutes=9),
+                    expires_at=django_timezone.now() + timedelta(minutes=10),
+                )
+
+    def test_publication_lease_persists_draft_bindings_and_one_live_artifact_lease(self) -> None:
+        lease = self._create_lease(logical_artifact_key="proposal:123:draft-pr:v1")
+
+        self.assertEqual(lease.publication_mode, TaskPublicationLease.PublicationMode.DRAFT)
+        self.assertEqual(lease.repository, "posthog/posthog")
+        self.assertEqual(lease.base_sha, "a" * 40)
+        self.assertEqual(lease.github_integration_id, 1)
+        self.assertEqual(lease.github_installation_id, "installation-1")
+        self.assertTrue(lease.head_branch.startswith("codex/staged-"))
+        self.assertTrue(lease.action_key.startswith("action-"))
+        self.assertEqual(lease.grant_version, "1")
+        self.assertTrue(lease.expires_at > lease.created_at)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self._create_lease(logical_artifact_key=lease.logical_artifact_key)
+
+        lease.status = TaskPublicationLease.Status.FINALIZED
+        lease.consumed_at = django_timezone.now()
+        lease.finalized_at = django_timezone.now()
+        lease.final_artifact_ref = "artifacts/published-pr.json"
+        lease.save()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self._create_lease(logical_artifact_key=lease.logical_artifact_key)
+
+    def test_publication_lease_rejects_invalid_row_shapes_and_expiry(self) -> None:
+        terminal_updates: dict[str, dict[str, object]] = {
+            TaskPublicationLease.Status.CONSUMED: {"consumed_at": django_timezone.now()},
+            TaskPublicationLease.Status.REVOKED: {"revoked_at": django_timezone.now()},
+            TaskPublicationLease.Status.EXPIRED: {"expired_at": django_timezone.now()},
+            TaskPublicationLease.Status.FINALIZED: {
+                "consumed_at": django_timezone.now(),
+                "finalized_at": django_timezone.now(),
+                "final_artifact_ref": "artifacts/published-pr.json",
+            },
+        }
+        for status, updates in terminal_updates.items():
+            with self.subTest(status=status):
+                lease = self._create_lease()
+                lease.status = status
+                for field, value in updates.items():
+                    setattr(lease, field, value)
+                lease.save()
+                lease.status = TaskPublicationLease.Status.ACTIVE
+
+                with self.assertRaises(IntegrityError):
+                    with transaction.atomic():
+                        lease.save()
+
+        transition = self._create_transition()
+        successor_task_run = transition.successor_task_run
+        assert successor_task_run is not None
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TaskPublicationLease.objects.create(
+                    team=self.team,
+                    caller_id=transition.caller_id,
+                    task=transition.task,
+                    staged_run_transition=transition,
+                    task_run=successor_task_run,
+                    logical_artifact_key=f"artifact-{uuid.uuid4()}",
+                    idempotency_key=f"lease-{uuid.uuid4()}",
+                    repository="posthog/posthog",
+                    base_sha="b" * 40,
+                    base_branch="main",
+                    head_branch=f"codex/staged-{uuid.uuid4()}",
+                    github_integration_id=1,
+                    github_installation_id="installation-1",
+                    action_key=f"action-{uuid.uuid4()}",
+                    grant_version="1",
+                    starts_before=django_timezone.now() - timedelta(minutes=2),
+                    expires_at=django_timezone.now() - timedelta(minutes=1),
+                )
+
+    def test_publication_lease_rejects_partial_github_binding(self) -> None:
+        lease = self._create_lease()
+        lease.github_installation_id = None
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                lease.save(update_fields=["github_installation_id"])
+
+    def test_active_lease_reaper_lookup_uses_the_expiry_index(self) -> None:
+        expiry_index = next(
+            index for index in TaskPublicationLease._meta.indexes if index.name == "task_pub_lease_active_exp_idx"
+        )
+        self.assertEqual(expiry_index.fields, ["expires_at"])
+        self.assertEqual(expiry_index.condition, models.Q(status=TaskPublicationLease.Status.ACTIVE))
+
+        due_lease = self._create_lease()
+        future_lease = self._create_lease()
+        observed_at = due_lease.expires_at + timedelta(seconds=1)
+        future_lease.starts_before = observed_at + timedelta(minutes=9)
+        future_lease.expires_at = observed_at + timedelta(minutes=10)
+        future_lease.save(update_fields=["starts_before", "expires_at"])
+
+        due_leases = list(
+            TaskPublicationLease.objects.filter(
+                status=TaskPublicationLease.Status.ACTIVE,
+                expires_at__lte=observed_at,
+            ).order_by("expires_at")
+        )
+
+        self.assertEqual(due_leases, [due_lease])
+        self.assertNotIn(future_lease, due_leases)
+
+    def test_draft_publication_rejects_inconsistent_state_shapes(self) -> None:
+        publication = self._create_draft_publication()
+        publication.status = TaskDraftPublication.Status.UPLOADED
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                publication.save()
+
+    def test_unknown_publication_requires_the_attempted_server_commit(self) -> None:
+        publication = self._create_draft_publication()
+        publication.status = TaskDraftPublication.Status.PUBLICATION_UNKNOWN
+        publication.bundle_storage_path = f"tasks/draft-publications/{publication.id}/{'c' * 64}.bundle"
+        publication.bundle_head_sha = "b" * 40
+        publication.bundle_sha256 = "c" * 64
+        publication.bundle_byte_count = 1024
+        publication.uploaded_at = django_timezone.now()
+        publication.publication_unknown_at = django_timezone.now()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                publication.save()
+
+    def test_draft_publication_rejects_non_server_branch(self) -> None:
+        lease = self._create_lease()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                TaskDraftPublication.objects.create(
+                    team=self.team,
+                    lease=lease,
+                    repository=lease.repository,
+                    base_sha=lease.base_sha,
+                    branch="codex/not-a-lease-id",
+                )

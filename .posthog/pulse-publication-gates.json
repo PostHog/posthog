@@ -1,0 +1,36 @@
+{
+    "version": 2,
+    "gates": [
+        {
+            "label": "Changed tests",
+            "argv": ["./bin/hogli", "test", "--changed"]
+        },
+        {
+            "label": "Frontend build",
+            "argv": ["pnpm", "--filter=@posthog/frontend", "build"]
+        }
+    ],
+    "protected_path_prefixes": [
+        ".posthog/pulse-publication-gates.json",
+        "bin/hogli",
+        "bin/helpers/worktree-borrow.sh",
+        "tools/hogli",
+        "tools/hogli-commands",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        ".npmrc",
+        ".pnpmfile.cjs",
+        "turbo.json",
+        "pyproject.toml",
+        "uv.lock",
+        "pytest.ini",
+        "tox.ini",
+        "conftest.py",
+        "frontend/package.json",
+        "frontend/.npmrc",
+        "frontend/vite.config.mts",
+        "frontend/tsconfig.json",
+        "frontend/tsconfig.dev.json"
+    ]
+}

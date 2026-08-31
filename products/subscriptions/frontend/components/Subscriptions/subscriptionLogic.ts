@@ -40,6 +40,7 @@ import type { WeekdayType } from '../../../../../frontend/src/types'
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { SubscriptionResourceType, UserBasicType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
+import type { ProactiveSubscriptionConfigApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
@@ -312,6 +313,7 @@ export interface subscriptionLogicActions {
             interval: number
             invite_message?: string | null | undefined
             next_delivery_date: string | null
+            proactive_config: ProactiveSubscriptionConfigApi
             prompt?: string | null | undefined
             resource_name?: string | null | undefined
             resource_type: SubscriptionResourceType
@@ -347,6 +349,7 @@ export interface subscriptionLogicActions {
             interval: number
             invite_message?: string | null | undefined
             next_delivery_date: string | null
+            proactive_config: ProactiveSubscriptionConfigApi
             prompt?: string | null | undefined
             resource_name?: string | null | undefined
             resource_type: SubscriptionResourceType

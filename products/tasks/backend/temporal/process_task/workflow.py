@@ -58,6 +58,10 @@ from .activities.enforce_self_driving_quota import (
     enforce_self_driving_run_quota,
 )
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
+from .activities.export_draft_publication_bundle import (
+    ExportDraftPublicationBundleInput,
+    export_draft_publication_bundle,
+)
 from .activities.feature_flags import (
     IsSlackAppAgentDesignEnabledForTaskActivityInput,
     is_slack_app_agent_design_enabled_for_task_activity,
@@ -410,6 +414,7 @@ _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 _PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
 
 _PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
+_PATCH_ID_STAGED_DRAFT_PUBLICATION_EXPORT = "tasks-staged-draft-publication-export"
 
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
@@ -440,6 +445,12 @@ def _run_lifecycle_bounds_enabled() -> bool:
 
 def _dev_stack_preview_enabled() -> bool:
     return workflow.in_workflow() and workflow.patched(_PATCH_ID_DEV_STACK_PREVIEW)
+
+
+def _staged_draft_publication_export_enabled() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_STAGED_DRAFT_PUBLICATION_EXPORT)
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -1452,21 +1463,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     await self._cancel_relay(permission_response_task)
                 permission_response_task = None
 
-            if self._task_completed:
-                await self._update_task_run_status(
-                    self._completion_status,
-                    error_message=self._completion_error,
-                    error_type=self._completion_error_type,
-                    timeout_marker=self._completion_timeout_marker,
-                )
-            elif timeout_event == TaskEvent.MAX_DURATION_REACHED:
-                # Only reachable under the lifecycle-bounds patch (the timer is gated on it).
-                # A run that outlived the hard cap is a failure, not a completion, and the
-                # state marker carries the reason so error_message stays empty.
-                await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
-            elif timeout_event is not None:
-                inactivity_status = "failed" if self._onboarding_exit_is_failure() else "completed"
-                await self._update_task_run_status(inactivity_status, timed_out_inactivity=True)
+            await self._terminalize_after_agent_work(sandbox_id, timeout_event)
 
             # Close out the keep-it-green step so a finished run doesn't show a still-spinning CI step.
             if self._pr_progress_emitted:
@@ -2521,6 +2518,45 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "error": str(e),
                 },
             )
+
+    def _should_export_staged_draft_publication(self) -> bool:
+        state = self.context.state or {}
+        return (
+            self._task_completed
+            and self._completion_status == "completed"
+            and self.context.repository is not None
+            and self.context.sandbox_backend == "modal"
+            and state.get("staged_phase") == "execution"
+            and isinstance(state.get("publication_lease_id"), str)
+        )
+
+    async def _export_staged_draft_publication(self, sandbox_id: str) -> None:
+        await workflow.execute_activity(
+            export_draft_publication_bundle,
+            ExportDraftPublicationBundleInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+            start_to_close_timeout=timedelta(minutes=20),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+    async def _terminalize_after_agent_work(
+        self, sandbox_id: str | None, timeout_event: TaskEvent | None = None
+    ) -> None:
+        if self._should_export_staged_draft_publication() and _staged_draft_publication_export_enabled():
+            if sandbox_id is None:
+                raise RuntimeError("Staged draft publication requires an active sandbox")
+            await self._export_staged_draft_publication(sandbox_id)
+        if self._task_completed:
+            await self._update_task_run_status(
+                self._completion_status,
+                error_message=self._completion_error,
+                error_type=self._completion_error_type,
+                timeout_marker=self._completion_timeout_marker,
+            )
+        elif timeout_event == TaskEvent.MAX_DURATION_REACHED:
+            await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
+        elif timeout_event is not None:
+            inactivity_status = "failed" if self._onboarding_exit_is_failure() else "completed"
+            await self._update_task_run_status(inactivity_status, timed_out_inactivity=True)
 
     async def _update_task_run_status(
         self,

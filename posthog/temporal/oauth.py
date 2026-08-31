@@ -103,6 +103,7 @@ McpScopePreset = Literal[
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "pulse_analysis",
     "signals_research",
     "signals_implementation",
 ]
@@ -194,6 +195,36 @@ def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
 MCP_READ_SCOPES: list[str] = _build_mcp_scopes("read")
 MCP_WRITE_SCOPES: list[str] = _build_mcp_scopes("write")
 
+# Reviewed, immutable capability manifest for proactive Pulse analysis. This must stay
+# explicit: adding a public MCP read scope must not expand an unattended sandbox token.
+PULSE_READ_SCOPES_V1: tuple[str, ...] = (
+    "action:read",
+    "alert:read",
+    "annotation:read",
+    "cohort:read",
+    "dashboard:read",
+    "data_catalog:read",
+    "error_tracking:read",
+    "event_definition:read",
+    "experiment:read",
+    "feature_flag:read",
+    "insight:read",
+    "metrics:read",
+    "property_definition:read",
+    "query:read",
+    "subscription:read",
+    "warehouse_objects:read",
+    "warehouse_table:read",
+    "warehouse_view:read",
+    "web_analytics:read",
+)
+PULSE_ANALYSIS_INTERNAL_SCOPES: tuple[str, ...] = ("llm_gateway:read", "internal_run:read")
+PULSE_ANALYSIS_SCOPES: tuple[str, ...] = (*PULSE_READ_SCOPES_V1, *PULSE_ANALYSIS_INTERNAL_SCOPES)
+
+_KNOWN_SCOPES = {f"{scope_object}:{action}" for scope_object in API_SCOPE_OBJECTS for action in ("read", "write")}
+if not set(PULSE_ANALYSIS_SCOPES) <= _KNOWN_SCOPES:
+    raise RuntimeError("Pulse scope manifest contains an unknown scope")
+
 TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 PosthogMcpScopes = McpScopePreset | list[str]
@@ -203,6 +234,7 @@ MCP_SCOPE_PRESETS = (
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "pulse_analysis",
     "signals_research",
     "signals_implementation",
 )
@@ -224,7 +256,10 @@ def resolve_scopes(
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     scratchpad = list(SCRATCHPAD_INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
-        if scopes == "full":
+        if scopes == "pulse_analysis":
+            pulse_internal = list(PULSE_ANALYSIS_INTERNAL_SCOPES) if include_internal_scopes else []
+            resolved = [*PULSE_READ_SCOPES_V1, *pulse_internal]
+        elif scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
         elif scopes == "signals_implementation":
             # The self-driving implementation run: `full`, plus durable memory. It already
@@ -277,7 +312,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
             "signals_research",
             "signals_implementation",
         )
-    return any(s in MCP_WRITE_SCOPES for s in scopes)
+    return any(s in MCP_WRITE_SCOPES or s == "pulse_experiment_draft:write" for s in scopes)
 
 
 def grants_scratchpad_write(scopes: PosthogMcpScopes) -> bool:

@@ -735,7 +735,6 @@ ignore_imports = [
     "products.messaging.backend.routes -> products.messaging.backend.api.message_templates",
     "products.posthog_ai.backend.routes -> products.posthog_ai.backend.api",
     "products.product_tours.backend.routes -> products.product_tours.backend.api",
-    "products.pulse.backend.routes -> products.pulse.backend.api.brief",
     "products.reminders.backend.routes -> products.reminders.backend.api.reminder",
     "products.replay_vision.backend.routes -> products.replay_vision.backend.api",
     "products.revenue_analytics.backend.routes -> products.revenue_analytics.backend.api",

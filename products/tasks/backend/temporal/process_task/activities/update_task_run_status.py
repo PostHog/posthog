@@ -11,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.logic.services.staged_task_runs import revoke_staged_capabilities_for_terminal_run
 from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
@@ -114,6 +115,8 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             non_retryable=True,
             type="TaskRunDeletedError",
         )
+
+    revoke_staged_capabilities_for_terminal_run(str(task_run.id))
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     task_run.publish_stream_state_event()

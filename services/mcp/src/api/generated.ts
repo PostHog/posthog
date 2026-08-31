@@ -10589,6 +10589,43 @@ export namespace Schemas {
       download_url: string | null;
     }
 
+    export interface ArtifactLinkDTO {
+      /** Server-owned prepared artifact kind. */
+      kind: string;
+      /** Current server-owned artifact state. */
+      status: string;
+      /**
+         * Authoritative verified artifact URL, when safe to expose.
+         * @nullable
+         */
+      external_url: string | null;
+      /**
+         * Verified external lifecycle state, when available.
+         * @nullable
+         */
+      external_state: string | null;
+      /**
+         * Bounded server-owned artifact failure code, if any.
+         * @nullable
+         */
+      failure_code: string | null;
+      /**
+         * Server task that prepared this artifact, if any.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Execution task-run identifier for this artifact, if any.
+         * @nullable
+         */
+      execution_task_run_id: string | null;
+      /**
+         * Verified experiment identifier for an experiment artifact, if any.
+         * @nullable
+         */
+      experiment_id: number | null;
+    }
+
     /**
      * * `slack_message` - slack_message
      * * `slack_canvas` - slack_canvas
@@ -14259,109 +14296,6 @@ export namespace Schemas {
       has_more: boolean;
     }
 
-    export interface BriefAnchors {
-      /** IDs of the dashboards this brief is anchored on. */
-      dashboards?: number[];
-      /** Short IDs of the insights this brief is anchored on. */
-      insights?: string[];
-    }
-
-    export interface BriefSettings {
-      /**
-         * Minimum absolute percent change for a movement to count as significant. Default 20.
-         * @minimum 1
-         * @maximum 1000
-         */
-      min_abs_change_pct?: number;
-      /**
-         * Minimum per-sample baseline volume before a movement is considered. Default 10.
-         * @minimum 0
-         * @maximum 1000000
-         */
-      min_baseline_value?: number;
-      /**
-         * Maximum anchor insights gathered per brief. Default 10.
-         * @minimum 1
-         * @maximum 100
-         */
-      max_anchor_insights?: number;
-      /**
-         * How many recent dashboards to pull insights from when no anchors are set. Default 3.
-         * @minimum 1
-         * @maximum 20
-         */
-      fallback_dashboard_count?: number;
-      /**
-         * Minimum confidence for a section or opportunity to survive the gate. Default 0.6.
-         * @minimum 0
-         * @maximum 1
-         */
-      confidence_threshold?: number;
-      /**
-         * Maximum opportunities kept per brief. Default 3.
-         * @minimum 1
-         * @maximum 20
-         */
-      max_opportunities?: number;
-      /**
-         * Maximum annotations gathered as context per brief. Default 20.
-         * @minimum 1
-         * @maximum 100
-         */
-      max_annotations?: number;
-    }
-
-    export interface BriefConfig {
-      readonly id: string;
-      /**
-         * Human-readable name for this brief focus.
-         * @maxLength 400
-         */
-      name: string;
-      /**
-         * Free-text focus steering gathering and tone, e.g. "we're the feature flags team". Max 2000 characters.
-         * @maxLength 2000
-         */
-      focus_prompt?: string;
-      /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
-      anchors?: BriefAnchors;
-      /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
-      settings?: BriefSettings;
-      /** Whether this config generates briefs. */
-      enabled?: boolean;
-      /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
-      deleted?: boolean;
-      readonly created_at: string;
-      /** User who created the config. */
-      readonly created_by: UserBasic | null;
-      /** @nullable */
-      readonly updated_at: string | null;
-    }
-
-    export interface BriefSectionCitation {
-      /** Cited resource type, e.g. insight or dashboard. */
-      type: string;
-      /** Stable id of the cited resource within its type. */
-      ref: string;
-      /** Human-readable name of the cited resource, for display. */
-      label: string;
-      /** Deep link into the app, or empty when the resource has no navigable target. */
-      url: string;
-    }
-
-    export interface BriefSection {
-      /** Section kind, e.g. what_happened or what_to_build_next. */
-      kind: string;
-      /** Short section heading. */
-      title: string;
-      /** Section body rendered as markdown. */
-      markdown: string;
-      /** PostHog resources this section cites as evidence. */
-      citations: BriefSectionCitation[];
-      /** Model confidence in this section, 0.0-1.0. */
-      confidence: number;
-    }
-
     /**
      * * `breaking_master` - BREAKING_MASTER
      * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
@@ -14468,6 +14402,20 @@ export namespace Schemas {
       Ready: 'ready',
       Failed: 'failed',
     } as const;
+
+    export interface PublicationGateHistoryDTO {
+      label: string;
+      status: string;
+    }
+
+    export interface BuildTestGateSummaryDTO {
+      status: string;
+      /** @nullable */
+      completed_at: string | null;
+      /** @nullable */
+      failure_code: string | null;
+      gates: PublicationGateHistoryDTO[];
+    }
 
     export interface BulkOptOutEntry {
       /**
@@ -27050,6 +26998,14 @@ export namespace Schemas {
       org?: string;
     }
 
+    export interface DeliveryHistoryDTO {
+      status: string;
+      /** @nullable */
+      failure_code: string | null;
+      /** @nullable */
+      accepted_at: string | null;
+    }
+
     /**
      * * `pending` - Pending
      * * `generated` - Generated
@@ -33425,6 +33381,18 @@ export namespace Schemas {
       PrCreated: 'pr_created',
       NeedsAttention: 'needs_attention',
     } as const;
+
+    export interface EvidenceProvenanceDTO {
+      tool_name: string;
+      tool_schema_version: string;
+      /** @nullable */
+      started_at: string | null;
+      /** @nullable */
+      completed_at: string | null;
+      result_truncated: boolean;
+      /** @nullable */
+      error_class: string | null;
+    }
 
     /**
      * * `transcript_quote` - transcript_quote
@@ -40458,42 +40426,6 @@ export namespace Schemas {
          * @nullable
          */
       last_used_at: string | null;
-    }
-
-    /**
-     * * `last_n_days` - last_n_days
-     * * `since_last_run` - since_last_run
-     */
-    export type PeriodTypeEnum = typeof PeriodTypeEnum[keyof typeof PeriodTypeEnum];
-
-
-    export const PeriodTypeEnum = {
-      LastNDays: 'last_n_days',
-      SinceLastRun: 'since_last_run',
-    } as const;
-
-    export interface Period {
-      /** How the brief window is chosen: a fixed lookback (last_n_days) or since the last ready brief.
-       *
-       * * `last_n_days` - last_n_days
-       * * `since_last_run` - since_last_run */
-      period_type: PeriodTypeEnum;
-      /**
-         * Lookback length in days. Required and used only when period_type is last_n_days.
-         * @minimum 1
-         * @maximum 90
-         */
-      days?: number;
-    }
-
-    export interface GenerateBriefRequest {
-      /**
-         * Optional brief config to generate for. Omit for the zero-config default brief.
-         * @nullable
-         */
-      config_id?: string | null;
-      /** Period the brief should cover. Defaults to the last 7 days. */
-      period?: Period;
     }
 
     export interface GenerateLinkRequest {
@@ -51033,6 +50965,16 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    /**
+     * * `count` - count
+     */
+    export type MetricUnitEnum = typeof MetricUnitEnum[keyof typeof MetricUnitEnum];
+
+
+    export const MetricUnitEnum = {
+      Count: 'count',
+    } as const;
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -52955,6 +52897,118 @@ export namespace Schemas {
       Summary: 'summary',
     } as const;
 
+    /**
+     * * `adopted` - adopted
+     * * `dismissed` - dismissed
+     */
+    export type OutcomeDecisionEnum = typeof OutcomeDecisionEnum[keyof typeof OutcomeDecisionEnum];
+
+
+    export const OutcomeDecisionEnum = {
+      Adopted: 'adopted',
+      Dismissed: 'dismissed',
+    } as const;
+
+    export interface OutcomeDecision {
+      /** Whether to adopt or dismiss this advice-only recommendation.
+       *
+       * * `adopted` - adopted
+       * * `dismissed` - dismissed */
+      decision: OutcomeDecisionEnum;
+    }
+
+    export interface OutcomeDecisionDTO {
+      /** Stable outcome plan that records this advice decision. */
+      plan_id: string;
+      /** Stable advice-only recommendation receiving this decision. */
+      action_id: string;
+      /** Current explicit decision: adopted or dismissed.
+       *
+       * * `adopted` - adopted
+       * * `dismissed` - dismissed */
+      adoption_status: OutcomeDecisionEnum;
+      /** Current server-owned measurement lifecycle state. */
+      readout_status: string;
+      /**
+         * When the recommendation was most recently adopted, if adopted.
+         * @nullable
+         */
+      adopted_at: string | null;
+      /** When the current explicit decision was recorded. */
+      decision_at: string;
+      /** Server-known identifier of the person who made the decision. */
+      decided_by_id: number;
+      /**
+         * Scheduled readout time after adoption, if any.
+         * @nullable
+         */
+      next_readout_at: string | null;
+    }
+
+    export interface OutcomeReadoutHistoryDTO {
+      /** Safe artifacts prepared for the source recommendation. */
+      artifacts: ArtifactLinkDTO[];
+      /** Stable immutable outcome observation identifier. */
+      id: string;
+      /** Outcome plan measured by this readout. */
+      plan_id: string;
+      /** Source recommendation for this readout. */
+      action_id: string;
+      /** Safe source recommendation title. */
+      recommendation_title: string;
+      /** Adapter-owned identity for the count scalar. */
+      metric_name: string;
+      /** Adapter-owned count scalar unit.
+       *
+       * * `count` - count */
+      metric_unit: MetricUnitEnum;
+      /** Server-owned baseline metric value. */
+      baseline_value: string;
+      /** Start of the baseline interval. */
+      baseline_from: string;
+      /** End of the baseline interval. */
+      baseline_to: string;
+      /**
+         * Observed metric value, if measurement succeeded.
+         * @nullable
+         */
+      observed_value: string | null;
+      /**
+         * Start of the observed interval, if available.
+         * @nullable
+         */
+      observed_from: string | null;
+      /**
+         * End of the observed interval, if available.
+         * @nullable
+         */
+      observed_to: string | null;
+      /**
+         * Observed absolute change, if available.
+         * @nullable
+         */
+      absolute_delta: string | null;
+      /**
+         * Observed relative change, if available.
+         * @nullable
+         */
+      relative_delta: string | null;
+      /** Immutable observation state. */
+      status: string;
+      /** Server-owned outcome verdict. */
+      verdict: string;
+      /**
+         * Server-derived readout confidence, if available.
+         * @nullable
+         */
+      confidence: string | null;
+      /**
+         * Bounded measurement failure code, if any.
+         * @nullable
+         */
+      failure_code: string | null;
+    }
+
     export interface OutdatedTrafficAlert {
       /** Outdated version handling significant traffic. */
       version: string;
@@ -53346,15 +53400,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: BillingAlertEvent[];
-    }
-
-    export interface PaginatedBriefConfigList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: BriefConfig[];
     }
 
     export interface PaginatedCIMDVerificationTokenList {
@@ -54695,78 +54740,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: PluginLogEntry[];
-    }
-
-    /**
-     * * `generating` - Generating
-     * * `ready` - Ready
-     * * `quiet` - Quiet
-     * * `failed` - Failed
-     */
-    export type ProductBriefStatusEnum = typeof ProductBriefStatusEnum[keyof typeof ProductBriefStatusEnum];
-
-
-    export const ProductBriefStatusEnum = {
-      Generating: 'generating',
-      Ready: 'ready',
-      Quiet: 'quiet',
-      Failed: 'failed',
-    } as const;
-
-    /**
-     * * `on_demand` - On Demand
-     * * `scheduled` - Scheduled
-     */
-    export type ProductBriefTriggerEnum = typeof ProductBriefTriggerEnum[keyof typeof ProductBriefTriggerEnum];
-
-
-    export const ProductBriefTriggerEnum = {
-      OnDemand: 'on_demand',
-      Scheduled: 'scheduled',
-    } as const;
-
-    export interface ProductBriefList {
-      readonly id: string;
-      /**
-         * The brief config this brief was generated for, if any.
-         * @nullable
-         */
-      readonly config: string | null;
-      /** Lifecycle status: generating, ready, quiet (nothing confident to say), or failed.
-       *
-       * * `generating` - Generating
-       * * `ready` - Ready
-       * * `quiet` - Quiet
-       * * `failed` - Failed */
-      readonly status: ProductBriefStatusEnum;
-      /** What started the generation: on_demand or scheduled.
-       *
-       * * `on_demand` - On Demand
-       * * `scheduled` - Scheduled */
-      readonly trigger: ProductBriefTriggerEnum;
-      /** The resolved-at-gather period spec the brief covers. */
-      readonly period: Period;
-      /** Names of the brief sources that contributed items. */
-      readonly sources_used: readonly string[];
-      /**
-         * Error detail when status is failed.
-         * @nullable
-         */
-      readonly error: string | null;
-      readonly created_at: string;
-      /** User who requested the brief. */
-      readonly created_by: UserBasic | null;
-      /** @nullable */
-      readonly updated_at: string | null;
-    }
-
-    export interface PaginatedProductBriefListList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ProductBriefList[];
     }
 
     /**
@@ -56711,6 +56684,35 @@ export namespace Schemas {
 
     export type SubscriptionContext = SubscriptionDashboardContext | SubscriptionInsightContext;
 
+    export interface ProactiveSubscriptionConfig {
+      /** Whether future AI report deliveries may run proactive follow-up. */
+      enabled?: boolean;
+      /**
+         * Exact repository in owner/repository format. Required before draft pull requests are allowed.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      /**
+         * Exact GitHub integration selected with the repository for draft pull request authorization.
+         * @minimum 1
+         * @nullable
+         */
+      repository_integration_id?: number | null;
+      /** Whether Pulse may create one draft pull request on a future delivery. */
+      create_draft_pr?: boolean;
+      /**
+         * Optional eligible reviewed public research subject. Omit to disable public research.
+         * @nullable
+         */
+      public_research_subject_id?: string | null;
+      /**
+         * Server-issued active repository grant for the selected repository. It cannot be chosen by clients.
+         * @nullable
+         */
+      readonly repository_grant_id: string | null;
+    }
+
     /**
      * * `email` - Email
      * * `slack` - Slack
@@ -56781,6 +56783,8 @@ export namespace Schemas {
       ai_prompt_config?: AIPromptConfig;
       /** Dashboards and insights that ground this AI report. Deleted resources are omitted. */
       readonly contexts: readonly SubscriptionContext[];
+      /** Standing proactive follow-up configuration for future AI report deliveries. */
+      readonly proactive_config: ProactiveSubscriptionConfig;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email
@@ -59916,33 +59920,6 @@ export namespace Schemas {
          * When this alert was last updated.
          * @nullable
          */
-      readonly updated_at?: string | null;
-    }
-
-    export interface PatchedBriefConfig {
-      readonly id?: string;
-      /**
-         * Human-readable name for this brief focus.
-         * @maxLength 400
-         */
-      name?: string;
-      /**
-         * Free-text focus steering gathering and tone, e.g. "we're the feature flags team". Max 2000 characters.
-         * @maxLength 2000
-         */
-      focus_prompt?: string;
-      /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
-      anchors?: BriefAnchors;
-      /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
-      settings?: BriefSettings;
-      /** Whether this config generates briefs. */
-      enabled?: boolean;
-      /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
-      deleted?: boolean;
-      readonly created_at?: string;
-      /** User who created the config. */
-      readonly created_by?: UserBasic | null;
-      /** @nullable */
       readonly updated_at?: string | null;
     }
 
@@ -65723,6 +65700,30 @@ export namespace Schemas {
       Sunday: 'sunday',
     } as const;
 
+    export interface ProactiveSubscriptionConfigWrite {
+      /** Whether future AI report deliveries may run proactive follow-up. */
+      enabled?: boolean;
+      /**
+         * Exact repository in owner/repository format. Required before draft pull requests are allowed.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      /**
+         * Exact GitHub integration selected with the repository for draft pull request authorization.
+         * @minimum 1
+         * @nullable
+         */
+      repository_integration_id?: number | null;
+      /** Whether Pulse may create one draft pull request on a future delivery. */
+      create_draft_pr?: boolean;
+      /**
+         * Optional eligible reviewed public research subject. Omit to disable public research.
+         * @nullable
+         */
+      public_research_subject_id?: string | null;
+    }
+
     /**
      * Standard Subscription serializer.
      */
@@ -65762,6 +65763,8 @@ export namespace Schemas {
          * @maxItems 3
          */
       contexts?: PatchedSubscriptionWriteContextsItem[];
+      /** Optional standing consent and limits for proactive follow-up on future AI report deliveries. */
+      proactive_config?: ProactiveSubscriptionConfigWrite;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email
@@ -68283,6 +68286,36 @@ export namespace Schemas {
       primary_properties: PrimaryPropertiesResponsePrimaryProperties;
     }
 
+    export interface RepositoryOption {
+      /** Exact repository currently authorizable by the requesting user, in owner/repository format. */
+      repository: string;
+      /**
+         * Exact active GitHub integration that authorizes this repository binding.
+         * @minimum 1
+         */
+      repository_integration_id: number;
+    }
+
+    export interface PublicResearchSubjectOption {
+      /** Stable identifier of the reviewed public research subject. */
+      id: string;
+      /** Human-readable name of the reviewed public research subject. */
+      display_name: string;
+      /** Canonical public domain covered by this research subject. */
+      canonical_domain: string;
+    }
+
+    export interface ProactiveConfigurationOptions {
+      /** Whether proactive subscription configuration is enabled for this server. */
+      proactive_available: boolean;
+      /** Whether the server currently allows new draft pull request automation. */
+      draft_pr_available: boolean;
+      /** Repositories that the requesting user can currently authorize for a draft pull request. */
+      repositories: RepositoryOption[];
+      /** Eligible reviewed public research subjects while public research is enabled. */
+      public_research_subjects: PublicResearchSubjectOption[];
+    }
+
     export type ProblemTypeEnum = typeof ProblemTypeEnum[keyof typeof ProblemTypeEnum];
 
 
@@ -68293,43 +68326,6 @@ export namespace Schemas {
       NonBlockingException: 'non_blocking_exception',
       Failure: 'failure',
     } as const;
-
-    export interface ProductBrief {
-      readonly id: string;
-      /**
-         * The brief config this brief was generated for, if any.
-         * @nullable
-         */
-      readonly config: string | null;
-      /** Lifecycle status: generating, ready, quiet (nothing confident to say), or failed.
-       *
-       * * `generating` - Generating
-       * * `ready` - Ready
-       * * `quiet` - Quiet
-       * * `failed` - Failed */
-      readonly status: ProductBriefStatusEnum;
-      /** What started the generation: on_demand or scheduled.
-       *
-       * * `on_demand` - On Demand
-       * * `scheduled` - Scheduled */
-      readonly trigger: ProductBriefTriggerEnum;
-      /** The resolved-at-gather period spec the brief covers. */
-      readonly period: Period;
-      /** Generated brief sections, most important first. */
-      readonly sections: readonly BriefSection[];
-      /** Names of the brief sources that contributed items. */
-      readonly sources_used: readonly string[];
-      /**
-         * Error detail when status is failed.
-         * @nullable
-         */
-      readonly error: string | null;
-      readonly created_at: string;
-      /** User who requested the brief. */
-      readonly created_by: UserBasic | null;
-      /** @nullable */
-      readonly updated_at: string | null;
-    }
 
     /**
      * * `conversations` - conversations
@@ -70123,6 +70119,14 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    export interface PublicResearchCitationHistoryDTO {
+      evidence_id: string;
+      canonical_url: string;
+      /** @nullable */
+      title: string | null;
+      retrieved_at: string;
+    }
+
     /**
      * One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
      * status, normalized to a common shape.
@@ -70406,6 +70410,329 @@ export namespace Schemas {
      */
     export interface PullRequestReviewCommentReactionCreateResponse {
       readonly reaction: PullRequestCommentReaction;
+    }
+
+    export interface PulseExperimentVariant {
+      /**
+         * New variant key. It cannot identify an existing feature flag.
+         * @maxLength 100
+         * @pattern ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$
+         */
+      key: string;
+      /**
+         * Display name for this variant.
+         * @maxLength 400
+         */
+      name: string;
+    }
+
+    /**
+     * * `event` - event
+     * * `action` - action
+     */
+    export type PulseExperimentMetricRefKindEnum = typeof PulseExperimentMetricRefKindEnum[keyof typeof PulseExperimentMetricRefKindEnum];
+
+
+    export const PulseExperimentMetricRefKindEnum = {
+      Event: 'event',
+      Action: 'action',
+    } as const;
+
+    export interface PulseExperimentMetricRef {
+      /** Metric reference type. Pulse accepts only an event name or an action ID.
+       *
+       * * `event` - event
+       * * `action` - action */
+      kind: PulseExperimentMetricRefKindEnum;
+      /**
+         * Existing event name when kind is event.
+         * @maxLength 400
+         */
+      event_name?: string;
+      /**
+         * Existing project action ID when kind is action.
+         * @minimum 1
+         */
+      action_id?: number;
+    }
+
+    export interface PulseExperimentDraft {
+      /**
+         * Name for the new inert experiment draft.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Testable hypothesis recorded on the draft.
+         * @maxLength 1200
+         */
+      hypothesis: string;
+      /**
+         * Optional explanation of the proposed change.
+         * @maxLength 1200
+         */
+      description?: string;
+      /**
+         * Plain-language audience or behavior targeted by the draft.
+         * @maxLength 600
+         */
+      target_description: string;
+      /**
+         * Two to five new variants. Rollout percentages are derived server-side.
+         * @minItems 2
+         * @maxItems 5
+         */
+      variants: PulseExperimentVariant[];
+      /** One existing event or action used as the primary metric. */
+      primary_metric: PulseExperimentMetricRef;
+      /**
+         * Up to nine existing event or action references used as secondary metrics.
+         * @maxItems 9
+         */
+      secondary_metrics?: PulseExperimentMetricRef[];
+    }
+
+    /**
+     * * `verified` - verified
+     */
+    export type PulseExperimentDraftResponseStatusEnum = typeof PulseExperimentDraftResponseStatusEnum[keyof typeof PulseExperimentDraftResponseStatusEnum];
+
+
+    export const PulseExperimentDraftResponseStatusEnum = {
+      Verified: 'verified',
+    } as const;
+
+    export interface PulseExperimentDraftResponse {
+      /** Reserved Pulse artifact that owns this draft. */
+      artifact_id: string;
+      /** Selected Pulse action fulfilled by this draft. */
+      action_id: string;
+      /**
+         * Created inert experiment draft.
+         * @minimum 1
+         */
+      experiment_id: number;
+      /**
+         * Created inactive zero-traffic feature flag.
+         * @minimum 1
+         */
+      feature_flag_id: number;
+      /** Whether the draft was verified and recorded.
+       *
+       * * `verified` - verified */
+      status: PulseExperimentDraftResponseStatusEnum;
+    }
+
+    /**
+     * Server-derived measurement arguments. Only the adapter-owned time window differs from baseline.
+     */
+    export type PulseOutcomeReplayResponseComparisonArguments = { [key: string]: unknown };
+
+    /**
+     * Server-validated value selector for the returned measurement result.
+     */
+    export type PulseOutcomeReplayResponseSelector = {[key: string]: string};
+
+    export interface PulseOutcomeReplayResponse {
+      /** Claimed outcome plan this replay instruction is bound to. */
+      plan_id: string;
+      /**
+         * Only supported read-only measurement tool the current sandbox may execute.
+         * @maxLength 100
+         */
+      tool_name: string;
+      /**
+         * Schema version that must match the returned measurement tool call.
+         * @maxLength 32
+         */
+      tool_schema_version: string;
+      /** Server-derived measurement arguments. Only the adapter-owned time window differs from baseline. */
+      comparison_arguments: PulseOutcomeReplayResponseComparisonArguments;
+      /** Server-validated value selector for the returned measurement result. */
+      selector: PulseOutcomeReplayResponseSelector;
+    }
+
+    export interface RunActionHistoryDTO {
+      /** Safe prepared artifacts for this recommendation. */
+      artifacts: ArtifactLinkDTO[];
+      /** Stable recommendation identifier. */
+      id: string;
+      /** Stable server-generated recommendation key. */
+      action_key: string;
+      /** Recommendation or prepared-action kind. */
+      kind: string;
+      /** Safe recommendation title. */
+      title: string;
+      /** Safe recommendation rationale. */
+      rationale: string;
+      /** Safe expected impact summary. */
+      expected_impact: string;
+      /** Server-ranked recommendation position. */
+      rank: number;
+      /** Whether the server selected this action for implementation. */
+      implementation_selected: boolean;
+      /** Current server-owned action state. */
+      status: string;
+      /**
+         * Safe reason this recommendation is timely.
+         * @nullable
+         */
+      why_now: string | null;
+      /**
+         * Bounded recommendation confidence, if available.
+         * @nullable
+         */
+      confidence: string | null;
+      /** Estimated implementation effort. */
+      effort: string;
+      /**
+         * Safe metric name used for the recommendation.
+         * @nullable
+         */
+      metric_name: string | null;
+      /**
+         * Metric unit.
+         * @nullable
+         */
+      metric_unit: string | null;
+      /**
+         * Intended metric direction.
+         * @nullable
+         */
+      metric_direction: string | null;
+      /**
+         * Expected-change interpretation.
+         * @nullable
+         */
+      expected_change_type: string | null;
+      /**
+         * Lower expected change bound.
+         * @nullable
+         */
+      expected_change_lower: string | null;
+      /**
+         * Upper expected change bound.
+         * @nullable
+         */
+      expected_change_upper: string | null;
+      /**
+         * Readout delay in days, if measurable.
+         * @nullable
+         */
+      readout_after_days: number | null;
+      /**
+         * Linked server-owned outcome plan, if any.
+         * @nullable
+         */
+      plan_id: string | null;
+      /**
+         * Outcome-plan baseline value, if any.
+         * @nullable
+         */
+      baseline_value: string | null;
+      /**
+         * Start of the baseline interval, if any.
+         * @nullable
+         */
+      baseline_from: string | null;
+      /**
+         * End of the baseline interval, if any.
+         * @nullable
+         */
+      baseline_to: string | null;
+      /**
+         * Current outcome adoption state, if measurable.
+         * @nullable
+         */
+      adoption_status: string | null;
+      /**
+         * Bounded source of the current adoption state, if any.
+         * @nullable
+         */
+      adoption_source: string | null;
+      /**
+         * Most recent adoption timestamp, if adopted.
+         * @nullable
+         */
+      adopted_at: string | null;
+      /**
+         * Timestamp of the current manual decision, if any.
+         * @nullable
+         */
+      decision_at: string | null;
+      /**
+         * Person who made the current manual decision, if any.
+         * @nullable
+         */
+      decided_by_id: number | null;
+      /**
+         * Current outcome readout lifecycle state, if measurable.
+         * @nullable
+         */
+      readout_status: string | null;
+      /**
+         * Next scheduled outcome readout, if any.
+         * @nullable
+         */
+      next_readout_at: string | null;
+      /** Safe bounded evidence provenance. */
+      evidence: EvidenceProvenanceDTO[];
+      /** Safe bounded public research citations. */
+      citations: PublicResearchCitationHistoryDTO[];
+      /** Verified build and test gate result, if relevant. */
+      build_test_gate: BuildTestGateSummaryDTO | null;
+    }
+
+    export interface PulseRunHistoryDTO {
+      /** Bounded safe recommendation history. */
+      actions: RunActionHistoryDTO[];
+      /** Immutable authorized outcome readouts, shown before recommendations. */
+      readouts: OutcomeReadoutHistoryDTO[];
+      /** Stable proactive run identifier. */
+      id: string;
+      /** Subscription that owns this run. */
+      subscription_id: number;
+      /** Delivery that triggered this run. */
+      delivery_id: string;
+      /** Terminal or current Pulse run state. */
+      status: string;
+      /**
+         * When the run began, if started.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * When the run finished, if terminal.
+         * @nullable
+         */
+      finished_at: string | null;
+      /**
+         * Analysis task identifier, if any.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Analysis task-run identifier, if any.
+         * @nullable
+         */
+      analysis_task_run_id: string | null;
+      /**
+         * Execution task-run identifier, if any.
+         * @nullable
+         */
+      execution_task_run_id: string | null;
+      /**
+         * Bounded run failure code, if any.
+         * @nullable
+         */
+      failure_code: string | null;
+      /**
+         * Bounded reason a run was skipped, if any.
+         * @nullable
+         */
+      skip_reason: string | null;
+      /** Bounded delivery outcomes for this run. */
+      deliveries: DeliveryHistoryDTO[];
     }
 
     /**
@@ -81985,6 +82312,8 @@ export namespace Schemas {
          * @maxItems 3
          */
       contexts?: SubscriptionWriteContextsItem[];
+      /** Optional standing consent and limits for proactive follow-up on future AI report deliveries. */
+      proactive_config?: ProactiveSubscriptionConfigWrite;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email
@@ -97112,28 +97441,6 @@ export namespace Schemas {
       Session: 'session',
     } as const;
 
-    export type PulseBriefConfigsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type PulseBriefsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type QueryLogRetrieve200 = { [key: string]: unknown };
 
     export type QueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
@@ -97843,6 +98150,14 @@ export namespace Schemas {
       Skipped: 'skipped',
       Starting: 'starting',
     } as const;
+
+    export type SubscriptionsPulseHistoryListParams = {
+    /**
+     * Subscription whose bounded proactive delivery history to return.
+     * @minimum 1
+     */
+    subscription_id: number;
+    };
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;
