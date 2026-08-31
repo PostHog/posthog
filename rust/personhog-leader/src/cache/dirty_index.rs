@@ -16,13 +16,13 @@ pub struct DirtyMark {
     /// derive from the same state, so a mismatch means the acked state and
     /// the produced record diverged.
     pub version: i64,
-    /// Changelog offset of that record. Because records are full state and
-    /// the topic is compacted by person key, this single record is always
-    /// sufficient to reconstruct the person — and compaction never removes
-    /// the latest record for a key. Only the topic's `delete` retention
-    /// bounds it, which matters solely if a mark outlives the retention
-    /// window (a writer outage of days); even then recovery fails loudly
-    /// with a retryable error rather than serving stale state.
+    /// Changelog offset of that record. Records are full state and the
+    /// topic is compacted by person key, so this single record always
+    /// reconstructs the person, and compaction never removes the latest
+    /// record for a key. Only the topic's `delete` retention bounds it,
+    /// which matters only if a mark outlives the retention window (a
+    /// writer outage of days); even then recovery fails loudly with a
+    /// retryable error rather than serving stale state.
     pub offset: i64,
     /// The person's routing partition, denormalized so pruning can work
     /// per partition without rehashing keys.
@@ -36,65 +36,66 @@ type ReclaimQueue = Arc<Mutex<VecDeque<(i64, PersonCacheKey)>>>;
 /// Maximum queue pops per prune lock hold (see `prune_partition`).
 const PRUNE_CHUNK: usize = 4_096;
 
-/// Containers below this capacity are never shrunk — the retained memory
+/// Containers below this capacity are never shrunk; the retained memory
 /// is a few hundred KB at most, not worth the churn.
 const SHRINK_CAPACITY_FLOOR: usize = 4 * PRUNE_CHUNK;
 
 /// Index of persons whose latest acked state is (or may be) newer than what
 /// the writer has applied to Postgres.
 ///
-/// The cache evicts freely; this index is what keeps eviction safe. On a
-/// cache miss the leader consults it before trusting the PG fallback: a
-/// marked person is recovered from the changelog record at the marked
-/// offset, an unmarked person's PG row is known current. Entries cost
-/// ~100 bytes with map overhead, so even an hours-long writer outage is
-/// far cheaper to track here than to ride out by pinning person state.
+/// The cache evicts freely; this index keeps eviction safe. On a cache
+/// miss the leader consults it before trusting the PG fallback: a marked
+/// person is recovered from the changelog record at the marked offset;
+/// an unmarked person's PG row is known current. Entries cost ~100 bytes
+/// with map overhead, so even an hours-long writer outage is far cheaper
+/// to track here than to ride out by pinning person state.
 ///
-/// Marks are added under the per-key lock after every acked produce, and
+/// Marks are added under the per-key lock after every acked produce and
 /// removed by a periodic prune once the writer's committed offset passes
-/// them (committed offset semantics: the record at `committed - 1` is the
-/// last one applied, so a mark is prunable when `offset < committed`).
+/// them (the record at `committed - 1` is the last one applied, so a
+/// mark is prunable when `offset < committed`).
 ///
-/// The prune predicate is an offset threshold and marks arrive in roughly
-/// offset order per partition, so reclaim is a queue pop, not a map scan:
-/// alongside the map, each partition keeps an offset-ordered reclaim queue
-/// of `(offset, key)` entries, and a prune pops from the head only while
-/// entries are below the committed offset. A tick therefore costs work
-/// proportional to the marks actually reclaimed — never the index size —
-/// which is what lets the prune loop run every second.
+/// The prune predicate is an offset threshold and marks arrive in
+/// roughly offset order per partition, so reclaim is a queue pop, not a
+/// map scan: each partition keeps an offset-ordered reclaim queue of
+/// `(offset, key)` entries, and a prune pops from the head only while
+/// entries are below the committed offset. A tick costs work
+/// proportional to the marks reclaimed, never the index size, which is
+/// what lets the prune loop run every second.
 ///
-/// The queue is a hint; the map is the truth. Every marked key has exactly
-/// one live queue entry, carrying some offset at or below its map offset:
-/// `mark` enqueues only brand-new keys, so a re-marked key's queue entry
-/// goes stale, and when the prune pops it and finds the map ahead of the
-/// committed offset it re-enqueues the entry at the map's offset instead
-/// of removing the mark. Task scheduling can also interleave near-
-/// simultaneous marks slightly out of offset order; the prune stops at the
-/// first unapplied head, so an inversion only delays the entries behind it
-/// until a later tick.
+/// The queue is a hint; the map is the truth. Every marked key has
+/// exactly one live queue entry, at some offset at or below its map
+/// offset: `mark` enqueues only brand-new keys, so a re-marked key's
+/// queue entry goes stale, and when the prune pops it and finds the map
+/// ahead of the committed offset it re-enqueues at the map's offset
+/// instead of removing the mark. Task scheduling can interleave
+/// near-simultaneous marks slightly out of offset order; the prune stops
+/// at the first unapplied head, so an inversion only delays the entries
+/// behind it until a later tick.
 ///
 /// The index is soft-bounded by `max_entries`: under a sustained writer
-/// outage it would otherwise grow one mark per unique person written —
-/// gigabytes over hours at production churn, and an OOM restart replays
-/// the same backlog through warming. Write admission (`can_admit`) is
-/// checked before producing, so the bound sheds new write volume instead
-/// of ever refusing to record a fact: `mark` itself never fails, because
-/// warming must be able to record marks for records that are already
-/// durable regardless of the bound.
+/// outage it would otherwise grow one mark per unique person written
+/// (gigabytes over hours at production churn), and an OOM restart
+/// replays the same backlog through warming. Write admission
+/// (`can_admit`) is checked before producing, so the bound sheds new
+/// write volume instead of refusing to record a fact: `mark` itself
+/// never fails, because warming must record marks for already-durable
+/// records regardless of the bound.
 pub struct DirtyIndex {
     map: DashMap<PersonCacheKey, DirtyMark>,
     /// Per-partition reclaim queues (see the struct docs). A prune pass
-    /// holds a queue's lock for at most `PRUNE_CHUNK` pops and re-fetches
-    /// the queue from this map between chunks, so `clear_partition` —
-    /// which detaches the queue and then takes the same lock — waits out
-    /// at most one chunk before draining, and a paused pass finds the
-    /// queue gone instead of racing the drain. Entries popped before the
-    /// detach have already had their map marks removed; everything else
-    /// is still in the queue for the drain — no entry escapes a release.
+    /// holds a queue's lock for at most `PRUNE_CHUNK` pops and
+    /// re-fetches the queue from this map between chunks, so
+    /// `clear_partition` (which detaches the queue, then takes the same
+    /// lock) waits out at most one chunk before draining, and a paused
+    /// pass finds the queue gone instead of racing the drain. Entries
+    /// popped before the detach already had their map marks removed;
+    /// everything else is still in the queue for the drain, so no entry
+    /// escapes a release.
     queues: DashMap<u32, ReclaimQueue>,
     /// Highest offset ever marked per partition since its last clear.
     /// Map offsets only grow and pruning removes low offsets first, so
-    /// while any mark lives this equals the largest live mark — an O(1)
+    /// while any mark lives this equals the largest live mark: an O(1)
     /// read for the writer-lag gauge.
     max_marked: DashMap<u32, i64>,
     /// Entry count maintained alongside the map: `DashMap::len()` takes a
@@ -119,10 +120,11 @@ impl DirtyIndex {
 
     /// Whether a write for `key` may be admitted: either the index has
     /// room to grow, or the key is already marked (updating a mark does
-    /// not grow the index). Checked before the produce — a durable but
-    /// unmarked write would silently reopen the stale-fallback hole.
-    /// Concurrent in-flight writes can overshoot the bound by the request
-    /// concurrency; it is a memory bound, not an exact count.
+    /// not grow the index). Checked before the produce, because a
+    /// durable but unmarked write would silently reopen the
+    /// stale-fallback hole. Concurrent in-flight writes can overshoot
+    /// the bound by the request concurrency; it is a memory bound, not
+    /// an exact count.
     pub fn can_admit(&self, key: &PersonCacheKey) -> bool {
         self.size.load(Ordering::Relaxed) < self.max_entries || self.map.contains_key(key)
     }
@@ -200,16 +202,16 @@ impl DirtyIndex {
         }
     }
 
-    /// Drop marks on `partition` that the writer has applied (offset below
-    /// its committed offset). Pops the reclaim queue only while its head
-    /// is applied, so the cost is proportional to the marks reclaimed.
-    /// The pass releases the queue lock every `PRUNE_CHUNK` pops: a
-    /// catch-up after a long writer outage reclaims millions of marks in
-    /// one call, and an unbroken hold would stall every new-key `mark` —
-    /// the write hot path — for the whole pass. Between chunks the queue
-    /// is re-fetched, so a concurrent `clear_partition` (which detaches
-    /// it) ends the pass instead of racing the drain. Returns how many
-    /// were pruned.
+    /// Drop marks on `partition` that the writer has applied (offset
+    /// below its committed offset). Pops the reclaim queue only while
+    /// its head is applied, so the cost is proportional to the marks
+    /// reclaimed. The pass releases the queue lock every `PRUNE_CHUNK`
+    /// pops: a catch-up after a long writer outage reclaims millions of
+    /// marks in one call, and an unbroken hold would stall every
+    /// new-key `mark` (the write hot path) for the whole pass. Between
+    /// chunks the queue is re-fetched, so a concurrent
+    /// `clear_partition` (which detaches it) ends the pass instead of
+    /// racing the drain. Returns how many were pruned.
     pub fn prune_partition(&self, partition: u32, committed: i64) -> usize {
         let mut removed = 0;
         loop {
@@ -239,9 +241,9 @@ impl DirtyIndex {
     /// One bounded slice of a prune pass: re-fetch the queue, hold its
     /// lock for at most `PRUNE_CHUNK` pops, and report how many marks
     /// were removed plus whether the pass is exhausted. Exhaustion means
-    /// the head is unapplied, the queue is empty, or the queue was
-    /// detached by a concurrent `clear_partition` — the re-fetch is what
-    /// lets a release end an in-flight pass instead of racing its drain.
+    /// the head is unapplied, the queue is empty, or a concurrent
+    /// `clear_partition` detached the queue; the re-fetch is what lets a
+    /// release end an in-flight pass instead of racing its drain.
     fn prune_chunk(&self, partition: u32, committed: i64) -> (usize, bool) {
         let Some(queue) = self
             .queues
@@ -276,15 +278,14 @@ impl DirtyIndex {
                 removed += 1;
             } else if let Some(mark) = self.map.get(&key) {
                 // Superseded: the live mark is ahead of the committed
-                // offset, and the entry just popped was this key's only
-                // queue presence (`mark` enqueues keys once). Dropping
-                // it would leave the mark unreclaimable — pops are the
-                // only reclaim path — so re-enqueue at the map's
-                // offset. The tail lands past the committed threshold,
-                // so the head check terminates the pass before
-                // re-processing it; the resulting disorder only delays
-                // that key's reclaim, since removal is always re-proved
-                // against the map.
+                // offset, and the popped entry was this key's only
+                // queue presence (`mark` enqueues keys once). Pops are
+                // the only reclaim path, so dropping it would leave the
+                // mark unreclaimable; re-enqueue at the map's offset
+                // instead. The tail lands past the committed threshold,
+                // so the head check ends the pass before re-processing
+                // it; the disorder only delays that key's reclaim,
+                // since removal is always re-proved against the map.
                 queue.push_back((mark.offset, key.clone()));
             }
         }
@@ -292,8 +293,8 @@ impl DirtyIndex {
         (removed, false)
     }
 
-    /// Drop every mark on `partition` — used when the partition is released
-    /// to another owner, whose warming rebuilds its own marks.
+    /// Drop every mark on `partition`, used when the partition is
+    /// released to another owner, whose warming rebuilds its own marks.
     pub fn clear_partition(&self, partition: u32) -> usize {
         let Some((_, queue)) = self.queues.remove(&partition) else {
             return 0;
@@ -315,8 +316,8 @@ impl DirtyIndex {
         removed
     }
 
-    /// Partitions that currently hold marks — the prune loop's targeting
-    /// set for the writer committed-offset fetch.
+    /// Partitions that hold marks: the prune loop's targeting set for
+    /// the writer committed-offset fetch.
     pub fn partitions_with_marks(&self) -> Vec<u32> {
         self.queues
             .iter()
@@ -331,7 +332,7 @@ impl DirtyIndex {
             .collect()
     }
 
-    /// Highest live marked offset for a partition, if any — feeds the
+    /// Highest live marked offset for a partition, if any. Feeds the
     /// writer-lag gauge.
     pub fn max_offset(&self, partition: u32) -> Option<i64> {
         let has_marks = self.queues.get(&partition).is_some_and(|queue| {
@@ -351,7 +352,7 @@ impl DirtyIndex {
         self.size.load(Ordering::Relaxed)
     }
 
-    /// The soft entry bound — exported as a gauge so fullness
+    /// The soft entry bound, exported as a gauge so fullness
     /// (`len / max_entries`) is alertable before writes start shedding.
     pub fn max_entries(&self) -> usize {
         self.max_entries
@@ -439,8 +440,9 @@ mod tests {
         assert_eq!(index.prune_partition(0, 3), 0);
         assert_eq!(index.get(&key(1)).unwrap().offset, 5);
 
-        // The re-enqueued entry keeps the key reclaimable once the writer
-        // catches up — a dropped entry would leak the mark forever.
+        // The re-enqueued entry keeps the key reclaimable once the
+        // writer catches up; a dropped entry would leak the mark
+        // forever.
         assert_eq!(index.prune_partition(0, 6), 1);
         assert!(index.get(&key(1)).is_none());
         assert_eq!(index.len(), 0);
@@ -488,7 +490,7 @@ mod tests {
         assert!(!exhausted);
 
         // A release lands between chunks: it detaches the queue and
-        // drains every remaining mark — nothing escapes.
+        // drains every remaining mark; nothing escapes.
         assert_eq!(index.clear_partition(0), 500);
         assert_eq!(index.len(), 0);
 

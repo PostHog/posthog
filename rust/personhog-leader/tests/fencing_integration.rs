@@ -1,7 +1,7 @@
 //! Broker-enforced fencing, proven against a real broker: a partition's
 //! new owner initializing its transactional id must make the previous
 //! owner's producer unusable. Without the fence, a stale owner's writes
-//! land in the changelog silently — the exact zombie hazard this
+//! land in the changelog silently: the exact zombie hazard this
 //! mechanism exists to close.
 
 mod common;
@@ -34,8 +34,8 @@ fn test_person(version: i64) -> Person {
     }
 }
 
-/// Count the records a `read_committed` consumer can see on partition 0
-/// — the same isolation the warming path uses.
+/// Count the records a `read_committed` consumer can see on partition
+/// 0, the same isolation the warming path uses.
 async fn read_committed_count(topic: &str) -> usize {
     use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
@@ -113,7 +113,7 @@ fn fenced_producers(topic: &str) -> FencedChangelogProducers {
 
 /// The prepared path must fence exactly as the cold path does: a
 /// connection built ahead of acquisition carries no broker transactional
-/// state, so the epoch bump happens at `acquire` — and the previous
+/// state, so the epoch bump happens at `acquire`, and the previous
 /// owner must find itself fenced by it.
 #[tokio::test]
 async fn a_prepared_connection_still_fences_the_previous_owner() {
@@ -346,7 +346,7 @@ async fn second_acquisition_fences_the_first_producer() {
         }
     })
     .await
-    .expect("writes parked forever — a window_closed wakeup was lost");
+    .expect("writes parked forever: a window_closed wakeup was lost");
 }
 
 /// Concurrent same-partition writes share a transaction window: both
@@ -396,7 +396,7 @@ async fn a_filled_window_commits_before_its_timer() {
         }
     })
     .await
-    .expect("acks waited on the 60s timer — the fill close never fired");
+    .expect("acks waited on the 60s timer: the fill close never fired");
     assert_eq!(read_committed_count(&topic).await, 3);
 }
 
@@ -432,13 +432,14 @@ async fn sustained_writes_across_window_boundaries() {
         }
     })
     .await
-    .expect("writes parked forever — a window_closed wakeup was lost");
+    .expect("writes parked forever: a window_closed wakeup was lost");
 }
 
 /// A commit nobody observed is not a commit that did not happen.
 ///
-/// The committer can stop without answering — its task dropped at runtime
-/// teardown, or unwound — and `spawn_blocking` work is not cancelled when
+/// The committer can stop without answering (its task dropped at
+/// runtime teardown, or unwound), and `spawn_blocking` work is not
+/// cancelled when
 /// its handle is dropped, so the commit it was running may well have
 /// landed. Reporting that as a definite abort frees a version whose record
 /// may exist: the retry derives the same number, and the writer's
@@ -471,8 +472,8 @@ async fn a_committer_that_vanishes_leaves_the_outcome_in_doubt() {
     }
 }
 
-/// A request that vanishes mid-produce — tonic drops the handler future
-/// when the client's deadline expires — must return its seat in the
+/// A request that vanishes mid-produce (tonic drops the handler future
+/// when the client's deadline expires) must return its seat in the
 /// window. Without that, the committer waits on an in-flight count that
 /// never reaches zero and every later write on the partition parks
 /// forever behind it.
@@ -505,8 +506,8 @@ async fn a_cancelled_produce_does_not_wedge_the_partition() {
 ///
 /// The drain does not wait for open transaction windows, which is only
 /// safe if a record abandoned in one cannot become visible after the
-/// partition moves. This pins that: the successor's acquire — which
-/// precedes its warm read — leaves the predecessor unable to commit.
+/// partition moves. This pins that: the successor's acquire, which
+/// precedes its warm read, leaves the predecessor unable to commit.
 ///
 /// Without this guarantee the drain would have to wait out every open
 /// window before acking, so the assertion is load-bearing rather than
@@ -517,7 +518,7 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
 
     // Predecessor: open a window and get a record enqueued into it, then
     // abandon it exactly as a cancelled request would. The window is
-    // short on purpose — its committer must fire *after* the successor
+    // short on purpose: its committer must fire after the successor
     // has taken the epoch, because "invisible while uncommitted" proves
     // nothing. What has to be shown is that the record can never become
     // visible once the successor owns the partition.
@@ -547,7 +548,7 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
     let visible = read_committed_count(&topic).await;
     assert_eq!(
         visible, 0,
-        "an abandoned record must not become readable after the successor's init — \
+        "an abandoned record must not become readable after the successor's init; \
          if this fails, the drain must wait for open windows before acking"
     );
 
@@ -572,7 +573,7 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
     assert_eq!(
         read_committed_count(&control_topic).await,
         1,
-        "with no successor the abandoned record commits — without this the assertion \
+        "with no successor the abandoned record commits; without this the assertion \
          above cannot tell an aborted window from a send that never happened"
     );
 }
@@ -581,8 +582,8 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
 /// partition's broker epoch.
 ///
 /// The pod records a partition as held only once the warm returns, so a
-/// fence taken by a warm whose future is dropped — what a lost lease
-/// does to an in-flight attempt — belongs to no partition the local
+/// fence taken by a warm whose future is dropped (what a lost lease
+/// does to an in-flight attempt) belongs to no partition the local
 /// self-fence knows to release. The process would keep the epoch while
 /// owning nothing, and the real owner's writes would fail as fenced.
 #[tokio::test]
@@ -686,8 +687,8 @@ async fn a_condemned_producer_stops_claiming_the_partition() {
 
 /// A guard outlives the fence it was taken for when a warm is abandoned
 /// and the partition is re-acquired before the guard drops. Releasing by
-/// partition alone would then evict the *replacement* — a live fence, on
-/// a partition this pod legitimately owns — and every write would fail as
+/// partition alone would then evict the replacement (a live fence, on a
+/// partition this pod legitimately owns), and every write would fail as
 /// unowned until something re-acquired again.
 #[tokio::test]
 async fn an_abandoned_guard_does_not_evict_its_replacement() {
@@ -711,7 +712,7 @@ async fn an_abandoned_guard_does_not_evict_its_replacement() {
         .expect("the replacement fence must survive the stale guard");
 }
 
-/// A partition can end up served without a fence — a broker rejection
+/// A partition can end up served without a fence: a broker rejection
 /// evicted it, an abort exhausted its retries, a stale pod took the
 /// epoch and stepped back. Convergence sees such a partition warmed and
 /// unfenced and does nothing, so this is what gets it writable again
@@ -739,7 +740,7 @@ async fn healing_retakes_a_fence_for_a_served_partition() {
 
 /// Healing takes the partition's epoch from whoever holds it, so a pod
 /// that cannot vouch for its own claim must not start the round trip at
-/// all — `init_transactions` cannot be undone once it returns, and the
+/// all; `init_transactions` cannot be undone once it returns, and the
 /// post-acquire check can only stop *this* pod from building on a fence
 /// it already stole.
 ///
@@ -833,7 +834,7 @@ async fn healing_gives_back_a_fence_it_lost_standing_for() {
 /// A writer parked behind a committing window is woken by the very commit
 /// that condemns the producer. Checking usability only before the park
 /// skips exactly that writer: it wakes, finds the gate idle, and opens a
-/// window on a producer that cannot begin one — answering with a
+/// window on a producer that cannot begin one, answering with a
 /// retryable failure the client retries against a pod that cannot write
 /// the partition, instead of the ownership bounce that moves it.
 #[tokio::test]
@@ -852,7 +853,7 @@ async fn a_writer_woken_onto_a_condemned_producer_is_bounced() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // The commit resolves badly and condemns the producer, then releases
-    // the gate and wakes the parked writer — production's exact order.
+    // the gate and wakes the parked writer: production's exact order.
     producers.condemn_for_test(0);
     producers.finish_committing_for_test(0);
 
@@ -865,7 +866,7 @@ async fn a_writer_woken_onto_a_condemned_producer_is_bounced() {
 }
 
 /// Healing must leave a partition it already holds alone. Re-acquiring
-/// runs `init_transactions`, which bumps the broker epoch — so a healing
+/// runs `init_transactions`, which bumps the broker epoch, so a healing
 /// pass that ignored the fence it is already holding would fence this
 /// pod's own producer on every reconcile tick.
 ///
@@ -907,7 +908,7 @@ async fn healing_leaves_a_fence_it_already_holds_alone() {
 /// A commit task that never reports its outcome must condemn the producer.
 ///
 /// `spawn_blocking` work is not cancelled when its handle drops, so the
-/// commit may well have landed — the caller therefore learns nothing, and
+/// commit may well have landed; the caller therefore learns nothing, and
 /// the version stays spent. What matters here is the producer: its
 /// transaction is left open, and without the condemn `holds()` keeps
 /// answering yes, the repair pass sees nothing to do, and every later
@@ -941,7 +942,7 @@ async fn a_committer_that_never_reports_condemns_its_producer() {
 /// `a_successors_init_aborts_the_predecessors_open_window` shows the
 /// safety net: an abandoned record can never become visible once the
 /// successor owns the partition. This shows the boundary the drain is
-/// supposed to be — the record is committed *before* the handoff
+/// supposed to be: the record is committed before the handoff
 /// advances, so the successor reads it as ordinary history rather than
 /// racing the predecessor's committer for it.
 ///
@@ -1005,19 +1006,19 @@ async fn settling_commits_an_abandoned_record_before_the_handoff_advances() {
 /// Warming acquires the partition's transactional id and then re-admits
 /// writes as its last act. The resume that can follow in the same
 /// convergence exists for a cancelled handoff whose target got as far as
-/// taking the epoch — but if it runs after this pod's own warm, its
+/// taking the epoch, but if it runs after this pod's own warm, its
 /// `init_transactions` bumps the epoch out from under every write the
 /// warm just admitted, and the pod fences its own live window.
 ///
 /// The mark that prevents this has two halves, and either one alone is
 /// useless: warming records the fence it took, and the resume honours
-/// that record. This covers both — delete either and the in-flight write
+/// that record. This covers both: delete either and the in-flight write
 /// below is fenced by its own pod.
 #[tokio::test]
 async fn a_resume_does_not_fence_the_window_its_own_warm_admitted() {
     let topic = format!("fence_resume_{}", uuid::Uuid::new_v4().simple());
     // Long enough that the write is still sitting in an open window when
-    // the resume runs — a window that closed first would be committed
+    // the resume runs; a window that closed first would be committed
     // already and could not be fenced.
     let producers = Arc::new(fenced_producers_with_window(
         &topic,
@@ -1026,7 +1027,7 @@ async fn a_resume_does_not_fence_the_window_its_own_warm_admitted() {
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
 
     // A record for the warm to read, which also brings the topic into
-    // existence — `fetch_watermarks` has nothing to answer for a topic
+    // existence; `fetch_watermarks` has nothing to answer for a topic
     // no one has produced to.
     producers.acquire(0).await.expect("seed the topic");
     producers
@@ -1059,8 +1060,8 @@ async fn a_resume_does_not_fence_the_window_its_own_warm_admitted() {
 ///
 /// A send that fails inside a window leaves records the transaction can
 /// never be allowed to commit, so the commit path aborts instead. Skip
-/// the abort and the producer is left in its abortable state — where
-/// every later `begin_transaction` fails — while the code reports a
+/// the abort and the producer is left in its abortable state (where
+/// every later `begin_transaction` fails) while the code reports a
 /// clean abort, so nothing condemns it and nothing re-acquires. The
 /// partition then refuses every write for the life of the process.
 #[tokio::test]
@@ -1097,7 +1098,7 @@ async fn a_poisoned_window_is_aborted_rather_than_committed() {
 /// A window that cannot be settled must not hold the partition hostage.
 ///
 /// The drain fences writes as its first act, and the only branch that
-/// lifts that fence runs after the handoff completes — which needs the
+/// lifts that fence runs after the handoff completes, which needs the
 /// ack this drain is about to write. So a drain that refuses to ack over
 /// an unsettled window strands the partition rejecting every write for
 /// the life of the process, while reads carry on and the convergence
@@ -1131,7 +1132,7 @@ async fn a_window_that_cannot_settle_still_lets_the_handoff_proceed() {
 /// A resume that skipped its acquire must leave the mark for the retry.
 ///
 /// The skip branch consumed the mark, so a convergence torn down after
-/// the resume returned — but before `apply` recorded it — retried with
+/// the resume returned, but before `apply` recorded it, retried with
 /// the partition still listed as fenced and nothing to say the fence was
 /// already held. That retry re-acquires and bumps the epoch out from
 /// under the writes the first resume admitted.
@@ -1177,7 +1178,7 @@ async fn a_repeated_resume_does_not_fence_the_window_the_first_one_admitted() {
 /// `commit_transaction` is still mid round trip. A settle that asked only
 /// whether the window was open would return there and let the drain ack,
 /// handing the successor a partition whose last records are still racing
-/// its `init_transactions` — the race settling exists to end.
+/// its `init_transactions`: the race settling exists to end.
 #[tokio::test]
 async fn a_drain_waits_for_a_commit_that_is_already_running() {
     let topic = format!("fence_settle_mid_{}", uuid::Uuid::new_v4().simple());
@@ -1207,7 +1208,7 @@ async fn a_drain_waits_for_a_commit_that_is_already_running() {
 /// left behind.
 ///
 /// A handoff cancelled after the drain reaches `resume_partition` with no
-/// mark — the drain retires it — so this resume acquires. A convergence
+/// mark (the drain retires it), so this resume acquires. A convergence
 /// torn down before `apply` files the resume runs the same one again, and
 /// without a mark of its own that retry re-acquires, bumping the epoch out
 /// from under everything the first resume just admitted.
@@ -1222,7 +1223,7 @@ async fn a_resume_that_took_the_fence_itself_does_not_take_it_again() {
 
     producers.acquire(0).await.expect("seed the topic");
     // Handed away, then cancelled: the drain retires the mark and the
-    // resume has to take the fence — and record it — on its own.
+    // resume has to take the fence, and record it, on its own.
     handler
         .drain_partition_inflight(0)
         .await
@@ -1248,7 +1249,7 @@ async fn a_resume_that_took_the_fence_itself_does_not_take_it_again() {
 /// Warming without a confirmed renewal must not take the epoch.
 ///
 /// `init_transactions` grants the epoch to whoever initializes last, not
-/// to whoever the protocol says owns the partition — so a zombie warming
+/// to whoever the protocol says owns the partition, so a zombie warming
 /// on its way to noticing it is dead would fence the legitimate owner.
 #[tokio::test]
 async fn warming_without_a_confirmed_lease_does_not_take_the_epoch() {
@@ -1275,7 +1276,7 @@ async fn warming_without_a_confirmed_lease_does_not_take_the_epoch() {
         .expect("a warm with no standing must not take the epoch from the real owner");
 }
 
-/// A resume without a confirmed renewal must not take the epoch either —
+/// A resume without a confirmed renewal must not take the epoch either:
 /// the same act, reached through the branch that cancels a handoff.
 #[tokio::test]
 async fn a_resume_without_a_confirmed_lease_does_not_take_the_epoch() {
@@ -1343,7 +1344,7 @@ async fn a_warm_that_loses_its_claim_mid_acquire_gives_the_fence_back() {
                 panic!("a fence taken across a lapsed claim must be given back, got {other:?}")
             }
         },
-        // The surrender lost the race outright — the claim was valid at
+        // The surrender lost the race outright: the claim was valid at
         // both checks, so the warm keeps its fence legitimately. A fast
         // broker reaches this branch; asserting the fence works keeps
         // the test meaningful there instead of panicking on good
@@ -1386,7 +1387,7 @@ async fn a_resume_that_loses_its_claim_mid_acquire_gives_the_fence_back() {
                 panic!("a fence taken across a lapsed claim must be given back, got {other:?}")
             }
         },
-        // The surrender lost the race outright — the claim held at both
+        // The surrender lost the race outright: the claim held at both
         // checks and the resume keeps a working fence.
         Ok(()) => {
             producers
@@ -1400,7 +1401,8 @@ async fn a_resume_that_loses_its_claim_mid_acquire_gives_the_fence_back() {
 /// The drain closes admissions before it waits, not after.
 ///
 /// Waiting first leaves a window where a request admitted during the wait
-/// acks after the count reached zero — a write landing above the watermark
+/// acks after the count reached zero: a write landing above the
+/// watermark
 /// the successor's warm is about to read, which is the loss the drain
 /// exists to prevent.
 #[tokio::test]
@@ -1436,7 +1438,8 @@ async fn the_drain_refuses_new_writes_while_it_is_still_waiting() {
 /// Releasing a partition retires its fresh-fence mark.
 ///
 /// The mark says "this convergence already holds the epoch". Left behind
-/// across a release — which drops the producer — a later resume trusts it,
+/// across a release (which drops the producer), a later resume trusts
+/// it,
 /// skips the acquire, and re-admits writes to a partition with no fence
 /// installed at all.
 #[tokio::test]
@@ -1502,7 +1505,7 @@ async fn verifying_a_served_partition_retakes_a_condemned_fence() {
 /// run's failure budgets escalate to process death, which would trade
 /// one partition's writes for every partition's reads. The wedge stays
 /// visible through the partition-labeled failure counter and stays
-/// retried by the reconcile tick — and the partition must still answer
+/// retried by the reconcile tick, and the partition must still answer
 /// as unfenced, never as quietly repaired.
 #[tokio::test]
 async fn a_heal_that_cannot_acquire_does_not_fail_the_run() {
@@ -1536,7 +1539,7 @@ async fn a_heal_that_cannot_acquire_does_not_fail_the_run() {
 /// A heal is an acquisition like any other: the same convergence's
 /// resume step must trust its fence rather than bump the epoch again.
 /// Re-acquiring on resume would fence the very window the heal just made
-/// writable — the double-acquire the fresh-fence mark exists to prevent.
+/// writable: the double-acquire the fresh-fence mark exists to prevent.
 #[tokio::test]
 async fn a_healed_fence_is_not_reacquired_by_the_same_convergences_resume() {
     let topic = format!("fence_heal_mark_{}", uuid::Uuid::new_v4().simple());
@@ -1546,7 +1549,7 @@ async fn a_healed_fence_is_not_reacquired_by_the_same_convergences_resume() {
     ));
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
 
-    // A served partition with no usable fence — the state heal repairs.
+    // A served partition with no usable fence: the state heal repairs.
     handler
         .verify_serving(0)
         .await
@@ -1575,12 +1578,13 @@ async fn a_healed_fence_is_not_reacquired_by_the_same_convergences_resume() {
 /// A committer that unwinds with subscribers still queued must condemn
 /// the producer, not strand them.
 ///
-/// The mark's drop used to clear `committing` and nothing else: the
-/// orphaned waiter list blocked every later window (nothing opens while
-/// waiters remain) while `is_usable` kept reporting the fence healthy —
-/// every write on the partition parked until its own deadline, silently,
-/// forever. Condemning routes it into the same bounce-and-recover story
-/// as every other producer no window can be begun from.
+/// If the mark's drop cleared `committing` and nothing else, the
+/// orphaned waiter list would block every later window (nothing opens
+/// while waiters remain) while `is_usable` kept reporting the fence
+/// healthy; every write on the partition would park until its own
+/// deadline, silently, forever. Condemning routes it into the same
+/// bounce-and-recover story as every other producer no window can be
+/// begun from.
 #[tokio::test]
 async fn an_unwound_committer_condemns_rather_than_stranding_its_waiters() {
     let topic = format!("fence_orphan_{}", uuid::Uuid::new_v4().simple());
@@ -1611,7 +1615,7 @@ async fn an_unwound_committer_condemns_rather_than_stranding_its_waiters() {
 /// not the test constants: window 5ms, txn ~1.2s, settle 2s, broker
 /// patience ~6s at the production lease. The per-arm tests pin each
 /// mechanism with generous constants; this pins that the *derived*
-/// numbers compose against a real broker — windows turn over, commits
+/// numbers compose against a real broker: windows turn over, commits
 /// land inside their budgets, and a drain (with its settle) finishes
 /// inside the lease runway the arithmetic promises.
 #[tokio::test]
@@ -1666,7 +1670,7 @@ async fn the_derived_production_timescales_compose_against_a_real_broker() {
     }
     assert_eq!(acked, 100);
 
-    // The drain — wait plus settle — must fit the runway the validator
+    // The drain (wait plus settle) must fit the runway the validator
     // sized it against.
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
     let drain_started = std::time::Instant::now();

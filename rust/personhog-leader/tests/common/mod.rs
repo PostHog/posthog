@@ -229,8 +229,8 @@ pub fn test_kafka_config() -> KafkaConfig {
     }
 }
 
-/// Default warming knobs for e2e tests — production-equivalent timeouts and
-/// retry policy. `kafka_bootstrap` must match the broker the test's
+/// Default warming knobs for e2e tests: production-equivalent timeouts
+/// and retry policy. `kafka_bootstrap` must match the broker the test's
 /// producer is publishing to, so the warming consumer reads from the same
 /// place. With a mock cluster, that's `mock_cluster.bootstrap_servers()`;
 /// with real local Kafka, `KAFKA_BOOTSTRAP`.
@@ -320,7 +320,7 @@ pub async fn create_test_kafka() -> (
 
 /// Variant of `create_test_kafka` that lets a test pin the topic to a
 /// specific partition count. Use this for tests that exercise the
-/// producer's partition-routing behavior — they need a topology they
+/// producer's partition-routing behavior: they need a topology they
 /// control, not the default warming-friendly multi-partition setup.
 pub async fn create_test_kafka_with_partitions(
     partitions: i32,
@@ -648,10 +648,10 @@ pub const BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Fenced producers pointed at the local broker.
 ///
-/// Lives here rather than beside the fencing tests because the *service*
+/// Lives here rather than beside the fencing tests because the service
 /// needs it too: without a way to build `PersonHogLeaderService` with
-/// fencing on, its entire fenced write arm — the version settlement, the
-/// cache eviction, the four-way error mapping — is unreachable from any
+/// fencing on, its entire fenced write arm (the version settlement, the
+/// cache eviction, the four-way error mapping) is unreachable from any
 /// test.
 pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedChangelogProducers {
     let mut kafka = test_kafka_config();
@@ -675,9 +675,9 @@ pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedCha
 ///
 /// Deliberately not `None` for the authority. A fixture that leaves a
 /// mechanism out makes every test written against it exercise the
-/// degenerate path, and the gate stops being covered by anything —
-/// which is exactly how all four of its call sites became deletable
-/// with the suite green. Tests that need a lapsed claim pass their own.
+/// degenerate path, and the gate stops being covered by anything, which
+/// leaves its call sites deletable with the suite green. Tests that
+/// need a lapsed claim pass their own.
 #[allow(dead_code)]
 pub fn test_handoff_handler(
     topic: &str,
@@ -710,9 +710,9 @@ pub fn test_handoff_handler_with_authority(
     )
 }
 
-/// The same handler, sharing its inflight tracker with the caller — the
-/// only way to observe when the drain closes admissions relative to when
-/// it waits.
+/// The same handler, sharing its inflight tracker with the caller: the
+/// only way to observe when the drain closes admissions relative to
+/// when it waits.
 #[allow(dead_code)]
 pub fn test_handoff_handler_with_inflight(
     topic: &str,
@@ -726,9 +726,9 @@ pub fn test_handoff_handler_with_inflight(
 ///
 /// A fixture that can be built without one produces tests that exercise
 /// the ungated path by default, and the gate stops being covered by
-/// anything — which is how all four of its call sites became deletable
-/// with the suite green. Requiring it makes that configuration
-/// unbuildable rather than merely discouraged.
+/// anything, which leaves its call sites deletable with the suite
+/// green. Requiring it makes that configuration unbuildable rather than
+/// merely discouraged.
 fn handoff_handler_with(
     topic: &str,
     fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
@@ -756,16 +756,15 @@ fn handoff_handler_with(
     )
 }
 
-/// A clock holding a claim its keepalive is still confirming.
-#[allow(dead_code)]
 /// A claim that stays valid for the whole of any test.
 ///
 /// The TTL is deliberately far longer than production's. Validity lapses
 /// once no renewal has been confirmed for two thirds of the TTL, and
-/// nothing renews this one — so a production-shaped 30s TTL gives a 20s
+/// nothing renews this one, so a production-shaped 30s TTL gives a 20s
 /// margin, which the fencing suite's longest tests already reach. Tests
 /// that want a lapsed claim surrender explicitly rather than waiting one
 /// out.
+#[allow(dead_code)]
 pub fn live_authority() -> Arc<AuthorityClock> {
     let clock = Arc::new(AuthorityClock::unclaimed());
     clock.begin_session(Duration::from_secs(3600), std::time::Instant::now());

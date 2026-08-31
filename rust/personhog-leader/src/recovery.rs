@@ -41,37 +41,37 @@ enum FetchError {
     Permanent(String),
 }
 
-/// Fetches single persons from the changelog — the recovery path for cache
-/// entries evicted while the writer still lags. It reads Kafka, never
-/// Postgres, so the leader's availability stays decoupled from writer
-/// progress.
+/// Fetches single persons from the changelog: the recovery path for
+/// cache entries evicted while the writer still lags. It reads Kafka,
+/// never Postgres, so the leader's availability stays decoupled from
+/// writer progress.
 ///
 /// Every changelog record carries the person's full state, so the one
 /// record at the dirty index's marked offset supersedes anything before
-/// it; no replay is needed. And because the topic compacts by person key,
-/// compaction never removes the latest record for a key — the only offset
-/// the index ever holds — so the fetch lands on it for as long as the
+/// it; no replay is needed. The topic compacts by person key, and
+/// compaction never removes the latest record for a key (the only offset
+/// the index ever holds), so the fetch lands on it for as long as the
 /// topic's `delete` retention keeps it, far longer than any mark should
 /// live.
 ///
-/// A fresh `assign` positions any consumer at any (partition, offset), so
-/// the consumers are fungible and pooled globally: a fixed set is built at
-/// startup — where construction failure is loud and nothing is in flight —
-/// and checked out per fetch, bounding concurrent recoveries at the pool
-/// size the way a DB connection pool bounds queries. Checkout transfers
-/// exclusive ownership through the idle deque (the semaphore only counts;
-/// a permit holder always finds a consumer), so no lock is held while a
-/// fetch waits on Kafka or backs off between retries. The pool-wait
-/// histogram is the tuning signal for the pool size. Errors never manage
-/// the pool — librdkafka clients self-heal their connections — so
-/// transient fetch failures retry on the same consumer within the
-/// recovery deadline. Checkout is an RAII guard (`PooledConsumer`) that
-/// returns the consumer and only then releases its permit on Drop, so
-/// the consumer comes home on every path including future cancellation —
-/// a client disconnecting mid-recovery drops the request future at an
-/// await point, and anything less than Drop-based return would leak the
-/// consumer while freeing its permit, eventually leaving permits with an
-/// empty pool.
+/// A fresh `assign` positions any consumer at any (partition, offset),
+/// so the consumers are fungible and pooled globally: a fixed set is
+/// built at startup (where construction failure is loud and nothing is
+/// in flight) and checked out per fetch, bounding concurrent recoveries
+/// at the pool size the way a DB connection pool bounds queries.
+/// Checkout transfers exclusive ownership through the idle deque (the
+/// semaphore only counts; a permit holder always finds a consumer), so
+/// no lock is held while a fetch waits on Kafka or backs off between
+/// retries. The pool-wait histogram is the tuning signal for the pool
+/// size. Errors never manage the pool, because librdkafka clients
+/// self-heal their connections; transient fetch failures retry on the
+/// same consumer within the recovery deadline. Checkout is an RAII guard
+/// (`PooledConsumer`) that returns the consumer and only then releases
+/// its permit on Drop, so the consumer comes home on every path,
+/// including cancellation: a client disconnecting mid-recovery drops the
+/// request future at an await point, and anything less than Drop-based
+/// return would leak the consumer while freeing its permit, eventually
+/// leaving permits with an empty pool.
 pub struct ChangelogRecovery {
     topic: String,
     recv_timeout: Duration,
@@ -100,12 +100,13 @@ impl ChangelogRecovery {
         })
     }
 
-    /// Check a consumer out of the pool. The returned guard owns both the
-    /// consumer and its semaphore permit; its Drop parks the consumer
-    /// (best-effort unassign so it does not keep fetching a partition
-    /// tail), returns it to the idle deque, and only then releases the
-    /// permit — so a slot never opens before its consumer is home, on
-    /// every path including cancellation of the awaiting future.
+    /// Check a consumer out of the pool. The returned guard owns both
+    /// the consumer and its semaphore permit; its Drop parks the
+    /// consumer (best-effort unassign so it does not keep fetching a
+    /// partition tail), returns it to the idle deque, and only then
+    /// releases the permit, so a slot never opens before its consumer is
+    /// home, on every path including cancellation of the awaiting
+    /// future.
     async fn checkout(&self) -> Result<PooledConsumer<'_>, String> {
         let wait_start = Instant::now();
         let permit = self
@@ -129,11 +130,11 @@ impl ChangelogRecovery {
     }
 
     /// Fetch a person's latest state from the changelog record the dirty
-    /// index marked for its most recent acked produce. The decoded record
-    /// must carry the mark's key and version exactly: the mark was written
-    /// from the same state the record was encoded from, so any mismatch
-    /// means acked state and produced state diverged — a bug worth failing
-    /// loudly over, never worth serving.
+    /// index marked for its most recent acked produce. The decoded
+    /// record must carry the mark's key and version exactly: the mark
+    /// was written from the same state the record was encoded from, so
+    /// any mismatch means acked state and produced state diverged, a bug
+    /// worth failing loudly over, never worth serving.
     pub async fn fetch_person_at(
         &self,
         mark: &DirtyMark,

@@ -48,10 +48,11 @@ common_alloc::used!();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Install a process-wide rustls CryptoProvider before any TLS use. kube's
-    // HTTPS client (controller discovery) uses rustls 0.23, which can't
-    // auto-pick a provider with both aws-lc-rs and ring compiled in — it
-    // panics. Matches personhog-router / cymbal / ingestion-consumer.
+    // Install a process-wide rustls CryptoProvider before any TLS use.
+    // kube's HTTPS client (controller discovery) uses rustls 0.23, which
+    // cannot auto-pick a provider with both aws-lc-rs and ring compiled
+    // in; it panics. Matches personhog-router / cymbal /
+    // ingestion-consumer.
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("failed to install rustls ring CryptoProvider");
@@ -68,7 +69,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Invalid shutdown configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
-    // Initialize tracing
     let log_layer = fmt::layer()
         .with_target(true)
         .with_thread_ids(true)
@@ -95,17 +95,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Pod name: {}", config.pod_name);
     tracing::info!("Kafka changelog topic: {}", config.kafka_person_state_topic);
 
-    // Shutdown order matters: the coordination drain (phase 0) hands this
-    // pod's partitions off, which requires the gRPC server to keep serving
-    // reads and completing in-flight writes and the producer to keep
-    // delivering their changelog records. Server and producer therefore
-    // stop in phase 1, only after the drain finishes — signalling them
-    // together with coordination black-holed every partition for the whole
-    // drain (dead server, still the registered owner). The coordination
-    // window must fit the pod's whole teardown — drain, fence, keepalive
-    // join, revoke — and the global timeout both phases;
-    // `validate_lease_timescales` refuses a configuration that breaks
-    // the first relation at startup.
+    // Shutdown order matters: the coordination drain (phase 0) hands
+    // this pod's partitions off, which requires the gRPC server to keep
+    // serving reads and completing in-flight writes and the producer to
+    // keep delivering their changelog records. Server and producer
+    // therefore stop in phase 1, only after the drain finishes;
+    // signalling them together with coordination black-holed every
+    // partition for the whole drain (dead server, still the registered
+    // owner). The coordination window must fit the pod's whole teardown
+    // (drain, fence, keepalive join, revoke) and the global timeout both
+    // phases; `validate_lease_timescales` refuses a configuration that
+    // breaks the first relation at startup.
     let mut manager = Manager::builder("personhog-leader")
         .with_global_shutdown_timeout(config.global_shutdown_timeout())
         .build();
@@ -266,7 +266,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Initialize partitioned cache and Kafka producer
     let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity_bytes));
 
     let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
@@ -284,7 +283,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(10),
     );
 
-    // PG fallback pool for cache misses (optional, disabled if URL is empty)
     let fallback = if config.fallback_database_url.is_empty() {
         tracing::info!("PG fallback disabled (no FALLBACK_DATABASE_URL)");
         None
@@ -306,7 +304,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     };
 
-    // Connect to etcd for coordination and the partition count
     let etcd_config = StoreConfig {
         endpoints: config.etcd_endpoint_list(),
         prefix: config.etcd_prefix.clone(),
@@ -316,9 +313,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to connect to etcd");
     let store = Arc::new(PersonhogStore::new(etcd_store));
 
-    // Read total_partitions from etcd (set by kafka-assigner) — the same
-    // source the router hashes against, so partition validation can never
-    // drift between the two.
+    // Read total_partitions from etcd (set by kafka-assigner): the same
+    // source the router hashes against, so partition validation can
+    // never drift between the two.
     let num_partitions = store
         .get_total_partitions()
         .await
@@ -407,7 +404,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // to the margin, and that has to be answerable from a deployment
     // that is not yet enforcing anything.
     //
-    // This says nothing about a process-wide stall — a task that cannot
+    // This says nothing about a process-wide stall: a task that cannot
     // run cannot report that it cannot run, which is the same limitation
     // the clock exists to route around, and why enforcement reads the
     // stamp inline on the request path instead of trusting a publisher.
@@ -523,7 +520,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // coordinator can steer placement away from old-generation pods
     // during rollouts. Fail-open, and bounded: this runs before the pod
     // handle and gRPC server exist, so an unresponsive API server must
-    // cost a few seconds of startup at worst — never availability.
+    // cost a few seconds of startup at worst, never availability.
     let (controller, generation, k8s_awareness) = if config.k8s_awareness_enabled {
         let discovery = discover_own_controller(&config, coordination_handle.shutdown_token());
         match timeout(K8S_DISCOVERY_TIMEOUT, discovery).await {
@@ -569,16 +566,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Open connections up front: warms cluster in deploy bursts, and a
     // cold pool would make every burst's first operations pay the client
-    // setup the pool exists to amortize. Sized from the pod's actual
-    // configured warm concurrency — the bound the semaphore enforces —
-    // so the pool and the concurrency limit cannot drift apart.
-    // Committed-offset queries run one per concurrent warm, so the
-    // offsets pool needs the same depth; it also serves the dirty-index
-    // prune tick.
+    // setup the pool exists to amortize. Sized from the pod's configured
+    // warm concurrency (the bound the semaphore enforces) so the pool
+    // and the concurrency limit cannot drift apart. Committed-offset
+    // queries run one per concurrent warm, so the offsets pool needs the
+    // same depth; it also serves the dirty-index prune tick.
     //
     // Awaited before the pod registers for partitions: a deploy burst
     // hands this pod partitions immediately, and a warm that finds the
-    // pool empty builds its clients cold inside the handoff — seconds of
+    // pool empty builds its clients cold inside the handoff, seconds of
     // connection setup on the path the pool exists to keep off. The
     // deadline keeps a broker outage from wedging boot; past it,
     // registration proceeds and the remaining slots are built cold, so
@@ -644,13 +640,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(config.dirty_index_prune_interval_secs.max(1)),
     ));
 
-    // gRPC server. Mirrors the replica's middleware stack so the router's
-    // per-backend metrics (processing time, transport/network overhead) and
-    // response compression behave identically on both backends. No tonic
-    // codec compression: requests always arrive uncompressed (the router
-    // rejects compressed leader requests before forwarding — it scans the
-    // request bytes for the routing key), and response compression is
-    // exclusively the gzip layer.
+    // gRPC server. Mirrors the replica's middleware stack so the
+    // router's per-backend metrics (processing time, transport/network
+    // overhead) and response compression behave identically on both
+    // backends. No tonic codec compression: requests always arrive
+    // uncompressed (the router rejects compressed leader requests
+    // before forwarding, because it scans the request bytes for the
+    // routing key), and response compression is exclusively the gzip
+    // layer.
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
@@ -708,7 +705,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .add_service(
                 // accept_compressed only decodes gzip request frames from
                 // opted-in clients; responses stay with the AsyncGzipLayer
-                // (never send_compressed — see the tonic entry in Cargo.toml).
+                // (never send_compressed; see the tonic entry in
+                // Cargo.toml).
                 PersonHogLeaderServer::new(service)
                     .accept_compressed(CompressionEncoding::Gzip)
                     .max_encoding_message_size(max_send)
@@ -728,7 +726,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Periodically drop dirty-index marks the writer has applied to PG, and
 /// export the dirty-count and writer-lag gauges as a side effect. One
 /// batched OffsetFetch covers every partition with marks, on a pooled
-/// client — each tick reuses the connection instead of rebuilding one.
+/// client, so each tick reuses the connection instead of rebuilding one.
 async fn run_dirty_index_prune_loop(
     dirty_index: Arc<DirtyIndex>,
     cache: Arc<PartitionedCache>,
@@ -741,7 +739,7 @@ async fn run_dirty_index_prune_loop(
     loop {
         interval.tick().await;
         // One batched OffsetFetch, then queue pops proportional to the
-        // marks actually reclaimed — a tick never scans the index, which
+        // marks actually reclaimed; a tick never scans the index, which
         // is what makes the 1s interval affordable even when a lagging
         // writer has made the index large.
         let partitions = dirty_index.partitions_with_marks();
@@ -773,8 +771,8 @@ async fn run_dirty_index_prune_loop(
         // A partition absent from the committed offsets has no writer
         // commit yet: nothing is applied, every mark stays, and its lag
         // is the entire marked backlog. A partition the prune fully
-        // reclaimed has no live marks left — the writer caught up, so its
-        // lag reads zero.
+        // reclaimed has no live marks left: the writer caught up, so
+        // its lag reads zero.
         for partition in &partitions {
             let lag = match dirty_index.max_offset(*partition) {
                 Some(max_offset) => {

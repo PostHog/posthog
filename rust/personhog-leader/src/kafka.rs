@@ -12,34 +12,36 @@ use personhog_proto::personhog::types::v1::Person;
 /// Formats the Kafka message key for person state changelog messages.
 /// The topic must include `compact` in its `cleanup.policy` so Kafka
 /// retains the latest state per person. Deployed config is
-/// `compact,delete`, where retention bounds even the latest record —
+/// `compact,delete`, so retention bounds even the latest record. That is
 /// acceptable because nothing reads records older than the writer's
-/// committed offset, which retention outruns by design.
+/// committed offset, and retention outruns that offset by design.
 pub fn changelog_message_key(team_id: i64, person_id: i64) -> String {
     format!("{team_id}:{person_id}")
 }
 
 /// Produce a person state changelog message to Kafka.
 ///
-/// Encodes the `Person` proto as the message payload and uses
-/// `{team_id}:{person_id}` as the key for compaction. The message is
-/// produced to an explicit partition — the person's routing partition —
-/// rather than relying on the producer's key partitioner. Warming rebuilds
-/// one routing partition's cache by consuming the same-numbered Kafka
-/// partition, so the two numbering schemes must agree; producing explicitly
-/// makes that alignment structural instead of depending on the partitioner
-/// config matching the router's murmur2 (librdkafka's default partitioner
-/// is CRC32-based and routes keys differently). A partition-count mismatch
-/// fails loudly at produce time instead of silently mis-sharding.
-/// Returns the record's changelog offset on successful delivery — the
-/// dirty index records it so an evicted entry can be recovered from the
-/// changelog later — or an error string on failure.
+/// Encodes the `Person` proto as the payload and keys it
+/// `{team_id}:{person_id}` for compaction. The message goes to an
+/// explicit partition, the person's routing partition, not through the
+/// producer's key partitioner. Warming rebuilds one routing partition's
+/// cache from the same-numbered Kafka partition, so the two numbering
+/// schemes must agree; producing explicitly makes that alignment
+/// structural (librdkafka's default partitioner is CRC32-based and
+/// routes keys differently from the router's murmur2). A partition-count
+/// mismatch fails loudly at produce time instead of silently
+/// mis-sharding.
 ///
-/// The handoff protocol relies on "handler returned Ok == message durable in Kafka."
-/// That requires the delivery future to be awaited before returning (done here) and
-/// `acks=all` on the producer. We rely on librdkafka's default (`acks=-1`) for the
-/// latter; if that default ever changes, the drain-inflight step in
-/// `coordination::LeaderHandoffHandler::drain_partition_inflight` becomes unsafe.
+/// Returns the record's changelog offset on delivery; the dirty index
+/// records it so an evicted entry can be recovered from the changelog.
+///
+/// The handoff protocol relies on "handler returned Ok == message
+/// durable in Kafka." That requires awaiting the delivery future before
+/// returning (done here) and `acks=all` on the producer. We rely on
+/// librdkafka's default (`acks=-1`) for the latter; if that default ever
+/// changes, the drain-inflight step in
+/// `coordination::LeaderHandoffHandler::drain_partition_inflight`
+/// becomes unsafe.
 pub async fn produce_person_changelog(
     producer: &FutureProducer<KafkaContext>,
     topic: &str,
@@ -91,17 +93,17 @@ pub async fn produce_person_changelog(
 /// flush instead of waiting for the last producer reference to drop.
 ///
 /// The component's handle rides inside the producer context, which
-/// every clone of the producer shares — so without explicit shutdown
-/// work, the component completed only when everything holding the
-/// producer let go, and a queue wedged against a stalled broker held
-/// its shutdown phase to the global timeout. This task flushes what
-/// the queue holds within `bound` once the component's phase shuts
-/// down, then reports completion either way.
+/// every producer clone shares. Without explicit shutdown work the
+/// component completed only when everything holding the producer let
+/// go, and a queue wedged against a stalled broker held its shutdown
+/// phase to the global timeout. This task flushes the queue within
+/// `bound` once the component's phase shuts down, then reports
+/// completion either way.
 ///
 /// A timed-out flush drops only records nobody acked: the changelog
-/// path awaits each record's delivery before acking (so anything acked
-/// is already off the queue, and unacked writes retry via redelivery),
-/// and the rest of this producer's traffic is best-effort warnings.
+/// path awaits each record's delivery before acking (anything acked is
+/// off the queue; unacked writes retry via redelivery), and the rest of
+/// this producer's traffic is best-effort warnings.
 pub fn spawn_bounded_flush_on_shutdown(
     producer: FutureProducer<KafkaContext>,
     handle: Handle,

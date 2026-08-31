@@ -88,8 +88,9 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
     let bootstrap = mock_cluster.bootstrap_servers();
 
-    // Every harness gets its own team, so concurrent tests — and leftover
-    // rows from a failed earlier run — can never stomp on each other's
+    // Every harness gets its own team, so concurrent tests (and
+    // leftover rows from a failed earlier run) can never stomp on each
+    // other's
     // lifecycle marks.
     let team_id = unique_team_id();
     seed.team_id = team_id;
@@ -196,7 +197,7 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
     let op = Uuid::now_v7();
 
     // Fence + seal in one call: the sealed state is the person's current
-    // state — fencing produces nothing and does not advance the version.
+    // state; fencing produces nothing and does not advance the version.
     let sealed = harness
         .client
         .fence_person(with_partition(
@@ -329,7 +330,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
     let person_uuid = test_cached_person().uuid;
     let op = Uuid::now_v7();
 
-    // The mark rows the committed release verifies against — committed by
+    // The mark rows the committed release verifies against, committed by
     // the saga before the fence in the real flow.
     sqlx::query(
         "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
@@ -414,7 +415,7 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
     );
 
     // The death document stays cached, so reads answer an authoritative
-    // not-found from memory — no changelog recovery, no PG fallback.
+    // not-found from memory: no changelog recovery, no PG fallback.
     match harness.cache.get(
         partition,
         &personhog_leader::cache::PersonCacheKey { team_id, person_id },
@@ -596,7 +597,7 @@ async fn a_committed_release_derives_the_death_version_above_the_emitted_floor()
 }
 
 /// A fresh person stub is created at version 0, so 0 is a sealed version
-/// the committed release must accept — a presence check that treats 0 as
+/// the committed release must accept; a presence check that treats 0 as
 /// "unset" fences the stub forever.
 #[tokio::test]
 async fn a_stub_sealed_at_version_zero_can_be_released() {
@@ -730,7 +731,7 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
         .expect("fence succeeds");
 
     // The op settles (release acked to the saga, mark rows cleaned up)
-    // without this leader hearing about it — the ghost scenario.
+    // without this leader hearing about it: the ghost scenario.
     sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
         .bind(op)
         .execute(&pool)
@@ -823,7 +824,7 @@ async fn a_ghost_fence_heals_after_a_rejected_fence_attempt() {
         .expect("fence succeeds");
 
     // The op settles (release acked to the saga, mark rows cleaned up)
-    // without this leader hearing about it — the ghost scenario.
+    // without this leader hearing about it: the ghost scenario.
     sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
         .bind(ghost_op)
         .execute(&pool)
@@ -928,8 +929,9 @@ async fn a_live_marked_fence_survives_heal_attempts() {
     }
 }
 
-/// The fail-closed half of the committed release: the request — even with
-/// a fence the caller installed itself — is never enough to destroy a
+/// The fail-closed half of the committed release: the request, even
+/// with a fence the caller installed itself, is never enough to destroy
+/// a
 /// person. Without a live mark row vouching for the op, the release is
 /// refused and the person is untouched.
 #[tokio::test]
@@ -948,7 +950,7 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
     let person_id = harness.person_id;
     let op = Uuid::now_v7();
 
-    // Fencing succeeds — the fence RPC does not verify the op…
+    // Fencing succeeds; the fence RPC does not verify the op.
     let sealed = harness
         .client
         .fence_person(with_partition(
@@ -1007,7 +1009,7 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
 
 /// Neither fence RPC may succeed on a pod that does not serve the
 /// partition. A release that removed nothing and returned OK would leave
-/// the real owner's fence standing while the saga believes it released —
+/// the real owner's fence standing while the saga believes it released:
 /// a person frozen with no retry coming.
 #[tokio::test]
 async fn the_fence_rpcs_refuse_a_partition_this_pod_does_not_serve() {
@@ -1218,7 +1220,7 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
     // A re-warm converges on the marks rather than accumulating: an entry
     // a previous warm left behind for a person no longer marked is gone.
     // (A handoff cancelled after warming, then re-acquired, takes this
-    // path — nothing else would ever clear that entry.)
+    // path; nothing else would ever clear that entry.)
     let ghost = fenced_a + 1_000_000;
     let ghost_partition = partition_for_person(team_id, ghost, NUM_PARTITIONS);
     fences.insert(
@@ -1258,7 +1260,7 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
 
 /// The fence map's memory fuse: at capacity, a new fence sheds with
 /// RESOURCE_EXHAUSTED (backpressure the saga retries), while a re-seal of
-/// an already-fenced person still succeeds — refusing it would free
+/// an already-fenced person still succeeds; refusing it would free
 /// nothing.
 #[tokio::test]
 async fn at_capacity_new_fences_shed_but_reseals_succeed() {
@@ -1406,7 +1408,7 @@ fn person_properties(person: &Person) -> serde_json::Value {
     serde_json::from_slice(&person.properties).expect("changelog properties parse")
 }
 
-/// The mark rows the fold verifies against — committed by the merge saga
+/// The mark rows the fold verifies against, committed by the merge saga
 /// before it fences the sources in the real flow.
 async fn seed_target_mark(
     pool: &sqlx::PgPool,
@@ -1442,7 +1444,7 @@ async fn seed_target_mark(
 }
 
 /// A fold-ready harness: lifecycle database attached and a live 'marked'
-/// target row for `op` — the state the merge saga guarantees before it
+/// target row for `op`: the state the merge saga guarantees before it
 /// calls the fold.
 async fn start_marked_fold_harness(seed: CachedPerson, op: &Uuid) -> FenceHarness {
     let pool = common::create_persons_pool().await;
@@ -1912,8 +1914,9 @@ async fn invalid_fold_requests_are_rejected_before_any_work() {
     }
 }
 
-/// The fail-closed half of the fold: the request — even with a well-formed
-/// op id — is never enough to write to the target. Without a live 'marked'
+/// The fail-closed half of the fold: the request, even with a
+/// well-formed op id, is never enough to write to the target. Without a
+/// live 'marked'
 /// target row vouching for the op, the fold is refused and the target is
 /// untouched: a superseded or settled saga runner's late fold must land
 /// nowhere.
@@ -1964,7 +1967,7 @@ async fn a_fold_whose_op_holds_no_live_target_mark_is_refused() {
         .expect_err("a settled op's re-driven fold is refused");
     assert_eq!(status.code(), Code::FailedPrecondition);
 
-    // The wrong role: the op holds the person, but not as its target —
+    // The wrong role: the op holds the person, but not as its target;
     // folding into it would be a saga bug.
     sqlx::query(
         "UPDATE lifecycle_op_person SET role = 'victim', status = 'marked' WHERE op_id = $1",
@@ -1995,7 +1998,7 @@ async fn a_fold_whose_op_holds_no_live_target_mark_is_refused() {
         .expect("the person is still readable");
     assert_eq!(read.into_inner().person.unwrap().version, 1);
 
-    // With the live target mark restored, the same request folds — the
+    // With the live target mark restored, the same request folds; the
     // mark was the only thing missing.
     sqlx::query("UPDATE lifecycle_op_person SET role = 'target' WHERE op_id = $1")
         .bind(op)
@@ -2010,7 +2013,7 @@ async fn a_fold_whose_op_holds_no_live_target_mark_is_refused() {
 }
 
 /// An oversized fold trims only what the fold contributed: the target's
-/// own keys — state admission already accepted — survive even when they
+/// own keys (state admission already accepted) survive even when they
 /// sort first alphabetically, and the contributed keys absorb the trim.
 #[tokio::test]
 async fn an_oversized_fold_trims_the_contribution_not_the_targets_keys() {
@@ -2059,7 +2062,7 @@ async fn an_oversized_fold_trims_the_contribution_not_the_targets_keys() {
 
 /// When trimming the fold's contribution cannot get the document under the
 /// limit, the fold discards the contribution entirely and keeps the
-/// target's document byte for byte — it never dips into keys a
+/// target's document byte for byte; it never dips into keys a
 /// within-limit target already owned. The scalar fold still applies.
 #[tokio::test]
 async fn an_unremediable_fold_keeps_the_targets_document_untouched() {
@@ -2117,7 +2120,7 @@ async fn an_unremediable_fold_keeps_the_targets_document_untouched() {
 /// against the hard ceiling: a document in the band between them is
 /// still applyable by the writer, so an already-oversized target folds
 /// to an applyable document instead of discarding to its oversized
-/// stored state — which the writer would refuse to commit past.
+/// stored state, which the writer would refuse to commit past.
 #[tokio::test]
 async fn an_oversized_targets_fold_trims_to_the_hard_ceiling() {
     let op = Uuid::now_v7();
@@ -2165,8 +2168,8 @@ async fn an_oversized_targets_fold_trims_to_the_hard_ceiling() {
     assert_eq!(folded.version, 8, "max(target 3, sealed 7) + 1");
 }
 
-/// When no applyable document exists at all — the target's stored
-/// protected keys alone exceed the hard ceiling — the fold completes
+/// When no applyable document exists at all (the target's stored
+/// protected keys alone exceed the hard ceiling), the fold completes
 /// without producing: committing the oversized document would halt the
 /// writer, and rejecting would wedge the saga's re-drive loop. The
 /// person comes back unchanged, fold effects skipped.
@@ -2263,7 +2266,7 @@ async fn a_non_object_target_stays_an_object_through_the_unremediable_path() {
 }
 
 /// Precedence follows the recorded ordinals, not the request order: the
-/// same sources listed differently fold to the same document — the
+/// same sources listed differently fold to the same document: the
 /// convergence a re-driven saga step depends on.
 #[tokio::test]
 async fn precedence_follows_ordinals_not_request_order() {
@@ -2320,8 +2323,8 @@ async fn precedence_follows_ordinals_not_request_order() {
     );
 }
 
-/// Cache dirt on the target — state loaded from Postgres or warmed from
-/// records that predate sanitization — is rewritten like every other
+/// Cache dirt on the target (state loaded from Postgres or warmed from
+/// records that predate sanitization) is rewritten like every other
 /// fold input, so the committed document is measured in stored form.
 #[tokio::test]
 async fn a_folds_target_cache_dirt_is_sanitized() {
@@ -2366,7 +2369,7 @@ async fn a_folds_target_cache_dirt_is_sanitized() {
 /// mistake that direct tombstone for an already-emitted death document.
 /// Today this holds because the PG fallback load filters `is_deleted =
 /// false`, so the release sees no person and takes the cold-leader path,
-/// re-deriving the document from the sealed version — this test pins that
+/// re-deriving the document from the sealed version; this test pins that
 /// composed behavior against either side changing (the load filter, or the
 /// duplicate-release absorb).
 #[tokio::test]
