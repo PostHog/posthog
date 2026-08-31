@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -230,7 +231,9 @@ class TestWorkflowProposals(APIBaseTest):
 
     def test_a_workflow_nobody_opted_in_is_not_suggested_against(self, _mock_flag):
         flow_id = self._create_active_flow()
-        HogFlowOptimisation.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).delete()
+        self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation", {"enabled": False}, format="json"
+        )
 
         refused = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
@@ -256,7 +259,9 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert off.status_code == 200, off.json()
         assert off.json()["enabled"] is False
-        assert not HogFlowOptimisation.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).exists()
+        # The row stays, marked off: how many people tried this and stopped is a question about the
+        # rollout, and a deleted row cannot answer it.
+        assert HogFlowOptimisation.objects.for_team(self.team.id).get(hog_flow_id=flow_id).enabled is False
 
         # The queue someone still has to resolve stays readable, and resolvable.
         listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status=suggested")
@@ -266,6 +271,47 @@ class TestWorkflowProposals(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/reject/", {}
         )
         assert rejected.status_code == 200, rejected.json()
+
+    def test_the_toggle_lands_in_the_workflow_history(self, _mock_flag):
+        # Who turned suggestions on or off is answered from the workflow's own history, which is why
+        # the row carries no enabled_by/disabled_by columns.
+        flow_id = self._create_active_flow()
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation"
+        self.client.post(url, {"enabled": False}, format="json")
+        self.client.post(url, {"enabled": False}, format="json")
+
+        entries = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("created_at")
+        activities = [entry.activity for entry in entries]
+        assert activities.count("optimisation_enabled") == 1
+        assert activities.count("optimisation_disabled") == 1, "a repeat of the same state logs nothing"
+        assert entries.filter(activity="optimisation_disabled").first().user == self.user
+
+    def test_turning_it_back_on_reuses_the_row(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation"
+        self.client.post(url, {"enabled": False}, format="json")
+
+        back_on = self.client.post(url, {"enabled": True}, format="json")
+
+        assert back_on.status_code == 200, back_on.json()
+        assert back_on.json()["enabled"] is True
+        rows = HogFlowOptimisation.objects.for_team(self.team.id).filter(hog_flow_id=flow_id)
+        assert rows.count() == 1
+        assert rows.first().enabled is True
+
+    def test_the_list_can_be_narrowed_to_workflows_with_suggestions_on(self, _mock_flag):
+        # This is the producer's work list: without it an agent reads every workflow to find the few
+        # it may look at, which is the cost the opt-in exists to avoid.
+        opted_in = self._create_active_flow()
+        untouched = self._create_active_flow()
+        self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{untouched}/optimisation", {"enabled": False}, format="json"
+        )
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows?optimisation_enabled=true")
+
+        assert listed.status_code == 200, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [opted_in]
 
     def test_provenance_comes_from_the_transport_not_the_payload(self, _mock_flag):
         flow_id = self._create_active_flow()

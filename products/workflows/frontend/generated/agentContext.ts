@@ -51,7 +51,7 @@ export const WORKFLOWS_MCP_TOOLS: McpToolSummary[] = [
     {
         name: 'workflows-list',
         description:
-            "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps. Pass search=<name> to find a workflow by name and read its id. Most workflows-* tools take that value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it as 'workflow_id'.",
+            "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps. Pass search=<name> to find a workflow by name and read its id. Most workflows-* tools take that value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it as 'workflow_id'. Pass optimisation_enabled=true for only the workflows whose owner asked PostHog to suggest changes to them - that is the list to work from before calling workflows-suggest.",
     },
     {
         name: 'workflows-list-batch-jobs',
