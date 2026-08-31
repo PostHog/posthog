@@ -264,7 +264,9 @@ class TestLogsMetricRulesAPI(APIBaseTest):
             ("the metrics flag", ("metrics",), status.HTTP_201_CREATED),
         ]
     )
-    def test_metrics_feature_flag_admits_the_team(self, _label, enabled_flags, expected_status):
+    def test_metrics_feature_flag_admits_the_team(
+        self, _label: str, enabled_flags: tuple[str, ...], expected_status: int
+    ) -> None:
         # A rule's output is only readable in Metrics, so that alpha flag is the one that admits a
         # team. `logs-metric-rules` is retired and must not open the API on its own.
         with patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *_, **__: flag in enabled_flags):
