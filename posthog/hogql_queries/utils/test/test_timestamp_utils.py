@@ -352,6 +352,29 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
         self.assertEqual(cached_earliest_timestamp, earliest_timestamp)
 
+    def test_series_earliest_timestamp_falls_back_when_query_fails(self):
+        # A cancelled or pressure-evicted sub-query must not fail the whole insight: it falls
+        # back to the 1980 floor and skips the cache so the next run retries.
+        node = EventsNode(event="$pageview")
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=Exception("Query was cancelled"),
+        ):
+            earliest_timestamp = get_earliest_timestamp_from_series(self.team, [node])
+
+        assert earliest_timestamp == EARLIEST_EVENT_TIMESTAMP
+        assert cache.get(_get_earliest_timestamp_cache_key(self.team, node)) is None
+
+    def test_unfiltered_earliest_timestamp_falls_back_when_query_fails(self):
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=Exception("Query was cancelled"),
+        ):
+            # Does not raise; falls back to the now - delta window without caching.
+            get_earliest_timestamp_unfiltered(self.team)
+
+        assert cache.get(f"earliest_timestamp_unfiltered_{self.team.pk}") is None
+
     @freeze_time("2021-01-21")
     def test_unfiltered_earliest_timestamp_returns_earliest_event(self):
         _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2020-01-04T14:10:00Z")
