@@ -1,14 +1,19 @@
-import type { ScoutConfig } from "@posthog/api-client/posthog-client";
+import type {
+  ScoutConfig,
+  ScoutSlackDestination,
+} from "@posthog/api-client/posthog-client";
 import {
   deriveScoutLifecycle,
   formatRunInterval,
   RUN_INTERVAL_OPTIONS,
 } from "@posthog/core/scouts/scoutPresentation";
+import { writeSlackDestination } from "@posthog/core/scouts/scoutSlackDestination";
 import { Switch as QuillSwitch, Text as QuillText } from "@posthog/quill";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { Flex, Switch, Text, Tooltip } from "@radix-ui/themes";
 import { useMemo } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
+import { ScoutSlackDestinationSettings } from "./ScoutSlackDestinationSettings";
 
 const MODE_OPTIONS = [
   { value: "live", label: "Live" },
@@ -82,6 +87,15 @@ export function ScoutConfigForm({
   const intervalOptions = useIntervalOptions(config);
   const lifecycle = deriveScoutLifecycle(config);
 
+  const onSlackChange = (slack: ScoutSlackDestination | null) => {
+    onUpdate(config.id, {
+      output_destinations: writeSlackDestination(
+        config.output_destinations,
+        slack,
+      ),
+    });
+  };
+
   return (
     <Flex direction="column" gap="2">
       <Flex align="center" justify="between" gap="4">
@@ -143,6 +157,10 @@ export function ScoutConfigForm({
           />
         </div>
       ) : null}
+      <ScoutSlackDestinationSettings
+        destination={config.output_destinations?.slack}
+        onChange={onSlackChange}
+      />
     </Flex>
   );
 }
