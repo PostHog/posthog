@@ -59,14 +59,19 @@ Drop it if it is any of:
   _remove_ machinery the PR added falls under the needless-complexity keep above, not here.)
 - **Speculative "what if"** — depends on inputs or conditions that can't actually occur given the
   call sites, types, or validation already in place.
-- **Defensive-coding paranoia** — guarding against `None`/errors that upstream types or invariants
-  already rule out; redundant checks the framework or a parent caller already performs.
+- **Defensive-coding paranoia** — asks to add a guard against `None`/errors that upstream types or
+  invariants already rule out, or a redundant check the framework or a parent caller already
+  performs. (An evidence-backed ask to _remove_ such a guard the PR added falls under the
+  needless-complexity keep above, not here.)
 - **Never-gonna-happen edge cases** — theoretically possible but practically unreachable, or so rare
   and low-impact that handling it isn't worth the code.
 - **Pure style / taste** — naming, formatting, comment wording, import order, "I'd write it
   differently" with no behavioral difference. (Formatting is not a PostHog Review concern.)
 - **Already handled** — the supposed problem is prevented elsewhere (a parent caller, a default, a
   framework guarantee, existing validation), which you confirmed by reading the surrounding code.
+  (This covers a finding whose problem upstream already prevents. A needless-complexity finding that
+  _cites_ that upstream guarantee as the evidence a guard the PR added is redundant routes to the
+  keep above instead.)
 - **Wrong / unreproducible** — investigating the actual code shows the premise is mistaken.
 
 ## How to decide
