@@ -549,9 +549,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         })
     }
 
-    /// Prep + enqueue for the single-event path, feeding `publish_one`. It
-    /// returns the raw ack future so a single send awaits it inline, where
-    /// the batch path runs the same pieces through `prepare_batch` and
+    /// Prep + enqueue for the one-event fast path in `publish`. It returns
+    /// the raw ack future so a single send awaits it inline, where the
+    /// batch path runs the same pieces through `prepare_batch` and
     /// `Sink::publish` and drains acks concurrently.
     fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
         let payload = self.prepare_record(event)?;
@@ -727,15 +727,22 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
 
 #[async_trait]
 impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
-    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.kafka_send(event)?
-            .instrument(info_span!("ack_wait_one"))
-            .await
-    }
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        // A one-event batch enqueues and awaits its ack inline. The batch
+        // path would reach the same broker through `prepare_batch`, a
+        // `JoinSet` of one, and a fold over one result; skipping that is
+        // worth a branch on the endpoints that publish a single event per
+        // request.
+        if events.len() == 1 {
+            let event = events.into_iter().next().expect("length checked above");
+            return self
+                .kafka_send(event)?
+                .instrument(info_span!("ack_wait_one"))
+                .await;
+        }
 
-    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let payloads = self.prepare_batch(events).await?;
-        fold_results(self.publish(payloads).await)
+        fold_results(Sink::publish(self, payloads).await)
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -919,16 +926,16 @@ mod tests {
 
         // Wait for producer to be healthy, to keep kafka_message_timeout_ms short and tests faster
         for _ in 0..20 {
-            if sink.publish_one(event.clone()).await.is_ok() {
+            if sink.publish_events(vec![event.clone()]).await.is_ok() {
                 break;
             }
         }
 
         // Send events to confirm happy path
-        sink.publish_one(event.clone())
+        sink.publish_events(vec![event.clone()])
             .await
             .expect("failed to send one initial event");
-        sink.publish_batch(vec![event.clone(), event.clone()])
+        sink.publish_events(vec![event.clone(), event.clone()])
             .await
             .expect("failed to send initial event batch");
 
@@ -959,7 +966,7 @@ mod tests {
             metadata: metadata.clone(),
         };
 
-        sink.publish_one(big_event)
+        sink.publish_events(vec![big_event])
             .await
             .expect("failed to send event larger than default max size");
 
@@ -989,7 +996,7 @@ mod tests {
             metadata: metadata.clone(),
         };
 
-        match sink.publish_one(big_event).await {
+        match sink.publish_events(vec![big_event]).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -999,7 +1006,7 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.publish_one(event.clone()).await {
+        match sink.publish_events(vec![event.clone()]).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1007,7 +1014,10 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_INVALID_PARTITIONS; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.publish_batch(vec![event.clone(), event.clone()]).await {
+        match sink
+            .publish_events(vec![event.clone(), event.clone()])
+            .await
+        {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1017,13 +1027,13 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 2];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        sink.publish_one(event.clone())
+        sink.publish_events(vec![event.clone()])
             .await
             .expect("failed to send one event after recovery");
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 2];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        sink.publish_batch(vec![event.clone(), event.clone()])
+        sink.publish_events(vec![event.clone(), event.clone()])
             .await
             .expect("failed to send event batch after recovery");
 
@@ -1031,12 +1041,15 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 50];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.publish_one(event.clone()).await {
+        match sink.publish_events(vec![event.clone()]).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
-        match sink.publish_batch(vec![event.clone(), event.clone()]).await {
+        match sink
+            .publish_events(vec![event.clone(), event.clone()])
+            .await
+        {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1299,7 +1312,7 @@ mod tests {
             );
 
             let event = create_test_event(&input);
-            sink.publish_one(event).await.unwrap();
+            sink.publish_events(vec![event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "Expected exactly one record");
@@ -2386,7 +2399,7 @@ mod tests {
                 ..Default::default()
             });
             event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
-            sink.publish_one(event).await.unwrap();
+            sink.publish_events(vec![event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1);
@@ -2481,8 +2494,8 @@ mod tests {
             let mut exception_event = base;
             exception_event.metadata.data_type = DataType::ExceptionErrorTracking;
 
-            sink.publish_one(ai_event).await.unwrap();
-            sink.publish_one(exception_event).await.unwrap();
+            sink.publish_events(vec![ai_event]).await.unwrap();
+            sink.publish_events(vec![exception_event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 2);
@@ -2858,7 +2871,9 @@ mod tests {
             let input_uuids: Vec<String> =
                 events.iter().map(|e| e.event.uuid.to_string()).collect();
 
-            sink.publish_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("send_batch failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), 20, "expected 20 records");
@@ -2934,7 +2949,7 @@ mod tests {
             bad.metadata.session_id = None;
             events[2] = bad;
 
-            let res = sink.publish_batch(events).await;
+            let res = sink.publish_events(events).await;
             match res {
                 Err(CaptureError::MissingSessionId) => {}
                 Err(other) => panic!("expected MissingSessionId, got {other:?}"),
@@ -2978,7 +2993,7 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            let res = sink.publish_batch(events).await;
+            let res = sink.publish_events(events).await;
             match res {
                 Err(CaptureError::RetryableSinkError) => {}
                 Err(other) => panic!("expected RetryableSinkError, got {other:?}"),
@@ -3021,7 +3036,9 @@ mod tests {
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let events = build_batch(1);
-            sink.publish_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("send_batch failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "expected exactly one record");
@@ -3041,7 +3058,9 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            sink.publish_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("send_batch failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), size);
@@ -3072,7 +3091,9 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            sink.publish_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("send_batch failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), size);
@@ -3213,7 +3234,9 @@ mod tests {
                 events.push(create_test_event(&EventInput::default()));
             }
 
-            sink.publish_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("send_batch failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), pad_to.max(5));

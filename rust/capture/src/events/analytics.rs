@@ -634,13 +634,8 @@ async fn process_events_inner(
     // `capture_event_batch_size` is recorded here rather than inside the
     // outputs layer so it stays a view of batches as this call site submits
     // them, uniform across every backend the table resolves to.
-    if events.len() == 1 {
-        histogram!("capture_event_batch_size").record(1.0);
-        outputs.publish_one(events[0].clone()).await?;
-    } else {
-        histogram!("capture_event_batch_size").record(events.len() as f64);
-        outputs.publish_batch(events).await?;
-    }
+    histogram!("capture_event_batch_size").record(events.len() as f64);
+    outputs.publish(events).await?;
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent analytics events");
 
@@ -2860,10 +2855,7 @@ mod tests {
         struct RejectingSink;
         #[async_trait::async_trait]
         impl crate::outputs::PublishEvents for RejectingSink {
-            async fn publish_one(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
-                Err(CaptureError::RetryableSinkError)
-            }
-            async fn publish_batch(
+            async fn publish_events(
                 &self,
                 _events: Vec<ProcessedEvent>,
             ) -> Result<(), CaptureError> {
@@ -3907,10 +3899,7 @@ mod tests {
         struct RejectingSink;
         #[async_trait::async_trait]
         impl crate::outputs::PublishEvents for RejectingSink {
-            async fn publish_one(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
-                Err(CaptureError::RetryableSinkError)
-            }
-            async fn publish_batch(
+            async fn publish_events(
                 &self,
                 _events: Vec<ProcessedEvent>,
             ) -> Result<(), CaptureError> {

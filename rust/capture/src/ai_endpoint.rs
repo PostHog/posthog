@@ -401,7 +401,7 @@ async fn ai_handler_inner(
     histogram!("capture_event_batch_size").record(1.0);
     state
         .outputs
-        .publish_one(processed_event)
+        .publish(vec![processed_event])
         .await
         .map_err(|e| {
             warn!("Failed to send AI event to Kafka: {:?}", e);

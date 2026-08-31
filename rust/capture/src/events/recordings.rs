@@ -604,7 +604,7 @@ async fn process_replay_events_inner(
     // batch — the same distribution the sink recorded before the migration.
     histogram!("capture_event_batch_size").record(1.0);
     outputs
-        .publish_one(ProcessedEvent { metadata, event })
+        .publish(vec![ProcessedEvent { metadata, event }])
         .await?;
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");

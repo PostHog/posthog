@@ -1,5 +1,5 @@
 //! Shared `MockSink` test helper for pipeline-level tests across the capture
-//! crate. Captures every `ProcessedEvent` sent through `send` / `send_batch`
+//! crate. Captures every `ProcessedEvent` published through it
 //! in an `Arc<Mutex<Vec<_>>>` so tests can assert on the exact stamped
 //! metadata the pipeline produced.
 //!
@@ -40,12 +40,7 @@ impl MockSink {
 
 #[async_trait]
 impl PublishEvents for MockSink {
-    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().push(event);
-        Ok(())
-    }
-
-    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend(events);
         Ok(())
     }
