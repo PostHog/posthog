@@ -1266,7 +1266,10 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=ScratchpadEntrySerializer, description="Memory entry written or refreshed."),
             400: OpenApiResponse(
-                description="Invalid memory shape (empty key/content, key too long, `expires_at` in the past)."
+                description=(
+                    "Invalid memory shape (empty key/content, key too long, or an `expires_at` on a "
+                    "`followup:` entry). An unparseable or past `expires_at` is dropped, not rejected."
+                )
             ),
         },
         summary="Remember a scratchpad entry",

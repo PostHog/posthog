@@ -1348,16 +1348,24 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScratchpad.objects.filter(team=self.team).exists()
 
-    def test_remember_rejects_expires_at_in_the_past(self) -> None:
-        # A memory that's already lapsed on write is invisible the moment it lands, so it's a
-        # mistake worth a 400 rather than a silently useless row.
+    @parameterized.expand(
+        [
+            ("past", "2020-01-01T00:00:00Z"),
+            ("malformed", "in thirty days"),
+        ]
+    )
+    def test_remember_drops_invalid_expires_at_without_losing_the_write(self, _name: str, expires_at: str) -> None:
+        # The agent computes `expires_at` itself and a share of writes carry a past or unparseable
+        # value. The content is the memory worth keeping, so an invalid expiry is dropped (the entry
+        # lands durable) rather than rejecting the whole write. Wiring guard for the best-effort field.
         response = self.client.post(
             self._list_url(),
-            data={"key": "k1", "content": "v", "expires_at": "2020-01-01T00:00:00Z"},
+            data={"key": "k1", "content": "v", "expires_at": expires_at},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+        assert response.status_code == status.HTTP_200_OK
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert row.expires_at is None
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
