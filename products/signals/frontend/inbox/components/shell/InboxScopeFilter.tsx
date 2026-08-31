@@ -71,6 +71,10 @@ export function InboxScopeFilter(): JSX.Element {
                     onClick={() => setOpen((v) => !v)}
                     sideIcon={<IconChevronDown className="text-tertiary" />}
                     tooltip="See the reports suggested to you, every report in the project, or a teammate's"
+                    // Name the active scope for assistive tech. Without this, LemonButton copies the
+                    // string tooltip into aria-label, so a screen reader hears the help text and never
+                    // the current scope.
+                    aria-label={`Report scope: ${triggerLabel}`}
                     data-attr="inbox-scope-filter"
                 >
                     <span className="max-w-[160px] truncate">{triggerLabel}</span>

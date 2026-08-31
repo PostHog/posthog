@@ -29,6 +29,15 @@ describe('InboxScopeFilter', () => {
 
     afterEach(cleanup)
 
+    // The trigger's accessible name must carry the scope. If the LemonButton tooltip leaks into
+    // aria-label instead, a screen reader hears the help sentence and never the active scope.
+    it('names the active scope for assistive tech instead of the help tooltip', () => {
+        inboxFiltersLogic.mount()
+        render(<InboxScopeFilter />)
+
+        expect(screen.getByLabelText('Report scope: For you')).toBeInTheDocument()
+    })
+
     // Scoping to a teammate the roster hasn't loaded (search-filtered, or past the 100-row cap) must
     // not leave the previous teammate's name on the trigger — the data underneath is already the new
     // teammate's, so a stale name misreports whose reports are shown.
