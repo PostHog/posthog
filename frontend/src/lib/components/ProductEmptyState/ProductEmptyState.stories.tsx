@@ -2,12 +2,14 @@ import { Meta } from '@storybook/react'
 
 import type { Mocks } from '~/mocks/utils'
 
+import { actionsEmptyState } from 'products/actions/frontend/emptyState/actionsEmptyState'
 import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
+import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
@@ -165,4 +167,30 @@ export const ReplayVisionNeedsSetup: ProductEmptyStateStory = productEmptyStateS
             },
         },
     }
+)
+
+// Actions detection lists actions on mount - answer "none yet".
+const actionsMocks = {
+    get: { '/api/projects/:team_id/actions/': [200, { count: 0, results: [] }] },
+} as const
+
+export const ActionsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(actionsEmptyState, 'needs-setup', {
+    mocks: actionsMocks,
+})
+
+// Error tracking detection asks the issues-exists API on mount - answer "none yet".
+const errorTrackingMocks = {
+    get: { '/api/projects/:team_id/error_tracking/issues/exists/': [200, { exists: false }] },
+} as const
+
+export const ErrorTrackingNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    errorTrackingEmptyState,
+    'needs-setup',
+    { mocks: errorTrackingMocks }
+)
+
+export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    errorTrackingEmptyState,
+    'waiting-for-data',
+    { mocks: errorTrackingMocks }
 )
