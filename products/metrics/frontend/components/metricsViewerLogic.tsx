@@ -380,9 +380,9 @@ export interface metricsViewerLogicMeta {
         ) => MetricsQuery | null
         queryFilters: (filterGroup: UniversalFiltersGroup) => _MetricFilterApi[]
         selectedServices: (filterGroup: UniversalFiltersGroup) => string[]
+        correlationServices: (selectedServices: string[], queryResults: _MetricSeriesApi[]) => string[]
         attributeEndpointFilters: (dateFrom: string | null, dateTo: string | null) => Record<string, string>
         chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
-        correlationServices: (selectedServices: string[], queryResults: _MetricSeriesApi[]) => string[]
         hasResults: (queryResults: _MetricSeriesApi[]) => boolean
         anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
     }
