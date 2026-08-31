@@ -209,7 +209,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         blank=True,
         db_index=False,
         on_delete=models.SET_NULL,
-        related_name="endpoint_versions",
+        related_name="+",
         help_text="The underlying materialized view for this version",
     )
     is_active = models.BooleanField(

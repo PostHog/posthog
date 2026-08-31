@@ -1353,7 +1353,9 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         folder: DataWarehouseSavedQueryFolder = self.get_object()
         remaining_queries = {
             saved_query.id: saved_query
-            for saved_query in folder.saved_queries.filter(deleted=False).select_related("managed_viewset", "folder")
+            for saved_query in DataWarehouseSavedQuery.objects.filter(folder=folder, deleted=False).select_related(
+                "managed_viewset", "folder"
+            )
         }
 
         while remaining_queries:

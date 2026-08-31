@@ -61,6 +61,7 @@ from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.utils import absolute_uri
 
+from products.canvas.backend.models import Canvas
 from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -7735,7 +7736,7 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
             return "not_found"
         if (
             channel.tasks.filter(deleted=False, archived=False).exists()
-            or channel.canvases.filter(deleted=False).exists()
+            or Canvas.objects.filter(channel=channel, deleted=False).exists()
         ):
             return "not_empty"
         # Not filtered on `archived`: flipping that flag leaves the FK untouched, so it takes

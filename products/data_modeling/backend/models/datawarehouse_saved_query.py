@@ -143,7 +143,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="saved_queries",
+        related_name="+",
         help_text="Optional folder used to organize this saved query in the SQL editor sidebar.",
     )
 

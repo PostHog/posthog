@@ -12,6 +12,7 @@ from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode,
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
+from products.actions.backend.models import Action
 from products.experiments.backend.hogql_queries.funnel_step_builder import FunnelStepBuilder
 
 
@@ -21,7 +22,7 @@ class TestFunnelStepBuilderIntegration(BaseTest):
     def test_mixed_node_types_integration(self):
         """Test that FunnelStepBuilder handles mixed EventsNode and ActionsNode."""
         # Create an action first
-        action = self.team.action_set.create(name="Test Action")
+        action = Action.objects.create(team=self.team, name="Test Action")
 
         series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode] = [
             EventsNode(event="pageview"),

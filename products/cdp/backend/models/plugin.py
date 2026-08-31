@@ -154,7 +154,7 @@ class Plugin(models.Model):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
-        related_name="plugins",
+        related_name="+",
         related_query_name="plugin",
         null=True,
     )

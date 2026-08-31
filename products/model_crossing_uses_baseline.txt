@@ -42,10 +42,7 @@ dashboards.Dashboard posthog.SharingConfiguration.dashboard reverse-accessor(sha
 dashboards.Dashboard posthog.TaggedItem.dashboard reverse-accessor(tagged_items) 1
 dashboards.Dashboard posthog.Team.primary_dashboard reverse-accessor(primary_dashboard_teams) 1
 dashboards.Dashboard product_analytics.Insight.dashboard reverse-accessor(items) 1
-dashboards.Dashboard product_analytics.Insight.dive_dashboard reverse-accessor(insight_set) 1
-data_modeling.DataWarehouseSavedQuery endpoints.EndpointVersion.saved_query reverse-accessor(endpoint_versions) 1
 data_modeling.DataWarehouseSavedQuery products.customer_analytics.backend.facade.api get_model 5
-data_tools.DataWarehouseSavedQueryFolder data_modeling.DataWarehouseSavedQuery.folder reverse-accessor(saved_queries) 1
 endpoints.Endpoint posthog.TaggedItem.endpoint reverse-accessor(tagged_items) 1
 error_tracking.ErrorTrackingIssue products.demo.backend.logic.products.hedgebox.matrix get_model 1
 error_tracking.ErrorTrackingIssue products.posthog_ai.evals.error_tracking.seeders get_model 1
@@ -88,16 +85,13 @@ metrics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_alerts dri
 notebooks.Notebook posthog.SharingConfiguration.notebook reverse-accessor(sharing_configurations) 1
 posthog.Comment conversations.EmailThreadMessage.comment reverse-accessor(email_thread_message) 1
 posthog.CoreEvent marketing_analytics.MarketingAnalyticsGoalMapping.core_event reverse-accessor(marketing_goal_mappings) 1
-posthog.Event actions.Action.events reverse-accessor(action_set) 1
 posthog.Integration slack_app.SlackSettings.default_integration reverse-accessor(slack_settings_as_default) 1
 posthog.Integration slack_app.SlackThreadTaskMapping.integration reverse-accessor(slack_thread_task_mappings) 1
 posthog.Integration slack_app.SlackUserProfileCache.integration reverse-accessor(slack_user_profile_cache) 1
-posthog.Integration tasks.SandboxSnapshot.integration reverse-accessor(snapshots) 1
 posthog.Organization access_control.OrganizationResourceAccess.organization reverse-accessor(resource_access) 1
 posthog.Organization access_control.Role.organization reverse-accessor(roles) 1
 posthog.Organization access_control.RoleExternalReference.organization reverse-accessor(role_external_references) 1
 posthog.Organization cdp.Plugin.has_private_access reverse-accessor(plugin_set) 1
-posthog.Organization cdp.Plugin.organization reverse-accessor(plugins) 1
 posthog.Organization growth.EnrichmentLabelResult.organization reverse-accessor(enrichment_label_results) 1
 posthog.Organization growth.EnrichmentSignupSnapshot.organization reverse-accessor(enrichment_signup_snapshot) 1
 posthog.Organization growth.OrganizationEnrichment.organization reverse-accessor(enrichment_record) 1
@@ -106,17 +100,13 @@ posthog.Organization growth.ProductPushCampaign.organization reverse-accessor(pr
 posthog.Organization legal_documents.LegalDocument.organization reverse-accessor(legal_documents) 1
 posthog.Organization managed_warehouse.DuckgresServer.organization reverse-accessor(duckgres_server) 1
 posthog.Organization managed_warehouse.ManagedWarehouseSourceLifecycle.organization reverse-accessor(managed_warehouse_source_lifecycle) 1
-posthog.Organization replay_vision.ReplayObservationUsage.organization reverse-accessor(replay_observation_usage) 1
 posthog.OrganizationMembership access_control.AccessControl.organization_member reverse-accessor(access_controls) 1
 posthog.OrganizationMembership access_control.PropertyAccessControl.organization_member reverse-accessor(property_access_controls) 1
 posthog.OrganizationMembership access_control.RoleMembership.organization_member reverse-accessor(role_memberships) 1
-posthog.Project actions.Action.project reverse-accessor(action_set) 1
 posthog.Team access_control.AccessControl.team reverse-accessor(access_controls) 1
 posthog.Team access_control.PropertyAccessControl.team reverse-accessor(property_access_controls) 1
-posthog.Team actions.Action.team reverse-accessor(action_set) 1
 posthog.Team ai_observability.ClusteringConfig.team reverse-accessor(clustering_config) 1
 posthog.Team ai_observability.ClusteringJob.team reverse-accessor(clustering_jobs) 1
-posthog.Team ai_observability.EvaluationConfig.team reverse-accessor(evaluation_config) 1
 posthog.Team alerts.AlertConfiguration.team reverse-accessor(alertconfiguration_set) 1
 posthog.Team batch_exports.BatchExportBackfill.team reverse-accessor(batchexportbackfill_set) 1
 posthog.Team business_knowledge.KnowledgeGapSuggestion.team reverse-accessor(business_knowledge_gap_suggestions) 1
@@ -131,13 +121,11 @@ posthog.Team conversations.TeamConversationsTeamsConfig.team reverse-accessor(te
 posthog.Team customer_analytics.TeamCustomerAnalyticsConfig.team reverse-accessor(teamcustomeranalyticsconfig) 1
 posthog.Team dashboards.Text.team reverse-accessor(text_set) 1
 posthog.Team data_modeling.DataModelingJob.team reverse-accessor(datamodelingjob_set) 1
-posthog.Team data_modeling.GitHubSyncConfig.team reverse-accessor(githubsyncconfig) 1
 posthog.Team data_warehouse.TeamDataWarehouseConfig.team reverse-accessor(teamdatawarehouseconfig) 1
 posthog.Team early_access_features.EarlyAccessFeature.team reverse-accessor(features) 1
 posthog.Team error_tracking.ErrorTrackingRecommendation.team reverse-accessor(error_tracking_recommendations) 1
 posthog.Team error_tracking.ErrorTrackingSettings.team reverse-accessor(error_tracking_settings) 1
 posthog.Team error_tracking.ErrorTrackingSpikeDetectionConfig.team reverse-accessor(error_tracking_spike_detection_config) 1
-posthog.Team error_tracking.ErrorTrackingStackFrame.team reverse-accessor(errortrackingstackframe_set) 1
 posthog.Team event_definitions.EventDefinition.team reverse-accessor(event_definitions) 1
 posthog.Team event_definitions.PropertyDefinition.team reverse-accessor(property_definitions) 1
 posthog.Team event_definitions.SchemaPropertyGroup.team reverse-accessor(schema_property_groups) 1
@@ -157,7 +145,6 @@ posthog.Team mcp_store.MCPServiceAccount.team reverse-accessor(mcp_service_accou
 posthog.Team mcp_store.TeamMCPGatewayConfig.team reverse-accessor(mcp_gateway_config) 1
 posthog.Team posthog_ai.AgentMemory.team reverse-accessor(agent_memories) 1
 posthog.Team posthog_ai.CoreMemory.team reverse-accessor(corememory) 1
-posthog.Team product_analytics.Insight.team reverse-accessor(insight_set) 1
 posthog.Team product_analytics.InsightViewed.team reverse-accessor(insightviewed_set) 1
 posthog.Team product_tours.ProductTour.team reverse-accessor(product_tours) 1
 posthog.Team pulse.BriefConfig.team reverse-accessor(briefconfig_set) 1
@@ -173,7 +160,6 @@ posthog.Team signals.SignalScoutEmission.team reverse-accessor(signal_scout_emis
 posthog.Team signals.SignalScoutNote.team reverse-accessor(signal_scout_notes) 1
 posthog.Team signals.SignalScoutRun.team reverse-accessor(signal_scout_runs) 1
 posthog.Team signals.SignalScratchpad.team reverse-accessor(signal_scratchpads) 1
-posthog.Team signals.SignalSourceConfig.team reverse-accessor(signal_source_configs) 1
 posthog.Team signals.SignalTeamConfig.team reverse-accessor(signal_team_config) 1
 posthog.Team slack_app.SlackThreadTaskMapping.team reverse-accessor(slack_thread_task_mappings) 1
 posthog.Team surveys.Survey.team reverse-accessor(surveys) 1
@@ -186,7 +172,6 @@ posthog.User access_control.Role.created_by reverse-accessor(roles) 1
 posthog.User access_control.Role.members reverse-accessor(role_set) 1
 posthog.User access_control.RoleExternalReference.created_by reverse-accessor(roleexternalreference_set) 1
 posthog.User access_control.RoleMembership.user reverse-accessor(role_memberships) 1
-posthog.User actions.Action.created_by reverse-accessor(action_set) 1
 posthog.User ai_observability.ParserRecipe.created_by reverse-accessor(parserrecipe_set) 1
 posthog.User ai_observability.ReviewQueue.created_by reverse-accessor(reviewqueue_set) 1
 posthog.User ai_observability.ReviewQueueItem.created_by reverse-accessor(reviewqueueitem_set) 1
@@ -254,7 +239,6 @@ posthog.User notifications.NotificationArchiveState.user reverse-accessor(notifi
 posthog.User notifications.NotificationReadState.user reverse-accessor(notification_read_states) 1
 posthog.User posthog_ai.AgentArtifact.created_by reverse-accessor(agentartifact_set) 1
 posthog.User posthog_ai.AgentMemory.user reverse-accessor(agent_memories) 1
-posthog.User product_analytics.Insight.created_by reverse-accessor(insight_set) 1
 posthog.User product_analytics.Insight.last_modified_by reverse-accessor(modified_insights) 1
 posthog.User product_analytics.InsightVariable.created_by reverse-accessor(insightvariable_set) 1
 posthog.User product_analytics.InsightViewed.user reverse-accessor(insightviewed_set) 1
@@ -301,6 +285,7 @@ product_analytics.Insight posthog.api.sharing instance-many(filter) 1
 product_analytics.Insight posthog.api.sharing instance-single 1
 product_analytics.Insight posthog.api.sharing_publish_gate isinstance 1
 product_analytics.Insight posthog.caching.calculate_results isinstance 1
+product_analytics.Insight posthog.caching.warming instance-many(filter) 1
 product_analytics.Insight posthog.caching.warming instance-single 1
 product_analytics.Insight posthog.helpers.dashboard_templates write(create) 2
 product_analytics.Insight posthog.management.commands.backfill_insights_query_metadata instance-many(filter) 1
@@ -360,7 +345,6 @@ replay_vision.ReplayScanner posthog.TaggedItem.replay_scanner reverse-accessor(t
 signals.SignalReport tasks.Task.signal_report reverse-accessor(task) 1
 surveys.Survey product_tours.ProductTour.linked_surveys reverse-accessor(product_tours) 1
 surveys.Survey products.early_access_features.backend.management.commands.migrate_enrollments_to_waitlist_surveys get_model 1
-tasks.Channel canvas.Canvas.channel reverse-accessor(canvases) 1
 tasks.Task signals.SignalReportTask.task reverse-accessor(signal_report_tasks) 1
 tasks.Task slack_app.SlackThreadTaskMapping.task reverse-accessor(slack_thread_mappings) 1
 tasks.TaskRun products.review_hog.backend.receivers get_model 1
