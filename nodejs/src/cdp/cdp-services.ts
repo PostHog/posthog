@@ -158,6 +158,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
+        | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
@@ -471,6 +472,10 @@ export function createCdpCoreServices(
             conversationsTicketsJwt: new ScopedServiceJwt(
                 PosthogJwtAudience.CONVERSATIONS_TICKETS,
                 config.CONVERSATIONS_TICKETS_JWT_SECRET
+            ),
+            customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                config.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
             ),
             hogInputsService,
             emailService,
