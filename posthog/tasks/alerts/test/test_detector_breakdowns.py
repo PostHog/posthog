@@ -81,10 +81,11 @@ def _make_alert(team: MagicMock, detector_config: dict[str, Any], series_index: 
 
 
 # Stable data: all values ~10, no anomaly expected
-STABLE_DATA = [10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0]
-# Data with a clear anomaly spike near the end (penultimate position so it
-# survives the "drop last incomplete interval" trim applied to time-series data)
-ANOMALOUS_DATA = [10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 100.0, 10.0]
+STABLE_DATA = [10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0, 10.0]
+# Data with a clear anomaly spike near the end. The detector path drops the incomplete current
+# interval plus the default one-interval maturation lag, so the spike sits at the third-from-last
+# position — the point the detector actually scores after both trims.
+ANOMALOUS_DATA = [10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 100.0, 10.0, 9.0]
 
 ZSCORE_DETECTOR_CONFIG = {"type": "zscore", "threshold": 0.9, "window": 10}
 
@@ -346,8 +347,8 @@ class TestSimulateDetectorBreakdowns:
         assert len(result["breakdown_results"]) == 2
         assert result["breakdown_results"][0]["label"] == "swap"
         assert result["breakdown_results"][1]["label"] == "staking"
-        # Aggregated totals (each series has 1 point dropped for the incomplete current interval)
-        assert result["total_points"] == (len(STABLE_DATA) - 1) + (len(ANOMALOUS_DATA) - 1)
+        # Aggregated totals (each series drops the incomplete current interval and the maturation lag)
+        assert result["total_points"] == (len(STABLE_DATA) - 2) + (len(ANOMALOUS_DATA) - 2)
 
     @patch("products.alerts.backend.evaluation.detector.upgrade_query")
     @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")

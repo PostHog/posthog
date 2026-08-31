@@ -32,6 +32,22 @@ DETECTOR_DEFAULT_WINDOW = 30
 # Matches the default breakdown_limit in the query layer (25).
 MAX_DETECTOR_BREAKDOWN_VALUES = 25
 
+# Trailing complete intervals the detector skips before it scores a point.
+# The just-closed interval is complete but still right-censored: late-arriving
+# contributions keep filling it for a while after it closes, so it reads low and
+# fires false anomalies. One interval of lag scores a point old enough to have
+# settled. Set maturation_lag_n in detector_config to override (0 opts out for a
+# metric that settles in real time).
+DEFAULT_MATURATION_LAG = 1
+
+
+def _resolve_maturation_lag(detector_config: dict[str, Any]) -> int:
+    """Read maturation_lag_n from a detector config, falling back to the default."""
+    raw = detector_config.get("maturation_lag_n")
+    if raw is None:
+        return DEFAULT_MATURATION_LAG
+    return max(int(raw), 0)
+
 
 @dataclass
 class PreparedSeries:
@@ -42,10 +58,35 @@ class PreparedSeries:
     label: str
 
 
-def _prepare_series(series: TrendResult, is_non_time_series: bool, *, drop_current: bool) -> PreparedSeries | None:
+def _apply_maturation_lag(
+    data: np.ndarray, dates: list[str], is_non_time_series: bool, maturation_lag: int
+) -> tuple[np.ndarray, list[str]]:
+    """Drop the freshest complete intervals so the scored point has settled.
+
+    ``_drop_incomplete_current_interval`` removes only the in-progress interval,
+    which leaves the just-closed interval — still right-censored — as the point
+    the detector scores. Dropping ``maturation_lag`` more trailing intervals
+    moves the scored point back to one old enough to have stopped changing. Keeps
+    at least one point so a short series still reaches the detector's own guard.
+    """
+    if maturation_lag <= 0 or is_non_time_series:
+        return data, dates
+    n = min(maturation_lag, len(data) - 1)
+    if n <= 0:
+        return data, dates
+    data = data[:-n]
+    dates = dates[:-n] if dates else dates
+    return data, dates
+
+
+def _prepare_series(
+    series: TrendResult, is_non_time_series: bool, *, drop_current: bool, maturation_lag: int = 0
+) -> PreparedSeries | None:
     """Extract data + dates from a TrendResult and drop the incomplete interval.
 
-    Returns None if the series has too few points for detection.
+    ``maturation_lag`` drops that many more trailing intervals so the detector
+    scores a settled point rather than the just-closed one. Returns None if the
+    series has too few points for detection.
     """
     if is_non_time_series:
         data = np.array([series.get("aggregated_value", 0)])
@@ -57,6 +98,7 @@ def _prepare_series(series: TrendResult, is_non_time_series: bool, *, drop_curre
 
     dates: list[str] = series.get("days") or series.get("labels") or []
     data, dates = _drop_incomplete_current_interval(data, dates, is_non_time_series, drop_current=drop_current)
+    data, dates = _apply_maturation_lag(data, dates, is_non_time_series, maturation_lag)
 
     return PreparedSeries(data=data, dates=dates, label=series.get("label", "Series"))
 

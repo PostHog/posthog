@@ -19,6 +19,7 @@ from posthog.tasks.alerts.detector import (
     _date_range_override_for_detector,
     _extract_sub_detector_scores,
     _prepare_series,
+    _resolve_maturation_lag,
 )
 from posthog.tasks.alerts.detectors import get_detector
 from posthog.tasks.alerts.trends import (
@@ -56,12 +57,16 @@ def extract_detector_series(
     """Run a trends insight over the detector's lookback window and normalize it into series.
 
     Each ``ComparableSeries`` carries the full (complete-interval) history the detector scores —
-    the incomplete current interval is already dropped by ``_prepare_series``. Raises on a ``None``
-    result (swallowed query error). A genuinely empty query result yields an empty series list with
-    ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
-    an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
+    the incomplete current interval, plus the maturation-lag intervals, are already dropped by
+    ``_prepare_series``. Raises on a ``None`` result (swallowed query error). A genuinely empty query
+    result yields an empty series list with ``empty_query_result=True``; rows that exist but are too
+    short to score are dropped, also leaving an empty series list, but with the flag False — the two
+    cases evaluate to 0 and None respectively.
     """
-    min_samples = _compute_min_samples_for_detector(detector_config) + 1
+    maturation_lag = _resolve_maturation_lag(detector_config)
+    # +1 for the in-progress interval and +maturation_lag for the settled tail we trim, so the
+    # detector still gets its full training window after both are dropped.
+    min_samples = _compute_min_samples_for_detector(detector_config) + 1 + maturation_lag
     is_non_time_series = _is_non_time_series_trend(query)
     already_complete = query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)
@@ -97,7 +102,9 @@ def extract_detector_series(
 
     series: list[ComparableSeries] = []
     for result in results:
-        prepared = _prepare_series(result, is_non_time_series, drop_current=not already_complete)
+        prepared = _prepare_series(
+            result, is_non_time_series, drop_current=not already_complete, maturation_lag=maturation_lag
+        )
         if prepared is None:
             continue
         points = [
