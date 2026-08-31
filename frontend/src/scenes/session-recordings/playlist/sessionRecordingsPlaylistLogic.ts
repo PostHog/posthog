@@ -1555,10 +1555,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 let addedCount = 0
                 await lemonToast.promise(
                     (async () => {
-                        const result = await api.recordings.bulkAddRecordingsToPlaylist(
-                            short_id,
-                            values.selectedRecordingsIds
-                        )
+                        const result = await api.recordings
+                            .bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
+                            .catch((e) => {
+                                // Report real API or network failures; rethrow so the toast still shows its error state.
+                                posthog.captureException(e)
+                                throw e
+                            })
                         // The endpoint answers 200 even when it saved nothing, so trust added_count.
                         if (result.added_count === 0) {
                             throw new Error('No recordings were added to the collection')
