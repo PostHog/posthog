@@ -14,6 +14,7 @@ from typing import ClassVar, cast
 from uuid import UUID
 
 from django.db.models import QuerySet
+from django.shortcuts import get_object_or_404
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
@@ -195,6 +196,7 @@ _EDIT_DESCRIPTION = (
 class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """CRUD for one subject's checks, plus the actions that run them and report on them."""
 
+    DETAIL_VISIBILITY_ACTIONS = frozenset({"retrieve", "destroy"})
     QUERY_GATED_ACTIONS = frozenset(
         {"list", "retrieve", "create", "update", "partial_update", "destroy", "run", "run_all", "runs", "health"}
     )
@@ -219,6 +221,17 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
         if not self._can_be_object_denied():
             return queryset
         return queryset.exclude(id__in=self._hidden_check_ids(list(queryset)))
+
+    def safely_get_object(self, queryset: QuerySet[DataQualityCheck]) -> DataQualityCheck:
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        check = get_object_or_404(queryset, **{self.lookup_field: self.kwargs[lookup_url_kwarg]})
+        if (
+            self.action in self.DETAIL_VISIBILITY_ACTIONS
+            and self._can_be_object_denied()
+            and check.id in self._hidden_check_ids([check])
+        ):
+            raise PermissionDenied("You don't have access to a table or view this check reads.")
+        return check
 
     def get_serializer_context(self) -> dict:
         return {

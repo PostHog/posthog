@@ -1028,6 +1028,30 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("retrieve", lambda self, url, check: self.client.get(f"{url}/{check.id}/")),
+            ("destroy", lambda self, url, check: self.client.delete(f"{url}/{check.id}/")),
+        ]
+    )
+    def test_a_denied_referenced_subject_blocks_direct_detail_actions(self, _name, call) -> None:
+        allowed = self._make_view("customers")
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM orders"},
+            fingerprint=uuid4().hex,
+        )
+        self._deny_the_view()
+
+        response = call(self, self._checks_url(allowed.id), check)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id, deleted=False).exists()
+
+    @parameterized.expand(
+        [
             ("create", lambda self, check: self.client.post(f"{self.url}/", self._payload(column_name="total"))),
             ("run", lambda self, check: self.client.post(f"{self.url}/{check.id}/run/")),
             ("run_all", lambda self, check: self.client.post(f"{self.url}/run_all/")),
