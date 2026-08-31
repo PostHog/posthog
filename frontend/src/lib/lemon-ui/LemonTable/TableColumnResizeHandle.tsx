@@ -1,10 +1,8 @@
 import { useEffect, useRef } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 
 const MIN_COLUMN_WIDTH = 80
 const MAX_COLUMN_WIDTH = 1000
-const KEYBOARD_RESIZE_STEP = 20
-
 interface TableColumnResizeHandleProps {
     onResize: (width: number) => void
     onResizeStart?: (header: HTMLTableCellElement) => void
@@ -24,29 +22,6 @@ export function TableColumnResizeHandle({
         },
         []
     )
-
-    const resizeByKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
-        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
-            return
-        }
-        event.preventDefault()
-        event.stopPropagation()
-        const header = event.currentTarget.closest('th')
-        if (header) {
-            onResizeStart?.(header)
-        }
-        const currentWidth = header?.getBoundingClientRect().width || MIN_COLUMN_WIDTH
-        onResize(
-            Math.max(
-                MIN_COLUMN_WIDTH,
-                Math.min(
-                    MAX_COLUMN_WIDTH,
-                    currentWidth + (event.key === 'ArrowLeft' ? -KEYBOARD_RESIZE_STEP : KEYBOARD_RESIZE_STEP)
-                )
-            )
-        )
-        onResizeEnd?.()
-    }
 
     const startResize = (event: ReactMouseEvent<HTMLButtonElement>): void => {
         if (event.button !== 0) {
@@ -106,7 +81,6 @@ export function TableColumnResizeHandle({
             className="absolute top-0 right-0 h-full w-2 translate-x-1/2 cursor-col-resize border-0 bg-transparent p-0 after:absolute after:inset-y-1/4 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-border hover:bg-primary-highlight focus-visible:bg-primary-highlight focus-visible:outline-none"
             aria-label="Resize column"
             onClick={(event) => event.stopPropagation()}
-            onKeyDown={resizeByKeyboard}
             onMouseDown={startResize}
         />
     )

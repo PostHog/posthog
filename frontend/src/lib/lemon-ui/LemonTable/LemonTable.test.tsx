@@ -76,7 +76,6 @@ describe('LemonTable', () => {
                         dataIndex: 'name',
                         resizable: true,
                         onResize: onSecondColumnResize,
-                        onResizeEnd,
                     },
                 ]}
             />
@@ -97,15 +96,6 @@ describe('LemonTable', () => {
 
         expect(onResize).toHaveBeenLastCalledWith(225)
         expect(onSecondColumnResize).toHaveBeenCalledWith(100)
-        expect(onResizeEnd).toHaveBeenCalledTimes(1)
-
-        onResize.mockClear()
-        onSecondColumnResize.mockClear()
-        onResizeEnd.mockClear()
-        fireEvent.keyDown(screen.getAllByLabelText('Resize column')[1], { key: 'ArrowRight' })
-
-        expect(onResize).toHaveBeenCalledWith(150)
-        expect(onSecondColumnResize).toHaveBeenLastCalledWith(120)
         expect(onResizeEnd).toHaveBeenCalledTimes(1)
     })
 
