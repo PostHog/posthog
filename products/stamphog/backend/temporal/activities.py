@@ -984,6 +984,18 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # the global client's background flush may never run before the worker thread moves on.
     pull_request = run.pull_request
     repo = pull_request.repo_config.repository
+
+    # Until now a failed run told the author nothing: the 👀 went away and no verdict ever arrived,
+    # which reads exactly like a review still in progress. Say so on the same COMMENT-review surface
+    # a non-approval uses, so every outcome for a head lands in one list. Fail-open like the sweep
+    # above, because a GitHub error must not undo the terminal save.
+    try:
+        _post_non_approval_review(
+            client, repo, run, pull_request, input.team_id, _failure_body(pull_request.repo_config)
+        )
+    except Exception:
+        activity.logger.exception(f"Failed to post the failure notice for run {run.id}")
+
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=pull_request.author_login or repo,
@@ -1327,6 +1339,24 @@ def _post_non_approval_review(
     review = client.post_comment_review(repo, pull_request.pr_number, _scrub_credentials(body), run.head_sha)
     run.output = {**(run.output or {}), NON_APPROVAL_REVIEW_ID_KEY: _comment_id(review)}
     ReviewRun.objects.for_team(team_id).filter(id=run.id).update(output=run.output, updated_at=timezone.now())
+
+
+def _failure_body(repo_config: StamphogRepoConfig) -> str:
+    """What the PR shows when a run ended without producing a verdict.
+
+    No error text. The cause is internal infrastructure detail that the author cannot act on, and
+    this lands on a public pull request; it stays on the run and in the worker logs instead. Unlike
+    a refusal, a failure leaves the trigger label in place, so the author has to remove it first to
+    make GitHub send another `labeled` event.
+    """
+    retry = (
+        f"Remove and re-add the `{repo_config.trigger_label}` label to try again."
+        if repo_config.review_mode == ReviewMode.LABEL
+        else "Push a new commit to try again."
+    )
+    return (
+        f"**The review did not complete.**\n\nStamphog hit an error and produced no verdict for this commit.\n\n{retry}"
+    )
 
 
 def _comment_id(obj: dict) -> int | None:

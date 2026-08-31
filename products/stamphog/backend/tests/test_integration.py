@@ -291,6 +291,47 @@ def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
     assert ".stamphog/policy.yml" in str(raised.value)
 
 
+@pytest.mark.parametrize(
+    "review_mode,expected_retry",
+    [
+        (ReviewMode.LABEL, "Remove and re-add the `stamphog` label to try again."),
+        (ReviewMode.ALL, "Push a new commit to try again."),
+    ],
+    ids=["label_mode_says_relabel", "all_mode_says_push"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_failed_run_says_so_on_the_pull_request(
+    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, expected_retry: str
+) -> None:
+    # A failed run used to leave the author with a 👀 that vanished and nothing else, which reads
+    # exactly like a review still running. The retry line has to match the mode: unlike a refusal, a
+    # failure leaves the trigger label in place, so "re-add" alone would tell the author to do nothing.
+    repo_config = _repo_config(team.id)
+    repo_config.review_mode = review_mode
+    repo_config.save()
+    head_sha = "sha-failed"
+    stamphog_chain.recorder.register_pr(REPO, 114, _pr_object(114, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=114, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.REVIEWING
+    )
+
+    _run_activity(
+        mark_review_failed,
+        MarkReviewFailedInput(str(run.id), team.id, "SandboxPhaseError: modal refused the box"),
+    )
+
+    notices = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"]
+    assert len(notices) == 1
+    body = notices[0]["body"]["body"]
+    assert body.startswith("**The review did not complete.**")
+    assert expected_retry in body
+    # The cause belongs on the run and in the worker logs, never on a public pull request.
+    assert "modal refused the box" not in body
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_sandbox_gets_minted_short_lived_credential_and_closed_egress(
     team, user, stamphog_chain: StamphogChain
