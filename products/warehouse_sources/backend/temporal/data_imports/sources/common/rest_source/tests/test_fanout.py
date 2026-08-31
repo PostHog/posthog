@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -13,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     required_parents_from_endpoint_configs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResolvedParam
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ParentRowFilter,
+    ResolvedParam,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
@@ -149,6 +153,36 @@ def test_build_dependent_resource_backwards_compatible_defaults(mock_rest_api_re
     }
     assert "data_selector" not in parent_resource["endpoint"]
     assert "data_selector" not in child_resource["endpoint"]
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_child_without_a_request_window_merges_and_sends_no_incremental(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    endpoint_configs = _build_endpoint_configs()
+    endpoint_configs["children"].incremental_fields = [{"field": "created_at"}]
+    endpoint_configs["children"].default_incremental_field = "created_at"
+
+    build_dependent_resource(
+        endpoint_configs=endpoint_configs,
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        should_use_incremental_field=True,
+        incremental_config_factory=lambda _cursor_path: None,
+    )
+
+    child_resource = mock_rest_api_resources.call_args.args[0]["resources"][1]
+    assert child_resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+    assert "incremental" not in child_resource["endpoint"]
 
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
@@ -464,6 +498,10 @@ _WAREHOUSE_FANOUT = DependentEndpointConfig(
 )
 
 
+@pytest.mark.parametrize(
+    "row_filter",
+    [None, ParentRowFilter(field="lastSeen", not_older_than=timedelta(days=90))],
+)
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 @patch(
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
@@ -473,14 +511,14 @@ _WAREHOUSE_FANOUT = DependentEndpointConfig(
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
 )
 def test_warehouse_parent_builds_data_iterator_and_404_ignore(
-    mock_reader, mock_resolve, mock_rest_api_resources
+    mock_reader, mock_resolve, mock_rest_api_resources, row_filter
 ) -> None:
     mock_rest_api_resources.return_value = [_stub_child_resource()]
     mock_reader.return_value = iter([[{"id": "p1"}]])
     build_dependent_resource(
         endpoint_configs=_build_endpoint_configs(),
         child_endpoint="children",
-        fanout=_WAREHOUSE_FANOUT,
+        fanout=replace(_WAREHOUSE_FANOUT, parent_row_filter=row_filter),
         client_config={"base_url": "https://example.com"},
         path_format_values={},
         team_id=1,
@@ -490,9 +528,9 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(
         use_warehouse_parent=True,
     )
 
-    # The URI and columns are resolved eagerly at build time (sync context), not lazily on
-    # iteration — a lazy check would raise past the fall-back-to-the-API branch.
-    mock_resolve.assert_called_once_with(1, "source-1", "parents", required_columns=["id"])
+    # The URI, columns, and row filter are resolved eagerly at build time (sync context), not
+    # lazily on iteration — a lazy check would raise past the fall-back-to-the-API branch.
+    mock_resolve.assert_called_once_with(1, "source-1", "parents", required_columns=["id"], row_filter=row_filter)
 
     config = mock_rest_api_resources.call_args.args[0]
     parent_resource = config["resources"][0]
@@ -505,6 +543,12 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(
         parent_name="parents",
         columns=["id"],
         page_size=3,
+        # Without this the reader's rows-streamed log has no schema, so snapshot drift can't
+        # be attributed to a child.
+        schema_name="children",
+        # Without this the scan is unbounded and the child fans out over parents the API
+        # path stopped listing.
+        row_filter=row_filter,
     )
     assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
 

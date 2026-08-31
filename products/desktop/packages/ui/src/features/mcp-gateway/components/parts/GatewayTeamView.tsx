@@ -170,8 +170,10 @@ function AgentCard({
   onToggleStatus: (paused: boolean) => void;
 }) {
   const active = account.status === "active";
+  // server_ids carries one entry per member's share, so dedupe before counting.
+  const sharedServerIds = new Set(account.server_ids);
   const toolCount = servers
-    .filter((server) => account.server_ids.includes(server.id))
+    .filter((server) => sharedServerIds.has(server.id))
     .reduce((total, server) => total + server.tool_count, 0);
 
   return (
@@ -187,8 +189,8 @@ function AgentCard({
             {account.name}
           </Text>
           <Text color="gray" className="text-xs">
-            {account.server_ids.length} server
-            {account.server_ids.length === 1 ? "" : "s"} · {toolCount} tools
+            {sharedServerIds.size} server
+            {sharedServerIds.size === 1 ? "" : "s"} · {toolCount} tools
           </Text>
         </Flex>
       </button>

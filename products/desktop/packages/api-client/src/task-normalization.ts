@@ -1,15 +1,20 @@
-import type {
-  ArtifactType,
-  Task,
-  TaskRun,
-  TaskRunArtifact,
-  TaskRunArtifactMetadata,
-  TaskRunStatus,
+import {
+  type ArtifactType,
+  type Task,
+  type TaskRun,
+  type TaskRunArtifact,
+  type TaskRunArtifactMetadata,
+  type TaskRunStatus,
+  taskRunStateSchema,
 } from "@posthog/shared/domain-types";
 import type { Schemas } from "./generated";
 
-export type TaskRunArtifactDTO = Schemas.TaskRunArtifactResponse & {
+export type TaskRunArtifactDTO = Omit<
+  Schemas.TaskRunArtifactResponse,
+  "metadata" | "storage_path"
+> & {
   metadata?: unknown;
+  storage_path?: string;
   uploaded_by?: "agent" | "user";
   uploaded_by_user_id?: number;
   dismissed_at?: string | null;
@@ -31,6 +36,7 @@ type TaskResponseDTO = Partial<
   channel?: string | null;
   created_by?: Schemas.UserBasic | null;
   github_user_integration?: string | null;
+  last_activity_at?: string | null;
   json_schema?: unknown | null;
   latest_run?: Record<string, unknown> | null;
   runtime?: unknown;
@@ -79,8 +85,24 @@ function normalizeArtifactType(type: string): ArtifactType {
 function normalizeArtifactMetadata(
   value: unknown,
 ): TaskRunArtifactMetadata | undefined {
+  if (!isRecord(value)) return undefined;
   if (
-    !isRecord(value) ||
+    value.reference_type === "posthog_object" &&
+    typeof value.object_kind === "string" &&
+    typeof value.object_id === "string" &&
+    Array.isArray(value.source_message_ids) &&
+    value.source_message_ids.every((entry) => typeof entry === "string") &&
+    typeof value.occurrence_count === "number"
+  ) {
+    return {
+      reference_type: "posthog_object",
+      object_kind: value.object_kind,
+      object_id: value.object_id,
+      source_message_ids: value.source_message_ids,
+      occurrence_count: value.occurrence_count,
+    };
+  }
+  if (
     typeof value.skill_name !== "string" ||
     (value.skill_source !== "user" &&
       value.skill_source !== "repo" &&
@@ -117,7 +139,8 @@ export function normalizeTaskRunArtifact(
     type: normalizeArtifactType(artifact.type),
     ...(artifact.source === "agent_output" ||
     artifact.source === "user_attachment" ||
-    artifact.source === "posthog_code_skill"
+    artifact.source === "posthog_code_skill" ||
+    artifact.source === "posthog_object"
       ? { source: artifact.source }
       : {}),
     ...(artifact.size === undefined ? {} : { size: artifact.size }),
@@ -165,7 +188,7 @@ export function normalizeTaskRunResponse(
     log_url: dto.log_url ?? "",
     error_message: dto.error_message ?? null,
     output: isRecord(dto.output) ? dto.output : null,
-    state: isRecord(dto.state) ? dto.state : {},
+    state: taskRunStateSchema.parse(dto.state),
     ...(dto.artifacts == null
       ? {}
       : { artifacts: dto.artifacts.map(normalizeTaskRunArtifact) }),
@@ -201,6 +224,7 @@ export function normalizeTaskResponse(
     description: dto.description ?? "",
     created_at: dto.created_at ?? "",
     updated_at: dto.updated_at ?? "",
+    last_activity_at: dto.last_activity_at ?? dto.updated_at ?? "",
     ...(dto.created_by === undefined ? {} : { created_by: dto.created_by }),
     origin_product: dto.origin_product ?? "",
     ...(dto.repository === undefined ? {} : { repository: dto.repository }),

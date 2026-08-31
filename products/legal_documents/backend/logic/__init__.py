@@ -167,6 +167,15 @@ def mark_signed_pdf_stored(document: LegalDocument) -> LegalDocument:
 # PandaDoc status string for a fully-signed envelope. Mirrors the webhook layer.
 PANDADOC_COMPLETED_STATUS = "document.completed"
 
+# PandaDoc status string for an envelope stuck before its signing email ever went
+# out — the state the reconcile sweep re-sends from.
+PANDADOC_DRAFT_STATUS = "document.draft"
+
+# A row created moments ago is normally about to get its own document.draft webhook;
+# re-sending from the sweep at the same time would duplicate the send and produce a
+# spurious 409 in error tracking.
+RECONCILE_DRAFT_MIN_AGE = timedelta(minutes=5)
+
 # The reconciliation sweep polls PandaDoc once per pending row every 15 minutes, so
 # bound the set: only rows created inside this window, capped per run. Two weeks is
 # where the returns stop. Of the pending envelopes older than that, 2 of 162 ever
@@ -307,9 +316,9 @@ BAA_SIGNED_AI_DISABLED_TEMPLATE = "baa_signed_ai_disabled"
 def apply_baa_signed_side_effects(document: LegalDocument) -> None:
     """
     When a BAA is signed, opt the organization out of AI data processing and
-    notify its owners. The BAA does not cover third-party AI subprocessors, so
-    we fail safe to opt-out — owners can re-enable from settings if they want
-    AI features for non-PHI workflows.
+    out of AI training, then notify its owners. The BAA does not cover
+    third-party AI subprocessors, so we fail safe to opt-out — owners can
+    re-enable from settings if they want AI features for non-PHI workflows.
 
     Best-effort: any failure here is logged but does not roll back the BAA
     signature itself (PandaDoc has already collected it).
@@ -319,9 +328,15 @@ def apply_baa_signed_side_effects(document: LegalDocument) -> None:
 
     organization = document.organization
     try:
+        updated_fields = []
         if organization.is_ai_data_processing_approved is not False:
             organization.is_ai_data_processing_approved = False
-            organization.save(update_fields=["is_ai_data_processing_approved"])
+            updated_fields.append("is_ai_data_processing_approved")
+        if organization.is_ai_training_opted_in is not False:
+            organization.is_ai_training_opted_in = False
+            updated_fields.append("is_ai_training_opted_in")
+        if updated_fields:
+            organization.save(update_fields=updated_fields)
     except Exception as exc:
         logger.exception("legal_document_baa_opt_out_failed", document_id=str(document.id), error=str(exc))
         capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})

@@ -21,12 +21,13 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, VALIDATION_MAX_ATTEMPTS
+from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
-    FinalizeStatusCommentInput,
+    GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
     LoadedPerspectiveDTO,
@@ -40,9 +41,17 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     ReviewMeta,
     SelectPerspectivesInput,
+    SyncReviewSkillsInput,
     TrackReviewFailedInput,
     ValidateChunkInput,
     ValidateChunkResult,
+    ValidateIntegrationInput,
+)
+from products.review_hog.backend.temporal.resolution import (
+    FailResolutionInput,
+    ResolutionRunResult,
+    ResolvePRWorkflow,
+    ResolveThreadsInput,
 )
 from products.review_hog.backend.temporal.types import (
     ResolvePRWorkflowInputs,
@@ -763,3 +772,52 @@ async def test_validate_issues_workflow_fails_above_failure_floor():
 
     with pytest.raises(WorkflowFailureError):
         await _run_validate_workflow(issue_ids=["1-1-1", "1-2-1"], validate_chunk=validate_chunk)
+
+
+@pytest.mark.asyncio
+async def test_resolve_pr_workflow_runs_the_failure_cleanup_on_a_dead_resolution():
+    # The resolution activity's own failure handler misses prepare failures, timeouts, and worker
+    # death — the workflow-level cleanup is the only thing standing between those and a PR comment
+    # stuck on "Resolving comments" forever. It must fire on terminal failure and never on success.
+    cleanup_calls: list[int] = []
+
+    @activity.defn(name="validate_github_integration_activity")
+    async def validate_integration(input: ValidateIntegrationInput) -> None:
+        return None
+
+    @activity.defn(name="sync_review_skills_activity")
+    async def sync_skills(input: SyncReviewSkillsInput) -> None:
+        return None
+
+    @activity.defn(name="generate_schemas_activity")
+    async def generate_schemas(input: GenerateSchemasInput) -> None:
+        return None
+
+    @activity.defn(name="resolve_threads_activity")
+    async def resolve_threads(input: ResolveThreadsInput) -> ResolutionRunResult:
+        raise ApplicationError("prepare exploded", non_retryable=True)
+
+    @activity.defn(name="fail_resolution_activity")
+    async def fail_resolution(input: FailResolutionInput) -> None:
+        cleanup_calls.append(input.pr_number)
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[ResolvePRWorkflow],
+            activities=[validate_integration, sync_skills, generate_schemas, resolve_threads, fail_resolution],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    ResolvePRWorkflow.run,
+                    ResolvePRWorkflowInputs(
+                        team_id=1, user_id=2, acting_user_id=2, pr_url="u", owner="o", repo="r", pr_number=7
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+    assert cleanup_calls == [7]

@@ -11,7 +11,7 @@ export const ANONYMOUS_AUTH_STATE: AuthState = {
   orgProjectsMap: {},
   currentOrgId: null,
   currentProjectId: null,
-  hasCodeAccess: null,
+  desktopAccess: { projectId: null, status: "unchecked", reason: null },
   needsScopeReauth: false,
   sessionType: null,
   sessionExpiresAt: null,
@@ -27,10 +27,6 @@ export const useAuthStore = create<AuthStoreState>((set) => ({
   authState: ANONYMOUS_AUTH_STATE,
   setAuthState: (authState) => set({ authState }),
 }));
-
-export function useAuthState(): AuthState {
-  return useAuthStore((s) => s.authState);
-}
 
 export function useAuthStateValue<T>(selector: (state: AuthState) => T): T {
   return useAuthStore((s) => selector(s.authState));

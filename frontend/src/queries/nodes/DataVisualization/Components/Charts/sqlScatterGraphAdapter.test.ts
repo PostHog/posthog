@@ -80,12 +80,13 @@ describe('sqlScatterGraphAdapter', () => {
 
             expect(config.xAxis).toMatchObject({ label: 'duration', scaleType: 'linear', startAtZero: false })
             expect(config.yAxis).toMatchObject({ scaleType: 'linear', startAtZero: false })
+            expect(config.showBestFit).toBe(false)
         })
 
         it('applies the scatter and y-axis settings', () => {
             const config = build({
                 xAxisLabel: 'Session duration',
-                scatter: { xScale: 'logarithmic', xStartAtZero: true },
+                scatter: { xScale: 'logarithmic', xStartAtZero: true, showBestFit: true },
                 leftYAxisSettings: { label: 'Revenue', scale: 'logarithmic', startAtZero: true, showGridLines: false },
             })
 
@@ -96,6 +97,7 @@ describe('sqlScatterGraphAdapter', () => {
             })
             expect(config.yAxis).toMatchObject({ label: 'Revenue', scaleType: 'log', startAtZero: true })
             expect(config.showGrid).toBe(false)
+            expect(config.showBestFit).toBe(true)
         })
 
         it('formats y values with the column settings', () => {

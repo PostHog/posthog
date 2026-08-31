@@ -1,4 +1,4 @@
-import { ApiError, isTransientServerError } from './api-error'
+import { ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -79,6 +79,42 @@ describe('api-error', () => {
             ['a bare object shaped like an error', { status: 503 }],
         ])('does not classify %s as transient', (_, error) => {
             expect(isTransientServerError(error)).toBe(false)
+        })
+    })
+
+    describe('shouldReportApiFailure', () => {
+        it.each([
+            // Handled by something else, so reporting them only buries real crashes.
+            ['a 401 the session check logs the user out of', { status: 401 }, false],
+            ['an access-denied 403', { status: 403, code: 'permission_denied' }, false],
+            ['a 2FA setup gate', { status: 403, code: 'two_factor_setup_required' }, false],
+            ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
+            ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
+            ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
+            ['a 502', { status: 502 }, false],
+            ['a 503', { status: 503 }, false],
+            ['a 504', { status: 504 }, false],
+            // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
+            ['a 403 with no code', { status: 403 }, true],
+            ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
+            ['a 500 backend exception', { status: 500 }, true],
+            ['a 400 validation error', { status: 400 }, true],
+            ['a 404', { status: 404 }, true],
+            // No HTTP response to excuse the failure.
+            ['an error with no status', { message: 'boom' }, true],
+            ['a thrown string', 'went wrong', true],
+            ['null', null, true],
+        ])('decides whether to report %s', (_, error, expected) => {
+            expect(shouldReportApiFailure(error)).toBe(expected)
+        })
+
+        // The hand-written cases above use literals; this proves the shape `fromResponse` actually
+        // builds (`code` lifted off the response body) classifies the same way.
+        it('reads the code off a constructed ApiError', async () => {
+            const body = { detail: "You don't have access to the project.", code: 'permission_denied' }
+            const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
+
+            expect(shouldReportApiFailure(error)).toBe(false)
         })
     })
 })

@@ -494,6 +494,24 @@ services:
             COOKIELESS_REDIS_HOST: redis7
             COOKIELESS_REDIS_PORT: 6379
 
+    usage-ingestion:
+        image: ghcr.io/posthog/posthog/usage-ingestion:master
+        build:
+            context: rust/
+            args:
+                BIN: usage-ingestion
+        restart: on-failure
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:7144/_readiness']
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 10s
+        environment:
+            USAGE_INGESTION_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            RUST_LOG: 'info'
+
     personhog-replica:
         image: ghcr.io/posthog/posthog/personhog-replica:master
         build:
@@ -784,22 +802,6 @@ services:
             opensearch:
                 condition: service_healthy
 
-    cyclotron-janitor:
-        image: ghcr.io/posthog/posthog/cyclotron-janitor:master
-        build:
-            context: rust/
-            args:
-                BIN: cyclotron-janitor
-        restart: on-failure
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            KAFKA_HOSTS: 'kafka:9092'
-            KAFKA_TOPIC: 'clickhouse_app_metrics2'
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
     otel-collector:
         image: otel/opentelemetry-collector-contrib:0.142.0
         command: [--config=/etc/otel-collector-config.yaml]
@@ -830,12 +832,26 @@ services:
         networks:
             - otel_network
 
-    localstack:
-        image: localstack/localstack:4.12.0
-        environment:
-            - DEBUG=${DEBUG:-0}
-        volumes:
-            - '/var/run/docker.sock:/var/run/docker.sock'
+    dynamodb:
+        # Session recording encryption keys live in DynamoDB on Cloud (see getKeyStore in
+        # nodejs/src/ingestion/pipelines/sessionreplay/shared/keystore), so the keystore
+        # integration test needs a real DynamoDB API to exercise its composite key and
+        # conditional writes. -inMemory holds the tables in the JVM rather than in a file inside
+        # the container, so a restart cannot resurrect a table from an interrupted run. -sharedDb
+        # puts every credential and region pair in one table namespace; without it a client using
+        # different credentials than the one that created a table sees an empty table list, which
+        # -inMemory alone does not prevent. -disableTelemetry stops it reporting usage to AWS in
+        # the background, which it does by default.
+        image: amazon/dynamodb-local:3.3.1
+        command: ['-jar', 'DynamoDBLocal.jar', '-inMemory', '-sharedDb', '-disableTelemetry']
+        healthcheck:
+            # Opening the port from bash rather than curling it, because DynamoDB answers GET /
+            # with a 400 and `curl -f` treats that as failure. Without a healthcheck,
+            # `docker compose up --wait` returns as soon as the JVM starts, before it listens.
+            test: ['CMD-SHELL', 'exec 3<>/dev/tcp/localhost/8000']
+            interval: 5s
+            timeout: 3s
+            retries: 12
 
     seaweedfs:
         # Default open-access mode; see the `objectstorage` service above for rationale

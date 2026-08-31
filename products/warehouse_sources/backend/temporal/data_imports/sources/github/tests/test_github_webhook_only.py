@@ -25,7 +25,16 @@ async def _collect(tables: AsyncIterator[pa.Table]) -> list[pa.Table]:
 
 
 @pytest.mark.parametrize(
-    "endpoint", ["workflow_runs", "workflow_jobs", "reviews", "deployments", "deployment_statuses"]
+    "endpoint",
+    [
+        "workflow_runs",
+        "workflow_jobs",
+        "reviews",
+        "deployments",
+        "deployment_statuses",
+        "check_runs",
+        "commit_statuses",
+    ],
 )
 def test_webhook_only_poll_yields_no_rows_when_webhook_inactive(endpoint: str) -> None:
     webhook_source_manager = mock.Mock()

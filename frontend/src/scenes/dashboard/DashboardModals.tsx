@@ -47,7 +47,8 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                 isOpen={showSubscriptions}
                 closeModal={() => push(urls.dashboard(dashboard.id))}
                 dashboard={dashboard}
-                subscriptionId={subscriptionId}
+                isCreating={subscriptionId === 'new'}
+                subscriptionId={subscriptionId === 'new' ? null : subscriptionId}
             />
             <SharingModal
                 title="Dashboard permissions & sharing"

@@ -52,7 +52,7 @@ from products.signals.backend.report_generation.resolve_reviewers import resolve
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
 
 # This module loads during django.setup() (AppConfig.ready() wires the receiver), and
-# posthog/test/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
+# posthog/test/repo_invariants/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
 # the temporal client and the stamphog task module reach all four, so those two imports stay
 # function-local in _start_review / _start_stamphog_review per the budget test's own prescription.
 
@@ -274,16 +274,39 @@ def _start_review(
     """Fire-and-forget the review workflow; Temporal being down must never surface into the saver.
 
     The PR leg wins when both targets are present — the client accepts exactly one, and a PR is the
-    strictly better target (publishable, and its head IS the pushed branch).
+    strictly better target (publishable, and its head IS the pushed branch). The PR leg also honors
+    the busy-guard, the same refusal the trigger/resolve endpoints apply, so an inbox review never
+    starts while this PR's resolution run is still committing to the branch.
     """
     # Function-local: importing the temporal client executes the review_hog temporal package, whose
     # activity registration reaches temporalio, modal, openai, and anthropic — all four forbidden at
     # django.setup() by the startup-import-budget test. See the module-top comment.
-    from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
-    from products.review_hog.backend.temporal.types import TRIGGER_INBOX  # noqa: PLC0415
+    from products.review_hog.backend.reviewer.tools.github_meta import PRParser  # noqa: PLC0415
+    from products.review_hog.backend.temporal.client import start_review_pr_workflow, workflow_running  # noqa: PLC0415
+    from products.review_hog.backend.temporal.types import TRIGGER_INBOX, resolve_pr_workflow_id  # noqa: PLC0415
 
     try:
         if pr_url is not None:
+            # Busy-guard (CONTEXT.md): a published inbox review chains its own resolution, which
+            # commits to the branch for minutes — starting a fresh review meanwhile races those
+            # pushes and re-reviews threads mid-settlement. Only the PR leg needs it (resolution
+            # needs a pr_url, so the branch leg can't collide); the chained hand-off starts
+            # resolution as a child workflow, never through this path, so it stays exempt.
+            pr_info = PRParser().parse_github_pr_url(pr_url)
+            if workflow_running(
+                resolve_pr_workflow_id(
+                    team_id=team_id,
+                    owner=str(pr_info["owner"]),
+                    repo=str(pr_info["repo"]),
+                    pr_number=int(pr_info["pr_number"]),
+                )
+            ):
+                logger.info(
+                    "review_hog_inbox_review_skipped_busy: resolution still running for %s (signal report %s)",
+                    pr_url,
+                    signal_report_id,
+                )
+                return
             workflow_id = start_review_pr_workflow(
                 team_id=team_id,
                 user_id=user_id,

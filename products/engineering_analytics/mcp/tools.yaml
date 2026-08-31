@@ -71,6 +71,32 @@ tools:
     engineering-analytics-current-branch-health:
         operation: engineering_analytics_current_branch_health
         enabled: false
+    engineering-analytics-dora:
+        operation: engineering_analytics_dora
+        enabled: false
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: DORA deploy metrics
+        description: >
+            DORA-style deploy metrics over the GitHub deployments + deployment_statuses warehouse pair, each headline
+            with its previous-window twin: deployment frequency (deploys whose first success status landed in the
+            window, per-day normalized, with a bucketed series), and lead time across three stages over the same
+            deployed-PR population and buckets — open_to_merge_series (PR open to merge), merge_to_deploy_series (median
+            seconds from a PR's merge to the first successful deployment at or after it, bots/drafts excluded), and
+            open_to_deploy_series (the full open-to-deploy span the other two compose into) — each a per-bucket
+            min/p25/p50/mean/p75/max box-plot series, and two honest proxies: failed_deployment_share (deployments with
+            a failure/error status over deployments that reached an outcome — NOT true change failure rate, since no
+            incident data is linked) and median_failed_deploy_to_next_success_seconds (first failure status to the next
+            successful deploy in the same environment — NOT true time-to-restore, since recovery by anything other than
+            a deploy is invisible). Environments default to production-marked deploys, falling back to every persistent
+            (non-transient) environment — ephemeral per-PR preview environments never join a default scope; pass
+            environment to scope exactly. Pass github_team (a slug from github_teams) to narrow the PR-scoped lead-time
+            figures to that team's authors — deploy counts stay repo-wide. deploy_data_available is false when the
+            deployments endpoints aren't synced on the GitHub source; the fix is enabling them, not re-querying.
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true
@@ -219,6 +245,9 @@ tools:
     engineering-analytics-team-merge-trend:
         operation: engineering_analytics_team_merge_trend
         enabled: false
+    engineering-analytics-trunk-quarantine:
+        operation: engineering_analytics_trunk_quarantine
+        enabled: false
     engineering-analytics-workflow-jobs:
         operation: engineering_analytics_workflow_jobs
         enabled: true
@@ -325,9 +354,11 @@ tools:
         description: >
             Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use
             this for "is CI getting faster or slower", "which GitHub Actions workflow is the slow or flaky long pole",
-            and CI duration trends. p50/p95 are over successful runs only, so superseded cancels and failed runs never
-            bias the duration percentile. For PR-branch CI health, pass run_scope=pull_request (same-repo PRs only —
-            fork PRs carry no PR attribution). To get a trend, call this over two adjacent windows and compare.
+            and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup
+            failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over
+            successful runs only, so superseded cancels and failed runs never bias the duration percentile. For
+            PR-branch CI health, pass run_scope=pull_request (same-repo PRs only — fork PRs carry no PR attribution). To
+            get a trend, call this over two adjacent windows and compare.
         param_overrides:
             date_from:
                 description: Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.

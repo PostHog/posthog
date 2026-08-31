@@ -78,7 +78,7 @@ const meta: Meta<typeof ScoutMcpServersPicker> = {
     ],
     parameters: {
         testOptions: { waitForLoadersToDisappear: true },
-        featureFlags: [FEATURE_FLAGS.MCP_SERVERS],
+        featureFlags: [FEATURE_FLAGS.MCP_GATEWAY],
     },
 }
 export default meta

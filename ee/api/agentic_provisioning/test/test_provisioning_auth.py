@@ -7,14 +7,8 @@ from django.core.cache import cache as real_cache
 
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import (
-    _blocked_key,
-    _cache_key,
-    apply_provisioning_defaults,
-    fetch_and_upsert_cimd_application,
-)
+from posthog.api.oauth.cimd import _blocked_key, _cache_key, fetch_and_upsert_cimd_application
 from posthog.models.oauth import OAuthApplication
-from posthog.models.oauth_provisioning import ProvisioningRateLimits
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 
@@ -266,7 +260,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
 
         user = User.objects.get(email=email)
-        # The wizard app does not set provisioning_issues_personal_api_key, so no PAT is minted.
+        # The wizard app does not set issues_personal_api_key, so no PAT is minted.
         pat = PersonalAPIKey.objects.filter(user=user).first()
         assert pat is None
 
@@ -301,8 +295,8 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8239/callback",
             algorithm="RS256",
+            client_id=cimd_url,
             is_cimd_client=True,
-            cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
@@ -333,8 +327,8 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8239/callback",
             algorithm="RS256",
+            client_id=cimd_url,
             is_cimd_client=True,
-            cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(active=False, can_create_accounts=True),
         )
@@ -370,8 +364,8 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8239/callback",
             algorithm="RS256",
+            client_id=cimd_url,
             is_cimd_client=True,
-            cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
@@ -421,6 +415,7 @@ def _make_cimd_metadata(url: str = CIMD_PROV_URL, **overrides) -> dict:
         "grant_types": ["authorization_code"],
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
+        "com.posthog": {"provisioning": True},
     }
     metadata.update(overrides)
     return metadata
@@ -442,14 +437,15 @@ def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
 class TestCimdProvisioningRegistration(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
-        OAuthApplication.objects.filter(cimd_metadata_url=CIMD_PROV_URL).delete()
+        OAuthApplication.objects.filter(client_id=CIMD_PROV_URL).delete()
         real_cache.clear()
 
     def _register(self) -> OAuthApplication:
-        """Register the partner the way client_registration does."""
-        app = fetch_and_upsert_cimd_application(CIMD_PROV_URL)
+        """Register the partner the way client_registration does, so the promotion depends on
+        the mocked document declaring the opt-in."""
+        app = fetch_and_upsert_cimd_application(CIMD_PROV_URL, register_provisioning=True)
         assert app is not None
-        return apply_provisioning_defaults(app)
+        return app
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_registered_cimd_partner_can_create_accounts(self, mock_get, _url_mock):
@@ -480,17 +476,17 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_cimd_scope_ceiling_refreshes_on_agentic_auth_after_metadata_edit(self, mock_get, _url_mock):
         initial = _make_cimd_metadata()
-        initial["com.posthog"] = {"scopes": ["insight:read"]}
+        initial["com.posthog"] = {"provisioning": True, "scopes": ["insight:read"]}
         mock_get.return_value = _cimd_mock_response(initial)
         self._register()
 
-        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        app = OAuthApplication.objects.get(client_id=CIMD_PROV_URL)
         assert app.scopes == ["insight:read"]
 
         # Partner edits the live metadata to widen the ceiling; the cached doc goes stale.
         real_cache.delete(_cache_key(CIMD_PROV_URL))
         widened = _make_cimd_metadata()
-        widened["com.posthog"] = {"scopes": ["insight:read", "dashboard:read"]}
+        widened["com.posthog"] = {"provisioning": True, "scopes": ["insight:read", "dashboard:read"]}
         mock_get.return_value = _cimd_mock_response(widened)
 
         # A later agentic provisioning auth request must propagate the edit — the bug was that
@@ -521,14 +517,14 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://127.0.0.1:3000/callback",
             algorithm="RS256",
+            client_id=CIMD_PROV_URL,
             is_cimd_client=True,
-            cimd_metadata_url=CIMD_PROV_URL,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True,
                 can_create_accounts=True,
                 can_provision_resources=True,
-                rate_limits=ProvisioningRateLimits(account_requests=10),
+                rate_limits={"account_requests": 10},
             ),
         )
 
@@ -549,7 +545,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
 
         assert post_account_request("ratelimit-1@example.com").status_code == 200
 
-        partner = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
+        partner = OAuthApplication.objects.get(client_id=CIMD_PROV_URL)
         partner.update_provisioning_rate_limits(account_requests=2)
 
         assert post_account_request("ratelimit-2@example.com").status_code == 200
@@ -632,8 +628,8 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="http://127.0.0.1:3000/callback",
                 algorithm="RS256",
+                client_id=url,
                 is_cimd_client=True,
-                cimd_metadata_url=url,
                 is_provisioning_partner=True,
                 _provisioning_config=provisioning_config(
                     active=True, can_create_accounts=True, can_provision_resources=True
@@ -663,8 +659,8 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://127.0.0.1:3000/callback",
             algorithm="RS256",
+            client_id=CIMD_PROV_URL,
             is_cimd_client=True,
-            cimd_metadata_url=CIMD_PROV_URL,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True
@@ -719,8 +715,8 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://127.0.0.1:3000/callback",
             algorithm="RS256",
+            client_id=CIMD_PROV_URL,
             is_cimd_client=True,
-            cimd_metadata_url=CIMD_PROV_URL,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=True, can_provision_resources=True

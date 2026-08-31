@@ -53,6 +53,9 @@ describe('BlockProxy', () => {
 
             expect(count).toBe(2)
             expect(proxy.blockCount).toBe(2)
+            // Inclusive ranges: 1001 + 2001, not 1000 + 2000. Undercounting lets a recording at the
+            // size cap through by one byte per block.
+            expect(proxy.totalCompressedBytes).toBe(3002)
             expect(mockInternalFetch).toHaveBeenCalledWith(
                 'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks',
                 { headers: { 'X-Internal-Api-Secret': 'test-secret' } }
@@ -88,6 +91,11 @@ describe('BlockProxy', () => {
         it.each([
             [500, true],
             [403, false],
+            // 404: a recording still being ingested has no blocks yet, the same race NO_SNAPSHOTS
+            // deliberately keeps retryable.
+            [404, true],
+            [429, true],
+            [401, false],
         ])('marks %i response as retryable=%s', async (status, expectedRetryable) => {
             mockInternalFetch.mockResolvedValue({
                 status,

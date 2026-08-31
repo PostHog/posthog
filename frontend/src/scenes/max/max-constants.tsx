@@ -771,20 +771,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Summarizing experiment results...'
         },
     },
-    experiment_session_replays_summary: {
-        name: 'Summarize experiment session replays',
-        description:
-            'Summarize experiment session replays to analyze user behavior patterns across experiment variants using session recordings',
-        product: Scene.Experiment,
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.Flags],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Analyzed session replay patterns'
-            }
-            return 'Analyzing session replays...'
-        },
-    },
     summarize_replay_vision_summaries: {
         name: 'Summarize session summaries',
         description: 'Summarize session summaries across a Replay Vision summarizer scanner',
@@ -954,15 +940,15 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         },
     },
     suggest_replay_vision_tags: {
-        name: 'Suggest tags',
-        description: 'Suggest tags for a classifier, grounded in what it has seen',
+        name: 'Suggest categories',
+        description: 'Suggest categories for a classifier, grounded in what it has seen',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Suggest tags'
+                return 'Suggest categories'
             }
-            return 'Suggest tags...'
+            return 'Suggest categories...'
         },
     },
     read_replay_vision_actions: {

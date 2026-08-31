@@ -101,6 +101,7 @@ export function buildScatterConfig({
                 : undefined,
         },
         showGrid: yAxisSettings?.showGridLines ?? true,
+        showBestFit: chartSettings.scatter?.showBestFit ?? false,
         legend: { show: chartSettings.showLegend ?? false, position: 'top', interactive: true },
         tooltip: {
             xFormatter: (value: number): string => value.toLocaleString(),

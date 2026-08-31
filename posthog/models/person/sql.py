@@ -679,59 +679,6 @@ COMMENT_DISTINCT_ID_COLUMN_SQL = lambda: (
 )
 
 
-# Tricky: the person table uses a ReplacingMergeTree, but it is not guaranteed by Clickhouse that the replacement has
-# actually happened. This means we can have multiple rows for a particular person ID. This can happen if a property has
-# changed, or if the user was deleted.
-# The following query will make an attempt to hide values that come from deleted users, however it will only hide the
-# values that are set at the time of deletion (or after). This is to avoid needing to GROUP BY id on the persons table,
-# which would make this query take ~20x as long and be unacceptable in the UI.
-SELECT_PERSON_PROP_VALUES_SQL = """
-SELECT
-    value,
-    uniq(id) - uniqIf(id, is_deleted != 0)  as c
-FROM (
-    SELECT
-        {property_field} as value,
-        is_deleted,
-        id
-    FROM
-        person
-    WHERE
-        team_id = %(team_id)s AND
-        value IS NOT NULL AND
-        value != ''
-    ORDER BY id DESC
-    LIMIT 100000
-)
-GROUP BY value
-HAVING c > 0
-ORDER BY c DESC
-LIMIT 20
-"""
-
-SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT
-    value,
-    uniq(id) - uniqIf(id, is_deleted != 0)  as c
-FROM (
-    SELECT
-        {property_field} as value,
-        is_deleted,
-        id
-    FROM
-        person
-    WHERE
-        team_id = %(team_id)s AND
-        value ILIKE %(value)s
-    ORDER BY id DESC
-    LIMIT 100000
-)
-GROUP BY value
-HAVING c > 0
-ORDER BY c DESC
-LIMIT 20
-"""
-
 GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id = %(team_id)s"
 GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM = "SELECT count() AS count FROM person_distinct_id2 WHERE team_id = %(team_id)s"
 

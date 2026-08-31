@@ -57,6 +57,9 @@ CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
 SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
 
+# Shared with quality_block_materialization so the counter below can recognize its job rows.
+QUALITY_BLOCKED_ERROR_PREFIX = "Not published:"
+
 
 def get_previous_jobs(
     saved_query_id: UUID, current_job: DataModelingJob, count: int, ignore_inconclusive: bool = False
@@ -101,6 +104,8 @@ EXTERNALLY_ABORTED_MARKERS = (
     "QueueEmpty: ",  # no root node to start from, so the graph was refused rather than the query
     "Preempted: ",
     ABANDONED_ERROR,
+    # the query ran and produced rows; only the publish was refused
+    QUALITY_BLOCKED_ERROR_PREFIX,
 )
 
 

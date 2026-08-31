@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import { AlertState } from '~/queries/schema/schema-general'
 
 import type { AlertCheck, AlertCheckDelivery } from './types'
@@ -5,6 +7,32 @@ import type { AlertCheck, AlertCheckDelivery } from './types'
 export enum AlertsTab {
     INSIGHTS = 'insights',
     LOGS = 'logs',
+}
+
+export function resolveSnoozeUntil(value: string): string {
+    const relativeValue = value.match(/^\+(\d+)([mhdwMy])$/)
+    if (!relativeValue) {
+        return dayjs(value).toISOString()
+    }
+
+    const amount = Number(relativeValue[1])
+    const unit = relativeValue[2]
+    if (unit === 'm') {
+        return dayjs().add(amount, 'minute').toISOString()
+    }
+    if (unit === 'h') {
+        return dayjs().add(amount, 'hour').toISOString()
+    }
+    if (unit === 'd') {
+        return dayjs().add(amount, 'day').toISOString()
+    }
+    if (unit === 'w') {
+        return dayjs().add(amount, 'week').toISOString()
+    }
+    if (unit === 'M') {
+        return dayjs().add(amount, 'month').toISOString()
+    }
+    return dayjs().add(amount, 'year').toISOString()
 }
 
 interface AlertsAccessState {

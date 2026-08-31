@@ -3,6 +3,8 @@ import typing
 
 import temporalio.exceptions
 
+from posthog.temporal.common.errors import resolve_failure_type
+
 
 class PostHogWorkflow:
     """Base class for Temporal Workflows that can be executed in PostHog."""
@@ -29,7 +31,7 @@ class PostHogWorkflow:
         if error.cause:
             properties.update(
                 {
-                    "cause_error_type": type(error.cause).__name__,
+                    "cause_error_type": resolve_failure_type(error.cause),
                     "cause_error_message": str(error.cause)[:500],
                 }
             )

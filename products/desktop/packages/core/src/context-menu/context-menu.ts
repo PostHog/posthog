@@ -123,6 +123,7 @@ export class ContextMenuService {
       isInCommandCenter,
       hasEmptyCommandCenterCell,
       showArchivePrior = true,
+      canHandoff,
       channels,
     } = input;
     const { apps, lastUsedAppId } = await this.getExternalAppsData();
@@ -176,6 +177,12 @@ export class ContextMenuService {
           ]
         : []),
       ...fileToItems,
+      ...(canHandoff
+        ? [
+            this.separator(),
+            this.item("Hand off…", { type: "handoff" as const }),
+          ]
+        : []),
       this.separator(),
       this.item("Archive", { type: "archive" }),
       ...(showArchivePrior

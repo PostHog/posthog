@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
-from requests.exceptions import HTTPError, JSONDecodeError
+from requests.exceptions import HTTPError, JSONDecodeError, RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sen
     SentryResumeConfig,
     SentryStatsSummaryRejectedError,
     _custom_endpoint_rows,
+    _issues_parent_row_filter,
     _normalize_api_base_url,
     _normalize_organization_slug,
     _parse_next_link,
@@ -32,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sen
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
     REQUIRED_SENTRY_SCOPES,
     SENTRY_ENDPOINTS,
+    SENTRY_FANOUT_PARENT_WINDOW,
     SENTRY_RETENTION_DAYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.source import SentrySource
@@ -324,6 +326,35 @@ class TestSentryTransport:
         assert error.startswith("Sentry token is missing required scopes")
         for scope in REQUIRED_SENTRY_SCOPES:
             assert scope in error
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_404_does_not_echo_org_slug(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = _response(None, status_code=404)
+
+        valid, error = validate_credentials(auth_token="token", organization_slug="secret-org-slug")
+
+        assert not valid
+        assert error == "Sentry organization not found. Verify your organization slug, then reconnect."
+        assert "secret-org-slug" not in (error or "")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_unexpected_status_hides_vendor_detail(self, mock_session) -> None:
+        # `_response` sets `response.text = "error"` — the raw body must never reach the customer.
+        mock_session.return_value.get.return_value = _response({"detail": "internal sentry detail"}, status_code=500)
+
+        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+
+        assert not valid
+        assert error == "Could not connect to Sentry. Check your auth token and organization slug, then reconnect."
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_request_error_hides_exception_text(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = RequestException("connection refused to https://sentry.io")
+
+        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+
+        assert not valid
+        assert error == "Could not reach Sentry to validate your credentials. Check your connection, then try again."
 
     def test_sentry_source_rejects_unknown_api_base_url_at_runtime(self) -> None:
         with pytest.raises(
@@ -874,6 +905,16 @@ class TestSentrySourceResumable:
 
 
 class TestIssueTagValuesResumable:
+    @pytest.fixture(autouse=True)
+    def _fresh_issues_snapshot(self):
+        # These cases predate the snapshot cap and assert on the rows the fan-out emits, so pin
+        # the parent snapshot ahead of every fixture timestamp to leave that set unchanged.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.parent_snapshot_covers_through",
+            return_value=datetime(2999, 1, 1, tzinfo=UTC),
+        ):
+            yield
+
     """Resume behaviour for the two-level issue_tag_values fan-out loop."""
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
@@ -959,6 +1000,8 @@ class TestIssueTagValuesResumable:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
             resumable_source_manager=manager,
         )
 
@@ -966,6 +1009,77 @@ class TestIssueTagValuesResumable:
         assert len(rows) == 1
         saved_state = cast(Mock, manager.save_state).call_args_list[0].args[0]
         assert saved_state.parent_version == 3
+
+    @parameterized.expand(
+        [
+            # A watermark inside the window is the tighter floor, so the scan stops there.
+            ("watermark_inside_window", timedelta(days=2), timedelta(days=2)),
+            # A watermark older than the window can't widen it back out.
+            ("watermark_older_than_window", timedelta(days=120), None),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+        return_value=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse",
+        return_value=iter([[{"id": "100", "lastSeen": "2026-08-17T00:00:00Z"}]]),
+    )
+    def test_warehouse_scan_is_floored_by_the_watermark_and_the_list_window(
+        self, _name, watermark_ago, expected_floor_ago, mock_reader, _mock_resolve, mock_get
+    ) -> None:
+        # Without a floor the scan reads every issue ever synced and discards most of them
+        # per row, which is the fan-out inflation the retention findings traced.
+        mock_get.return_value.get.side_effect = lambda url, **kwargs: _response([])
+        watermark = (datetime.now(UTC) - watermark_ago).isoformat()
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+            use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+        )
+        list(cast(Any, resp.items()))
+
+        row_filter = mock_reader.call_args.kwargs["row_filter"]
+        assert row_filter.field == "lastSeen"
+        now = datetime.now(UTC)
+        expected_floor = now - (expected_floor_ago if expected_floor_ago is not None else SENTRY_FANOUT_PARENT_WINDOW)
+        assert abs(row_filter.floor(now) - expected_floor) < timedelta(seconds=5)
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.try_resolve_parent_table"
+    )
+    def test_full_refresh_takes_the_api_parent_even_with_the_flag_on(self, mock_resolve, mock_get) -> None:
+        # No watermark means the only floor is our window constant, and Sentry clamps its own
+        # listing to the org's plan retention below it, so the snapshot can't reproduce the
+        # API's row set. The run must not even resolve the warehouse table.
+        mock_get.return_value.get.side_effect = lambda url, **kwargs: _response([])
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+            use_warehouse_parent=True,
+        )
+        list(cast(Any, resp.items()))
+
+        mock_resolve.assert_not_called()
+        issues_urls = [c.args[0] for c in mock_get.return_value.get.call_args_list if c.args[0].endswith("/issues/")]
+        assert issues_urls, "expected the API issues listing to drive the fan-out"
 
     @parameterized.expand(
         [
@@ -1011,6 +1125,8 @@ class TestIssueTagValuesResumable:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=use_warehouse_parent,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
             resumable_source_manager=manager,
         )
 
@@ -1159,21 +1275,6 @@ class TestIssueTagValuesResumable:
 
         rows = list(cast(Any, resp.items()))
         assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
-
-
-class TestSentrySourceIntegration:
-    """End-to-end wiring of the ResumableSource class."""
-
-    def test_source_returns_resumable_manager(self) -> None:
-        source = SentrySource()
-        inputs = Mock()
-        inputs.team_id = 7
-        inputs.job_id = "job-x"
-        inputs.logger = Mock()
-
-        manager = source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
 
 
 class TestHelpers:
@@ -1819,10 +1920,20 @@ class TestSentryCustomIteratorEndpoints:
 
 
 class TestWarehouseParentReuse:
+    @pytest.fixture(autouse=True)
+    def _fresh_issues_snapshot(self):
+        # These cases predate the snapshot cap and assert on the rows the fan-out emits, so pin
+        # the parent snapshot ahead of every fixture timestamp to leave that set unchanged.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.parent_snapshot_covers_through",
+            return_value=datetime(2999, 1, 1, tzinfo=UTC),
+        ):
+            yield
+
     @parameterized.expand(
         [
-            ("issue_events", ["issues"]),
-            ("issue_hashes", ["issues"]),
+            ("issue_events", []),
+            ("issue_hashes", []),
             ("issue_tag_values", ["issues"]),
             ("issues", []),
             ("projects", []),
@@ -1860,6 +1971,8 @@ class TestWarehouseParentReuse:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
         rows = list(cast(Any, resp.items()))
@@ -1896,6 +2009,8 @@ class TestWarehouseParentReuse:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
         rows = list(cast(Any, resp.items()))
@@ -1903,10 +2018,104 @@ class TestWarehouseParentReuse:
         mock_reader.assert_called_once_with(
             table=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
             parent_name="issues",
-            columns=["id"],
+            # lastSeen is always projected because it carries the scan floor.
+            columns=["id", "lastSeen"],
             page_size=100,
             schema_name="issue_tag_values",
+            row_filter=_issues_parent_row_filter(datetime(2020, 1, 1, tzinfo=UTC)),
         )
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.parent_snapshot_covers_through",
+        return_value=datetime(2026, 3, 4, 0, 0, 0, tzinfo=UTC),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.try_resolve_parent_table",
+        return_value=None,
+    )
+    def test_api_fallback_keeps_values_newer_than_the_stale_snapshot(
+        self, _mock_resolve, _mock_snapshot, mock_get
+    ) -> None:
+        cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "200", "lastSeen": "2026-03-06T00:00:00Z"}])
+            if url.endswith("/organizations/acme/issues/200/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/200/tags/browser/values/"):
+                return _response([{"value": "Firefox", "lastSeen": "2026-03-06T00:00:00Z"}])
+            return _response([])
+
+        mock_get.return_value.get.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+            use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cutoff,
+            incremental_field="lastSeen",
+        )
+
+        # The live listing has no snapshot behind it, so the stale cap must not apply.
+        assert [row["value"] for row in cast(Any, resp.items())] == ["Firefox"]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.parent_snapshot_covers_through",
+        return_value=datetime(2026, 3, 4, 0, 0, 0, tzinfo=UTC),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+        return_value=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
+    )
+    def test_issue_tag_values_drops_values_newer_than_the_issues_snapshot(
+        self, mock_reader, _mock_resolve, _mock_snapshot, mock_get
+    ) -> None:
+        cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
+        mock_reader.return_value = iter([[{"id": "200", "lastSeen": "2026-03-05T00:00:00Z"}]])
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/200/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/200/tags/browser/values/"):
+                return _response(
+                    [
+                        {"value": "Firefox", "lastSeen": "2026-03-06T00:00:00Z"},
+                        {"value": "Chrome", "lastSeen": "2026-03-03T12:00:00Z"},
+                    ]
+                )
+            return _response([])
+
+        mock_get.return_value.get.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+            use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cutoff,
+            incremental_field="lastSeen",
+        )
+
+        # Firefox is newer than the snapshot, so emitting it would carry the watermark past
+        # issues the snapshot has not shown yet. Chrome sits inside the snapshot and still ships.
+        assert [row["value"] for row in cast(Any, resp.items())] == ["Chrome"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(
@@ -1992,6 +2201,8 @@ class TestWarehouseParentReuse:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
         rows = list(cast(Any, resp.items()))
@@ -2033,6 +2244,8 @@ class TestWarehouseParentReuse:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
         rows = list(cast(Any, resp.items()))
@@ -2051,8 +2264,23 @@ class TestWarehouseParentReuse:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
         kwargs = mock_build.call_args.kwargs
         assert kwargs["source_id"] == "source-1"
         assert kwargs["use_warehouse_parent"] is True
+
+
+def test_no_sentry_endpoint_reads_its_parent_from_the_warehouse():
+    # Sentry's issue listing is clamped by per-org event retention, a bound a snapshot scan
+    # cannot reproduce, so config-driven warehouse fan-out shipped 3-5x row inflation on
+    # aged orgs. Re-enabling parent_source="warehouse" here needs a parity story first —
+    # see SENTRY_FANOUT_PARENT_WINDOW in settings.
+    warehouse_children = [
+        name
+        for name, config in SENTRY_ENDPOINTS.items()
+        if config.fanout is not None and config.fanout.parent_source == "warehouse"
+    ]
+    assert warehouse_children == []

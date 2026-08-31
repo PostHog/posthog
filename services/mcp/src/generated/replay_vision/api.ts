@@ -3,13 +3,18 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 29 enabled ops
+ * PostHog API - MCP 30 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const VisionActionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -27,6 +32,11 @@ export const VisionActionsListQueryParams = /* @__PURE__ */ zod.object({
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const VisionActionsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -221,6 +231,11 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const VisionActionsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this vision action.'),
@@ -233,6 +248,11 @@ export const VisionActionsRetrieveParams = /* @__PURE__ */ zod.object({
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const VisionActionsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this vision action.'),
@@ -430,6 +450,11 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const VisionActionsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this vision action.'),
@@ -471,7 +496,8 @@ export const VisionActionsRunsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ * A session's observations across every scanner the caller can read, plus the team-level semantic
+ * `search` action, which resolves its own scanner scope instead of this queryset.
  */
 export const VisionObservationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -610,6 +636,55 @@ export const VisionObservationsLabelDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Rank observations by semantic similarity to the search text, optionally filtered by exact outcome
+ * (verdict, score, tags).
+ */
+export const VisionObservationsSearchRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionObservationsSearchRetrieveQueryLimitDefault = 20
+export const visionObservationsSearchRetrieveQueryLimitMax = 50
+
+export const visionObservationsSearchRetrieveQueryQMax = 2000
+
+export const VisionObservationsSearchRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(visionObservationsSearchRetrieveQueryLimitMax)
+        .default(visionObservationsSearchRetrieveQueryLimitDefault)
+        .describe('Maximum number of results (default 20, at most 50).'),
+    max_score: zod.number().optional().describe('Keep only scorer observations with a score at or below this value.'),
+    min_score: zod.number().optional().describe('Keep only scorer observations with a score at or above this value.'),
+    q: zod
+        .string()
+        .min(1)
+        .max(visionObservationsSearchRetrieveQueryQMax)
+        .describe("Natural-language description of what to find, e.g. 'users confused by the pricing page'."),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Search a single scanner's observations. Defaults to every scanner you can read."),
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.'
+        ),
+    verdict: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.'),
+})
+
 export const EnvironmentVisionQuotaRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -683,9 +758,7 @@ export const visionScannersCreateBodySamplingRateMax = 1
 
 export const visionScannersCreateBodyCreditLimitMax = 2147483647
 
-export const visionScannersCreateBodyExperimentTargetingOneVariantKeysItemMax = 400
-
-export const visionScannersCreateBodyExperimentTargetingOneVariantKeysMax = 50
+export const visionScannersCreateBodyExperimentTargetingOneVariantMax = 400
 
 export const VisionScannersCreateBody = /* @__PURE__ */ zod
     .object({
@@ -703,7 +776,7 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .max(visionScannersCreateBodyTagsMax)
             .optional()
             .describe(
-                "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas."
+                "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
@@ -777,17 +850,17 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
                 zod
                     .object({
                         experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
-                        variant_keys: zod
-                            .array(zod.string().max(visionScannersCreateBodyExperimentTargetingOneVariantKeysItemMax))
-                            .max(visionScannersCreateBodyExperimentTargetingOneVariantKeysMax)
-                            .describe('Targeted experiment variants. Empty means every variant.'),
-                        use_exposure_fallback: zod
-                            .boolean()
+                        variant: zod
+                            .string()
+                            .max(visionScannersCreateBodyExperimentTargetingOneVariantMax)
+                            .nullish()
                             .describe(
-                                'True when the exposure event is captured server-side and the query filters on the `$feature\/<flag_key>` property instead.'
+                                'Narrow to sessions of people exposed to this variant. Null means every variant.'
                             ),
                     })
-                    .describe("The experiment a scanner's targeting watches. Metadata only; scanning never reads it."),
+                    .describe(
+                        "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it."
+                    ),
                 zod.null(),
                 zod.null(),
             ])
@@ -835,9 +908,7 @@ export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
 export const visionScannersPartialUpdateBodyCreditLimitMax = 2147483647
 
-export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysItemMax = 400
-
-export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysMax = 50
+export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantMax = 400
 
 export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -856,7 +927,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .max(visionScannersPartialUpdateBodyTagsMax)
             .optional()
             .describe(
-                "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas."
+                "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
@@ -933,21 +1004,17 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
                 zod
                     .object({
                         experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
-                        variant_keys: zod
-                            .array(
-                                zod
-                                    .string()
-                                    .max(visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysItemMax)
-                            )
-                            .max(visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysMax)
-                            .describe('Targeted experiment variants. Empty means every variant.'),
-                        use_exposure_fallback: zod
-                            .boolean()
+                        variant: zod
+                            .string()
+                            .max(visionScannersPartialUpdateBodyExperimentTargetingOneVariantMax)
+                            .nullish()
                             .describe(
-                                'True when the exposure event is captured server-side and the query filters on the `$feature\/<flag_key>` property instead.'
+                                'Narrow to sessions of people exposed to this variant. Null means every variant.'
                             ),
                     })
-                    .describe("The experiment a scanner's targeting watches. Metadata only; scanning never reads it."),
+                    .describe(
+                        "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it."
+                    ),
                 zod.null(),
                 zod.null(),
             ])
@@ -1388,6 +1455,7 @@ export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
 export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
 export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
+export const visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax = 400
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1424,6 +1492,29 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .default(visionScannersEstimateCreateBodyModelDefault)
             .describe(
                 'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
+            ),
+        experiment_targeting: zod
+            .union([
+                zod
+                    .object({
+                        experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
+                        variant: zod
+                            .string()
+                            .max(visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax)
+                            .nullish()
+                            .describe(
+                                'Narrow to sessions of people exposed to this variant. Null means every variant.'
+                            ),
+                    })
+                    .describe(
+                        "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it."
+                    ),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user.'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')

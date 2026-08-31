@@ -111,8 +111,7 @@ class TestDirectMotherDuckQuery(APIBaseTest):
             send_raw_query=True,
         )
         with patch(_TRANSPORT_CONNECT, side_effect=_local_duckdb):
-            with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                response = executor.execute()
+            response = executor.execute()
 
         self.assertEqual(response.results, [(3, "ny")])
         self.assertEqual(response.types, [("n", "Int64"), ("c", "String")])

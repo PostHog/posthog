@@ -60,6 +60,8 @@ import type {
     ExperimentSessionEventDeltaResponseApi,
     ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
+import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
+import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import type { ExperimentIdType } from '../../../types'
 import type { ExperimentSavedMetric } from '../experimentLogic'
@@ -79,6 +81,14 @@ import {
 
 export interface ExperimentReplayTabLogicProps {
     experiment: Experiment
+}
+
+/** A scanner already watching this experiment, for the back-link on the Recordings tab. */
+export interface LinkedScanner {
+    id: string
+    name: string
+    scannerType: ScannerTypeEnumApi
+    observationsThisMonth: number
 }
 
 /** One experiment metric offered in the recordings tab's "Metric events" dropdown. */
@@ -171,6 +181,8 @@ export interface experimentReplayTabLogicValues {
     bucketSessionIds: string[] | undefined
     effectiveMetricUuids: string[]
     effectiveVariantKey: string | null
+    linkedScanners: LinkedScanner[]
+    linkedScannersLoading: boolean
     loadedRecordings: ExperimentReplayRecording[]
     loadedRecordingsById: Map<string, ExperimentReplayRecording>
     metricFilterMode: ExperimentReplayMetricFilterMode
@@ -264,6 +276,31 @@ export interface experimentReplayTabLogicActions {
         payload?: any
         seenTogetherMap: Record<string, boolean>
     } // viewRecordingsLinkabilityLogic
+    loadLinkedScanners: (_?: unknown) => unknown
+    loadLinkedScannersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLinkedScannersSuccess: (
+        linkedScanners: {
+            id: string
+            name: string
+            observationsThisMonth: number
+            scannerType: ScannerTypeEnumApi
+        }[],
+        payload?: unknown
+    ) => {
+        linkedScanners: {
+            id: string
+            name: string
+            observationsThisMonth: number
+            scannerType: ScannerTypeEnumApi
+        }[]
+        payload?: unknown
+    }
     loadSessionBucket: (_?: unknown) => unknown
     loadSessionBucketFailure: (
         error: string,
@@ -313,6 +350,9 @@ export interface experimentReplayTabLogicActions {
         recordings: ExperimentReplayRecording[]
     }
     reportTabViewed: () => {
+        value: true
+    }
+    scannerCrossSellClicked: () => {
         value: true
     }
     selectWatchCard: (card: ExperimentWatchCardApi | null) => {
@@ -444,6 +484,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         watchHighlightOpened: (card: ExperimentWatchCardApi, position: number) => ({ card, position }),
         prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
         reportTabViewed: true,
+        scannerCrossSellClicked: true,
     }),
     loaders(({ values, props, actions }) => ({
         sessionBucket: [
@@ -503,6 +544,30 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     )
                     breakpoint()
                     return response
+                },
+            },
+        ],
+        linkedScanners: [
+            [] as LinkedScanner[],
+            {
+                // The scanners already watching this experiment. The `experiment_id` filter is gated
+                // on the caller's experiment access server-side, so an unreadable experiment resolves
+                // to an empty list. Fail-soft to []: the tab must render even if the lookup fails.
+                loadLinkedScanners: async (_: unknown = null, breakpoint) => {
+                    try {
+                        const response = await visionScannersList(String(values.currentProjectId), {
+                            experiment_id: String(props.experiment.id),
+                        })
+                        breakpoint()
+                        return response.results.map((scanner) => ({
+                            id: scanner.id,
+                            name: scanner.name,
+                            scannerType: scanner.scanner_type,
+                            observationsThisMonth: scanner.observations_this_month,
+                        }))
+                    } catch {
+                        return []
+                    }
                 },
             },
         ],
@@ -938,6 +1003,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 friction_cards: kindCount(ExperimentWatchCardKindEnumApi.Friction),
                 variant_only_cards: kindCount(ExperimentWatchCardKindEnumApi.VariantOnly),
                 metric_cards: kindCount(ExperimentWatchCardKindEnumApi.Metric),
+                dropped_duplicate_cards: sessionEventDeltas.dropped_duplicate_cards,
             })
         },
         selectWatchCard: ({ card }) => {
@@ -1006,6 +1072,13 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 linkable_metric_count: values.metricOptions.filter((option) => !option.unlinkable).length,
             })
         },
+        scannerCrossSellClicked: () => {
+            void addProductIntentForCrossSell({
+                from: ProductKey.EXPERIMENTS,
+                to: ProductKey.REPLAY_VISION,
+                intent_context: ProductIntentContext.EXPERIMENT_CREATE_SCANNER,
+            })
+        },
         prefetchSessionContexts: async ({ sessionIds }, breakpoint) => {
             if (!values.featureFlags[FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT] || sessionIds.length === 0) {
                 return
@@ -1035,6 +1108,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
     })),
     afterMount(({ values, actions }) => {
         actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
+        // Only the vision entry point renders the watching-scanners card, so don't spend the lookup
+        // for everyone else who opens this tab without the flag.
+        if (values.featureFlags[FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]) {
+            actions.loadLinkedScanners()
+        }
 
         // The mode persists, so a tab reopened in a bucket needs its session set again.
         if (values.sessionBucketRequest) {

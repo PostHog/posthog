@@ -3,7 +3,7 @@ name: writing-tests
 description: >
   Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
   Use before adding or substantially changing any pytest, Jest, or Playwright test — whenever an agent or engineer is about to write tests for a new feature, bugfix, or PR.
-  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network).
+  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network; no time bombs from a frozen clock meeting real-clock retention).
   Includes a "don't write it" decision tree. For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
 ---
 
@@ -12,9 +12,11 @@ description: >
 The rationale and the same rules in human-facing form live in the handbook: [Backend coding conventions › Testing](https://posthog.com/handbook/engineering/conventions/backend-coding#testing) (`docs/published/handbook/engineering/conventions/backend-coding.md`).
 This skill is the operational gate — run it before writing tests. It carries the decision procedure plus [a catalog of the bug shapes we actually ship](references/mistakes-we-make.md).
 
-## The gate: one question
+## The gate: two questions
 
-Before writing any test, answer in one sentence:
+Before writing any test, answer both in one sentence each.
+
+### 1. Does it earn its place?
 
 > **What realistic regression does this test catch that no existing test already catches?**
 
@@ -27,6 +29,24 @@ That is a test worth keeping.
 Aim each test at a failure mode we actually hit, not a hypothetical.
 The bugs PostHog ships and reverts cluster into a handful of shapes — cataloged with the test that catches each, and the failure modes no unit test should, in [references/mistakes-we-make.md](references/mistakes-we-make.md).
 If your test doesn't map to one of them, be skeptical it's worth keeping.
+
+### 2. Where does it go?
+
+Passing the first question buys the _coverage_, not a new test function.
+Find the test that already covers the nearest behavior and answer:
+
+> **Why can't this be a case in that test?**
+
+When your case is a variation of that behavior, extend it: a `@parameterized` case in Python, a `test.each` row in Jest.
+A new standalone test is what you write when extending doesn't work, and you should be able to say why in a sentence: the setup differs, the behavior belongs to a different unit, or no relevant test exists.
+"It's cleaner as its own test" isn't a reason on its own; name which of those three applies.
+
+Extend to remove duplication, not to save setup time.
+A parameterized case is still its own test invocation, so `setUp` and `beforeEach` run for it just as they would for a standalone function.
+That sets the limit too: fold in variations of the same behavior, and don't bolt assertions about unrelated behavior onto a test that already passes.
+
+Search before you write.
+If you haven't looked for the nearest existing test, you can't answer this question.
 
 ## Don't write it — the five no's
 
@@ -91,6 +111,7 @@ Escalating to the next rung is the last resort, not the default.
   - testing `transaction.on_commit` side effects → use `TestCase` + `self.captureOnCommitCallbacks(execute=True)`.
   - needing a connection visible across a real separate thread (`thread_sensitive`) → `async_to_sync(...)`, not `asyncio.run(...)`.
     Use `TransactionTestCase` only when the regression genuinely requires committed transaction boundaries that `TestCase` hides.
+- **Dedicated data migration tests are temporary.** Remove a dedicated test after every supported environment has applied the migration, the rollback window has closed, and no supported upgrade relies on the old data state. Delete the expired test instead of marking it skipped. Keep the migration file and tests for migration tooling, safety checks, reusable backfill systems, and backfills people can still run. Use `/django-migrations` for the migration safety workflow.
 - **DRF input-validation belongs in a `SimpleTestCase`, not an `APIBaseTest` round-trip.**
   A test that posts a malformed body to an endpoint and asserts a 400 pays for `APIBaseTest` to build an Organization + Team + User in Postgres and wrap the test in a transaction — just to exercise validation that runs entirely in memory.
   DRF field validators (`required`, type coercion, `choices`, `min/max`, regex) and `validate_<field>` methods run inside `Serializer(data=...).is_valid()` with no database and no request: field-level validation happens in `to_internal_value`, _before_ the object-level `validate()` that typically needs `self.context`. So an invalid-field case never reaches the DB-touching code.
@@ -112,7 +133,8 @@ Escalating to the next rung is the last resort, not the default.
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
   Don't mock your own internal helpers (that's how change-detector tests are born).
 - **Person/group/cohort data:** use the helpers in `posthog/test/persons.py` (`create_person`, `create_group`, `create_group_type_mapping`, `add_cohort_members`, etc.) — never `Person.objects.create()` or similar ORM calls directly.
-  See [`posthog/test/AGENTS.md`](../../posthog/test/AGENTS.md) for the full API reference and rationale.
+  See [`posthog/test/AGENTS.md`](../../../posthog/test/AGENTS.md) for the full API reference and rationale.
+- **Whole-repo guards go in `posthog/test/repo_invariants/`.** If a test's input is the entire repo — it walks `apps.get_models()`, inspects `sys.modules` after a cold `django.setup()`, enumerates every route or signal receiver, or `rglob`s the tree against a baseline — any file anywhere can break it and diff-based test selection can't select it. That directory runs unconditionally in the `repo-checks` CI job on every backend PR (products-only and drafts included) with no Postgres/ClickHouse, and the Core shards skip it. Tests with a bounded input stay next to the code they cover.
 
 ### Frontend (Jest)
 
@@ -132,6 +154,14 @@ Escalating to the next rung is the last resort, not the default.
 - **No `time.sleep` / arbitrary waits.**
   Use fake timers, `wait_for` / `waitFor` on a real condition, or `freeze_time`.
   A sleep is a flake waiting to happen, and it slows every run.
+- **A frozen clock doesn't freeze the infrastructure.**
+  `freeze_time` patches the clock inside your process; everything outside it still runs on the real one — ClickHouse TTL, Postgres `now()` defaults, S3 lifecycle rules, another service's token-expiry check.
+  So freezing to an absolute date and then writing rows that something judges by age builds a **time bomb**: green for weeks, then red forever once wall-clock time drifts past the retention window.
+  It fails on every branch at once, so it reads as though whichever PR is in front of you caused it — and that misattribution, not the fix, is where the time goes.
+  Ask it of every absolute `freeze_time`: _what happens when today is a year past this date?_ If the answer isn't "the same thing", fix it before you commit.
+  Most ClickHouse tables are already safe: they build their TTL through `ttl_period()` ([`posthog/clickhouse/kafka_engine.py`](../../../posthog/clickhouse/kafka_engine.py)), which returns `""` under `settings.TEST`, so tests get no TTL at all.
+  A table that hardcodes its `TTL` clause opts out of that guard — `ai_events` is one. Check rather than assume: `grep -rlE '^\s*TTL ' posthog/models/ posthog/clickhouse/ --include=*.py`.
+  Make the row's lifetime independent of the ambient clock instead — pin the retention column on insert, the way `bulk_create_ai_events` writes `retention_days=10000`. Moving the frozen date forward only resets the timer.
 - **No real network / live external services.** Mock the boundary.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.

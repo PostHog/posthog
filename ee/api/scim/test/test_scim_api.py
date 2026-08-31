@@ -5,13 +5,15 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+
+from products.access_control.backend.models.role import Role
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.scim.user import PostHogSCIMUser
 from ee.api.scim.utils import get_scim_base_url
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role
 
 
 class TestSCIMAPI(APILicensedTest):
@@ -40,8 +42,9 @@ class TestSCIMAPI(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -52,11 +55,13 @@ class TestSCIMAPI(APILicensedTest):
     def test_scim_uses_config_slug(self):
         self.config.scim_slug = "custom-scim-slug"
         self.config.save(update_fields=["scim_slug"])
-        OrganizationDomain.objects.create(
+        second_domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="example.co.uk",
             verified_at="2024-01-01T00:00:00Z",
-            identity_provider_config=self.config,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=second_domain, identity_provider_config=self.config
         )
         self.client.credentials(**self.scim_headers)
 
@@ -85,7 +90,7 @@ class TestSCIMAPI(APILicensedTest):
 
     def test_invalid_token(self):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid_token")
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         data = response.json()
         assert "schemas" in data
@@ -101,7 +106,7 @@ class TestSCIMAPI(APILicensedTest):
             domain="no-config.example.com",
             verified_at="2024-01-01T00:00:00Z",
         )
-        assert unconfigured.identity_provider_config is None
+        assert not unconfigured.identity_provider_configs.exists()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.plain_token}")
         response = self.client.get(f"/scim/v2/{unconfigured.id}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -119,16 +124,15 @@ class TestSCIMAPI(APILicensedTest):
         config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        unverified.identity_provider_config = config
-        unverified.save()
-        assert unverified.has_scim  # config is SCIM-enabled with a token
+        LinkedIdentityProviderConfig.objects.create(organization_domain=unverified, identity_provider_config=config)
+        assert config.has_scim
 
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {plain_token}")
         response = self.client.get(f"/scim/v2/{unverified.id}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_no_token(self):
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         data = response.json()
         assert "schemas" in data
@@ -138,7 +142,7 @@ class TestSCIMAPI(APILicensedTest):
 
     def test_malformed_auth_header(self):
         self.client.credentials(HTTP_AUTHORIZATION="Basic invalid_token")
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         data = response.json()
         assert "schemas" in data
@@ -158,7 +162,7 @@ class TestSCIMAPI(APILicensedTest):
 
     def test_service_provider_config(self):
         self.client.credentials(**self.scim_headers)
-        response = self.client.get(f"/scim/v2/{self.domain.id}/ServiceProviderConfig")
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/ServiceProviderConfig")
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -172,7 +176,7 @@ class TestSCIMAPI(APILicensedTest):
         self.organization.save()
 
         self.client.credentials(**self.scim_headers)
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         data = response.json()
         assert "schemas" in data
@@ -183,14 +187,14 @@ class TestSCIMAPI(APILicensedTest):
     def test_scim_users_endpoint(self):
         """Test that SCIM Users endpoint works with valid license"""
         self.client.credentials(**self.scim_headers)
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")
         assert response.status_code == status.HTTP_200_OK
         assert "Resources" in response.json()
 
     def test_scim_groups_endpoint(self):
         """Test that SCIM Groups endpoint works with valid license"""
         self.client.credentials(**self.scim_headers)
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups")
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Groups")
         assert response.status_code == status.HTTP_200_OK
         assert "Resources" in response.json()
 
@@ -213,7 +217,7 @@ class TestSCIMAPI(APILicensedTest):
         other_user = self._create_user_in_other_org()
         self.client.credentials(**self.scim_headers)
 
-        url = f"/scim/v2/{self.domain.id}/Users/{other_user.id}"
+        url = f"/scim/v2/{self.config.scim_slug}/Users/{other_user.id}"
 
         if method == "get":
             response = self.client.get(url)
@@ -261,7 +265,7 @@ class TestSCIMAPI(APILicensedTest):
         other_role = self._create_group_in_other_org()
         self.client.credentials(**self.scim_headers)
 
-        url = f"/scim/v2/{self.domain.id}/Groups/{other_role.id}"
+        url = f"/scim/v2/{self.config.scim_slug}/Groups/{other_role.id}"
 
         if method == "get":
             response = self.client.get(url)
@@ -318,8 +322,9 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -410,7 +415,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         )
 
         response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
+            f"/scim/v2/{self.config.scim_slug}/Users",
             self._scim_user_data("valid@example.com"),
             format="json",
         )
@@ -418,7 +423,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         user_id = response.json()["id"]
 
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Users/{user_id}",
+            f"/scim/v2/{self.config.scim_slug}/Users/{user_id}",
             self._scim_user_data("valid@partner.com"),
             format="json",
         )
@@ -438,7 +443,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         self.client.credentials(**self.scim_headers)
 
         response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
+            f"/scim/v2/{self.config.scim_slug}/Users",
             self._scim_user_data("valid@example.com"),
             format="json",
         )
@@ -454,13 +459,13 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
     def _change_email(self, method: str, user_id: str, new_email: str):
         if method == "put":
             return self.client.put(
-                f"/scim/v2/{self.domain.id}/Users/{user_id}",
+                f"/scim/v2/{self.config.scim_slug}/Users/{user_id}",
                 self._scim_user_data(new_email),
                 format="json",
             )
         elif method == "patch_replace":
             return self.client.patch(
-                f"/scim/v2/{self.domain.id}/Users/{user_id}",
+                f"/scim/v2/{self.config.scim_slug}/Users/{user_id}",
                 {
                     "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
                     "Operations": [{"op": "replace", "path": "emails", "value": [{"value": new_email}]}],
@@ -469,7 +474,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
             )
         elif method == "patch_add":
             return self.client.patch(
-                f"/scim/v2/{self.domain.id}/Users/{user_id}",
+                f"/scim/v2/{self.config.scim_slug}/Users/{user_id}",
                 {
                     "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
                     "Operations": [{"op": "add", "path": "emails", "value": [{"value": new_email}]}],
@@ -517,7 +522,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         )
 
         response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
+            f"/scim/v2/{self.config.scim_slug}/Users",
             self._scim_user_data("user@example.com"),
             format="json",
         )
@@ -525,7 +530,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         user_id = response.json()["id"]
 
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Users/{user_id}",
+            f"/scim/v2/{self.config.scim_slug}/Users/{user_id}",
             self._scim_user_data("user@partner.com"),
             format="json",
         )
@@ -559,8 +564,9 @@ class TestSCIMAuditLogging(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -577,7 +583,7 @@ class TestSCIMAuditLogging(APILicensedTest):
     def _create_scim_user(self, email: str = "testuser@example.com") -> str:
         self.client.credentials(**self.scim_headers)
         response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
+            f"/scim/v2/{self.config.scim_slug}/Users",
             self._scim_user_data(email),
             format="json",
         )
@@ -605,13 +611,13 @@ class TestSCIMAuditLogging(APILicensedTest):
             pass
         elif method == "put":
             self.client.put(
-                f"/scim/v2/{self.domain.id}/Users/{user_id}",
+                f"/scim/v2/{self.config.scim_slug}/Users/{user_id}",
                 self._scim_user_data("testuser@example.com", "Updated", "Name"),
                 format="json",
             )
         elif method == "patch":
             self.client.patch(
-                f"/scim/v2/{self.domain.id}/Users/{user_id}",
+                f"/scim/v2/{self.config.scim_slug}/Users/{user_id}",
                 {
                     "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
                     "Operations": [{"op": "replace", "path": "name", "value": {"givenName": "Patched"}}],
@@ -619,7 +625,7 @@ class TestSCIMAuditLogging(APILicensedTest):
                 format="json",
             )
         elif method == "delete":
-            self.client.delete(f"/scim/v2/{self.domain.id}/Users/{user_id}")
+            self.client.delete(f"/scim/v2/{self.config.scim_slug}/Users/{user_id}")
 
         log = ActivityLog.objects.filter(
             scope="User",
@@ -657,8 +663,9 @@ class TestSCIMGroupAuditLogging(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -673,7 +680,7 @@ class TestSCIMGroupAuditLogging(APILicensedTest):
     def _create_scim_group(self, name: str = "Engineering") -> str:
         self.client.credentials(**self.scim_headers)
         response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Groups",
+            f"/scim/v2/{self.config.scim_slug}/Groups",
             self._scim_group_data(name),
             format="json",
         )
@@ -699,13 +706,13 @@ class TestSCIMGroupAuditLogging(APILicensedTest):
             pass
         elif method == "put":
             self.client.put(
-                f"/scim/v2/{self.domain.id}/Groups/{group_id}",
+                f"/scim/v2/{self.config.scim_slug}/Groups/{group_id}",
                 self._scim_group_data("Updated Engineering"),
                 format="json",
             )
         elif method == "patch":
             self.client.patch(
-                f"/scim/v2/{self.domain.id}/Groups/{group_id}",
+                f"/scim/v2/{self.config.scim_slug}/Groups/{group_id}",
                 {
                     "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
                     "Operations": [{"op": "replace", "path": "displayName", "value": "Patched Engineering"}],
@@ -713,7 +720,7 @@ class TestSCIMGroupAuditLogging(APILicensedTest):
                 format="json",
             )
         elif method == "delete":
-            self.client.delete(f"/scim/v2/{self.domain.id}/Groups/{group_id}")
+            self.client.delete(f"/scim/v2/{self.config.scim_slug}/Groups/{group_id}")
 
         log = ActivityLog.objects.filter(
             scope="Role",

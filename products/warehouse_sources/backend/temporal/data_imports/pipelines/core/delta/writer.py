@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_column_name,
     raise_on_nullability_drift,
     realign_decimal_buffers,
+    relax_batch_nullability,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
@@ -294,6 +295,11 @@ class DeltaWriter:
         # freshly allocated by pyarrow and so inherit safe alignment.
         data = realign_decimal_buffers(data)
 
+        # A source can declare a column NOT NULL and still send nulls in it, and every delta path
+        # below refuses such a batch. Correct the claim first, which also creates a new table with
+        # nullability that matches its data (see relax_batch_nullability).
+        data = relax_batch_nullability(data)
+
         delta_table = await self._table.get_delta_table()
 
         if delta_table:
@@ -340,11 +346,6 @@ class DeltaWriter:
             # stored types up front so the merge cast is a no-op, or raise a clean reset signal.
             data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
-            # A source that starts emitting nulls in a column the table created non-nullable is a
-            # schema change under the table; neither deltalite nor delta-rs can relax it in place, so
-            # raise the same reset signal to get the table fully re-synced.
-            raise_on_nullability_drift(data, delta_table.schema())
-
             existing_delta_table = delta_table
 
             await self._logger.adebug(f"write: merging...")
@@ -381,6 +382,13 @@ class DeltaWriter:
                 use_partitioning=use_partitioning,
                 commit_metadata=commit_metadata,
             )
+
+            if not deltalite_wrote:
+                # A batch with nulls in a column the table declares non-nullable: deltalite relaxes
+                # the column to nullable in the table metadata and writes, but the delta-rs MERGE
+                # cannot relax in place and would silently write the nulls under a schema that
+                # denies them. Guard only the fallback path with the reset signal.
+                raise_on_nullability_drift(data, delta_table.schema())
 
             if not deltalite_wrote and use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")

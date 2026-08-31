@@ -74,9 +74,8 @@ export function mergeConversationItems({
   }
 
   // When the echoed prompt matches a pinned optimistic placeholder, drop the
-  // echo but remember it: it may carry the channel CONTEXT.md block and the
-  // attachment chips the placeholder lacks, so we surface the richer copy on
-  // the pinned bubble below.
+  // echo but remember it. The server copy supplies the authoritative timestamp
+  // as well as context and attachments, while the optimistic id keeps the row stable.
   const echoedItemByKey = new Map<string, UserMessageItem>();
   const consumedPlainEchoByKey = new Set<string>();
   const dedupedConversation =
@@ -111,14 +110,17 @@ export function mergeConversationItems({
       : pinnedOptimisticItems.map((item) => {
           if (item.type !== "user_message") return item;
           const echoed = echoedItemByKey.get(strippedUserContent(item.content));
-          if (
-            !echoed ||
-            (echoed.content === item.content && !echoed.attachments?.length)
-          ) {
-            return item;
+          if (!echoed) return item;
+          const resolvedItem = {
+            ...item,
+            timestamp: echoed.timestamp,
+            pinToTop: undefined,
+          };
+          if (echoed.content === item.content && !echoed.attachments?.length) {
+            return resolvedItem;
           }
           return {
-            ...item,
+            ...resolvedItem,
             content: echoed.content,
             ...(echoed.attachments?.length
               ? { attachments: echoed.attachments }

@@ -1,9 +1,9 @@
 # Canvas (Website space) — patterns
 
 Conventions for the channel-scoped Website space: channels and canvases. A canvas
-is an agent-authored single-file React app rendered in a sandboxed iframe. Read
-this before changing breadcrumbs, canvas naming, or the canvas generation harness.
-The root `AGENTS.md` architecture rules still apply.
+is an agent-authored browser app rendered in a sandboxed iframe. Read this before
+changing breadcrumbs, canvas naming, or the canvas generation harness. The root
+`AGENTS.md` architecture rules still apply.
 
 ## Components & styling
 
@@ -36,20 +36,48 @@ The root `AGENTS.md` architecture rules still apply.
 
 ## Spaces & chrome
 
-- Spaces is a **top-level space** reached through the app rail (`AppNav`),
-  gated behind `project-bluebird` and wired in `routes/__root.tsx`. The rail's
-  spaces are Code (`/code`), Inbox (`/inbox`), and Spaces (`/website`).
+- Spaces is a rail destination, gated behind `project-bluebird` and wired in
+  `routes/__root.tsx`.
+  The rail's destinations and the paths they claim live in one table,
+  `railPane.ts`: Home (`/`), Spaces (`/spaces`), Activity (`/activity`),
+  Inbox (`/inbox`), Command Center (`/command-center`), Loops (`/loops`).
+  Unclaimed routes belong to Spaces.
+  Only Spaces and Activity own the column beside the rail; the rest are
+  whole-screen, so no route under them may draw a second nav.
+- **A rail pick returns you to where that destination was**, not to its index.
+  `BrowserTabStrip` records the settled route per destination in the active
+  tab's `viewState.lastByPane`, and `pickRailDestination` replays it. Only Spaces
+  carries sidebar state on top of its href. Clicking the destination you are
+  already on never restores — it runs `onReclick`, which for Spaces means the
+  list.
+  Anything a destination does besides navigating must live in its route
+  component, not its `onPick`: the restore path navigates by href and never
+  reaches the navigation bridge.
+- **Testing flag-off locally:** dev builds default `project-bluebird` and
+  `code-spaces-layout` on, and that default beats posthog's own override. Force
+  them off with
+  `localStorage.setItem("ph-dev-flags-off", "project-bluebird,code-spaces-layout")`
+  and reload (see `devFlagOverrides.ts`). Bluebird-only paths are listed in
+  `bluebirdRoutes.ts`; a flag-off user who restores one lands on a new task.
+- Routes are flat, and the ones wearing the spaces chrome are grouped under the
+  **pathless** `_shell` layout rather than a URL prefix.
+  Match `fullPath` (the route's own pattern) rather than the resolved URL when
+  deciding what a route is: a space id could otherwise impersonate a
+  destination.
 - The Spaces UI has **its own chrome**: rail + a persistent channel-list
-  sidebar (`ChannelsList`, rendered in `__root`) + the `WebsiteLayout` outlet. It
+  sidebar (`ChannelsList`, rendered in `__root`) + the `ShellLayout` outlet. It
   does NOT use the code `HeaderRow`/`MainSidebar`, so breadcrumbs render in
-  `WebsiteLayout`'s own top bar (below).
+  `ShellLayout`'s own top bar (below).
 - Under the channels layout the sidebar is a **master/detail slider**
   (`ChannelPanes` in `ChannelsSidebar.tsx`): the searchable channel list, and the
   channel you're in (`ChannelSidebar`, headed by `ChannelBackRow`). Both panes
   stay mounted — the offscreen one is `inert` — so the slide has something to
   slide and returning to the list doesn't rebuild every row. A two-finger
   horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
-  accumulated per gesture and locked until the wheel goes quiet).
+  accumulated per gesture and locked until the wheel goes quiet). The track
+  animates only for a space-row click or the back row; tab restoration, route
+  sync, hotkeys, rail restoration, and swipes snap directly to their pane so
+  unrelated navigation never moves the sidebar across the reader.
 - In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
   private "personal" row leads the Starred section and takes the same inset as the
   spaces beside it. It is the one row that carries a glyph: the lock is the only
@@ -62,11 +90,13 @@ The root `AGENTS.md` architecture rules still apply.
   Four routes carry a channel's name — the channel list, an activity row, a
   mention row, and remote search — and each calls it, because only the first
   goes through `useTaskChannels`.
-  Recognition uses `channel_type`, never the name.
+  Recognition of a full channel object goes through `isPersonalChannel`/`isGeneralChannel`
+  (`@posthog/core/canvas/channelName`), which check `system_role` first and fall back to
+  `channel_type`/name for a server that predates the field — never the name alone.
 - **The lock follows what a space is, not what it is called.** `channelGlyph`
-  takes a `personal` flag, and every caller holding the channel passes
-  `channelType === "personal"`; the name match behind it is a fallback for
-  surfaces that hold a bare name.
+  takes a `personal` flag; a caller holding the channel object should pass
+  `isPersonalChannel(channel)` rather than `channelType === "personal"` directly, and the
+  name match behind it is a fallback for surfaces that hold only a bare name.
   A public space named `personal` used to wear the lock while the real private
   space showed none, which is a space impersonating yours.
   `validateChannelName` reserves `personal` and `me` so the create and rename
@@ -133,6 +163,12 @@ The root `AGENTS.md` architecture rules still apply.
   this window has the session, otherwise the closing prose a cloud run persists
   to `latest_run.output.final_message`.
   Neither costs a request.
+- **The open session's header wears the same marks under bluebird.** `TaskHeaderMark` / `TaskHeaderActions` (task-detail) draw `taskDot` and `taskBadges` around the title, from `useTaskStatusInput` — the row hook's task-shaped half, which `useChannelTaskStatus` now delegates to.
+  Off the flag the header keeps its workspace-mode glyph, and the PR lookup is skipped with it.
+  So the cloud glyph goes: it said where the run lives and nothing about whether the run wants anything, and in this vocabulary cloud is silent — running there is the default, so only the local exception earns a badge.
+- **After the title they are controls, not an avatar stack.** The header is one line about one session, sitting beside a live copy-link button, so what it can act on it draws as quill icon buttons: the pin toggles (always shown, filled when pinned), and a badge carrying a `url` opens it.
+  Badges with nothing to go to — `Local`, a plain origin — stay marks with a tooltip, sized to the button box so the row doesn't step as badges come and go.
+  The PR badge is dropped here: `TaskActionsMenu` sits at the end of the same row and already draws the PR in its lifecycle colour with its actions behind it.
 - **The card's badges are buttons where they point somewhere; the row's never are.** A row is a `<button>`, so its badges stay spans — the card isn't, so a badge carrying a `url` opens it externally and is underlined, dotted, to say so.
   `taskBadges` sets the url on the PR badges, and on the origin badge for Slack — the one origin that hands back a place to go (`slack_thread_url` off the run's state), rather than just naming itself.
   A PR's url reaches the badge by two routes: a cloud run's `pr_url`, or the one the host cached against the task, which `getTaskPrStatus` returns alongside the state so a local PR is clickable too.
@@ -168,21 +204,37 @@ The root `AGENTS.md` architecture rules still apply.
   tree scrolls rows under a stationary cursor, so prefetching straight from
   `pointerenter` fired a request for every row the list passed and made each
   keypress take a second.
-- **Keyboard contract of the list.** The search box holds focus and drives
-  everything: ↑/↓ walk every visible row, → opens the highlighted space (and
+- **Keyboard contract of the list.** `SidebarSearchHeader` gives Spaces and
+  Activity the same title and search treatment. Its shared focus request means
+  ⌘⇧S opens the sidebar and focuses whichever search is visible. Both lists
+  are permanently open inline Autocompletes: the search box keeps focus while
+  ↑/↓ walk every visible row and Enter opens it. In Spaces, the input also
+  drives the tree: → opens the highlighted space (and
   again steps into it), ← closes the space you're in and puts the highlight back
   on it. Both arrows defer to the text caret first, so they still edit the
-  query. ⌘⇧S from anywhere opens the sidebar, slides back to the list and takes
-  the keyboard; it is advertised on the search box (until a query replaces it
+  query. From elsewhere, ⌘⇧S slides Spaces back to the list and takes the
+  keyboard; it is advertised on the search box (until a query replaces it
   with the clear button) and on the space's back row, which is what it does from
   inside a space. Autocomplete has no API for setting the highlight, so moving it
   means synthesizing the arrow keys it listens for — and moving *before*
   collapsing, while the rows still exist.
-- One `ChannelsFab` serves both panes: given a `channelId` it creates inside
-  that channel (task, canvas); from the list, where nothing else offers it, it
-  creates a space instead. Off the layout it keeps its original two-item menu.
+- One `ChannelsFab` serves both panes: given a `channelId` it creates a task in
+  that channel; from the list, where nothing else offers it, it creates a space
+  instead. Off the layout it keeps its original two-item menu.
   Archived moves out of the sidebar and into the account menu
   (`ProjectSwitcher`), beside Settings.
+- **Activity mixes task updates with a bounded Self-driving preview.** Both
+  `ActivityFeedList` and `ActivityView` merge their task activity with up to
+  three reports matching Activity's persisted Inbox filters, then sort and group
+  the combined rows by activity time. The Activity actions menu has an Include
+  section: Mentions are on by default and Self-driving is off. Enabling
+  Self-driving reveals its P1/For you defaults plus scope, source, PR state,
+  sort, and priority filters without changing the Inbox page's filters. Inbox
+  reports do not have the task activity read model, so the unreads-only view
+  hides them. If more than three match, the overflow row copies Activity's Inbox
+  filters into `/inbox/reports` before opening it.
+  Picking a preview report stays on `/activity` and renders that already-loaded
+  report beside the feed while its detail query refreshes in the background.
 - **Which pane shows is view state, not a route.** `channelPaneStore` holds it,
   separately from the scoped channel (`currentChannelStore`): "back to channels"
   browses the list while the route, the main pane and the scoped channel stay
@@ -191,20 +243,21 @@ The root `AGENTS.md` architecture rules still apply.
   The one exception is a session opened from the list's tree: it loads in the
   main window and leaves the sidebar on the list, because picking a session
   while browsing across spaces is not a request to go into one. It says so with
-  `keepListForNextRoute()`, which the route effect consumes in place of sliding.
+  `keepListForRoute(spaceId)`, which the route effect checks in place of sliding;
+  the first-run landing on #general uses the same latch.
 
 ## Breadcrumbs
 
-- **`WebsiteLayout` renders its own top bar.** The Spaces UI has no code
+- **`ShellLayout` renders its own top bar.** The Spaces UI has no code
   `HeaderRow`, so breadcrumbs (and the dashboard controls) are a local bar inside
-  `WebsiteLayout`, not pushed through the header store.
+  `ShellLayout`, not pushed through the header store.
 - **A page does not get its own crumb — its H1 is the title.** A view that
   renders its own `<h1>` is NOT repeated as a breadcrumb segment for itself. The
   dashboards grid's h1 is "Dashboards"; a single dashboard's h1 is its name.
 - **A parent index IS a crumb when you're on a child, but not when you're on it.**
-  - On the grid (`/website/$channelId`): trail is `#channel` only — no
+  - On the grid (`/spaces/$channelId`): trail is `#channel` only — no
     "Dashboards" crumb (its own h1 covers it, and `#channel` already links here).
-  - On a single dashboard (`/website/$channelId/dashboards/$id`): trail is
+  - On a single dashboard (`/spaces/$channelId/dashboards/$id`): trail is
     `#channel / Dashboards`, where `Dashboards` links back to the grid. The
     dashboard's name is the h1 below, not a crumb.
 - Crumbs reflect navigable parents above the current page; the current page is
@@ -213,9 +266,8 @@ The root `AGENTS.md` architecture rules still apply.
 ## Canvas naming
 
 - **A canvas's name is its own field on the record**, set at creation
-  (`Untitled canvas` by default; the template picker / `useCreateAndOpenDashboard`
-  drive it). It is independent of any heading the agent renders inside the
-  React app.
+  (`Untitled canvas` by default; `useCreateAndOpenDashboard` drives it). It is
+  independent of any heading the agent renders inside the React app.
 
 ## Storage
 
@@ -227,6 +279,19 @@ The root `AGENTS.md` architecture rules still apply.
   output is the published build's artifact, served from the isolated artifact
   origin. See `@posthog/core/canvas/dashboardsService.ts` and
   `dashboardSchemas.ts` for the record/source/version shapes.
+- **Two components render a canvas, and `FreeformCanvasView` picks between
+  them.** A build's artifact renders in `BuiltCanvas`; a canvas with no
+  successful build yet falls back to the head project's single
+  `CANVAS_COMPONENT_PATH` file in the `FreeformCanvas` srcDoc sandbox (which
+  transpiles in-browser and resolves imports off esm.sh). Both go through the
+  same `canvasHostMessageRouter`, so protocol and guard changes belong there
+  rather than in either host.
+- **Capabilities gate viewers, not authors.** `assertCanvasCapability` runs only
+  in `BuiltCanvas`, against the manifest frozen into that build. The edit path is
+  deliberately full-access — the author is running their own code against their
+  own session — so the asymmetry is the design, not a gap to close. See the
+  two-tier security model in `docs/CANVAS-FREEFORM-REACT-PLAN.md` before changing
+  what either tier may reach.
 
 ## Channel sidebar preloading
 

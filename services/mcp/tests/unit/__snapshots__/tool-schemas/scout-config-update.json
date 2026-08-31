@@ -59,12 +59,35 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "description": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                    "description": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set."
                                 },
                                 "integration_id": {
                                     "description": "ID of the Slack integration whose bot posts this scout's findings and reports.",
                                     "minimum": 1,
                                     "type": "number"
+                                },
+                                "thread_reports": {
+                                    "default": false,
+                                    "description": "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post.",
+                                    "type": "boolean"
+                                },
+                                "users": {
+                                    "anyOf": [
+                                        {
+                                            "items": {
+                                                "maxLength": 255,
+                                                "pattern": "^[UW][A-Z0-9]{4,}\\s*(\\|.*)?$",
+                                                "type": "string"
+                                            },
+                                            "maxItems": 5,
+                                            "minItems": 1,
+                                            "type": "array"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel."
                                 }
                             },
                             "required": ["integration_id"],
@@ -75,6 +98,24 @@
                         }
                     ],
                     "description": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery."
+                },
+                "webhook": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "hog_function_id": {
+                                    "description": "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["hog_function_id"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                 }
             },
             "type": "object"

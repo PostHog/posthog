@@ -4,11 +4,13 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _HOST_UNREACHABLE_ERROR,
     PostgresSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.supabase.source import SupabaseSource
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
 def _field(name: str) -> SourceFieldInputConfig:
@@ -145,6 +147,79 @@ def test_non_direct_host_failure_uses_postgres_error(host):
 
     assert success is False
     assert error == "postgres error"
+
+
+def _incremental_field(name: str, field_type: IncrementalFieldType) -> IncrementalField:
+    return {"label": name, "type": field_type, "field": name, "field_type": field_type}
+
+
+def _discovered_schema(
+    name: str, source_schema: str, incremental_fields: list[IncrementalField] | None = None
+) -> SourceSchema:
+    return SourceSchema(
+        name=name,
+        supports_incremental=bool(incremental_fields),
+        supports_append=bool(incremental_fields),
+        incremental_fields=incremental_fields or [],
+        source_schema=source_schema,
+        source_table_name=name.split(".")[-1],
+    )
+
+
+def _get_schemas(discovered: list[SourceSchema]) -> list[SourceSchema]:
+    config = mock.MagicMock()
+    config.schema = None
+    with mock.patch.object(PostgresSource, "get_schemas", return_value=discovered):
+        return SupabaseSource().get_schemas(config, team_id=1)
+
+
+def test_vault_tables_are_never_sync_enabled_by_default():
+    # Supabase's vault.decrypted_secrets view decrypts Vault secrets on read; default-enabling
+    # it proposes copying a secrets vault into the warehouse. The tables must stay listed
+    # (scheduled discovery reconciles stored rows against this listing, so dropping them would
+    # disable a vault sync a user deliberately opted into) but start disabled everywhere
+    # should_sync_default applies.
+    discovered = [
+        _discovered_schema("public.orders", "public"),
+        _discovered_schema("vault.secrets", "vault"),
+        _discovered_schema("vault.decrypted_secrets", "vault"),
+    ]
+
+    schemas = _get_schemas(discovered)
+
+    default_on_by_name = {schema.name: schema.should_sync_default for schema in schemas}
+    assert default_on_by_name == {
+        "public.orders": True,
+        "vault.secrets": False,
+        "vault.decrypted_secrets": False,
+    }
+
+
+def test_update_tracking_column_leads_the_incremental_candidates():
+    # Discovery lists candidates in column ordinal order, and several surfaces default to the
+    # first one — without ranking, a table like (priority, dateOfBirth, updated_at) gets a
+    # cursor that never advances and the incremental sync silently goes stale.
+    discovered = [
+        _discovered_schema(
+            "public.tasks",
+            "public",
+            incremental_fields=[
+                _incremental_field("priority", IncrementalFieldType.Integer),
+                _incremental_field("dateOfBirth", IncrementalFieldType.Date),
+                _incremental_field("updated_at", IncrementalFieldType.Timestamp),
+                _incremental_field("created_at", IncrementalFieldType.Timestamp),
+            ],
+        )
+    ]
+
+    schemas = _get_schemas(discovered)
+
+    assert [field["field"] for field in schemas[0].incremental_fields] == [
+        "updated_at",
+        "created_at",
+        "priority",
+        "dateOfBirth",
+    ]
 
 
 def _resolve_friendly_error(source: SupabaseSource, raw_error: str) -> str | None:

@@ -31,6 +31,11 @@ PARQUET_PART_NAME = "part-00000.parquet"
 # label bound 7-8 hours off the UTC partition boundary. An embedded offset overrides that.
 LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
 
+# Dismissal reasons that mean the report itself was wrong (the precision failure the dismiss_wrong
+# head predicts). already_fixed and wontfix_irrelevant are deliberately not here. Shared by the
+# labels SQL (cumulative count) and the head definition.
+WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
+
 partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 
 owner_tags: dict[str, str] = {"owner": JobOwners.TEAM_SELF_DRIVING.value}

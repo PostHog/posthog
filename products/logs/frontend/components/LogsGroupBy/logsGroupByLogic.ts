@@ -13,7 +13,7 @@ import type {
     OrderGroupsByEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
-import type { DateRange, LogSeverityLevel } from '../../../../../frontend/src/queries/schema/schema-general'
+import type { DateRange } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../../../frontend/src/types'
 import type { LogsViewerGroupBy } from '../LogsViewer/config/logsViewerConfigLogic'
 import type { LogsViewerFilters } from '../LogsViewer/config/types'
@@ -88,12 +88,6 @@ export interface logsGroupByLogicActions {
     setSearchTerm: (searchTerm: string | undefined) => {
         searchTerm: string | undefined
     } // logsViewerFiltersLogic
-    setServiceNames: (serviceNames: string[]) => {
-        serviceNames: string[]
-    } // logsViewerFiltersLogic
-    setSeverityLevels: (severityLevels: LogSeverityLevel[]) => {
-        severityLevels: LogSeverityLevel[]
-    } // logsViewerFiltersLogic
     zoomDateRange: (multiplier: number) => {
         multiplier: number
     } // logsViewerFiltersLogic
@@ -151,16 +145,7 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
         ],
         actions: [
             logsViewerFiltersLogic({ id: props.id }),
-            [
-                'setDateRange',
-                'zoomDateRange',
-                'setSeverityLevels',
-                'setServiceNames',
-                'setSearchTerm',
-                'setFilters',
-                'setFilterGroup',
-                'setPinnedFilters',
-            ],
+            ['setDateRange', 'zoomDateRange', 'setSearchTerm', 'setFilters', 'setFilterGroup', 'setPinnedFilters'],
             logsViewerConfigLogic({ id: props.id }),
             ['setGroupBys', 'addGroupBy', 'removeGroupByAt', 'replaceGroupByAt'],
         ],
@@ -182,8 +167,6 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
                     return await logsGroupByCreate(String(values.currentTeamId), {
                         query: {
                             dateRange: values.utcDateRange,
-                            severityLevels: values.filters.severityLevels,
-                            serviceNames: values.filters.serviceNames,
                             searchTerm: values.filters.searchTerm || undefined,
                             // Same scoping as Logs/Patterns: `queryFilterGroup` folds in any pinned
                             // filters from an embedded viewer, so a scoped viewer can't aggregate
@@ -234,8 +217,6 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
         return {
             setDateRange: reload,
             zoomDateRange: reload,
-            setSeverityLevels: reload,
-            setServiceNames: reload,
             setSearchTerm: reload,
             setFilters: reload,
             setFilterGroup: reload,

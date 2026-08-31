@@ -58,6 +58,7 @@ export type VolumeSparklineProps = {
     className?: string
     events?: SparklineEvent<string>[]
     onRangeSelect?: (startDate: Date, endDate: Date) => void
+    onBucketClick?: (startDate: Date, endDate: Date) => void
     onSpikeClick?: (datum: SparklineDatum, clientX: number, clientY: number) => void
 }
 
@@ -69,6 +70,7 @@ export function VolumeSparkline({
     className,
     events = [],
     onRangeSelect,
+    onBucketClick,
     onSpikeClick,
 }: VolumeSparklineProps): JSX.Element {
     const theme = useChartTheme()
@@ -150,22 +152,33 @@ export function VolumeSparkline({
         }
     }, [data, onRangeSelect])
 
-    // Only wired when a spike exists: `onPointClick` sets a pointer cursor chart-wide, which
-    // would mask the drag-select crosshair.
     const hasSpikes = useMemo(() => data.some((datum) => datum.isSpike), [data])
 
-    const onPointClick = useMemo(
-        () =>
-            onSpikeClick && hasSpikes
-                ? ({ dataIndex }: PointClickData) => {
-                      const datum = data[dataIndex]
-                      if (datum?.isSpike) {
-                          onSpikeClick(datum, cursorRef.current.x, cursorRef.current.y)
-                      }
-                  }
-                : undefined,
-        [data, hasSpikes, onSpikeClick]
-    )
+    const onPointClick = useMemo(() => {
+        if (!onBucketClick && !(onSpikeClick && hasSpikes)) {
+            return undefined
+        }
+        return ({ dataIndex }: PointClickData) => {
+            const datum = data[dataIndex]
+            if (!datum) {
+                return
+            }
+            const adjacentDate = data[dataIndex + 1]?.date
+            const previousDate = data[dataIndex - 1]?.date
+            const endDate =
+                adjacentDate ??
+                (previousDate ? new Date(datum.date.getTime() + datum.date.getTime() - previousDate.getTime()) : null)
+            // A flagged spike takes precedence: it opens the spike details popover rather than
+            // filtering to the bucket, so callers passing both handlers still reach the popover.
+            if (datum.isSpike && onSpikeClick) {
+                onSpikeClick(datum, cursorRef.current.x, cursorRef.current.y)
+                return
+            }
+            if (onBucketClick && endDate && endDate.getTime() > datum.date.getTime()) {
+                onBucketClick(datum.date, endDate)
+            }
+        }
+    }, [data, hasSpikes, onBucketClick, onSpikeClick])
 
     return (
         <div

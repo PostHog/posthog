@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   computeBulkPinDirection,
-  computeEffectiveBulkIds,
   computeOrderedVisibleTaskIds,
   computePriorTaskIds,
   computeRangeSelection,
@@ -76,24 +75,6 @@ describe("dedupeTaskIds", () => {
 describe("pruneToVisible", () => {
   it("keeps only visible ids", () => {
     expect(pruneToVisible(["t1", "t2", "t3"], ["t2", "t4"])).toEqual(["t2"]);
-  });
-});
-
-describe("computeEffectiveBulkIds", () => {
-  it("returns empty when nothing selected", () => {
-    expect(computeEffectiveBulkIds([], "t1")).toEqual([]);
-  });
-
-  it("returns selection unchanged when no active task", () => {
-    expect(computeEffectiveBulkIds(["t1", "t2"], null)).toEqual(["t1", "t2"]);
-  });
-
-  it("prepends active task when not already selected", () => {
-    expect(computeEffectiveBulkIds(["t2"], "t1")).toEqual(["t1", "t2"]);
-  });
-
-  it("leaves selection unchanged when active task already selected", () => {
-    expect(computeEffectiveBulkIds(["t1", "t2"], "t1")).toEqual(["t1", "t2"]);
   });
 });
 

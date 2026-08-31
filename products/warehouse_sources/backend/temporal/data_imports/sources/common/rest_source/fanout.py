@@ -1,9 +1,11 @@
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, Protocol
 
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resources,
@@ -13,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
     IncrementalConfig,
+    ParentRowFilter,
     ResponseAction,
 )
 
@@ -45,6 +48,11 @@ class DependentEndpointConfig:
     # usable, and falls back to "api" for the run when it isn't — see
     # `_warehouse_parent_reuse_available` in `import_data_activity_sync`.
     parent_source: Literal["api", "warehouse"] = "api"
+    # Floors a parent_source="warehouse" scan to the API path's effective row set. The snapshot
+    # accumulates every parent row ever synced while the vendor's list endpoint usually windows
+    # what it returns, so an unbounded scan fans out over parents the API path never would.
+    # Leave None only when the parent endpoint genuinely returns the full collection.
+    parent_row_filter: ParentRowFilter | None = None
 
 
 def required_parents_from_endpoint_configs(endpoint_configs: Mapping[str, Any], schema_name: str) -> list[str]:
@@ -87,7 +95,7 @@ def build_dependent_resource(
     db_incremental_field_last_value: Any,
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
-    incremental_config_factory: Callable[[str], IncrementalConfig] | None = None,
+    incremental_config_factory: Callable[[str], IncrementalConfig | None] | None = None,
     parent_endpoint_extra: Endpoint | None = None,
     child_endpoint_extra: Endpoint | None = None,
     child_params_extra: dict[str, Any] | None = None,
@@ -96,6 +104,7 @@ def build_dependent_resource(
     initial_paginator_state: dict[str, Any] | None = None,
     source_id: str | None = None,
     use_warehouse_parent: bool = False,
+    parent_snapshot_at: datetime | None = None,
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
     child_config = endpoint_configs[child_endpoint]
@@ -151,6 +160,7 @@ def build_dependent_resource(
             parent_name=fanout.parent_name,
             required_columns=parent_columns,
             schema_name=child_endpoint,
+            row_filter=fanout.parent_row_filter,
         )
         if parent_table is None:
             # Drop back to the API parent entirely, including the snapshot-only 404 handling
@@ -162,6 +172,8 @@ def build_dependent_resource(
                 parent_name=fanout.parent_name,
                 columns=parent_columns,
                 page_size=parent_config.page_size,
+                schema_name=child_endpoint,
+                row_filter=fanout.parent_row_filter,
             )
 
     child_path = child_config.path
@@ -211,9 +223,12 @@ def build_dependent_resource(
     if use_merge:
         if incremental_config_factory is None:
             raise ValueError("incremental_config_factory is required for incremental fan-out resources")
-        child_endpoint_config["incremental"] = incremental_config_factory(
-            incremental_field or child_config.default_incremental_field or "id"
-        )
+        incremental = incremental_config_factory(incremental_field or child_config.default_incremental_field or "id")
+        # A factory returns None for a child endpoint that has no server-side time filter to bind
+        # the cursor to. Such a child still merges on its primary key, which is what lets a caller
+        # bound the request set through the fan-out parent instead of through a request window.
+        if incremental is not None:
+            child_endpoint_config["incremental"] = incremental
 
     child_resource: EndpointResource = {
         "name": child_endpoint,
@@ -239,4 +254,34 @@ def build_dependent_resource(
         initial_paginator_state=initial_paginator_state,
     )
     child_dlt_resource = next(r for r in resources if getattr(r, "name", None) == child_endpoint)
-    return child_dlt_resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
+    child = child_dlt_resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
+
+    # Capping belongs here rather than in the caller because only this function knows whether the
+    # run ended up on the warehouse parent: `warehouse_parent` is false when the table turned out
+    # to be unresolvable, and a caller reading its own config would still see "warehouse" and cap a
+    # live API response, dropping rows that path had no reason to hold back.
+    if warehouse_parent and parent_snapshot_at is not None:
+        # `getattr` because a source that never merges can omit the field entirely, and the read
+        # has to stay off the path those sources take.
+        cursor_field = incremental_field or getattr(child_config, "default_incremental_field", None)
+        if not cursor_field:
+            raise ValueError(
+                f"'{child_endpoint}' asks for a parent snapshot cap but declares no incremental field to "
+                "cap on; capping nothing would let its watermark run past the snapshot"
+            )
+        child = child.add_filter(_not_newer_than(cursor_field, parent_snapshot_at))
+    return child
+
+
+def _not_newer_than(field: str, snapshot_at: datetime) -> Callable[[dict[str, Any]], bool]:
+    """Keep rows the parent snapshot could already account for.
+
+    A row without the field carries no recency signal and is kept, matching how the parent row
+    filter treats NULLs.
+    """
+
+    def _keep(row: dict[str, Any]) -> bool:
+        value = parse_datetime_value(row.get(field))
+        return value is None or value <= snapshot_at
+
+    return _keep

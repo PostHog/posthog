@@ -1,0 +1,1 @@
+["_H",1,32,"Hello, ",32,"name",32,"inputs",1,2,32,"!",2,"concat",3,2,"print",1,35,32,"Fetch 1",32,"https://posthog.com",2,"fetch",1,32,"status",45,2,"print",2,35,32,"Fetch 2",32,"https://posthog.com",2,"fetch",1,32,"status",45,2,"print",2,35,32,"Fetch 3",32,"https://posthog.com",2,"fetch",1,32,"status",45,2,"print",2,35,32,"All fetches done!",2,"print",1,35]

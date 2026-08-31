@@ -22,11 +22,16 @@ logger = logging.getLogger(__name__)
 LONG_LIVED_SUBPROCESSES = LongLivedSubprocessManager()
 
 
-def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
+def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], None]:
     """Start the LLM gateway as a subprocess.
 
     Mirrors ``bin/start-llm-gateway``: runs uvicorn on a non-default port.
     The sandbox's agent-server uses this to proxy LLM calls to Anthropic.
+
+    ``agent_model`` is declared free-tier on this gateway, because the gate it would otherwise hit
+    cannot mean anything here: every case runs as a freshly minted team that has never been billed,
+    so ``check_free_tier_model_access`` sees ``code_usage_billed=False`` and rejects the run's model
+    with a 403 before the agent sends its first message.
     """
     gateway_dir = Path(settings.BASE_DIR) / "services" / "llm-gateway"
     venv_dir = gateway_dir / ".venv"
@@ -60,6 +65,9 @@ def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
         "LLM_GATEWAY_DATABASE_URL": test_db_url,
         "LLM_GATEWAY_DEBUG": "true",
         "LLM_GATEWAY_POSTHOG_HOST": live_server_url,
+        # Only the model this run uses, so the gate still rejects a typo rather than waving through
+        # anything the agent-server happens to ask for.
+        "LLM_GATEWAY_POSTHOG_CODE_FREE_TIER_MODELS": json.dumps([agent_model]),
     }
 
     logger.info("Starting LLM gateway on port %d", LLM_GATEWAY_PORT)
@@ -115,14 +123,12 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
         # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
         # Force flag-gated behavior on for evals via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
-        # product-data-catalog gates the metric-discovery section of the execute-sql
-        # description; the governed-metrics evals exercise that path.
         # revamped-py-notebooks gates the markdown notebook tools (create-markdown,
         # add-cell, update-cell, delete-cell, get, list-frames). It also *hides* the
         # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
         # needs its own lever, not this one.
-        "FEATURE_FLAG_OVERRIDES": json.dumps({"product-data-catalog": True, "revamped-py-notebooks": True}),
+        "FEATURE_FLAG_OVERRIDES": json.dumps({"revamped-py-notebooks": True}),
     }
 
     logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)

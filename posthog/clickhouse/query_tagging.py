@@ -139,6 +139,9 @@ class Feature(StrEnum):
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
     SEMANTIC_SEARCH = "semantic_search"
+    # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
+    # load is worth attributing separately from the tab queries it sits alongside.
+    INSTRUMENTATION_CHECKLIST = "instrumentation_checklist"
 
 
 class FallbackTags(TypedDict):
@@ -205,6 +208,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.WEB_GOALS_QUERY
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_BOTS_TABLE_QUERY
+            | NodeKind.WEB_AGENT_ANALYTICS_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
             | NodeKind.WEB_VITALS_PATH_BREAKDOWN_QUERY
@@ -217,7 +221,9 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.ERROR_TRACKING_QUERY
             | NodeKind.ERROR_TRACKING_ISSUE_CORRELATION_QUERY
             | NodeKind.ERROR_TRACKING_SIMILAR_ISSUES_QUERY
+            | NodeKind.ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY
             | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
+            | NodeKind.ERROR_TRACKING_RELEASES_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
@@ -271,6 +277,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
+            | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
@@ -287,9 +294,11 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MCP_TOOL_QUALITY_DAILY_STATS_QUERY
             | NodeKind.MCP_TOOL_CATEGORY_COUNTS_QUERY
             | NodeKind.MCP_TOOL_CATEGORIES_QUERY
+            | NodeKind.MCP_TOOL_CATEGORY_MAP_QUERY
             | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
             | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
             | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
+            | NodeKind.MCP_MISSING_CAPABILITIES_QUERY
         ):
             return {"product": Product.MCP_ANALYTICS}
         case (
@@ -619,6 +628,10 @@ def tag_queries(**kwargs) -> None:
     The purpose of tag_queries is to pass additional context for ClickHouse executed queries. The tags
     are serialized into ClickHouse' system.query_log.log_comment column.
 
+    Tags are last-write-wins, and HogQLQueryExecutor calls tag_queries(query_type=...) itself
+    immediately before execution. So a query_type set here before execute_hogql_query() never
+    reaches query_log; pass query_type= to execute_hogql_query() instead.
+
     :param kwargs: Key->value pairs of tags to be set.
     """
     current_tags = get_query_tags()
@@ -781,6 +794,10 @@ def add_fallback_query_tags(tags: QueryTags) -> None:
 
     from posthog.event_usage import EventSource
 
+    # Stays a bare MCP comparison rather than MCP_TRANSPORT_EVENT_SOURCES: this tag's source is
+    # set by the request middleware, which runs before DRF authentication, so the surfaces that
+    # resolve from the OAuth grant (desktop, Slack) can never reach here — MCP traffic always
+    # arrives as plain `mcp`.
     if tags.product is None and tags.source == EventSource.MCP:
         tags.product = Product.MCP
 

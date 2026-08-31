@@ -1,25 +1,44 @@
 # MCP store
 
-A curated marketplace of third-party MCP servers (Linear, Notion, Sentry, ...) that users browse and connect from Settings → MCP servers (behind the `MCP_SERVERS` feature flag).
+A curated marketplace of third-party MCP servers (Linear, Notion, Sentry, ...) that users browse and connect from Settings → MCP servers (behind the `mcp-gateway` feature flag).
 Connected servers are consumed by agent surfaces via the `backend/facade/` package.
 
 This is unrelated to `products/*/mcp/tools.yaml`, which exposes PostHog's own endpoints as MCP tools.
 
+## Keep the desktop UI in sync
+
+PostHog Desktop ships its own, independently written frontend for this product — same backend, same feature flags, no shared UI code:
+
+| This product (web app)                                | PostHog Desktop equivalent                                      |
+| ----------------------------------------------------- | --------------------------------------------------------------- |
+| `frontend/scene/` (marketplace)                       | `products/desktop/packages/ui/src/features/mcp-servers/`        |
+| `frontend/gateway/` + `frontend/settings/` (gateway)  | `products/desktop/packages/ui/src/features/mcp-gateway/`        |
+| `frontend/scene/AddCustomServerForm.tsx` (custom add) | `products/desktop/packages/ui/src/features/mcp-server-manager/` |
+
+The implementations are parallel, not shared: web uses Kea + LemonUI, desktop uses TanStack Query + quill.
+The desktop also hand-writes its gateway API types in `products/desktop/packages/api-client/src/mcp-gateway.ts` as mirrors of the serializers in `backend/presentation/gateway_views.py`.
+
+The MCP store feature set always changes for both apps together.
+When you change the frontend here — a new workflow, control, state, or flag gate — make the equivalent change in the desktop features above in the same PR, or open an explicitly linked follow-up.
+When you change a serializer the gateway UI consumes, update the desktop's hand-written mirrors too.
+
 ## Settings experience and rollout
 
-Two independent feature flags gate two surfaces — neither flag depends on the other:
+The `mcp-gateway` feature flag (`MCP_GATEWAY`) gates both surfaces:
 
-- The Settings → MCP servers page is gated by the `mcp-servers` feature flag (`MCP_SERVERS`).
-  On that page, the `mcp-gateway` feature flag (`MCP_GATEWAY`) selects the gateway experience described below; when it is off, Settings renders the existing marketplace UI.
-- The standalone gateway scene at `/mcp-servers` and its nav entry are gated solely by `mcp-gateway` and are reachable even with `mcp-servers` off.
+- The Settings → MCP servers page, which renders the gateway experience described below.
+- The standalone gateway scene at `/mcp-servers` and its nav entry.
 
-Keep both layers until the legacy `mcp-servers` flag and marketplace logic are removed in a follow-up change.
+The marketplace UI that `McpStoreSettings` falls back to when the flag is off is unreachable, since the Settings section itself requires the flag; remove it together with the rest of the marketplace logic in a follow-up change.
 
 The gateway experience has these pages and workflows:
 
 - **MCP servers**: Browse the catalog, search by server details, filter by category, and see connection status.
   Users with permission can add a hosted custom server and choose OAuth or API key authentication.
-  Admins can set its team availability, and eligible users can grant initial agent access.
+  Admins can set its team availability.
+  Every connection is shared with the built-in PostHog agents automatically when the connecting user may manage agent access (admins always, members while team settings allow it).
+  The add-server form picks how far that share reaches: only the user's own runs (the default), or every agent run in the project.
+  Connecting a catalog server shares it for the user's own runs; the server page widens it to the team or revokes it.
   Connecting starts the appropriate authorization flow, while an existing connection opens its configuration.
 - **Server details**: Manage a personal connection by enabling, reconnecting, disconnecting, or removing it.
   Admins can also manage team and member access.
@@ -128,6 +147,11 @@ There are two ways a caller uses a connection, and they differ in who speaks MCP
   Discovery for that path is `GET .../mcp_server_installations/available_tools/`, which returns every callable tool across the caller's connections in one request, each namespaced by a server slug (`linear__create_issue`).
   When two connections share a display name, both slugs carry a fragment of their installation id (`linear-a1b2c3`), and that ambiguity is decided over every connection the caller can address rather than only the reachable ones — otherwise an expiring token could re-point a tool name at a different connection between refreshes.
   The `exec` side lives in `services/mcp/src/lib/gateway-tools.ts` and is gated on the `mcp-gateway` flag.
+
+Agents mount a connection without connecting to it, so an installation's `description` (copied from the catalog entry at install time) travels with the server config and is what the agent's tool search matches on until the first call.
+A connection with no description is only findable by searching its exact name.
+Cloud runs read it through `get_installations_for_sandbox`, which falls back to the template's description; desktop runs read it from the installation serializer.
+Either way the description is for pi only, so the agent server drops it before passing servers to claude or codex.
 
 Both paths resolve policy through the same `resolve_call_decision` / `_gateway_decision` in `backend/proxy.py` and write the same `MCPAuditEvent` rows, so approval state and the audit trail cannot diverge between them.
 `needs_approval` and `do_not_use` tools are refused before any upstream request.
