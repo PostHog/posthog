@@ -45,8 +45,8 @@ const REPOSITORY_CONVENTIONS = `
 
 Repositories carry their own coding conventions. Before your first edit, discover and read the ones this harness does not load for you:
 
-- \`AGENTS.md\` at the repo root, when there is no \`CLAUDE.md\` (\`CLAUDE.md\` itself is loaded for you automatically).
-- Cursor rule files: \`.cursor/rules/*.mdc\` and the legacy \`.cursorrules\`. These are never loaded automatically. A rule's frontmatter tells you its scope: \`alwaysApply: true\` rules apply to every change, \`globs\` scope a rule to matching files.
+- \`AGENTS.md\` files: at the repo root and in any directory whose files you edit. \`CLAUDE.md\` is loaded for you automatically; when an \`AGENTS.md\` merely mirrors it you can move on, but when it carries its own content, follow that too.
+- Cursor rule files: \`.cursor/rules/*.mdc\` (the repo root's, and any nested \`.cursor/rules/\` near the files you edit) and the legacy \`.cursorrules\`. These are never loaded automatically. A rule's frontmatter tells you its scope: \`alwaysApply: true\` rules apply to every change, \`globs\` scope a rule to matching files.
 
 Follow those conventions, and match the style of the surrounding code even where no rule states it. Comment density matters most: do not add comments that narrate the change or restate what the code plainly does. Keep only comments a rule or the existing code style would call for.
 `;
