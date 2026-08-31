@@ -29,6 +29,7 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { formatBucketLabel } from 'lib/utils/timeBuckets'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -52,7 +53,6 @@ import {
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
-import { formatBucketLabel } from './timeBuckets'
 import { CreateFixTaskButton } from './tool-quality/CreateFixTaskButton'
 import { type MCPErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
 

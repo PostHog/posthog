@@ -21,6 +21,105 @@ export function getInterval(dateFrom: string | null | undefined, dateTo: string 
     return 'day'
 }
 
+// Exceptions carry their release as $app_namespace / $app_version / $app_build, the same identity the
+// issue page's releases panel groups by. Coalescing a missing property to '' keeps it inside the
+// aggregates below: a null would propagate through the comparison and drop the row instead of
+// grouping it as "no release data".
+const RELEASE_NAMESPACE = "coalesce(toString(properties.$app_namespace), '')"
+const RELEASE_VERSION = "coalesce(toString(properties.$app_version), '')"
+const RELEASE_BUILD = "coalesce(toString(properties.$app_build), '')"
+const RELEASE_KEY = `tuple(${RELEASE_NAMESPACE}, ${RELEASE_VERSION}, ${RELEASE_BUILD})`
+const HAS_RELEASE = `${RELEASE_VERSION} != ''`
+
+// toString() is load-bearing: a bare dateTrunc returns a typed DateTime that the query API serializes
+// with the project's UTC offset attached, which the client reads back as an instant and converts,
+// shifting every bucket away from the wall-clock keys it joins against. Rendering it server-side
+// leaves a plain string with nothing left to reinterpret.
+function bucketExpr(interval: IntervalType): string {
+    return `toString(dateTrunc('${interval}', timestamp))`
+}
+
+/**
+ * Headline totals for the selected period and the equal-length period before it.
+ *
+ * Runs over the doubled window and splits on `currentStartBucket`, so both halves come back from one
+ * scan. Distinct counts have to be measured over the whole period rather than summed from the series
+ * query: a person, session, or release active on more than one day would otherwise be counted once
+ * per day. Column order is the contract `parseComparisonTotals` reads.
+ */
+export function buildComparisonTotalsQuery(currentStartBucket: string, timezone: string): string {
+    const current = `timestamp >= toDateTime('${currentStartBucket}', '${timezone}')`
+    const previous = `timestamp < toDateTime('${currentStartBucket}', '${timezone}')`
+    const exception = "event = '$exception'"
+    const session = 'notEmpty($session_id)'
+    return `
+        SELECT
+            countIf(${exception} AND ${current}) AS exceptions,
+            countIf(${exception} AND ${previous}) AS previous_exceptions,
+            uniqIf(person_id, ${exception} AND ${current}) AS affected_users,
+            uniqIf(person_id, ${exception} AND ${previous}) AS previous_affected_users,
+            uniqIf($session_id, ${session} AND ${current}) AS sessions,
+            uniqIf($session_id, ${session} AND ${previous}) AS previous_sessions,
+            uniqIf($session_id, ${exception} AND ${session} AND ${current}) AS crash_sessions,
+            uniqIf($session_id, ${exception} AND ${session} AND ${previous}) AS previous_crash_sessions,
+            uniqIf(${RELEASE_KEY}, ${exception} AND ${HAS_RELEASE} AND ${current}) AS releases,
+            uniqIf(${RELEASE_KEY}, ${exception} AND ${HAS_RELEASE} AND ${previous}) AS previous_releases
+        FROM events
+        WHERE {filters}
+    `
+}
+
+/**
+ * The same measures per bucket over the selected period, for the metric tiles' sparklines. Column
+ * order is the contract `parseSummaryBuckets` reads.
+ */
+export function buildSummarySeriesQuery(interval: IntervalType): string {
+    return `
+        SELECT
+            ${bucketExpr(interval)} AS bucket,
+            countIf(event = '$exception') AS exceptions,
+            uniqIf(person_id, event = '$exception') AS affected_users,
+            uniqIf($session_id, notEmpty($session_id)) AS sessions,
+            uniqIf($session_id, event = '$exception' AND notEmpty($session_id)) AS crash_sessions,
+            uniqIf(${RELEASE_KEY}, event = '$exception' AND ${HAS_RELEASE}) AS releases
+        FROM events
+        WHERE {filters}
+        GROUP BY bucket
+        ORDER BY bucket
+    `
+}
+
+/**
+ * Exception volume per release, folded server-side into one row per release.
+ *
+ * Grouping by release and collecting the buckets into an array keeps a busy account to one row per
+ * release rather than one per release and bucket, which is what lets the row cap bound the response.
+ * Column order is the contract `parseReleaseRows` reads.
+ */
+export function buildReleaseBreakdownQuery(interval: IntervalType, maxRows: number): string {
+    return `
+        SELECT
+            namespace,
+            version,
+            build,
+            groupArray(tuple(bucket, occurrences)) AS series
+        FROM (
+            SELECT
+                ${bucketExpr(interval)} AS bucket,
+                ${RELEASE_NAMESPACE} AS namespace,
+                ${RELEASE_VERSION} AS version,
+                ${RELEASE_BUILD} AS build,
+                count() AS occurrences
+            FROM events
+            WHERE event = '$exception' AND {filters}
+            GROUP BY bucket, namespace, version, build
+        )
+        GROUP BY namespace, version, build
+        ORDER BY sum(occurrences) DESC
+        LIMIT ${maxRows}
+    `
+}
+
 export function buildExceptionVolumeQuery(
     dateRange: DateRange,
     { properties, filterTestAccounts }: InsightQueryFilters
@@ -46,6 +145,8 @@ export function buildExceptionVolumeQuery(
         },
         showHeader: false,
         showTable: false,
+        // The card around the chart already draws the border, so the viz must not draw its own.
+        embedded: true,
     }
 }
 
@@ -78,6 +179,8 @@ export function buildIssuesCreatedQuery(
         },
         showHeader: false,
         showTable: false,
+        // The card around the chart already draws the border, so the viz must not draw its own.
+        embedded: true,
     }
 }
 
@@ -107,6 +210,8 @@ export function buildAffectedUsersQuery(
         },
         showHeader: false,
         showTable: false,
+        // The card around the chart already draws the border, so the viz must not draw its own.
+        embedded: true,
     }
 }
 
@@ -146,6 +251,8 @@ export function buildCrashFreeSessionsQuery(
         },
         showHeader: false,
         showTable: false,
+        // The card around the chart already draws the border, so the viz must not draw its own.
+        embedded: true,
     }
 }
 

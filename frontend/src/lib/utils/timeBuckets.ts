@@ -74,8 +74,8 @@ export const SELECTABLE_INTERVALS: IntervalType[] = ['hour', 'day', 'week', 'mon
 
 const INTERVAL_LABELS: Record<string, string> = { hour: 'Hour', day: 'Day', week: 'Week', month: 'Month' }
 
-// A line this dense is already a smear, and MCPToolQualityDailyStatsQuery's row limit starts dropping
-// the newest buckets not far above it, so intervals past this many points are offered disabled.
+// A line this dense is already a smear, and query runners that cap their row count start dropping the
+// newest buckets not far above it, so intervals past this many points are offered disabled.
 const MAX_BUCKETS = 1000
 
 export interface IntervalOption {
@@ -177,4 +177,36 @@ export function formatBucketLabel(bucket: string, interval: IntervalType): strin
     return interval === 'hour' || interval === 'minute' || interval === 'second'
         ? d.format('MMM D, HH:mm')
         : d.format('MMM D')
+}
+
+export interface ComparisonWindow {
+    /** Start of the doubled window: one selected period earlier than the selected period's start. */
+    dateFrom: string
+    /** End of the selected period. */
+    dateTo: string
+    /** Bucket key the doubled window splits on. Buckets at or after it are the selected period. */
+    currentStartBucket: string
+}
+
+// Extend the resolved window back by an equal number of `interval` buckets, so one query returns both
+// the selected period and the period before it for a period-over-period comparison.
+// `currentStartBucket` is formatted to match ClickHouse dateTrunc's DateTime output, so a caller can
+// split the returned rows on a plain string compare.
+export function buildComparisonWindow(
+    dateFrom: string | null,
+    dateTo: string | null,
+    timezone: string,
+    interval: IntervalType
+): ComparisonWindow {
+    const { start, end } = resolveWindow(dateFrom, dateTo, timezone)
+    // The selected period covers the inclusive buckets [start, end], which is one more than
+    // end.diff(start). Step the prior window back by that same count so the two halves of the
+    // comparison span an equal number of buckets.
+    const selectedBuckets = Math.max(1, end.diff(start, interval) + 1)
+    const priorStart = start.subtract(selectedBuckets, interval)
+    return {
+        dateFrom: priorStart.toISOString(),
+        dateTo: end.toISOString(),
+        currentStartBucket: startOfBucket(start, interval).format(BUCKET_FORMAT),
+    }
 }
