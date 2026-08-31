@@ -9,8 +9,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from parameterized import parameterized
-
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
@@ -74,7 +72,7 @@ class TestLifecycleInsightActors(ClickhouseTestMixin, APIBaseTest):
                 <ActorsQuery select={['properties.name as n']}>
                     <InsightActorsQuery day='2020-01-12' status='returning'>
                         <LifecycleQuery
-                            dateRange={<DateRange date_from={date_from} date_to={date_to} />}
+                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
                             series={[<EventsNode event='$pageview' math='total' />]}
                         />
                     </InsightActorsQuery>
@@ -86,32 +84,26 @@ class TestLifecycleInsightActors(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([("p1",)], response.results)
 
-    # A week bucket is anchored on the team's week start, so the same run of events puts its
-    # returning actors on a different day under each setting.
-    @parameterized.expand(
-        [
-            ("monday", WeekStartDay.MONDAY, "2020-01-13", [("p1",)]),
-            ("sunday", WeekStartDay.SUNDAY, "2020-01-12", [("p1",), ("p2",)]),
-        ]
-    )
-    def test_insight_persons_lifecycle_query_by_week(self, _name, week_start_day, day, expected):
+    # A week bucket is anchored on the team's week start, so the same events put the returning
+    # actors on a different day under each setting.
+    def test_insight_persons_lifecycle_query_week_monday(self):
         self._create_test_events()
         self.team.timezone = "US/Pacific"
-        self.team.week_start_day = week_start_day
+        self.team.week_start_day = WeekStartDay.MONDAY
         self.team.save()
 
         date_from = "2020-01-09"
         date_to = "2020-01-19"
 
         response = self.select(
-            f"""
+            """
             select * from (
-                <ActorsQuery select={{['properties.name as n']}}>
-                    <InsightActorsQuery day='{day}' status='returning'>
+                <ActorsQuery select={['properties.name as n']}>
+                    <InsightActorsQuery day='2020-01-13' status='returning'>
                         <LifecycleQuery
                             interval='week'
-                            dateRange={{<DateRange date_from={{date_from}} date_to={{date_to}} />}}
-                            series={{[<EventsNode event='$pageview' math='total' />]}}
+                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
+                            series={[<EventsNode event='$pageview' math='total' />]}
                         />
                     </InsightActorsQuery>
                 </ActorsQuery>
@@ -120,4 +112,32 @@ class TestLifecycleInsightActors(ClickhouseTestMixin, APIBaseTest):
             {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
         )
 
-        self.assertEqual(expected, response.results)
+        self.assertEqual([("p1",)], response.results)
+
+    def test_insight_persons_lifecycle_query_week_sunday(self):
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.week_start_day = WeekStartDay.SUNDAY
+        self.team.save()
+
+        date_from = "2020-01-09"
+        date_to = "2020-01-19"
+
+        response = self.select(
+            """
+            select * from (
+                <ActorsQuery select={['properties.name as n']}>
+                    <InsightActorsQuery day='2020-01-12' status='returning'>
+                        <LifecycleQuery
+                            interval='week'
+                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
+                            series={[<EventsNode event='$pageview' math='total' />]}
+                        />
+                    </InsightActorsQuery>
+                </ActorsQuery>
+            )
+            """,
+            {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
+        )
+
+        self.assertEqual([("p1",), ("p2",)], response.results)
