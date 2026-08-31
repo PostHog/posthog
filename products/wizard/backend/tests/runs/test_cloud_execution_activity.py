@@ -53,6 +53,7 @@ def test_execute_wizard_uses_persisted_program_snapshot(team, user) -> None:
                 idempotency_key="test-cloud-execution",
                 workspace=GitRepositoryWorkspace(repository="posthog/posthog"),
                 program_id="web-analytics-audit",
+                wizard_version="2.60.0",
             )
         )
 
