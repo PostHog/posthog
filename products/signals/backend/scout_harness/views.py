@@ -1266,7 +1266,10 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=ScratchpadEntrySerializer, description="Memory entry written or refreshed."),
             400: OpenApiResponse(
-                description="Invalid memory shape (empty key/content, key too long, `expires_at` in the past)."
+                description=(
+                    "Invalid memory shape (empty key/content, key too long, or an `expires_at` on a "
+                    "`followup:` entry). An unparseable or past `expires_at` is dropped, not rejected."
+                )
             ),
         },
         summary="Remember a scratchpad entry",
@@ -2395,9 +2398,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Materialize the scout fleet for this project on demand (idempotent): seed the "
             "canonical `signals-scout-*` skills, create a default-schedule config for any scout "
-            "lacking one, and return all scout configs. Normally the Temporal coordinator does "
-            "this on its next tick; this action exists so setup flows (e.g. the wizard's "
-            "self-driving program) can hand the user a tunable fleet immediately."
+            "lacking one, retire the skills whose canonical scout no longer ships, and return all "
+            "scout configs. Normally the Temporal coordinator does this on its next tick; this "
+            "action exists so the scout UIs and setup flows (e.g. the wizard's self-driving "
+            "program) can hand the user a tunable fleet immediately."
         ),
         operation_id="signals_scout_config_sync",
     )
@@ -2424,7 +2428,13 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # default_team_config) so a self-serve materialization doesn't bypass the launch cost posture
         # by enabling the full fleet.
         seed_config_layers, withheld = resolve_sync_seed_inputs(team.id)
-        sync_canonical_skills(team, withheld_skill_names=withheld)
+        # `prune=True` puts this on the same terms as the coordinator tick: a scout retired from
+        # `products/signals/skills/` is tombstoned on the team instead of lingering as a live row
+        # the fleet UI keeps listing. The scout UIs call this on open, so a team that never reaches
+        # the coordinator (not enrolled) still reconciles in both directions. The reap only touches
+        # rows the harness seeded and the team never edited, so a hand-authored or forked scout of
+        # the same name survives it.
+        sync_canonical_skills(team, prune=True, withheld_skill_names=withheld)
         register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld)
         # Exclude held-back scouts from the materialized fleet response too: a scout that was
         # previously seeded and later withheld still has a row, and surfacing it here would

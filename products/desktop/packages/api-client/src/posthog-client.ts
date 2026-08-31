@@ -2208,6 +2208,19 @@ export class PostHogAPIClient {
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
+  /**
+   * Materialize the project's scout fleet and return it: the backend seeds the
+   * canonical `signals-scout-*` skills, registers a config for every scout
+   * missing one, and retires the ones no longer shipped. Idempotent, and the
+   * only way a project the Temporal coordinator never reached gets any scouts.
+   */
+  async syncScoutConfigs(projectId: number): Promise<ScoutConfig[]> {
+    const data = await this.scoutPost<
+      { results: ScoutConfig[] } | ScoutConfig[]
+    >(projectId, "configs/sync/", {});
+    return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
   async updateScoutConfig(
     projectId: number,
     configId: string,

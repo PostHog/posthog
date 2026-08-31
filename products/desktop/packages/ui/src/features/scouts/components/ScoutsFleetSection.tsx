@@ -39,6 +39,7 @@ import { useScoutChatTask } from "../hooks/useScoutChatTask";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { useScoutConfigMutations } from "../hooks/useScoutConfigMutations";
 import { useScoutConfigs } from "../hooks/useScoutConfigs";
+import { useScoutFleetSync } from "../hooks/useScoutFleetSync";
 import { useScoutRuns } from "../hooks/useScoutRuns";
 import { useScoutSkillCreators } from "../hooks/useScoutSkillCreators";
 import { FleetFindingsCallout } from "./FleetFindingsCallout";
@@ -55,6 +56,9 @@ const EMPTY_CONFIGS: ScoutConfig[] = [];
  */
 export function ScoutsFleetSection() {
   const { data: configs, isLoading, isError, refetch } = useScoutConfigs();
+  // Opening this section is what materializes the fleet, so a project the
+  // coordinator never reached still gets its scouts.
+  const { isSyncing } = useScoutFleetSync();
   const [expanded, setExpanded] = useState(false);
 
   const lastRunAt = useMemo(() => {
@@ -67,7 +71,9 @@ export function ScoutsFleetSection() {
     return latest;
   }, [configs]);
 
-  if (isLoading) {
+  // An empty fleet while the sync is still running is a fleet being assembled,
+  // not an empty one — the pulse holds until we know which it is.
+  if (isLoading || (isSyncing && !configs?.length)) {
     return (
       <Box className="h-12 w-full animate-pulse rounded-(--radius-2) bg-(--gray-3)" />
     );
@@ -459,11 +465,10 @@ function ScoutsEmptyState() {
           </Text>
         </Flex>
         <Text className="max-w-2xl text-[12.5px] text-gray-11 leading-snug">
-          Scouts are rolling out gradually. Once your project is enrolled, the
-          canonical fleet appears here automatically and you can add custom
-          scouts by creating{" "}
-          <span className="font-mono text-[11px]">signals-scout-*</span> skills
-          in PostHog.
+          Scouts run on a schedule to investigate a recurring signal or
+          behavior. Add one by creating a{" "}
+          <span className="font-mono text-[11px]">signals-scout-*</span> skill
+          in your PostHog project.
         </Text>
         <ScoutHelperSkillLinks surface="empty_state" />
       </Flex>
