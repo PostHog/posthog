@@ -2,7 +2,7 @@
 //! crate.
 
 use crate::api::CaptureError;
-use crate::outputs::{OutputRegistry, PublishEvents};
+use crate::outputs::PublishEvents;
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
@@ -19,13 +19,6 @@ impl MockSink {
 
     pub fn get_events(&self) -> Vec<ProcessedEvent> {
         self.events.lock().unwrap().clone()
-    }
-
-    /// The degenerate output registry over this mock. The clone shares the
-    /// capture buffer, so the caller keeps reading events back off the
-    /// handle it already holds.
-    pub fn registry(&self) -> Arc<OutputRegistry> {
-        Arc::new(OutputRegistry::single(self.clone()))
     }
 }
 
