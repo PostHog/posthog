@@ -97396,6 +97396,27 @@ export namespace Schemas {
     tags?: string;
     };
 
+    export type SignalsScoutConfigSyncParams = {
+    /**
+     * Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.
+     *
+     * * `roster` - roster
+     * * `desktop` - desktop
+     * * `wizard` - wizard
+     * @minLength 1
+     */
+    surface?: SignalsScoutConfigSyncSurface;
+    };
+
+    export type SignalsScoutConfigSyncSurface = typeof SignalsScoutConfigSyncSurface[keyof typeof SignalsScoutConfigSyncSurface];
+
+
+    export const SignalsScoutConfigSyncSurface = {
+      Roster: 'roster',
+      Desktop: 'desktop',
+      Wizard: 'wizard',
+    } as const;
+
     export type SignalsScoutMembersListParams = {
     /**
      * Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member.

@@ -1028,6 +1028,15 @@ export const SignalsScoutConfigSyncParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const SignalsScoutConfigSyncQueryParams = /* @__PURE__ */ zod.object({
+    surface: zod
+        .enum(['roster', 'desktop', 'wizard'])
+        .optional()
+        .describe(
+            "Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.\n\n\* `roster` - roster\n\* `desktop` - desktop\n\* `wizard` - wizard"
+        ),
+})
+
 /**
  * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
  * @summary List project members for reviewer routing
