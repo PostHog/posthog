@@ -108,8 +108,10 @@ jobs:
               env:
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   # Incoming-webhook trigger of the master-red diagnosis workflow. Unset skips the
-                  # call and still posts the Slack alert; set and unreachable fails this run.
-                  DIAGNOSIS_WEBHOOK_URL: ${{ secrets.MASTER_RED_DIAGNOSIS_WEBHOOK_URL }}
+                  # call and still posts the Slack alert; set and unreachable fails this run. The URL
+                  # is a variable, not a secret: it identifies the workflow, the auth header guards
+                  # it, and repository secrets are capped at 100 across the whole repo.
+                  DIAGNOSIS_WEBHOOK_URL: ${{ vars.MASTER_RED_DIAGNOSIS_WEBHOOK_URL }}
                   DIAGNOSIS_WEBHOOK_TOKEN: ${{ secrets.MASTER_RED_DIAGNOSIS_WEBHOOK_TOKEN }}
               with:
                   github-token: ${{ steps.app-token.outputs.token || github.token }}
