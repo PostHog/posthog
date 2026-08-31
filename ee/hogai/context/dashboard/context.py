@@ -4,6 +4,7 @@ from typing import Generic
 
 from pydantic import BaseModel
 
+from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
@@ -47,6 +48,8 @@ class DashboardContext:
         dashboard_id: str | None = None,
         dashboard_filters: dict | None = None,
         max_concurrent_queries: int = 5,
+        query_semaphore: asyncio.Semaphore | None = None,
+        event_source: EventSource = EventSource.POSTHOG_AI,
     ):
         """
         Initialize DashboardContext.
@@ -60,6 +63,8 @@ class DashboardContext:
             dashboard_id: Dashboard ID
             dashboard_filters: Dashboard-level filters to apply to all insights
             max_concurrent_queries: Max concurrent insight queries (default: 5)
+            query_semaphore: Shared query bound supplied by callers spanning several dashboards
+            event_source: Product source recorded for each insight query
         """
         self.team = team
         self.user = user
@@ -68,7 +73,8 @@ class DashboardContext:
         self.dashboard_id = dashboard_id
         self.dashboard_url = build_dashboard_url(int(dashboard_id)) if dashboard_id else None
         self.dashboard_filters = dashboard_filters
-        self._semaphore = asyncio.Semaphore(max_concurrent_queries)
+        self._semaphore = query_semaphore if query_semaphore is not None else asyncio.Semaphore(max_concurrent_queries)
+        self.event_source = event_source
 
         # Sort by layout position and create InsightContext objects
         sorted_data = self.sort_by_layout(insights_data)
@@ -177,4 +183,5 @@ class DashboardContext:
             dashboard_filters=self.dashboard_filters,
             filters_override=data.filters_override,
             variables_override=data.variables_override,
+            event_source=self.event_source,
         )

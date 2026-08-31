@@ -124,6 +124,16 @@ def recent_viewers_by_insight(
     )
 
 
+def recent_unique_viewer_counts_by_insight(
+    *, team_id: int, insight_ids: Collection[int], since: datetime
+) -> dict[int, int]:
+    """Count authenticated viewers for each requested insight since the supplied time.
+
+    Insights with no matching views are omitted. One aggregate query covers the whole batch.
+    """
+    return logic.recent_unique_viewer_counts_by_insight(team_id=team_id, insight_ids=insight_ids, since=since)
+
+
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
     """Refresh an insight's stored variables against the team's latest variable definitions."""
     return logic.map_stale_to_latest(stale_variables, latest_variables)

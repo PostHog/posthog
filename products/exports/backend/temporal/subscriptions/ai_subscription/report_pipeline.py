@@ -3,7 +3,7 @@ import asyncio
 import contextlib
 import dataclasses
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Optional, Union
@@ -14,6 +14,7 @@ from posthog.schema import AssistantHogQLQuery
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.ph_client import ph_background_capture
@@ -38,6 +39,13 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     SYNTHESIS_PROMPT_NAME,
     render_prompt,
     resolve_prompt,
+)
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    CONTEXT_NAME_MAX_LENGTH,
+    MAX_DASHBOARD_INSIGHTS,
+    MAX_REPORT_CONTEXTS,
+    ReportContextEvidence,
+    ReportContextStatus,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     MAX_CHART_TITLE_LENGTH,
@@ -183,15 +191,89 @@ class PlanExecution:
     charts: list[ValidatedChart]
 
 
-@dataclass(frozen=True)
+@frozen
+class AiReportInsightContext:
+    id: int
+    name: str
+    status: ReportContextStatus
+
+    def __post_init__(self) -> None:
+        if self.status not in ("success", "failed", "truncated"):
+            raise ValueError(f"Unknown AI report context status: {self.status}")
+        if len(self.name) > CONTEXT_NAME_MAX_LENGTH:
+            raise ValueError("AI report context name exceeds its bound")
+
+
+@frozen
+class AiReportDashboardContext:
+    id: int
+    name: str
+    insights: tuple[AiReportInsightContext, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.name) > CONTEXT_NAME_MAX_LENGTH:
+            raise ValueError("AI report dashboard name exceeds its bound")
+        if len(self.insights) > MAX_DASHBOARD_INSIGHTS:
+            raise ValueError("AI report dashboard provenance exceeds its insight bound")
+
+
+@frozen
+class AiReportContexts:
+    dashboards: tuple[AiReportDashboardContext, ...] = ()
+    insights: tuple[AiReportInsightContext, ...] = ()
+
+    def __post_init__(self) -> None:
+        if len(self.dashboards) + len(self.insights) > MAX_REPORT_CONTEXTS:
+            raise ValueError("AI report provenance exceeds its context bound")
+
+
+@frozen
+class AiReportContext:
+    contexts: AiReportContexts = field(default_factory=AiReportContexts)
+
+
+def compact_report_context(evidence: ReportContextEvidence) -> AiReportContexts:
+    return AiReportContexts(
+        dashboards=tuple(
+            AiReportDashboardContext(
+                id=dashboard.id,
+                name=dashboard.name,
+                insights=tuple(
+                    AiReportInsightContext(
+                        id=insight.id,
+                        name=insight.name,
+                        status=insight.status,
+                    )
+                    for insight in dashboard.insights
+                ),
+            )
+            for dashboard in evidence.dashboards
+        ),
+        insights=tuple(
+            AiReportInsightContext(
+                id=insight.id,
+                name=insight.name,
+                status=insight.status,
+            )
+            for insight in evidence.insights
+        ),
+    )
+
+
+@frozen
 class AiReportResult:
     markdown: str
     diagnostics: tuple[QueryStepDiagnostic, ...]
     # The window's end as a UTC ISO instant — persisted so the next run can anchor exactly here.
     window_end_utc: str
+    prompt: str | None = None
     # Set only when the run planned from scratch; the caller freezes it onto the subscription.
     plan_to_persist: Optional[dict] = None
     charts: tuple[RenderedChart, ...] = ()
+    context: AiReportContext = field(default_factory=AiReportContext)
+
+
+EMPTY_AI_REPORT_CONTEXTS = AiReportContexts()
 
 
 async def generate_ai_report(
@@ -200,7 +282,9 @@ async def generate_ai_report(
     user: Optional[User],
     prompt: Optional[str],
     window: ReportWindow,
-    ai_query_plan: Optional[dict] = None,
+    ai_query_plan: dict | None = None,
+    formatted_context: str = "",
+    context_provenance: AiReportContexts = EMPTY_AI_REPORT_CONTEXTS,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> AiReportResult:
     if user is None:
@@ -218,10 +302,14 @@ async def generate_ai_report(
     ) as slo:
         try:
             # A stored plan that no longer validates self-heals by re-planning live.
-            if ai_query_plan is not None:
+            has_selected_context = bool(context_provenance.dashboards or context_provenance.insights)
+            if ai_query_plan is not None and not has_selected_context:
                 try:
                     spec = await _spec_from_frozen_plan(
-                        team=team, prompt=prompt, window=window, ai_query_plan=ai_query_plan
+                        team=team,
+                        prompt=prompt,
+                        window=window,
+                        ai_query_plan=ai_query_plan,
                     )
                     freshly_planned = False
                 except StoredPlanInvalidError as exc:
@@ -230,11 +318,23 @@ async def generate_ai_report(
                     )
                     capture_exception(exc, {"trace_correlation_id": trace_correlation_id, "feature": "ai_subscription"})
                     spec = await _plan(
-                        team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id
+                        team=team,
+                        user=user,
+                        prompt=prompt,
+                        window=window,
+                        trace_id=trace_correlation_id,
+                        formatted_context=formatted_context,
                     )
                     freshly_planned = True
             else:
-                spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
+                spec = await _plan(
+                    team=team,
+                    user=user,
+                    prompt=prompt,
+                    window=window,
+                    trace_id=trace_correlation_id,
+                    formatted_context=formatted_context,
+                )
                 freshly_planned = True
             charts_enabled_for_team = await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user)
             execution = await _execute_plan(
@@ -282,7 +382,7 @@ async def generate_ai_report(
         slo.tag(
             total_steps=total_steps,
             failed_steps=failed_count,
-            query_coverage=(total_steps - failed_count) / total_steps if total_steps else 0.0,
+            query_coverage=(total_steps - failed_count) / total_steps if total_steps else 1.0,
             degraded=bool(failed_count),
             charts_requested=len(charts),
             charts_rendered=len(rendered_charts),
@@ -306,7 +406,7 @@ async def generate_ai_report(
             report = _all_queries_failed_notice(total_steps) + report
         plan_to_persist = _plan_to_freeze(
             spec.plan,
-            freshly_planned=freshly_planned,
+            freshly_planned=freshly_planned and not has_selected_context,
             failed_count=failed_count,
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
@@ -317,8 +417,10 @@ async def generate_ai_report(
             markdown=report,
             diagnostics=tuple(diagnostics),
             window_end_utc=window.end.astimezone(UTC).isoformat(),
+            prompt=prompt,
             plan_to_persist=plan_to_persist,
             charts=tuple(rendered_charts),
+            context=AiReportContext(contexts=context_provenance),
         )
 
 
@@ -374,6 +476,8 @@ def _plan_to_freeze(
             chart_failure_count=chart_failure_count,
         )
         return None
+    if not plan.steps:
+        return None
     if not all(any(token in step.hogql for token in WINDOW_PLACEHOLDERS) for step in plan.steps):
         logger.warning(
             "ai_report.plan_missing_window_placeholder_not_frozen",
@@ -387,7 +491,13 @@ def _plan_to_freeze(
 
 
 async def _plan(
-    *, team: Team, user: User, prompt: Optional[str], window: ReportWindow, trace_id: Optional[Union[int, str]]
+    *,
+    team: Team,
+    user: User,
+    prompt: Optional[str],
+    window: ReportWindow,
+    trace_id: Optional[Union[int, str]],
+    formatted_context: str = "",
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_enriched_prompt, thread_sensitive=False)(
@@ -396,6 +506,7 @@ async def _plan(
             prompt=prompt,
             window=window,
             trace_correlation_id=trace_id,
+            formatted_context=formatted_context,
         )
     except PromptRejectedError:
         raise
@@ -404,7 +515,11 @@ async def _plan(
 
 
 async def _spec_from_frozen_plan(
-    *, team: Team, prompt: Optional[str], window: ReportWindow, ai_query_plan: dict
+    *,
+    team: Team,
+    prompt: Optional[str],
+    window: ReportWindow,
+    ai_query_plan: dict,
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_frozen_prompt, thread_sensitive=False)(
@@ -484,9 +599,14 @@ def _compose_synthesis_human_message(spec: EnrichedPromptSpec, rendered_results:
     results_block = "\n".join(rendered_results) if rendered_results else "_No query results were available._"
     # planner output from user-controlled context — strip framing markers so it can't inject
     safe_intent = strip_llm_framing_markers(spec.plan.overall_intent, max_len=500)
+    safe_formatted_context = strip_llm_framing_markers(spec.formatted_context, max_len=len(spec.formatted_context))
+    computed_context_block = (
+        f"<computed_context>\n{safe_formatted_context}\n</computed_context>\n\n" if safe_formatted_context else ""
+    )
     return (
         f"<user_prompt>\n{spec.cleaned_prompt}\n</user_prompt>\n\n"
         f"<project_context>\n{spec.context_blob}\n</project_context>\n\n"
+        f"{computed_context_block}"
         f"<plan_intent>\n{safe_intent}\n</plan_intent>\n\n"
         f"<query_results>\n{results_block}\n</query_results>"
     )
@@ -500,6 +620,8 @@ async def _run_steps(
     trace_correlation_id: Optional[Union[int, str]],
     charts_enabled_for_team: bool = False,
 ) -> PlanExecution:
+    if not spec.plan.steps:
+        return PlanExecution(rendered=[], failed_count=0, diagnostics=[], charts=[])
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
     # Cap simultaneous ClickHouse scans per report; excess steps queue until a slot frees.
     step_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_STEPS)
@@ -690,4 +812,15 @@ async def _arequest_hogql_fix(
     return fixed or None
 
 
-__all__ = ["generate_ai_report", "AiReportResult", "QueryStepDiagnostic", "AiReportStageError", "ReportStage"]
+__all__ = [
+    "generate_ai_report",
+    "AiReportResult",
+    "AiReportContext",
+    "AiReportContexts",
+    "AiReportDashboardContext",
+    "AiReportInsightContext",
+    "compact_report_context",
+    "QueryStepDiagnostic",
+    "AiReportStageError",
+    "ReportStage",
+]
