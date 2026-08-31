@@ -34,40 +34,27 @@ describe('isAwaitingFirstResults', () => {
         status_counts: { ...emptyStats.status_counts, ...counts },
     })
 
-    // Mirrors a fresh scanner: created moments ago, watermark seeded 35 minutes before creation.
+    // Mirrors a fresh scanner: enabled and created moments ago.
     const scannerWith = (
-        overrides: Partial<{ enabled: boolean; created_at: string; last_swept_at: string }> = {}
+        overrides: Partial<{ enabled: boolean; created_at: string }> = {}
     ): Parameters<typeof isAwaitingFirstResults>[1] => ({
         enabled: true,
         created_at: NOW.subtract(2, 'minute').toISOString(),
-        last_swept_at: NOW.subtract(37, 'minute').toISOString(),
         ...overrides,
     })
 
     const cases: [string, ObservationStatsApi | null, Parameters<typeof isAwaitingFirstResults>[1], boolean][] = [
-        ['stats not loaded yet', null, scannerWith(), false],
-        ['fresh scanner before its first sweep completes', statsWith({}), scannerWith(), true],
-        [
-            'first observations still processing after the sweep',
-            statsWith({ total: 2, in_flight: 2 }),
-            scannerWith({ last_swept_at: NOW.subtract(1, 'minute').toISOString() }),
-            true,
-        ],
+        // The reported bug: a slow, failing, or not-yet-loaded stats call must not drop a fresh scanner
+        // out of pending, or the generic "no matching events" empty state flashes on the status page.
+        ['stats not loaded yet stays pending', null, scannerWith(), true],
+        ['fresh scanner with no settled observations', statsWith({}), scannerWith(), true],
+        ['first observations still processing', statsWith({ total: 2, in_flight: 2 }), scannerWith(), true],
         ['settled observations exist', statsWith({ total: 1, succeeded: 1 }), scannerWith(), false],
-        [
-            'first sweep done and genuinely nothing matched',
-            statsWith({}),
-            scannerWith({ last_swept_at: NOW.subtract(1, 'minute').toISOString() }),
-            false,
-        ],
         ['scanner disabled', statsWith({}), scannerWith({ enabled: false }), false],
         [
-            'stalled sweep past the first hour degrades to the normal empty state',
+            'past the first hour degrades to the normal empty state',
             statsWith({}),
-            scannerWith({
-                created_at: NOW.subtract(2, 'hour').toISOString(),
-                last_swept_at: NOW.subtract(3, 'hour').toISOString(),
-            }),
+            scannerWith({ created_at: NOW.subtract(2, 'hour').toISOString() }),
             false,
         ],
     ]

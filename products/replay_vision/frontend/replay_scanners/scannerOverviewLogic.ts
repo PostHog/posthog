@@ -450,11 +450,10 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             actions.loadOverviewStats()
             actions.loadOverviewImpact()
         }
-        // Pending also hangs off the scanner's sweep watermark, which only the scanner endpoint
-        // reports; without refreshing it a first sweep that matches nothing would never clear
-        // pending. Fetched directly because loadScanner flips scannerLoading, which blanks the scene,
-        // and dispatched through the dedicated watermark action so a background refetch can't reset
-        // the scanner form or refire the observation loads.
+        // Keeps the scanner's sweep watermark fresh during the pending window, so "last scanned" and
+        // the scan-drought banner stay current while the poll runs. Fetched directly because loadScanner
+        // flips scannerLoading, which blanks the scene, and dispatched through the dedicated watermark
+        // action so a background refetch can't reset the scanner form or refire the observation loads.
         const refreshScannerWatermark = async (): Promise<void> => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId || props.scannerId === 'new') {
@@ -467,8 +466,8 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
                 // A failed background refresh just waits for the next poll tick.
             }
         }
-        // Each tick refreshes stats and the sweep watermark in the background, so the pending panel
-        // dissolves into the real Overview on its own. Failing ticks keep polling without toasting
+        // Each tick reloads stats in the background, so the pending panel dissolves into the real
+        // Overview once the first observation settles. Failing ticks keep polling without toasting
         // (see the loadOverviewStats catch); the panel surfaces them via firstScanCheckFailing.
         const firstScanPollTick = (): void => {
             if (!values.firstScanPending) {

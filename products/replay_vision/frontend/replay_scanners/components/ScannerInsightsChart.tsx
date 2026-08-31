@@ -211,6 +211,9 @@ export function ScannerInsightsChart({
                 insightProps={chartInsightProps}
                 className="InsightCard h-80"
                 onDataPointClick={canDrillIntoObservations ? onDataPointClick : undefined}
+                emptyStateHeading="No observations in this range"
+                emptyStateDetail="This scanner has no observations to chart for the selected filters. Try a wider date range."
+                errorMessage="This chart didn't load. Retry, or check back as scans complete."
             />
         </div>
     )
