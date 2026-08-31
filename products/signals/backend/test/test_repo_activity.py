@@ -277,3 +277,10 @@ class TestWeeklyRefreshTask:
         drive()
 
         assert released == expected
+
+    def test_chain_survives_worker_restart_via_late_ack(self):
+        # The batch chain holds a countdown message between batches; without late ack a worker
+        # restart drops it and every repository after the cursor stays stale.
+        task = refresh_signal_repository_activity
+        assert task.acks_late is True
+        assert task.reject_on_worker_lost is True

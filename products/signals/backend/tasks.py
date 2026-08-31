@@ -600,6 +600,11 @@ def pause_inactive_signal_scouts() -> None:
     name="products.signals.backend.tasks.refresh_signal_repository_activity",
     ignore_result=True,
     max_retries=0,
+    # The chain holds each countdown message in one worker's memory for the whole interval.
+    # Ack it only after the batch schedules the next one, so a worker restart (deploy,
+    # scale-down, OOM) redelivers the message and resumes the walk instead of dropping it.
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
 @skip_team_scope_audit
 def refresh_signal_repository_activity(after_team_id: int | None = None, after_repository: str | None = None) -> None:
