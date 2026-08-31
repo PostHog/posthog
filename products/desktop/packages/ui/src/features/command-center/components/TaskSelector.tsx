@@ -17,7 +17,6 @@ interface TaskSelectorProps {
   cellIndex: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onNewTask?: () => void;
   onNewTerminal?: (cwd?: string) => void;
   onBrainrot?: () => void;
   children: ReactNode;
@@ -30,7 +29,6 @@ export function TaskSelector({
   cellIndex,
   open,
   onOpenChange,
-  onNewTask,
   onNewTerminal,
   onBrainrot,
   children,
@@ -63,12 +61,8 @@ export function TaskSelector({
 
   const handleNewTask = useCallback(() => {
     handleOpenChange(false);
-    if (onNewTask) {
-      onNewTask();
-    } else {
-      openTaskInput();
-    }
-  }, [handleOpenChange, onNewTask]);
+    openTaskInput();
+  }, [handleOpenChange]);
 
   const handleNewTerminal = useCallback(() => {
     if (folders.length > 1) {

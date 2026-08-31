@@ -1,5 +1,6 @@
 # Web app specific settings/middleware/apps setup
 import os
+import json
 from datetime import timedelta
 
 import structlog
@@ -1353,6 +1354,35 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 # secret for routing LLM calls through the gateway. Unset = direct to the provider.
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
+
+# Projected into gateway_credential.json: a JSON team_id -> tier map
+# ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
+# Parsed defensively rather than with type_cast=json.loads: that runs at settings
+# import, so a malformed value takes every process down at boot, while the
+# consumer is written to degrade to no overrides.
+try:
+    AI_GATEWAY_TEAM_TIER_OVERRIDES = json.loads(get_from_env("AI_GATEWAY_TEAM_TIER_OVERRIDES", "{}"))
+except ValueError:
+    AI_GATEWAY_TEAM_TIER_OVERRIDES = {}
+
+# Wizard gateway-token mint. WIZARD_GATEWAY_MINT_KEY unset disables the endpoint
+# (404), which the CLI treats as "stay on the legacy gateway".
+WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
+WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
+# OAuth application client ids allowed to mint: llm_gateway:read is an internal
+# scope on every sandbox and agent token, so the scope alone does not identify the
+# wizard. Empty refuses every mint, and blanks are filtered because a list of
+# empty strings is truthy and would read as configured.
+WIZARD_GATEWAY_CLIENT_IDS = [
+    client_id for client_id in get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", "")) if client_id
+]
+WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20")
+# Wizard programs that may mint, each getting its own pinned product node and so
+# its own per-program budget and mint quota. The list is authoritative: a program
+# absent here is refused, not folded into a generic node, so listing a new program
+# is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
+WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
+WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

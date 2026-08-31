@@ -63,6 +63,14 @@ import type { ScoutTagOption } from '../utils/scoutTags'
 export type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
 
+function isRecentlySystemPaused(config: SignalScoutConfig, evaluatedAt: Date): boolean {
+    return Boolean(
+        config.status === 'paused_by_system' &&
+        config.status_changed_at &&
+        dayjs(config.status_changed_at).isAfter(dayjs(evaluatedAt).subtract(SCOUT_ROSTER_WINDOW_HOURS, 'hours'))
+    )
+}
+
 /**
  * One `Scout config changed` per field the request carried. A schedule switch patches both
  * `run_interval_minutes` and `run_cron_schedule` at once, and collapsing those into a single event
@@ -192,6 +200,10 @@ export interface scoutFleetLogicValues {
     fleetSummary: FleetSummary | null
     lastRunAt: string | null
     manualRunScoutIds: string[]
+    pauseAttentionCounts: {
+        pausingSoon: number
+        recentlyPaused: number
+    }
     rollups: Map<string, ScoutRollup>
     rosterEvaluatedAt: number
     rosterGroupCounts: Record<ScoutGroupKey, number>
@@ -414,6 +426,13 @@ export interface scoutFleetLogicMeta {
             rollups: Map<string, ScoutRollup>,
             rosterEvaluatedAt: number
         ) => Record<ScoutGroupKey, number>
+        pauseAttentionCounts: (
+            scoutConfigs: SignalScoutConfigApi[] | null,
+            rosterEvaluatedAt: number
+        ) => {
+            pausingSoon: number
+            recentlyPaused: number
+        }
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
             count: number
@@ -868,6 +887,30 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 return counts
             },
         ],
+        /**
+         * The two scheduler states the stats call out separately: a warned scout still runs and can
+         * be kept, a system-paused one has stopped and needs turning back on. Whole fleet,
+         * unnarrowed by search, for the same reason as `rosterGroupCounts`.
+         */
+        pauseAttentionCounts: [
+            (s) => [s.scoutConfigs, s.rosterEvaluatedAt],
+            (
+                scoutConfigs: SignalScoutConfig[] | null,
+                rosterEvaluatedAt: number
+            ): { pausingSoon: number; recentlyPaused: number } => {
+                let pausingSoon = 0
+                let recentlyPaused = 0
+                const evaluatedAt = new Date(rosterEvaluatedAt)
+                for (const config of scoutConfigs ?? []) {
+                    if (config.status === 'pending_pause' && config.pause_reason === 'ignored') {
+                        pausingSoon += 1
+                    } else if (isRecentlySystemPaused(config, evaluatedAt)) {
+                        recentlyPaused += 1
+                    }
+                }
+                return { pausingSoon, recentlyPaused }
+            },
+        ],
         // Fleet-wide output tally for the "Scout findings" callout, read from the cheap backend
         // summary rather than the paginated runs window. Covers both emit channels — legacy findings
         // and reports authored/edited via the report channel — over the same capped set the findings
@@ -908,7 +951,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 const rollup = values.rollups.get(config.skill_name)
                 return scoutGroup(config, rollup, evaluatedAt) !== scoutGroup(config, rollup, now)
             })
-            if (groupChanged) {
+            const pauseRecencyChanged = (values.scoutConfigs ?? []).some(
+                (config) => isRecentlySystemPaused(config, evaluatedAt) !== isRecentlySystemPaused(config, now)
+            )
+            if (groupChanged || pauseRecencyChanged) {
                 actions.setRosterEvaluatedAt(now.valueOf())
             }
         },
