@@ -105,13 +105,22 @@ async fn test_epoch_key_ttl_expiry() {
     };
 
     let mut config = test_config("ttl_expiry");
-    config.global_cache_ttl = Duration::from_secs(2);
+    // `new()` holds global_cache_ttl at 2 x window_interval, so a TTL short
+    // enough to observe inside a test needs a short window too. The tick purges
+    // any deferred write whose epoch has aged past the readable pair, which at
+    // a 2s window is 2-4s after the write. The tick runs every 100ms, so that
+    // margin holds even on a loaded CI runner; a 1s window would not.
+    config.window_interval = Duration::from_secs(2);
+    config.global_cache_ttl = Duration::from_secs(4);
     let redis_arc: Arc<dyn Client + Send + Sync> = Arc::new(redis.clone());
     let limiter = GlobalRateLimiterImpl::new(config.clone(), vec![redis_arc]).unwrap();
 
-    let _ = limiter.check_limit("ttl_key", 10, None).await;
-
+    // Pin the write and the epoch lookup to one timestamp. A short window rolls
+    // the epoch between the two otherwise, and the test reads a key the write
+    // never touched.
     let now = Utc::now();
+    let _ = limiter.check_limit("ttl_key", 10, Some(now)).await;
+
     let epoch = epoch_from_timestamp(now, config.window_interval);
     let redis_key = epoch_key(&config.redis_key_prefix, "ttl_key", epoch);
 
@@ -120,7 +129,7 @@ async fn test_epoch_key_ttl_expiry() {
         results[0].is_some()
     });
 
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     let results = redis.mget(vec![redis_key]).await.unwrap();
     assert!(results[0].is_none(), "Key should have expired after TTL");

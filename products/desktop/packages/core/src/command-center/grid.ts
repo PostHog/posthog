@@ -220,6 +220,24 @@ export function reflowCells(
   return next;
 }
 
+export function resizeCellsForLayout(
+  cells: readonly (string | null)[],
+  from: LayoutPreset,
+  to: LayoutPreset,
+  occupiedCellIndices?: readonly number[],
+): (string | null)[] {
+  const newCount = getCellCount(to);
+  const isShrinking = newCount < getCellCount(from);
+  if (!occupiedCellIndices || !isShrinking) {
+    return reflowCells(cells, from, to);
+  }
+
+  const occupiedCells = occupiedCellIndices
+    .map((index) => cells[index])
+    .filter((cell): cell is string => cell != null);
+  return resizeCells(occupiedCells, newCount);
+}
+
 export function clampZoom(value: number): number {
   return Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value)) * 10) / 10;
 }
