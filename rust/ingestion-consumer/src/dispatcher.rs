@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use k8s_awareness::PeerTracker;
@@ -26,6 +27,31 @@ pub struct KeyOffset {
     pub max_offset: i64,
 }
 
+/// Per-key max offsets over the keyed messages of `messages`, for advancing
+/// the order sentinel's ACK watermarks. On a partial ack the caller passes
+/// only the completed subset: the full sub-batch's precomputed offsets would
+/// advance a watermark past unprocessed offsets, and the remainder's
+/// redelivery would then flag as a resend-after-ack violation.
+pub fn key_offsets_of(messages: &[SerializedKafkaMessage]) -> Vec<KeyOffset> {
+    let mut max_offsets: HashMap<&str, i64> = HashMap::new();
+    for message in messages {
+        let Some(key) = message.key.as_deref() else {
+            continue;
+        };
+        let entry = max_offsets.entry(key).or_insert(message.offset);
+        if message.offset > *entry {
+            *entry = message.offset;
+        }
+    }
+    max_offsets
+        .into_iter()
+        .map(|(routing_key, max_offset)| KeyOffset {
+            routing_key: routing_key.to_string(),
+            max_offset,
+        })
+        .collect()
+}
+
 /// A slice of a batch assigned to one worker, carrying the messages and the
 /// routing keys they belong to. Routing keys are needed to decrement pin
 /// ref-counts when the sub-batch resolves.
@@ -38,6 +64,9 @@ pub struct SubBatch {
     /// Per-key max offsets. Pass back to `Dispatcher::on_sub_batch_acked` on
     /// a successful ACK (only) so the order sentinel tracks ACK progress.
     pub key_offsets: Vec<KeyOffset>,
+    /// Send with no time budget: a key in this sub-batch reached the
+    /// escalated-resend threshold (see `set_unbudgeted_resend_attempts`).
+    pub unbudgeted: bool,
 }
 
 /// Sticky pin for one routing key. Tracks which worker owns the key and how
@@ -67,6 +96,13 @@ struct PinTable {
     /// Batch id → messages accepted via eager flushes, credited to the batch's
     /// total at completion (`take_eager_accepted`).
     eager_accepted: HashMap<String, u32>,
+    /// Routing key → consecutive budget-limited (timed-out) attempts. At the
+    /// escalation threshold the key's next resend goes out unbudgeted, so a
+    /// message that never fits the budget degrades to watchdog-only
+    /// semantics instead of redelivering forever. Cleared on any resolve for
+    /// the key that carried no timeout, and on pin eviction, so the map is
+    /// bounded like the pin table.
+    timeout_attempts: HashMap<String, u32>,
 }
 
 impl PinTable {
@@ -77,6 +113,7 @@ impl PinTable {
             stash: Stash::new(),
             eager_pending: HashMap::new(),
             eager_accepted: HashMap::new(),
+            timeout_attempts: HashMap::new(),
         }
     }
 }
@@ -99,6 +136,7 @@ struct WorkerSubBatchBuilder {
     messages: Vec<SerializedKafkaMessage>,
     routing_keys: Vec<String>,
     key_offsets: Vec<KeyOffset>,
+    unbudgeted: bool,
 }
 
 impl WorkerSubBatchBuilder {
@@ -121,7 +159,11 @@ impl WorkerAssignments {
         Self::default()
     }
 
-    fn add_group(&mut self, worker: WorkerId, group: MessageGroup) {
+    /// `escalated` marks the group's key as past the unbudgeted-resend
+    /// threshold; one escalated group makes the whole sub-batch unbudgeted,
+    /// which is benign for the co-packed groups (they just keep today's
+    /// watchdog-only semantics for one send).
+    fn add_group(&mut self, worker: WorkerId, group: MessageGroup, escalated: bool) {
         let builder = self
             .by_worker
             .entry(worker)
@@ -129,7 +171,9 @@ impl WorkerAssignments {
                 messages: Vec::new(),
                 routing_keys: Vec::new(),
                 key_offsets: Vec::new(),
+                unbudgeted: false,
             });
+        builder.unbudgeted |= escalated;
 
         // Only keyed messages participate in the key-order sentinel: an
         // unkeyed message lives on an arbitrary partition and is grouped under
@@ -178,6 +222,7 @@ impl WorkerAssignments {
                 messages: builder.messages,
                 routing_keys: builder.routing_keys,
                 key_offsets: builder.key_offsets,
+                unbudgeted: builder.unbudgeted,
             })
             .collect()
     }
@@ -216,6 +261,13 @@ pub struct Dispatcher {
     /// Channel to the consumer's eager-flush send task. `None` disables eager
     /// release (the completion-time flush then does all the draining).
     eager_flush_tx: Mutex<Option<UnboundedSender<EagerFlush>>>,
+    /// Hold every routing key to at most one in-flight sub-batch: a pinned
+    /// key's new group defers behind its un-acked send instead of riding the
+    /// pin onto the worker stream. See `set_per_key_serialization`.
+    per_key_serialization: AtomicBool,
+    /// Consecutive timed-out attempts after which a key's resend goes out
+    /// unbudgeted. 0 never escalates. See `set_unbudgeted_resend_attempts`.
+    unbudgeted_resend_attempts: AtomicU32,
 }
 
 impl Dispatcher {
@@ -234,6 +286,8 @@ impl Dispatcher {
             aperture: None,
             debug_recorder: None,
             eager_flush_tx: Mutex::new(None),
+            per_key_serialization: AtomicBool::new(false),
+            unbudgeted_resend_attempts: AtomicU32::new(0),
         }
     }
 
@@ -252,6 +306,8 @@ impl Dispatcher {
             aperture: None,
             debug_recorder: None,
             eager_flush_tx: Mutex::new(None),
+            per_key_serialization: AtomicBool::new(false),
+            unbudgeted_resend_attempts: AtomicU32::new(0),
         }
     }
 
@@ -280,6 +336,31 @@ impl Dispatcher {
     /// batch's completion-time flush.
     pub fn set_eager_flush_sender(&self, tx: UnboundedSender<EagerFlush>) {
         *self.eager_flush_tx.lock().unwrap() = Some(tx);
+    }
+
+    /// Hold every routing key to at most one in-flight sub-batch. With the
+    /// hold on, a pinned key's new group defers behind its un-acked send, and
+    /// the eager release chains the key's groups at ack speed instead of
+    /// pipelining them onto the worker stream.
+    ///
+    /// This is the ordering precondition for partial acks: when two
+    /// sub-batches of one key are in flight and the older one is acked
+    /// PARTIAL, its timed-out remainder would redeliver behind the newer
+    /// sub-batch's completed messages and the key's writes would land out of
+    /// order. Must be on while a sub-batch soft budget is sent.
+    pub fn set_per_key_serialization(&self, enabled: bool) {
+        self.per_key_serialization.store(enabled, Ordering::Relaxed);
+    }
+
+    /// After this many consecutive timed-out attempts, a key's resend goes
+    /// out unbudgeted (the sub-batch is marked and the transport stamps
+    /// `soft_budget_ms = 0`), degrading that message to watchdog-only
+    /// semantics. Without it, a message that never fits the budget would
+    /// redeliver forever — the deferral path has no attempt cap. 0 disables
+    /// escalation.
+    pub fn set_unbudgeted_resend_attempts(&self, attempts: u32) {
+        self.unbudgeted_resend_attempts
+            .store(attempts, Ordering::Relaxed);
     }
 
     /// Point-in-time load/pin/stash snapshot for the debug UI.
@@ -395,13 +476,16 @@ impl Dispatcher {
         let mut unpinned_groups: Vec<MessageGroup> = Vec::new();
         let mut drain_deferred_count = 0u64;
         let mut cascade_deferred_count = 0u64;
+        let mut serialized_deferred_count = 0u64;
         let mut unroutable_deferred_count = 0u64;
+        let serialize_keys = self.per_key_serialization.load(Ordering::Relaxed);
 
         for group in key_groups {
             let pinned_worker = table.pins.get(&group.routing_key).map(|p| p.worker.clone());
             match pinned_worker {
                 Some(worker)
-                    if !table.stash.is_deferring(&group.routing_key)
+                    if !serialize_keys
+                        && !table.stash.is_deferring(&group.routing_key)
                         && !self.registry.is_dead(&worker)
                         && !self.registry.is_draining(&worker) =>
                 {
@@ -414,18 +498,25 @@ impl Dispatcher {
                         &group.messages,
                         SendKind::Fresh,
                     );
-                    assignments.add_group(worker, group);
+                    assignments.add_group(worker, group, false);
                 }
-                Some(_) => {
-                    // Pinned to a draining/dead worker, or the key already has
-                    // deferred groups pending — defer so newer messages can't
-                    // race ahead of the key's earlier in-flight/deferred ones.
-                    // A key that is already deferring counts as cascade
-                    // (queued behind its own deferred work) regardless of the
-                    // pinned worker's state, so the seed (drain) and the
-                    // amplification (cascade) are measured separately.
+                Some(worker) => {
+                    // Pinned to a draining/dead worker, the key already has
+                    // deferred groups pending, or per-key serialization holds
+                    // the key behind its un-acked send — defer so newer
+                    // messages can't race ahead of the key's earlier
+                    // in-flight/deferred ones. A key that is already deferring
+                    // counts as cascade (queued behind its own deferred work)
+                    // regardless of the pinned worker's state, so the seed
+                    // (drain) and the amplification (cascade) are measured
+                    // separately.
                     if table.stash.is_deferring(&group.routing_key) {
                         cascade_deferred_count += 1;
+                    } else if serialize_keys
+                        && !self.registry.is_dead(&worker)
+                        && !self.registry.is_draining(&worker)
+                    {
+                        serialized_deferred_count += 1;
                     } else {
                         drain_deferred_count += 1;
                     }
@@ -514,7 +605,7 @@ impl Dispatcher {
             );
             self.key_sentinel
                 .note_sent(&group.routing_key, &group.messages, SendKind::Fresh);
-            assignments.add_group(worker, group);
+            assignments.add_group(worker, group, false);
         }
         drop(router);
 
@@ -547,6 +638,13 @@ impl Dispatcher {
             )
             .increment(cascade_deferred_count);
         }
+        if serialized_deferred_count > 0 {
+            counter!(
+                "ingestion_consumer_dispatcher_deferred_groups_total",
+                "reason" => "serialized",
+            )
+            .increment(serialized_deferred_count);
+        }
         if unroutable_deferred_count > 0 {
             counter!(
                 "ingestion_consumer_dispatcher_deferred_groups_total",
@@ -571,6 +669,13 @@ impl Dispatcher {
                 groups: cascade_deferred_count,
             });
         }
+        if serialized_deferred_count > 0 {
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "serialized",
+                groups: serialized_deferred_count,
+            });
+        }
         if unroutable_deferred_count > 0 {
             record_if(&self.debug_recorder, || DebugEventKind::Deferred {
                 batch_id: batch_id.to_string(),
@@ -582,7 +687,9 @@ impl Dispatcher {
             batch_id: batch_id.to_string(),
             routing_keys,
             sub_batches: assignments.sub_batch_infos(),
-            deferred_groups: drain_deferred_count + cascade_deferred_count,
+            deferred_groups: drain_deferred_count
+                + cascade_deferred_count
+                + serialized_deferred_count,
             unroutable_groups: unroutable_deferred_count,
         });
 
@@ -766,6 +873,7 @@ impl Dispatcher {
             .map(|w| (w.clone(), table.in_flight.get(w).copied().unwrap_or(0)))
             .collect();
         let mut assignments = WorkerAssignments::new();
+        let escalation_threshold = self.unbudgeted_resend_attempts.load(Ordering::Relaxed);
 
         let mut router = self.router.lock().unwrap();
         for group in groups {
@@ -813,12 +921,21 @@ impl Dispatcher {
             }
             self.key_sentinel
                 .note_sent(&group.routing_key, &group.messages, SendKind::Resend);
+            let escalated = escalated_key(
+                &table.timeout_attempts,
+                &group.routing_key,
+                escalation_threshold,
+            );
+            if escalated {
+                counter!("ingestion_consumer_budget_escalations_total").increment(1);
+            }
             assignments.add_group(
                 worker,
                 MessageGroup {
                     routing_key: group.routing_key,
                     messages: group.messages,
                 },
+                escalated,
             );
         }
         drop(router);
@@ -878,7 +995,118 @@ impl Dispatcher {
         send_failed: bool,
     ) {
         let mut table = self.pin_table.lock().unwrap();
+        if !send_failed {
+            // A full ack means every message fit the budget: escalation
+            // counts restart. A failed send says nothing about the budget.
+            for key in routing_keys {
+                table.timeout_attempts.remove(key);
+            }
+        }
+        self.resolve_locked(
+            &mut table,
+            worker,
+            message_count,
+            routing_keys,
+            clears_deferral,
+            send_failed,
+        );
+        drop(table);
 
+        record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
+            worker: worker.to_string(),
+            messages: message_count,
+            routing_keys: routing_keys.len(),
+            cleared_deferral: clears_deferral,
+        });
+    }
+
+    /// Resolve a partially acked sub-batch: stash the timed-out remainder for
+    /// redelivery, then settle the send, in one lock scope so no newer
+    /// assignment can slip between the stash and the ref-count drop. The
+    /// stash entry queues at the owning batch's sequence, ahead of any newer
+    /// group the key deferred meanwhile, and the resolve's eager release
+    /// re-routes the remainder immediately (the send did not fail, so there
+    /// is no flapping-worker loop to avoid).
+    ///
+    /// Sound only under per-key serialization: with two in-flight sub-batches
+    /// for one key, the newer one may already carry the key's later messages,
+    /// and the stashed remainder would replay behind them.
+    pub fn on_sub_batch_partial(
+        &self,
+        batch_id: &str,
+        worker: &WorkerId,
+        message_count: usize,
+        routing_keys: &[String],
+        timed_out: Vec<SerializedKafkaMessage>,
+        clears_deferral: bool,
+    ) {
+        counter!("ingestion_consumer_messages_timed_out_total").increment(timed_out.len() as u64);
+
+        let mut table = self.pin_table.lock().unwrap();
+        let GroupedMessages { groups, .. } = group_messages_by_routing_key(timed_out);
+        let deferred_count = groups.len() as u64;
+        let mut timed_out_keys: Vec<String> = Vec::with_capacity(groups.len());
+        for group in groups {
+            *table
+                .timeout_attempts
+                .entry(group.routing_key.clone())
+                .or_insert(0) += 1;
+            timed_out_keys.push(group.routing_key.clone());
+            table.stash.defer(
+                batch_id,
+                DeferredGroup {
+                    routing_key: group.routing_key,
+                    messages: group.messages,
+                },
+            );
+        }
+        // A key that completed this round fits the budget again: its
+        // escalation count restarts.
+        for key in routing_keys {
+            if !timed_out_keys.iter().any(|timed| timed == key) {
+                table.timeout_attempts.remove(key);
+            }
+        }
+        if deferred_count > 0 {
+            counter!(
+                "ingestion_consumer_dispatcher_deferred_groups_total",
+                "reason" => "timed_out",
+            )
+            .increment(deferred_count);
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "timed_out",
+                groups: deferred_count,
+            });
+        }
+        record_stash_gauges(&table.stash);
+        self.resolve_locked(
+            &mut table,
+            worker,
+            message_count,
+            routing_keys,
+            clears_deferral,
+            false,
+        );
+        drop(table);
+
+        record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
+            worker: worker.to_string(),
+            messages: message_count,
+            routing_keys: routing_keys.len(),
+            cleared_deferral: clears_deferral,
+        });
+    }
+
+    fn resolve_locked(
+        &self,
+        table: &mut PinTable,
+        worker: &WorkerId,
+        message_count: usize,
+        routing_keys: &[String],
+        clears_deferral: bool,
+        send_failed: bool,
+    ) {
         let now_zero = match table.in_flight.get_mut(worker) {
             Some(load) => {
                 *load = load.saturating_sub(message_count);
@@ -918,6 +1146,7 @@ impl Dispatcher {
                 pin.ref_count = pin.ref_count.saturating_sub(1);
                 if pin.ref_count == 0 && !still_deferring {
                     table.pins.remove(key);
+                    table.timeout_attempts.remove(key);
                     // All sends for the key resolved and nothing is deferred —
                     // its order-sentinel history has nothing left to check.
                     self.key_sentinel.evict(key);
@@ -934,7 +1163,7 @@ impl Dispatcher {
 
         if let Some(tx) = eager_tx {
             if !release_keys.is_empty() {
-                self.release_next_groups(&mut table, &tx, &release_keys);
+                self.release_next_groups(table, &tx, &release_keys);
             }
         }
 
@@ -947,14 +1176,6 @@ impl Dispatcher {
         }
 
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
-        drop(table);
-
-        record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
-            worker: worker.to_string(),
-            messages: message_count,
-            routing_keys: routing_keys.len(),
-            cleared_deferral: clears_deferral,
-        });
     }
 
     /// Record the outcome of a send attempt for passive health tracking.
@@ -1023,6 +1244,14 @@ impl Dispatcher {
             }
             self.key_sentinel
                 .note_sent(key, &messages, SendKind::Resend);
+            let escalated = escalated_key(
+                &table.timeout_attempts,
+                key,
+                self.unbudgeted_resend_attempts.load(Ordering::Relaxed),
+            );
+            if escalated {
+                counter!("ingestion_consumer_budget_escalations_total").increment(1);
+            }
             let mut assignments = WorkerAssignments::new();
             assignments.add_group(
                 worker.clone(),
@@ -1030,6 +1259,7 @@ impl Dispatcher {
                     routing_key: key.clone(),
                     messages,
                 },
+                escalated,
             );
             *table.in_flight.entry(worker.clone()).or_insert(0) += message_count;
             *table.eager_pending.entry(owning_batch.clone()).or_insert(0) += 1;
@@ -1125,6 +1355,11 @@ fn sticky_pin_for(
         return None;
     }
     Some(worker)
+}
+
+/// Whether the key reached the unbudgeted-resend threshold (0 disables).
+fn escalated_key(attempts: &HashMap<String, u32>, routing_key: &str, threshold: u32) -> bool {
+    threshold > 0 && attempts.get(routing_key).is_some_and(|&n| n >= threshold)
 }
 
 /// Add `count` to a worker's working load for this round, if it is a candidate.
@@ -1304,6 +1539,7 @@ mod tests {
                 routing_key: "tok:user-1".to_string(),
                 messages: make_msgs(&["tok:user-1"]),
             },
+            false,
         );
         assignments.add_group(
             wid(1),
@@ -1311,6 +1547,7 @@ mod tests {
                 routing_key: "tok:user-2".to_string(),
                 messages: make_msgs(&["tok:user-2"]),
             },
+            false,
         );
 
         assert_eq!(
@@ -1340,6 +1577,7 @@ mod tests {
                 routing_key: "tok:user-1".to_string(),
                 messages: vec![make_msg_at("tok:user-1", 100)],
             },
+            false,
         );
         let sub_batches = assignments.into_sub_batches();
         assert_eq!(sub_batches[0].key_offsets.len(), 1);
@@ -1354,6 +1592,7 @@ mod tests {
                 routing_key: ":7:42".to_string(),
                 messages: vec![make_unkeyed_msg()],
             },
+            false,
         );
         assert!(assignments.into_sub_batches()[0].key_offsets.is_empty());
     }
@@ -2069,6 +2308,232 @@ mod tests {
             assert!(!dispatcher.has_unfinished_flush(batch));
             assert_eq!(dispatcher.take_eager_accepted(batch), 1);
         }
+    }
+
+    #[test]
+    fn test_serialized_key_holds_new_groups_until_the_send_resolves() {
+        // The one-in-flight-sub-batch-per-key hold: with serialization on, a
+        // pinned key's next group must not ride the pin onto the stream while
+        // the previous send is un-acked. This is the ordering precondition
+        // for partial-ack redelivery.
+        let dispatcher = Dispatcher::new(healthy_registry(1));
+        dispatcher.set_per_key_serialization(true);
+        dispatcher.register_batch("batch-1");
+        dispatcher.register_batch("batch-2");
+
+        let b1 = dispatcher.assign("batch-1", vec![make_msg_at("t:a", 1)]);
+        assert_eq!(b1.len(), 1, "fresh key routes immediately");
+
+        let b2 = dispatcher.assign(
+            "batch-2",
+            vec![make_msg_at("t:a", 2), make_msg_at("t:b", 3)],
+        );
+        assert_eq!(b2.len(), 1, "only the fresh key routes");
+        assert_eq!(b2[0].routing_keys, vec!["t:b".to_string()]);
+        assert_eq!(
+            dispatcher.stashed_messages(),
+            1,
+            "the pinned key holds behind its un-acked send"
+        );
+
+        dispatcher.on_sub_batch_acked(&b1[0].key_offsets);
+        dispatcher.on_sub_batch_resolved(&b1[0].worker, 1, &b1[0].routing_keys, false, false);
+        let flushed = dispatcher.flush_deferred("batch-2");
+        assert_eq!(flushed.len(), 1, "the held group flushes after the ack");
+        assert_eq!(flushed[0].messages[0].offset, 2);
+    }
+
+    #[test]
+    fn test_serialized_hold_releases_eagerly_at_ack() {
+        // With the hold on, a hot key's consecutive groups drain at ack speed
+        // through the eager release instead of pipelining onto the stream.
+        let dispatcher = Dispatcher::new(healthy_registry(1));
+        dispatcher.set_per_key_serialization(true);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        dispatcher.set_eager_flush_sender(tx);
+        dispatcher.register_batch("batch-1");
+        dispatcher.register_batch("batch-2");
+
+        let b1 = dispatcher.assign("batch-1", vec![make_msg_at("t:a", 1)]);
+        assert!(dispatcher
+            .assign("batch-2", vec![make_msg_at("t:a", 2)])
+            .is_empty());
+
+        dispatcher.on_sub_batch_acked(&b1[0].key_offsets);
+        dispatcher.on_sub_batch_resolved(&b1[0].worker, 1, &b1[0].routing_keys, false, false);
+        let flush = rx.try_recv().expect("the ack releases the held group");
+        assert_eq!(flush.batch_id, "batch-2");
+        assert_eq!(flush.sub_batch.messages[0].offset, 2);
+    }
+
+    #[test]
+    fn test_key_offsets_of_takes_max_offset_of_keyed_messages() {
+        let mut offsets = key_offsets_of(&[
+            make_msg_at("t:a", 5),
+            make_msg_at("t:a", 3),
+            make_unkeyed_msg(),
+        ]);
+        assert_eq!(offsets.len(), 1, "unkeyed messages carry no watermark");
+        let offset = offsets.pop().unwrap();
+        assert_eq!(offset.routing_key, "t:a");
+        assert_eq!(offset.max_offset, 5);
+    }
+
+    #[test]
+    fn test_partial_resolve_releases_completed_keys_and_stashes_the_remainder() {
+        // A partial ack must release the fully-completed keys (pin evicted,
+        // new groups route fresh) while the timed-out remainder stays owned
+        // by its batch and replays ahead of the key's newer groups.
+        let dispatcher = Dispatcher::new(healthy_registry(1));
+        dispatcher.set_per_key_serialization(true);
+        dispatcher.register_batch("batch-1");
+        dispatcher.register_batch("batch-2");
+
+        let b1 = dispatcher.assign(
+            "batch-1",
+            vec![
+                make_msg_at("t:a", 1),
+                make_msg_at("t:a", 2),
+                make_msg_at("t:b", 3),
+            ],
+        );
+        assert_eq!(b1.len(), 1, "one worker takes the whole batch");
+        let worker = b1[0].worker.clone();
+
+        // The budget cut t:a's second message; t:a offset 1 and t:b completed.
+        dispatcher.on_sub_batch_acked(&key_offsets_of(&[
+            make_msg_at("t:a", 1),
+            make_msg_at("t:b", 3),
+        ]));
+        dispatcher.on_sub_batch_partial(
+            "batch-1",
+            &worker,
+            3,
+            &b1[0].routing_keys,
+            vec![make_msg_at("t:a", 2)],
+            false,
+        );
+
+        assert_eq!(dispatcher.stashed_messages(), 1);
+        assert_eq!(dispatcher.total_in_flight(), 0);
+        assert!(dispatcher.has_deferred("batch-1"));
+
+        // t:b resolved fully, so a new group routes immediately; t:a still
+        // has the stashed remainder, so a new group defers behind it.
+        let b2 = dispatcher.assign(
+            "batch-2",
+            vec![make_msg_at("t:a", 4), make_msg_at("t:b", 5)],
+        );
+        assert_eq!(b2.len(), 1);
+        assert_eq!(b2[0].routing_keys, vec!["t:b".to_string()]);
+        assert_eq!(dispatcher.stashed_messages(), 2);
+
+        // The completion-time flush replays the remainder first, then the
+        // newer group.
+        let replay = dispatcher.flush_deferred("batch-1");
+        assert_eq!(replay.len(), 1);
+        assert_eq!(replay[0].messages[0].offset, 2);
+        dispatcher.on_sub_batch_acked(&replay[0].key_offsets);
+        dispatcher.on_sub_batch_resolved(
+            &replay[0].worker,
+            1,
+            &replay[0].routing_keys,
+            true,
+            false,
+        );
+        let newer = dispatcher.flush_deferred("batch-2");
+        assert_eq!(newer.len(), 1);
+        assert_eq!(newer[0].messages[0].offset, 4);
+    }
+
+    #[test]
+    fn test_repeated_timeouts_escalate_the_resend_to_unbudgeted() {
+        // A message that never fits the budget must not redeliver forever: at
+        // the threshold its resend goes out unbudgeted, degrading that one
+        // send to watchdog-only semantics.
+        let dispatcher = Dispatcher::new(healthy_registry(1));
+        dispatcher.set_per_key_serialization(true);
+        dispatcher.set_unbudgeted_resend_attempts(2);
+        dispatcher.register_batch("batch-1");
+
+        let b1 = dispatcher.assign("batch-1", vec![make_msg_at("t:a", 1)]);
+        let worker = b1[0].worker.clone();
+
+        // First timeout: the retry keeps its budget.
+        dispatcher.on_sub_batch_partial(
+            "batch-1",
+            &worker,
+            1,
+            &b1[0].routing_keys,
+            vec![make_msg_at("t:a", 1)],
+            false,
+        );
+        let retry = dispatcher.flush_deferred("batch-1");
+        assert!(
+            !retry[0].unbudgeted,
+            "below the threshold the resend keeps its budget"
+        );
+
+        // Second timeout reaches the threshold: the resend escalates.
+        dispatcher.on_sub_batch_partial(
+            "batch-1",
+            &retry[0].worker,
+            1,
+            &retry[0].routing_keys,
+            vec![make_msg_at("t:a", 1)],
+            true,
+        );
+        let escalated = dispatcher.flush_deferred("batch-1");
+        assert!(
+            escalated[0].unbudgeted,
+            "at the threshold the resend goes out unbudgeted"
+        );
+
+        // The unbudgeted send completes: the key fully resolves and its
+        // escalation state clears with the pin.
+        dispatcher.on_sub_batch_acked(&escalated[0].key_offsets);
+        dispatcher.on_sub_batch_resolved(
+            &escalated[0].worker,
+            1,
+            &escalated[0].routing_keys,
+            true,
+            false,
+        );
+        assert_eq!(dispatcher.pin_count(), 0);
+    }
+
+    #[test]
+    fn test_partial_resolve_eagerly_redelivers_the_remainder() {
+        // With eager flushing on, the timed-out remainder re-routes the
+        // moment the partial ack resolves, without waiting for the owning
+        // batch's completion-time flush.
+        let dispatcher = Dispatcher::new(healthy_registry(1));
+        dispatcher.set_per_key_serialization(true);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        dispatcher.set_eager_flush_sender(tx);
+        dispatcher.register_batch("batch-1");
+
+        let b1 = dispatcher.assign(
+            "batch-1",
+            vec![make_msg_at("t:a", 1), make_msg_at("t:a", 2)],
+        );
+        dispatcher.on_sub_batch_acked(&key_offsets_of(&[make_msg_at("t:a", 1)]));
+        dispatcher.on_sub_batch_partial(
+            "batch-1",
+            &b1[0].worker,
+            2,
+            &b1[0].routing_keys,
+            vec![make_msg_at("t:a", 2)],
+            false,
+        );
+
+        let flush = rx.try_recv().expect("remainder released at ack speed");
+        assert_eq!(flush.batch_id, "batch-1");
+        assert_eq!(flush.sub_batch.messages[0].offset, 2);
+        assert!(
+            dispatcher.has_unfinished_flush("batch-1"),
+            "the batch waits on the redelivery"
+        );
     }
 
     #[test]

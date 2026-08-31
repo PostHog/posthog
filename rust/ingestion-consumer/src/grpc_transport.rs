@@ -43,7 +43,7 @@ use dashmap::DashMap;
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_client::WorkerIngestClient;
 use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
-    KafkaMessage, StreamHello, SubBatch, SubBatchStatus,
+    KafkaMessage, StreamHello, SubBatch, SubBatchAck, SubBatchStatus,
 };
 use metrics::{counter, gauge, histogram};
 use prost::Message;
@@ -57,14 +57,27 @@ use crate::transport::{
 };
 use crate::types::SerializedKafkaMessage;
 
-/// An acked chunk: the worker's accepted count, with the messages handed
-/// back so a split send can reassemble the whole sub-batch on failure.
+/// An acked chunk: the worker's accepted count and timed-out indices
+/// (chunk-local, in send order), with the messages handed back so a split
+/// send can reassemble the whole sub-batch on failure.
 struct Accepted {
     accepted: u32,
+    timed_out: Vec<u32>,
     messages: Vec<SerializedKafkaMessage>,
 }
 
 type StreamReply = Result<Accepted, SendError>;
+
+/// Resolution of a send whose ack arrived. `accepted` counts the messages
+/// the worker processed and acked. On a partial ack, `timed_out` carries the
+/// messages the worker's budget cut off and `completed` the acked remainder,
+/// both in send order; on a full ack both are empty.
+#[derive(Debug)]
+pub struct SendOutcome {
+    pub accepted: u32,
+    pub completed: Vec<SerializedKafkaMessage>,
+    pub timed_out: Vec<SerializedKafkaMessage>,
+}
 
 /// An enqueued sub-batch awaiting its acks; resolves like an HTTP send. A
 /// sub-batch over the size cap rides the stream as several consecutive
@@ -74,13 +87,16 @@ pub struct PendingWorkerStreamSend {
 }
 
 impl PendingWorkerStreamSend {
-    /// All-or-nothing: `Ok` only when every
-    /// chunk was accepted; on any failure the `SendError` carries back the
-    /// full original message set, in order, so the caller defers all of it.
-    /// Already-accepted chunks then replay, which is ordinary at-least-once.
-    pub async fn wait(self) -> Result<u32, SendError> {
-        let mut accepted_total = 0u32;
-        let mut messages: Vec<SerializedKafkaMessage> = Vec::new();
+    /// `Ok` only when every chunk was acked; on any failure the `SendError`
+    /// carries back the full original message set, in order, so the caller
+    /// defers all of it. Already-accepted chunks then replay, which is
+    /// ordinary at-least-once. An `Ok` outcome may still be partial: the
+    /// worker's budget cut off some messages, listed in
+    /// [`SendOutcome::timed_out`] with chunk-local indices already mapped
+    /// back to sub-batch positions.
+    pub async fn wait(self) -> Result<SendOutcome, SendError> {
+        let mut resolved: Vec<Accepted> = Vec::new();
+        let mut failed_messages: Vec<SerializedKafkaMessage> = Vec::new();
         let mut failure: Option<SendError> = None;
         for rx in self.chunks {
             let reply = match rx.await {
@@ -96,12 +112,15 @@ impl PendingWorkerStreamSend {
                 }),
             };
             match reply {
-                Ok(accepted) => {
-                    accepted_total += accepted.accepted;
-                    messages.extend(accepted.messages);
-                }
+                Ok(accepted) if failure.is_none() => resolved.push(accepted),
+                Ok(accepted) => failed_messages.extend(accepted.messages),
                 Err(mut err) => {
-                    messages.extend(std::mem::take(&mut err.messages));
+                    // The failure set carries every chunk's messages in send
+                    // order, resolved ones included.
+                    for chunk in resolved.drain(..) {
+                        failed_messages.extend(chunk.messages);
+                    }
+                    failed_messages.extend(std::mem::take(&mut err.messages));
                     match &mut failure {
                         // Keep the first failure's error; fold later guards
                         // into it so the stream fences until all are stashed.
@@ -115,25 +134,99 @@ impl PendingWorkerStreamSend {
                 }
             }
         }
-        match failure {
-            None => Ok(accepted_total),
-            Some(mut err) => {
-                err.messages = messages;
-                Err(err)
-            }
+        if let Some(mut err) = failure {
+            err.messages = failed_messages;
+            return Err(err);
+        }
+        let accepted = resolved.iter().map(|chunk| chunk.accepted).sum();
+        if resolved.iter().all(|chunk| chunk.timed_out.is_empty()) {
+            return Ok(SendOutcome {
+                accepted,
+                completed: Vec::new(),
+                timed_out: Vec::new(),
+            });
+        }
+        let mut completed = Vec::new();
+        let mut timed_out = Vec::new();
+        for chunk in resolved {
+            let (chunk_completed, chunk_timed_out) =
+                partition_by_timed_out(chunk.messages, &chunk.timed_out);
+            completed.extend(chunk_completed);
+            timed_out.extend(chunk_timed_out);
+        }
+        Ok(SendOutcome {
+            accepted,
+            completed,
+            timed_out,
+        })
+    }
+}
+
+/// Split a chunk's messages into (completed, timed out) per the ack's
+/// chunk-local indices, preserving send order in both halves. Indices were
+/// validated against the chunk on receipt (see `ack_shape_error`).
+fn partition_by_timed_out(
+    messages: Vec<SerializedKafkaMessage>,
+    timed_out: &[u32],
+) -> (Vec<SerializedKafkaMessage>, Vec<SerializedKafkaMessage>) {
+    if timed_out.is_empty() {
+        return (messages, Vec::new());
+    }
+    let mut cut = vec![false; messages.len()];
+    for &index in timed_out {
+        if let Some(slot) = cut.get_mut(index as usize) {
+            *slot = true;
         }
     }
+    let mut completed = Vec::with_capacity(messages.len() - timed_out.len());
+    let mut timed = Vec::with_capacity(timed_out.len());
+    for (index, message) in messages.into_iter().enumerate() {
+        if cut[index] {
+            timed.push(message);
+        } else {
+            completed.push(message);
+        }
+    }
+    (completed, timed)
 }
 
 struct WorkerStreamItem {
     batch_id: String,
     messages: Vec<SerializedKafkaMessage>,
     replay: bool,
+    /// Send this frame with `soft_budget_ms = 0` regardless of the configured
+    /// budget. Set for an escalated resend, and for every chunk of a
+    /// size-split sub-batch: chunks are separate frames with separate budgets
+    /// on the worker, so a budget cut in one chunk while a later chunk
+    /// carries the same routing key would let the key's newer messages
+    /// complete ahead of its timed-out older ones.
+    unbudgeted: bool,
     reply: oneshot::Sender<StreamReply>,
 }
 
 struct WorkerStream {
     tx: mpsc::UnboundedSender<WorkerStreamItem>,
+}
+
+/// Per-send options for [`GrpcTransport::begin_send`].
+#[derive(Clone, Copy, Default)]
+pub struct SendOptions {
+    /// The send may repeat previously delivered messages (a retry or flush
+    /// path); the worker's sentinel counts repeats as replays.
+    pub replay: bool,
+    /// Send with `soft_budget_ms = 0` regardless of the configured budget:
+    /// the escalation path for messages that repeatedly outlive it.
+    pub unbudgeted: bool,
+}
+
+impl SendOptions {
+    /// A replaying send with the configured budget (the common retry shape).
+    pub fn replay() -> Self {
+        Self {
+            replay: true,
+            unbudgeted: false,
+        }
+    }
 }
 
 /// How a worker's gRPC address is derived from its HTTP URL.
@@ -168,6 +261,9 @@ pub struct GrpcTransport {
     /// consecutive chunks (see `begin_send`), so no frame crosses the worker's
     /// message limit.
     max_body_bytes: usize,
+    /// Soft time budget stamped on every sub-batch frame (milliseconds).
+    /// 0 sends no budget, so the worker never times work out.
+    soft_budget_ms: u64,
 }
 
 impl GrpcTransport {
@@ -180,6 +276,7 @@ impl GrpcTransport {
             max_unacked,
             ack_timeout,
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
+            soft_budget_ms: 0,
             assignment_epoch: Arc::new(AtomicU64::new(1)),
             probe_client: reqwest::Client::builder()
                 .timeout(readiness::PROBE_TIMEOUT)
@@ -199,6 +296,15 @@ impl GrpcTransport {
         self.max_body_bytes = bytes;
     }
 
+    /// Set the soft time budget stamped on every sub-batch (milliseconds).
+    /// 0 sends no budget. The worker enforces what it is sent: past the
+    /// budget it stops starting new work and acks the sub-batch PARTIAL, so
+    /// size it well under the ack watchdog, which stays the hard limit.
+    /// Call before the transport is shared.
+    pub fn set_soft_budget_ms(&mut self, ms: u64) {
+        self.soft_budget_ms = ms;
+    }
+
     /// Enqueue a sub-batch on the worker's stream. Synchronous on purpose: call
     /// in send order (the consumer loop / serialized flush paths) — the worker stream
     /// preserves enqueue order onto the stream.
@@ -212,7 +318,7 @@ impl GrpcTransport {
         worker_url: &str,
         batch_id: &str,
         messages: Vec<SerializedKafkaMessage>,
-        replay: bool,
+        options: SendOptions,
     ) -> PendingWorkerStreamSend {
         let chunks = split_by_size(messages, self.max_body_bytes);
         if chunks.len() > 1 {
@@ -222,6 +328,7 @@ impl GrpcTransport {
             )
             .increment((chunks.len() - 1) as u64);
         }
+        let unbudgeted = options.unbudgeted || chunks.len() > 1;
         let stream = self.worker_stream_for(worker_url);
         let receivers = chunks
             .into_iter()
@@ -230,7 +337,8 @@ impl GrpcTransport {
                 let item = WorkerStreamItem {
                     batch_id: batch_id.to_string(),
                     messages,
-                    replay,
+                    replay: options.replay,
+                    unbudgeted,
                     reply,
                 };
                 if let Err(send_err) = stream.tx.send(item) {
@@ -268,6 +376,7 @@ impl GrpcTransport {
             consumer_id: self.consumer_id.clone(),
             max_unacked: self.max_unacked,
             ack_timeout: self.ack_timeout,
+            soft_budget_ms: self.soft_budget_ms,
             assignment_epoch: Arc::clone(&self.assignment_epoch),
         };
         tokio::spawn(async move { runner.run(rx).await });
@@ -308,9 +417,20 @@ struct LedgerEntry {
     deadline: tokio::time::Instant,
     /// When the sub-batch went on the wire, for the send-to-ack latency histogram.
     sent_at: std::time::Instant,
-    /// The worker's accepted count once acked. The entry stays in the ledger
-    /// until every earlier entry is acked too, so a fence still reaches it.
-    acked: Option<u32>,
+    /// Whether the frame carried a non-zero soft budget. Only a budgeted
+    /// frame may be acked PARTIAL; a partial ack for an unbudgeted frame is a
+    /// protocol violation and fences.
+    budgeted: bool,
+    /// The worker's ack once received. The entry stays in the ledger until
+    /// every earlier entry is acked too, so a fence still reaches it.
+    acked: Option<RecordedAck>,
+}
+
+/// A validated ack recorded in the ledger, awaiting prefix resolution.
+struct RecordedAck {
+    accepted: u32,
+    /// Chunk-local indices of timed-out messages; empty on a full ack.
+    timed_out: Vec<u32>,
 }
 
 /// An open stream: the request sender and the worker's ack stream.
@@ -328,6 +448,7 @@ struct WorkerStreamRunner {
     consumer_id: String,
     max_unacked: usize,
     ack_timeout: Duration,
+    soft_budget_ms: u64,
     assignment_epoch: Arc<AtomicU64>,
 }
 
@@ -527,6 +648,11 @@ impl WorkerStreamRunner {
             let Some(item) = item else { break };
             let seq = *next_seq;
             *next_seq += 1;
+            let soft_budget_ms = if item.unbudgeted {
+                0
+            } else {
+                self.soft_budget_ms
+            };
             let request = IngestStreamRequest {
                 msg: Some(ingest_stream_request::Msg::SubBatch(SubBatch {
                     seq,
@@ -534,7 +660,7 @@ impl WorkerStreamRunner {
                     messages: item.messages.iter().map(to_proto_message).collect(),
                     replay: item.replay,
                     assignment_epoch: self.assignment_epoch.load(Ordering::Relaxed),
-                    soft_budget_ms: 0,
+                    soft_budget_ms,
                 })),
             };
             // tonic gzips the frame after this point, so only the raw size is observable here.
@@ -547,6 +673,7 @@ impl WorkerStreamRunner {
                 item,
                 deadline,
                 sent_at: std::time::Instant::now(),
+                budgeted: soft_budget_ms > 0,
                 acked: None,
             });
             if !sent {
@@ -656,7 +783,8 @@ impl WorkerStreamRunner {
             );
             return Err(self.fence(None, ledger, queue, "sub-batch nacked"));
         }
-        if response.status != SubBatchStatus::Ok as i32 {
+        let is_partial = response.status == SubBatchStatus::Partial as i32;
+        if response.status != SubBatchStatus::Ok as i32 && !is_partial {
             // BUSY, or any status this consumer predates: transient
             // backpressure, not a fault. Fence in order (the ordered stream
             // cannot retry one sub-batch in place) but as retriable, so the
@@ -671,13 +799,49 @@ impl WorkerStreamRunner {
         }
         let was_full = ledger.len() >= self.max_unacked;
         let Some(entry) = ledger
-            .iter_mut()
+            .iter()
             .find(|e| e.seq == response.seq && e.acked.is_none())
         else {
             warn!(worker = %self.worker_url, seq = response.seq, "Ack for unknown seq — fencing worker stream");
             return Err(self.fence(None, ledger, queue, "unknown ack seq"));
         };
-        entry.acked = Some(response.accepted);
+        // Fail closed on the disposition shape: proto3 cannot distinguish an
+        // unset list from an empty one, so acceptance is never derived from
+        // `timed_out` without these checks — a worker bug becomes a fence and
+        // a replay instead of silently lost messages.
+        if let Some(reason) = ack_shape_error(entry.item.messages.len(), entry.budgeted, &response)
+        {
+            warn!(
+                worker = %self.worker_url,
+                seq = response.seq,
+                status = response.status,
+                reason,
+                "Invalid ack shape — fencing worker stream"
+            );
+            return Err(self.fence(None, ledger, queue, reason));
+        }
+        if is_partial {
+            counter!(
+                "ingestion_consumer_partial_acks_total",
+                "worker" => self.worker_url.clone(),
+            )
+            .increment(1);
+            info!(
+                worker = %self.worker_url,
+                seq = response.seq,
+                accepted = response.accepted,
+                timed_out = response.timed_out.len(),
+                "Partial ack — the budget cut off part of the sub-batch"
+            );
+        }
+        let entry = ledger
+            .iter_mut()
+            .find(|e| e.seq == response.seq && e.acked.is_none())
+            .expect("entry found above");
+        entry.acked = Some(RecordedAck {
+            accepted: response.accepted,
+            timed_out: response.timed_out,
+        });
         self.record_send_duration(entry);
         counter!(
             "ingestion_consumer_transport_requests_total",
@@ -690,11 +854,15 @@ impl WorkerStreamRunner {
         // release its keys first.
         while ledger.front().is_some_and(|e| e.acked.is_some()) {
             let entry = ledger.pop_front().expect("front is present");
-            let accepted = entry.acked.expect("front is acked");
+            let recorded = entry.acked.expect("front is acked");
             let WorkerStreamItem {
                 reply, messages, ..
             } = entry.item;
-            let _ = reply.send(Ok(Accepted { accepted, messages }));
+            let _ = reply.send(Ok(Accepted {
+                accepted: recorded.accepted,
+                timed_out: recorded.timed_out,
+                messages,
+            }));
         }
         if was_full && ledger.len() < self.max_unacked && !queue.is_empty() {
             counter!(
@@ -837,6 +1005,40 @@ enum StreamEnd {
     Failed(Fence),
     /// The stream ended cleanly with nothing outstanding.
     Idle,
+}
+
+/// Validate an OK or PARTIAL ack's disposition shape against the frame it
+/// resolves, returning the fence reason on a violation. PARTIAL requires a
+/// budgeted frame, a non-empty `timed_out` list of unique in-range indices,
+/// and `accepted + timed_out.len()` covering the frame exactly; OK requires
+/// the list empty.
+fn ack_shape_error(
+    message_count: usize,
+    budgeted: bool,
+    ack: &SubBatchAck,
+) -> Option<&'static str> {
+    if ack.status != SubBatchStatus::Partial as i32 {
+        return (!ack.timed_out.is_empty()).then_some("timed_out on a non-partial ack");
+    }
+    if !budgeted {
+        // This consumer sent no budget on the frame (none configured, or a
+        // split chunk), so the worker had nothing to time out.
+        return Some("partial ack for an unbudgeted sub-batch");
+    }
+    if ack.timed_out.is_empty() {
+        return Some("partial ack with no timed_out entries");
+    }
+    let mut seen = vec![false; message_count];
+    for &index in &ack.timed_out {
+        match seen.get_mut(index as usize) {
+            Some(slot) if !*slot => *slot = true,
+            _ => return Some("partial ack with an out-of-range or duplicate index"),
+        }
+    }
+    if ack.accepted as usize + ack.timed_out.len() != message_count {
+        return Some("partial ack dispositions do not cover the sub-batch");
+    }
+    None
 }
 
 fn to_proto_message(message: &SerializedKafkaMessage) -> KafkaMessage {

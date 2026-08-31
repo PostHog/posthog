@@ -246,6 +246,38 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", default = "60000")]
     pub ingestion_worker_stream_ack_timeout_ms: u64,
 
+    /// Soft time budget stamped on every sub-batch (milliseconds), enforced
+    /// by the worker: past it the worker stops starting new work, lets
+    /// in-flight steps finish, and acks PARTIAL so the consumer redelivers
+    /// only the unfinished remainder. 0 sends no budget, which keeps today's
+    /// semantics. When set, size it well under
+    /// INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS (suggested half): the ack
+    /// watchdog stays the system's hard limit. A non-zero budget also turns
+    /// on per-key serialization (INGESTION_WORKER_PER_KEY_SERIALIZATION),
+    /// the ordering precondition for partial redelivery. gRPC transport only.
+    #[envconfig(from = "INGESTION_WORKER_SUB_BATCH_SOFT_BUDGET_MS", default = "0")]
+    pub ingestion_worker_sub_batch_soft_budget_ms: u64,
+
+    /// Hold every routing key to at most one in-flight sub-batch: new groups
+    /// for a pinned key defer until the key's previous send is acked, and the
+    /// eager release chains them at ack speed. This is the ordering
+    /// precondition for budget enforcement, so a non-zero
+    /// INGESTION_WORKER_SUB_BATCH_SOFT_BUDGET_MS turns it on regardless of
+    /// this flag; on its own it lets the hold's throughput cost be measured
+    /// before budgets are enabled. Pair it with
+    /// DISPATCHER_EAGER_DEFERRED_FLUSH, otherwise held groups drain only at
+    /// batch completion.
+    #[envconfig(from = "INGESTION_WORKER_PER_KEY_SERIALIZATION", default = "false")]
+    pub ingestion_worker_per_key_serialization: bool,
+
+    /// After this many consecutive budget-limited (timed-out) attempts, a
+    /// message's next resend goes out with no budget, degrading it to
+    /// watchdog-only semantics. Without the escalation, a message that never
+    /// fits the budget would redeliver forever — the deferral path has no
+    /// attempt cap. 0 disables escalation.
+    #[envconfig(from = "INGESTION_WORKER_UNBUDGETED_RESEND_ATTEMPTS", default = "3")]
+    pub ingestion_worker_unbudgeted_resend_attempts: u32,
+
     // ---- Worker discovery ----
     /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the
     /// co-located sidecar default) or `endpointslice` (watch a Kubernetes

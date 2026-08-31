@@ -10,8 +10,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
-use ingestion_consumer::transport::TransportError;
+use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport, SendOptions, SendOutcome};
+use ingestion_consumer::transport::{SendError, TransportError};
 use ingestion_consumer::types::SerializedKafkaMessage;
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
     WorkerIngest, WorkerIngestServer,
@@ -42,10 +42,15 @@ enum AckMode {
 }
 
 /// Manual mode: the test drives the worker's acks through this.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum ManualAck {
-    Ok { seq: u64, accepted: u32 },
+    Ok {
+        seq: u64,
+        accepted: u32,
+    },
     Nack(u64),
+    /// Send this ack frame exactly as given, for protocol-violation tests.
+    Raw(SubBatchAck),
 }
 
 type ManualAcks = Arc<Mutex<Option<mpsc::UnboundedReceiver<ManualAck>>>>;
@@ -99,6 +104,7 @@ impl WorkerIngest for MockWorker {
                                 error: "poisoned".to_string(),
                                 timed_out: vec![],
                             },
+                            ManualAck::Raw(ack) => ack,
                         };
                         let _ = tx.send(Ok(IngestStreamResponse {
                             msg: Some(ingest_stream_response::Msg::Ack(ack)),
@@ -266,11 +272,18 @@ async fn sub_batches_reach_the_worker_in_enqueue_order() {
     // Enqueue three sub-batches back to back — more than the un-acked cap, so
     // ordering must survive the ledger pacing too.
     let pending: Vec<_> = (0..3)
-        .map(|i| transport.begin_send(&url, &format!("batch-{i}"), vec![msg("d1", i)], false))
+        .map(|i| {
+            transport.begin_send(
+                &url,
+                &format!("batch-{i}"),
+                vec![msg("d1", i)],
+                SendOptions::default(),
+            )
+        })
         .collect();
     for (i, p) in pending.into_iter().enumerate() {
-        let accepted = p.wait().await.expect("send should succeed");
-        assert_eq!(accepted, 1, "sub-batch {i}");
+        let outcome = p.wait().await.expect("send should succeed");
+        assert_eq!(outcome.accepted, 1, "sub-batch {i}");
     }
 
     let received = mock.received.lock().await;
@@ -291,8 +304,13 @@ async fn out_of_order_acks_resolve_the_right_sends() {
     );
     let url = worker_url(mock.addr);
 
-    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], false);
-    let second = transport.begin_send(&url, "batch-2", vec![msg("d2", 3)], false);
+    let first = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d1", 2)],
+        SendOptions::default(),
+    );
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d2", 3)], SendOptions::default());
 
     // Wait until both are on the wire, then ack seq 2 before seq 1 with
     // distinct counts — each pending must get its own, and the later one
@@ -316,8 +334,8 @@ async fn out_of_order_acks_resolve_the_right_sends() {
             accepted: 2,
         })
         .unwrap();
-    assert_eq!(first.wait().await.expect("first ack"), 2);
-    assert_eq!(second.await.unwrap().expect("second ack"), 1);
+    assert_eq!(first.wait().await.expect("first ack").accepted, 2);
+    assert_eq!(second.await.unwrap().expect("second ack").accepted, 1);
 }
 
 async fn wait_for_received(mock: &MockHandle, count: usize) {
@@ -347,8 +365,8 @@ async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked() {
     );
     let url = worker_url(mock.addr);
 
-    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
-    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
+    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], SendOptions::default());
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], SendOptions::default());
     wait_for_received(&mock, 2).await;
 
     ack_tx
@@ -393,7 +411,7 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
     );
     let url = worker_url(mock.addr);
 
-    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], SendOptions::default());
     let first_err = first.wait().await.expect_err("nacked send must fail");
     let guard = first_err
         .fence_guard
@@ -401,7 +419,7 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
 
     // Enqueued while the fence is unacknowledged: fails without riding a
     // stream.
-    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], SendOptions::default());
     let second_err = tokio::time::timeout(Duration::from_secs(2), second.wait())
         .await
         .expect("a send during a fence must fail promptly")
@@ -417,7 +435,7 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
     // worker on a fresh stream.
     drop(guard);
     drop(second_err);
-    let third = transport.begin_send(&url, "batch-3", vec![msg("d1", 3)], false);
+    let third = transport.begin_send(&url, "batch-3", vec![msg("d1", 3)], SendOptions::default());
     let _ = tokio::time::timeout(Duration::from_secs(5), third.wait())
         .await
         .expect("the worker stream must resume once the fence is released");
@@ -451,10 +469,10 @@ async fn an_oversized_sub_batch_rides_the_stream_as_ordered_chunks() {
         &url,
         "batch-1",
         vec![msg("d1", 1), msg("d1", 2), msg("d1", 3)],
-        false,
+        SendOptions::default(),
     );
-    let accepted = pending.wait().await.expect("all chunks accepted");
-    assert_eq!(accepted, 3, "accepted counts sum across chunks");
+    let outcome = pending.wait().await.expect("all chunks accepted");
+    assert_eq!(outcome.accepted, 3, "accepted counts sum across chunks");
 
     let received = mock.received.lock().await;
     let frames: Vec<(u64, &str, Vec<i64>)> = received
@@ -498,7 +516,7 @@ async fn a_failed_chunk_hands_back_the_whole_sub_batch() {
         &url,
         "batch-1",
         vec![msg("d1", 1), msg("d1", 2), msg("d1", 3)],
-        false,
+        SendOptions::default(),
     );
     let err = pending
         .wait()
@@ -530,9 +548,9 @@ async fn a_nack_fences_everything_outstanding_in_order() {
 
     // With max_unacked=1, the second and third wait in the queue behind the
     // first — the nack must fence all three.
-    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
-    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
-    let third = transport.begin_send(&url, "batch-3", vec![msg("d2", 3)], false);
+    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], SendOptions::default());
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], SendOptions::default());
+    let third = transport.begin_send(&url, "batch-3", vec![msg("d2", 3)], SendOptions::default());
 
     let first_err = first.wait().await.expect_err("nacked send must fail");
     assert_eq!(first_err.messages.len(), 1);
@@ -571,7 +589,7 @@ async fn the_worker_stream_reconnects_with_a_new_stream_epoch_after_a_fence() {
     );
     let url = worker_url(mock.addr);
 
-    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], SendOptions::default());
     first.wait().await.expect_err("nacked");
 
     // The retry (as the deferral path would issue it) lands on a fresh stream
@@ -580,7 +598,7 @@ async fn the_worker_stream_reconnects_with_a_new_stream_epoch_after_a_fence() {
     // NEW stream... so use a different worker mode expectation: the second
     // stream's seq-1 sub-batch is nacked again by this mock, which is fine —
     // what we assert is the reconnect (two hellos, increasing epochs).
-    let retry = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], true);
+    let retry = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], SendOptions::replay());
     retry
         .wait()
         .await
@@ -604,7 +622,7 @@ async fn a_dead_worker_fences_instead_of_hanging() {
         "http://127.0.0.1:9001",
         "batch-1",
         vec![msg("d1", 1)],
-        false,
+        SendOptions::default(),
     );
     let err = tokio::time::timeout(Duration::from_secs(10), pending.wait())
         .await
@@ -628,7 +646,7 @@ async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
     );
     let url = worker_url(mock.addr);
 
-    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], SendOptions::default());
     let err = tokio::time::timeout(Duration::from_secs(10), pending.wait())
         .await
         .expect("watchdog must fence, not wait forever")
@@ -654,7 +672,12 @@ async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
     let url = worker_url(mock.addr);
 
     // Enqueued first, so it is seq 1 — the one the worker never acks.
-    let stuck = transport.begin_send(&url, "batch-stuck", vec![msg("d1", 1)], false);
+    let stuck = transport.begin_send(
+        &url,
+        "batch-stuck",
+        vec![msg("d1", 1)],
+        SendOptions::default(),
+    );
 
     // Keep feeding siblings faster than the ack timeout. Each is acked and
     // drained (the worker stream holds at most one alongside the stuck entry), so a
@@ -668,7 +691,7 @@ async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
                     &url,
                     &format!("sibling-{i}"),
                     vec![msg("d2", 100 + i)],
-                    false,
+                    SendOptions::default(),
                 );
                 tokio::time::sleep(Duration::from_millis(80)).await;
             }
@@ -702,7 +725,7 @@ async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
     );
     let url = worker_url(mock.addr);
 
-    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], SendOptions::default());
     // Wait until the send is on the wire (in the worker stream's ledger) before reaping.
     for _ in 0..200 {
         if mock.received.lock().await.len() == 1 {
@@ -727,6 +750,242 @@ async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
 }
 
 #[tokio::test]
+async fn the_soft_budget_rides_frames_but_not_split_chunks() {
+    // The worker derives its time budget from the wire alone, so a configured
+    // budget must reach every frame. A size-split sub-batch is the exception:
+    // its chunks are separate frames with separate budgets, and a budget cut
+    // in one chunk while a later chunk carries the same key would reorder the
+    // key. Split chunks must go out unbudgeted.
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    transport.set_soft_budget_ms(30_000);
+    let url = worker_url(mock.addr);
+
+    let single = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], SendOptions::default());
+    single.wait().await.expect("send should succeed");
+
+    // Frame size cap in bytes. One `msg()` estimates to ~143 bytes, so this
+    // fits exactly one message per frame and three messages become three frames.
+    transport.set_max_body_bytes(200);
+    let split = transport.begin_send(
+        &url,
+        "batch-2",
+        vec![msg("d1", 2), msg("d1", 3), msg("d1", 4)],
+        SendOptions::default(),
+    );
+    split.wait().await.expect("all chunks accepted");
+
+    // An escalated resend opts out of the budget explicitly.
+    let escalated = transport.begin_send(
+        &url,
+        "batch-3",
+        vec![msg("d1", 5)],
+        SendOptions {
+            replay: true,
+            unbudgeted: true,
+        },
+    );
+    escalated.wait().await.expect("send should succeed");
+
+    let received = mock.received.lock().await;
+    let budgets: Vec<u64> = received.iter().map(|s| s.soft_budget_ms).collect();
+    assert_eq!(
+        budgets,
+        vec![30_000, 0, 0, 0, 0],
+        "one budgeted frame, three unbudgeted split chunks, one escalated send"
+    );
+}
+
+/// Drive one manual-mode round trip: send a two-message budgeted sub-batch
+/// (seq 1), wait for it to reach the worker, answer with `ack`, and return
+/// the send's outcome.
+async fn send_and_ack_raw(ack: SubBatchAck) -> Result<SendOutcome, SendError> {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    transport.set_soft_budget_ms(30_000);
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d1", 2)],
+        SendOptions::default(),
+    );
+    wait_for_received(&mock, 1).await;
+    ack_tx.send(ManualAck::Raw(ack)).unwrap();
+    pending.wait().await
+}
+
+#[tokio::test]
+async fn malformed_partial_acks_fence_with_the_messages_returned() {
+    // Fail closed: an ack whose dispositions don't cover the sub-batch (or
+    // that claims timeouts outside a PARTIAL) must fence and hand the
+    // messages back for replay. Trusting it instead would silently lose the
+    // messages the list mis-describes.
+    let cases: Vec<(&str, SubBatchAck)> = vec![
+        (
+            "partial with no timed_out entries",
+            SubBatchAck {
+                seq: 1,
+                status: SubBatchStatus::Partial as i32,
+                accepted: 2,
+                error: String::new(),
+                timed_out: vec![],
+            },
+        ),
+        (
+            "partial with an out-of-range index",
+            SubBatchAck {
+                seq: 1,
+                status: SubBatchStatus::Partial as i32,
+                accepted: 1,
+                error: String::new(),
+                timed_out: vec![5],
+            },
+        ),
+        (
+            "partial with a duplicate index",
+            SubBatchAck {
+                seq: 1,
+                status: SubBatchStatus::Partial as i32,
+                accepted: 0,
+                error: String::new(),
+                timed_out: vec![1, 1],
+            },
+        ),
+        (
+            "partial whose counts do not cover the sub-batch",
+            SubBatchAck {
+                seq: 1,
+                status: SubBatchStatus::Partial as i32,
+                accepted: 2,
+                error: String::new(),
+                timed_out: vec![1],
+            },
+        ),
+        (
+            "ok carrying timed_out entries",
+            SubBatchAck {
+                seq: 1,
+                status: SubBatchStatus::Ok as i32,
+                accepted: 2,
+                error: String::new(),
+                timed_out: vec![1],
+            },
+        ),
+    ];
+    for (case, ack) in cases {
+        let err = match send_and_ack_raw(ack).await {
+            Ok(outcome) => panic!("{case}: must fail the send, got {outcome:?}"),
+            Err(err) => err,
+        };
+        assert!(
+            matches!(err.error, TransportError::WorkerStreamFailed(_)),
+            "{case}: fences as a fault, not backpressure"
+        );
+        assert_eq!(
+            err.messages.len(),
+            2,
+            "{case}: messages come back for replay"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_partial_ack_resolves_with_the_timed_out_remainder() {
+    // A valid PARTIAL resolves the send instead of fencing: the caller gets
+    // the accepted count, the completed messages, and the timed-out
+    // remainder in send order, and the stream keeps working.
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    transport.set_soft_budget_ms(30_000);
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d1", 2), msg("d2", 3)],
+        SendOptions::default(),
+    );
+    wait_for_received(&mock, 1).await;
+    ack_tx
+        .send(ManualAck::Raw(SubBatchAck {
+            seq: 1,
+            status: SubBatchStatus::Partial as i32,
+            accepted: 1,
+            error: String::new(),
+            timed_out: vec![1, 2],
+        }))
+        .unwrap();
+    let outcome = pending.wait().await.expect("partial resolves, not fences");
+    assert_eq!(outcome.accepted, 1);
+    let completed: Vec<i64> = outcome.completed.iter().map(|m| m.offset).collect();
+    let timed_out: Vec<i64> = outcome.timed_out.iter().map(|m| m.offset).collect();
+    assert_eq!(completed, vec![1]);
+    assert_eq!(timed_out, vec![2, 3], "remainder comes back in send order");
+
+    // The stream is not fenced: the next send goes through and acks.
+    let next = transport.begin_send(&url, "batch-2", vec![msg("d3", 4)], SendOptions::default());
+    wait_for_received(&mock, 2).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 2,
+            accepted: 1,
+        })
+        .unwrap();
+    assert_eq!(next.wait().await.expect("stream still healthy").accepted, 1);
+}
+
+#[tokio::test]
+async fn a_partial_ack_for_an_unbudgeted_sub_batch_fences() {
+    // This consumer sent no budget, so the worker had nothing to time out; a
+    // PARTIAL here is a protocol violation, not backpressure.
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d1", 2)],
+        SendOptions::default(),
+    );
+    wait_for_received(&mock, 1).await;
+    ack_tx
+        .send(ManualAck::Raw(SubBatchAck {
+            seq: 1,
+            status: SubBatchStatus::Partial as i32,
+            accepted: 1,
+            error: String::new(),
+            timed_out: vec![1],
+        }))
+        .unwrap();
+
+    let err = pending.wait().await.expect_err("protocol violation fences");
+    assert!(matches!(err.error, TransportError::WorkerStreamFailed(_)));
+    assert_eq!(err.messages.len(), 2, "messages come back for replay");
+}
+
+#[tokio::test]
 async fn a_busy_status_fences_as_retriable_with_messages() {
     // A worker reporting busy is applying backpressure, not failing: the fenced
     // sends must carry their messages (to replay) and classify as retriable, so
@@ -739,7 +998,7 @@ async fn a_busy_status_fences_as_retriable_with_messages() {
     );
     let url = worker_url(mock.addr);
 
-    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], SendOptions::default());
     let err = pending
         .wait()
         .await

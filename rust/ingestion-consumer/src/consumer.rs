@@ -16,8 +16,8 @@ use tracing::{error, info, warn};
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
-use crate::dispatcher::{Dispatcher, EagerFlush, KeyOffset, SubBatch};
-use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
+use crate::dispatcher::{key_offsets_of, Dispatcher, EagerFlush, KeyOffset, SubBatch};
+use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend, SendOptions};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::transport::SendError;
 use crate::types::SerializedKafkaMessage;
@@ -565,12 +565,12 @@ impl IngestionConsumer {
         } = pending;
 
         match pending.wait().await {
-            Ok(accepted) => {
+            Ok(outcome) if outcome.timed_out.is_empty() => {
                 dispatcher.on_sub_batch_acked(&key_offsets);
                 // Credit before the resolve: the resolve may hand the batch's
                 // completion the all-clear, which must already see this
                 // acceptance in the ledger.
-                dispatcher.eager_flush_accepted(&batch_id, accepted);
+                dispatcher.eager_flush_accepted(&batch_id, outcome.accepted);
                 dispatcher.on_sub_batch_resolved(
                     &worker,
                     message_count,
@@ -578,6 +578,23 @@ impl IngestionConsumer {
                     true,
                     false,
                 );
+                dispatcher.record_send_outcome(&worker, false);
+            }
+            Ok(outcome) => {
+                // Partial ack on the eager path: stash the remainder before
+                // crediting the acceptance, so the owning batch never
+                // observes a moment with no unfinished flush work while the
+                // remainder is neither stashed nor pending.
+                dispatcher.on_sub_batch_acked(&key_offsets_of(&outcome.completed));
+                dispatcher.on_sub_batch_partial(
+                    &batch_id,
+                    &worker,
+                    message_count,
+                    &routing_keys,
+                    outcome.timed_out,
+                    true,
+                );
+                dispatcher.eager_flush_accepted(&batch_id, outcome.accepted);
                 dispatcher.record_send_outcome(&worker, false);
             }
             Err(send_err) => {
@@ -631,9 +648,15 @@ impl IngestionConsumer {
             messages,
             routing_keys,
             key_offsets,
+            unbudgeted,
         } = sub_batch;
         let message_count = messages.len();
-        let pending = transport.begin_send(&worker, batch_id, messages, replay);
+        let pending = transport.begin_send(
+            &worker,
+            batch_id,
+            messages,
+            SendOptions { replay, unbudgeted },
+        );
         PendingSubBatch {
             worker,
             routing_keys,
@@ -755,7 +778,7 @@ impl IngestionConsumer {
 
             handles.push(tokio::spawn(async move {
                 match pending.wait().await {
-                    Ok(accepted) => {
+                    Ok(outcome) if outcome.timed_out.is_empty() => {
                         // Advance ACK high-water marks before the resolve, which
                         // may evict the keys' sentinel state.
                         dispatcher.on_sub_batch_acked(&key_offsets);
@@ -767,7 +790,25 @@ impl IngestionConsumer {
                             false,
                         );
                         dispatcher.record_send_outcome(&worker, false);
-                        accepted
+                        outcome.accepted
+                    }
+                    Ok(outcome) => {
+                        // Partial ack: watermarks advance from the completed
+                        // subset only, and the timed-out remainder stashes
+                        // under the owning batch for in-order redelivery. A
+                        // partial ack is a healthy worker enforcing the
+                        // budget, not a fault.
+                        dispatcher.on_sub_batch_acked(&key_offsets_of(&outcome.completed));
+                        dispatcher.on_sub_batch_partial(
+                            &bid,
+                            &worker,
+                            message_count,
+                            &routing_keys,
+                            outcome.timed_out,
+                            from_flush,
+                        );
+                        dispatcher.record_send_outcome(&worker, false);
+                        outcome.accepted
                     }
                     Err(send_err) => {
                         // Re-defer the failed messages first, so the ref-count drop
