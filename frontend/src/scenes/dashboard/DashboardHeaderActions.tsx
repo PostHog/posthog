@@ -9,8 +9,10 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { areClientFeatureFlagsHonored, FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -47,6 +49,16 @@ export function getAddTileMenuItems({
             onClick()
         }
 
+    // Enrolling in the widgets beta happens client-side through posthog-js, so it only takes
+    // effect where client flag values are honored. Self-hosted non-debug instances discard them,
+    // and enrollment is blocked while impersonating, so in both cases the picker would never mount.
+    // Disable the action and say why instead of leaving a silent dead end.
+    const widgetsBetaEnrollmentDisabledReason = !areClientFeatureFlagsHonored(getAppContext()?.preflight ?? null)
+        ? FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON
+        : window.IMPERSONATED_SESSION
+          ? "You can't enable beta features while impersonating a user."
+          : undefined
+
     const contentItems: LemonMenuItem[] = [
         {
             label: 'Charts',
@@ -73,7 +85,10 @@ export function getAddTileMenuItems({
             : {
                   label: 'Widget',
                   tag: 'beta' as const,
-                  tooltip: 'Enable the dashboard widgets beta and add one',
+                  tooltip: widgetsBetaEnrollmentDisabledReason
+                      ? undefined
+                      : 'Enable the dashboard widgets beta and add one',
+                  disabledReason: widgetsBetaEnrollmentDisabledReason,
                   onClick: withBeforeSelect(enableWidgetsAndOpenAddModal),
                   'data-attr': 'dashboard-add-widget-preview',
               },
