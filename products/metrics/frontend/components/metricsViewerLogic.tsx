@@ -507,8 +507,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         ],
         // kea-loaders' auto `queryResultsLoading` drops to false when a superseded query's
         // abort lands as a failure, flashing the empty state while the replacement query is
-        // still in flight. This flag only clears on success or a real failure — the UI must
-        // read it instead of `queryResultsLoading`.
+        // still in flight. This flag only clears on success or a real failure, so the UI
+        // must read it instead of `queryResultsLoading`.
         queryLoading: [
             false as boolean,
             {

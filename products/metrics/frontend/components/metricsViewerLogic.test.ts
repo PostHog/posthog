@@ -255,8 +255,8 @@ describe('metricsViewerLogic', () => {
 
     // A superseded query's abort lands as a failure while the replacement query is still in
     // flight. kea-loaders' auto `queryResultsLoading` drops to false then, which flashed the
-    // "No data" empty state between the spinner and the chart — `queryLoading` must ride out
-    // the abort, while still clearing on a real failure.
+    // "No data" empty state between the spinner and the chart, so `queryLoading` must ride
+    // out the abort, while still clearing on a real failure.
     it.each([
         [
             'a superseded (aborted) query',
