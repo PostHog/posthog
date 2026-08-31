@@ -7,8 +7,10 @@ import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
@@ -37,6 +39,7 @@ import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
+import { WorkflowProposalsBanner } from './WorkflowProposalsBanner'
 import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
@@ -88,6 +91,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
         500
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)
     // Deep links that carry a starting point, and the escape hatch, land in the editor instead (see `aiComposerAvailable`).
@@ -201,6 +206,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
+                {selfOptimisingEnabled && props.id && props.id !== 'new' && <WorkflowProposalsBanner id={props.id} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...workflowProps} />
