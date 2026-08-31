@@ -30,7 +30,7 @@ The scanner carries no hand-built exposure filter. Set the `experiment_targeting
 
 ```json
 {
-  "experiment_id": <experiment id>,
+  "experiment_id": 123,
   "variant": null
 }
 ```
