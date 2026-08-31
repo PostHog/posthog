@@ -9,11 +9,20 @@ The prompt stays minimal; the checked-in `SKILL.md` in this directory is the rea
 - A routine environment whose GitHub identity can clone `PostHog/posthog` and comment on its pull requests. The sweep needs nothing beyond those two: it never pushes code.
 - `MQ_TRIAGE_BOT_LOGIN` set in that environment, **to the login the sweep's comments actually appear under**. The marker helper trusts and updates only comments from that login, so a third party cannot plant a marker to fake or skip a triage. Without it the helper fails closed, which makes every sweep re-comment on kicks it already triaged. `get` exits 3 when a PR carries a marker from a different bot login, so a wrong value stops the sweep instead of quietly re-commenting on every PR it reaches.
 
-Get that login right before enabling the routine, and check it with `mq-triage-marker.sh verify` rather than by assumption.
-A routine environment authenticated with a personal token authors comments as **that user**, not as a bot, so `MQ_TRIAGE_BOT_LOGIN=claude[bot]` is wrong there even though it looks plausible.
-The failure is silent in the worst way: the literal "is it set?" precondition passes, the sweep runs, and every fire appends a fresh verdict comment to every PR it triages.
-Paired with `MQ_TRIAGE_ALLOW_REQUEUE=1` it is worse than noise — with markers never matching, the requeue gate's "this head was already triaged" test never fires, so the same PR can be resubmitted every hour.
-`verify` exists to catch exactly this, and `SKILL.md` forbids requeueing until it passes.
+**Do not derive that login from the token's own API identity.**
+The routine sandbox reports a user account on `GET /user` while routing PR comments through the `claude` GitHub App, so its comments land as `claude[bot]`.
+Reading `/user` and acting on it gets this exactly backwards.
+The autoresolver sweep, running in this same environment, posted [a comment on PR 82484](https://github.com/PostHog/posthog/pull/82484) whose `performed_via_github_app` is `claude` and whose author is `claude[bot]`, while `/user` in that sandbox reports the account that owns the routine.
+No workflow in this repo uses `anthropics/claude-code-action`, and the conflict workflows authenticate as a PostHog-owned app, so that comment came from the routine.
+
+So `MQ_TRIAGE_BOT_LOGIN=claude[bot]` is the right value for a routine whose comments go through that app.
+
+`mq-triage-marker.sh verify <owner/repo>` checks the variable the only honest way, by observing rather than inferring: it finds markers the sweep already wrote and reports who authored them.
+Before the first verdict comment exists there is nothing to observe, and it says so instead of inventing a verdict.
+After the first fire, check that comment's author and correct the variable if it is not what you set.
+
+A wrong login fails silently in the worst way: the literal "is it set?" precondition passes, the sweep runs, and every fire appends a fresh verdict comment to every PR it triages.
+Paired with `MQ_TRIAGE_ALLOW_REQUEUE=1` it is worse than noise, because the requeue gate's "this head was already triaged" test reads the same markers.
 
 Changing the login the sweep posts as strands every marker written under the old one.
 The next sweep stops at the first PR that carries one.
@@ -99,12 +108,13 @@ The `trunk` MCP server and `hogli ci:insights` enrich verdicts 4 and 5 when they
 ## Testing before enabling
 
 1. Create the routine with `enabled: false`.
-2. Run `mq-triage-marker.sh verify` in the routine's environment and fix `MQ_TRIAGE_BOT_LOGIN` until it passes.
-   Do this before any test fire: a wrong login makes every later step look fine while the sweep silently duplicates comments.
+2. Run `mq-triage-marker.sh verify PostHog/posthog` in the routine's environment.
+   On a first setup it reports the login unverified, which is expected; step 5 is what confirms it.
 3. Confirm the sweep can still see the queue: `mq-queue-state.sh recent PostHog/posthog 2` must return rows, and running `state` across them must return at least one state that is not `unknown`.
    Zero rows or all-`unknown` means Trunk changed how it reports, and no chart fix will help until the helper is updated.
 4. Fire it by hand with scoped input: "for this run, only process PR #NNNNN" against a PR you know the queue kicked.
 5. Verify on that PR: exactly one sticky verdict comment carrying the marker, no requeue (the switch is unset), and a second manual fire skips the PR.
+   Read that comment's author and set `MQ_TRIAGE_BOT_LOGIN` to it. A second fire that comments again instead of updating means the login is still wrong.
 6. Only if you want auto-requeue: set `MQ_TRIAGE_ALLOW_REQUEUE=1`, repeat with a flake-kicked PR you own, and confirm at most one `/trunk merge` comment ever appears for one head OID, including after the requeued attempt fails again.
 7. Only then enable the routine.
 

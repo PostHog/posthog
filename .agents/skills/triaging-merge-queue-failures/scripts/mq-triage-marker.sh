@@ -15,7 +15,7 @@ BOT_LOGIN=${MQ_TRIAGE_BOT_LOGIN:-}
 usage() {
     echo "usage: $0 get <owner/repo> <pr_number>" >&2
     echo "       $0 set <owner/repo> <pr_number> <head_oid> <attempt_pr> < body.md" >&2
-    echo "       $0 verify" >&2
+    echo "       $0 verify <owner/repo>" >&2
     echo "requires MQ_TRIAGE_BOT_LOGIN (the login the sweep's comments are authored by)" >&2
     exit 2
 }
@@ -24,26 +24,33 @@ usage() {
 # publishes no check run here, so it is now the shadow PR number of the attempt. Both are bare
 # integers, so markers written under the old meaning still parse.
 
-# A token that authenticates as a real user account authors comments as that user, always. So
-# when /user reports a User whose login differs from MQ_TRIAGE_BOT_LOGIN, the login is provably
-# wrong and every marker read would miss. An App installation token reports no such identity,
-# which is why a failed or non-User lookup infers nothing instead of guessing.
+# Which login the sweep's comments appear under cannot be derived from the token's own API
+# identity. The routine sandbox reports a user account on /user while routing comments through
+# the `claude` GitHub App, so they land as claude[bot]. Guessing from /user gets this backwards
+# and, acted on, breaks every marker read.
+#
+# So verify observes instead of inferring: it finds markers this sweep already wrote and reports
+# who actually authored them. Before the first comment exists there is nothing to observe, and
+# it says so rather than inventing a verdict.
 verify_identity() {
-    local me type
-    me=$(gh api user --jq .login 2>/dev/null || true)
-    type=$(gh api user --jq .type 2>/dev/null || true)
-    if [ -z "$me" ] || [ "$type" != "User" ]; then
-        echo "identity: not a user token; cannot check MQ_TRIAGE_BOT_LOGIN=$BOT_LOGIN this way" >&2
+    local authors
+    authors=$(BOT_LOGIN="$BOT_LOGIN" gh api "repos/$repo/issues/comments?sort=updated&direction=desc&per_page=100" \
+        --jq '[.[] | select(.body | test("<!-- mq-triage:[0-9a-f]{40}:[0-9]+ -->")) | .user.login]
+              | unique | join(", ")' 2>/dev/null || true)
+    if [ -z "$authors" ]; then
+        echo "identity: MQ_TRIAGE_BOT_LOGIN=$BOT_LOGIN, no existing marker to confirm it against."
+        echo "identity: unverified until the first verdict comment lands. Check that comment's"
+        echo "identity: author, and correct the variable if it is not $BOT_LOGIN."
         return 0
     fi
-    if [ "$me" != "$BOT_LOGIN" ]; then
-        echo "MQ_TRIAGE_BOT_LOGIN=$BOT_LOGIN but this token authenticates as the user '$me'." >&2
-        echo "Comments would be authored by '$me', which the marker helper neither reads nor" >&2
-        echo "updates, so every sweep would append a new verdict comment. Set" >&2
-        echo "MQ_TRIAGE_BOT_LOGIN=$me, or give the routine the intended bot's credentials." >&2
-        return 4
+    if [ "$authors" = "$BOT_LOGIN" ]; then
+        echo "identity: ok, existing markers are authored by $BOT_LOGIN"
+        return 0
     fi
-    echo "identity: ok ($me)"
+    echo "MQ_TRIAGE_BOT_LOGIN=$BOT_LOGIN, but existing markers are authored by: $authors" >&2
+    echo "The helper reads and updates only $BOT_LOGIN's comments, so every sweep would append" >&2
+    echo "a new verdict comment. Set MQ_TRIAGE_BOT_LOGIN to the author above." >&2
+    return 4
 }
 
 cmd=${1:-}
@@ -51,6 +58,11 @@ repo=${2:-}
 pr=${3:-}
 [ -n "$BOT_LOGIN" ] || usage
 if [ "$cmd" = "verify" ]; then
+    [ -n "$repo" ] || usage
+    case "$repo" in
+        */*) ;;
+        *) usage ;;
+    esac
     verify_identity
     exit $?
 fi
@@ -73,15 +85,11 @@ own_comment_bodies() {
 # `set` upsert, so the sweep re-triages every PR and appends a comment each time. That is
 # indistinguishable from "never triaged", so report it instead of returning empty.
 #
-# Another App identity, or this token's own user account, can mean that: a user token authors
-# comments as its user whatever MQ_TRIAGE_BOT_LOGIN says. Match those two and a complete
-# marker. A human who pastes marker-shaped text would otherwise halt every sweep on their PR.
+# Only another App identity can mean that, so match bot authors and a complete marker. A human
+# who pastes marker-shaped text would otherwise halt every sweep that reaches their PR.
 warn_on_foreign_marker() {
-    local me
-    me=$(gh api user --jq 'select(.type == "User") | .login' 2>/dev/null || true)
-    ME="$me" gh api "repos/$repo/issues/$pr/comments" --paginate \
-        --jq '[.[] | select(.user.login != env.BOT_LOGIN)
-                   | select(.user.type == "Bot" or (env.ME != "" and .user.login == env.ME))
+    gh api "repos/$repo/issues/$pr/comments" --paginate \
+        --jq '[.[] | select(.user.login != env.BOT_LOGIN) | select(.user.type == "Bot")
                    | select(.body | test("<!-- mq-triage:[0-9a-f]{40}:[0-9]+ -->"))
                    | .user.login] | unique | join(", ")' 2>/dev/null
 }
