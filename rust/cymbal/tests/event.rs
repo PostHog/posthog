@@ -486,7 +486,7 @@ async fn issue_severity_property_controls_only_new_issues_and_falls_back_when_in
         Some(false),
     );
     input.properties["$exception_level"] = json!("fatal");
-    input.properties["$issue_severity"] = json!("high");
+    input.properties["$issue_severity"] = json!("HIGH");
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
     assert!(status.is_success());
