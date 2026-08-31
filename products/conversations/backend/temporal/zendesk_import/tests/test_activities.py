@@ -5,6 +5,9 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.models import Tag
@@ -187,6 +190,34 @@ class TestZendeskImportBatchActivity(BaseTest):
         stored = Comment.objects.filter(team=self.team, scope="conversations_ticket", item_id=str(ticket.id))
         self.assertEqual(stored.count(), 3)
         self.assertEqual(stored.order_by("created_at").first().created_at.year, 2020)
+
+    def test_counter_writes_do_not_scale_with_batch_size(self) -> None:
+        # The denormalized counters must be written in one bulk_update, not one UPDATE per
+        # ticket. A per-ticket loop held the per-team lock (taken to assign ticket numbers) for
+        # the whole batch, so live ticket creation queued behind the import.
+        ticket_ids = [300 + i for i in range(5)]
+        tickets = [_zd_ticket(tid, 10) for tid in ticket_ids]
+        comments_by_ticket = {tid: [_zd_comment(1, 10, public=True, body="customer msg")] for tid in ticket_ids}
+
+        with CaptureQueriesContext(connection) as ctx:
+            result, _ = self._run_batch(
+                ticket_ids,
+                tickets=tickets,
+                users={10: _zd_user(10, "requester@x.com")},
+                comments_by_ticket=comments_by_ticket,
+            )
+
+        self.assertEqual(result.imported, 5)
+        counter_updates = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if q["sql"].lstrip().upper().startswith("UPDATE") and "message_count" in q["sql"]
+        ]
+        self.assertEqual(len(counter_updates), 1)
+        for tid in ticket_ids:
+            ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=tid)
+            self.assertEqual(ticket.message_count, 1)
+            self.assertEqual(ticket.unread_team_count, 1)
 
     @parameterized.expand(
         [
