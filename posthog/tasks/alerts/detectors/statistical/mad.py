@@ -57,7 +57,7 @@ class MADDetector(BaseDetector):
         # Get normalized probability score via pyod's erf-based conversion
         test_point = np.array([[current_value]])
         prob = float(clf.predict_proba(test_point)[0, 1])
-        is_anomaly = prob > threshold
+        is_anomaly = prob > threshold and self._direction_allows(current_value, float(clf.median_))
 
         return DetectionResult(
             is_anomaly=is_anomaly,
@@ -104,7 +104,7 @@ class MADDetector(BaseDetector):
             prob = float(clf.predict_proba(test_point)[0, 1])
             scores.append(prob)
 
-            if prob > threshold:
+            if prob > threshold and self._direction_allows(current_val, float(clf.median_)):
                 triggered.append(i + diffs_n)
 
         return DetectionResult(

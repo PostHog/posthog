@@ -300,6 +300,14 @@ export type AlertConfigUnionApi =
     | FunnelsAlertConfigApi
     | MetricsAlertConfigApi
 
+export type DetectorDirectionApi = (typeof DetectorDirectionApi)[keyof typeof DetectorDirectionApi]
+
+export const DetectorDirectionApi = {
+    Both: 'both',
+    Up: 'up',
+    Down: 'down',
+} as const
+
 export interface PreprocessingConfigApi {
     /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
     diffs_n?: number | null
@@ -316,6 +324,8 @@ export const ZScoreDetectorConfigApiType = {
 } as const
 
 export interface ZScoreDetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
@@ -332,6 +342,8 @@ export const MADDetectorConfigApiType = {
 } as const
 
 export interface MADDetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
@@ -348,6 +360,8 @@ export const IQRDetectorConfigApiType = {
 } as const
 
 export interface IQRDetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
     multiplier?: number | null
     /** Preprocessing transforms applied before detection */
@@ -381,6 +395,8 @@ export const ECODDetectorConfigApiType = {
 } as const
 
 export interface ECODDetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /** Anomaly probability threshold (default: 0.9) */
@@ -397,6 +413,8 @@ export const COPODDetectorConfigApiType = {
 } as const
 
 export interface COPODDetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /** Anomaly probability threshold (default: 0.9) */
@@ -414,6 +432,8 @@ export const IsolationForestDetectorConfigApiType = {
 } as const
 
 export interface IsolationForestDetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** Number of trees in the forest (default: 100) */
     n_estimators?: number | null
     /** Preprocessing transforms applied before detection */
@@ -440,6 +460,8 @@ export const KNNDetectorConfigApiType = {
 } as const
 
 export interface KNNDetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
     method?: MethodApi | null
     /** Number of neighbors to consider (default: 5) */
@@ -460,6 +482,8 @@ export const HBOSDetectorConfigApiType = {
 } as const
 
 export interface HBOSDetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** Number of histogram bins (default: 10) */
     n_bins?: number | null
     /** Preprocessing transforms applied before detection */
@@ -478,6 +502,8 @@ export const LOFDetectorConfigApiType = {
 } as const
 
 export interface LOFDetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** Number of neighbors for LOF (default: 20) */
     n_neighbors?: number | null
     /** Preprocessing transforms applied before detection */
@@ -496,6 +522,8 @@ export const OCSVMDetectorConfigApiType = {
 } as const
 
 export interface OCSVMDetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** SVM kernel type (default: "rbf") */
     kernel?: string | null
     /** Upper bound on training errors fraction (default: 0.1) */
@@ -516,6 +544,8 @@ export const PCADetectorConfigApiType = {
 } as const
 
 export interface PCADetectorConfigApi {
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /** Anomaly probability threshold (default: 0.9) */
@@ -555,6 +585,8 @@ export interface EnsembleDetectorConfigApi {
         | OCSVMDetectorConfigApi
         | PCADetectorConfigApi
     )[]
+    /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+    direction?: DetectorDirectionApi | null
     /** How to combine sub-detector results */
     operator: EnsembleOperatorApi
     type: EnsembleDetectorConfigApiType

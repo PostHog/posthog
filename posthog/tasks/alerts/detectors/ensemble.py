@@ -27,7 +27,11 @@ class EnsembleDetector(BaseDetector):
             raise ValueError("Ensemble detector requires at least 2 sub-detectors.")
 
         self.operator = operator
-        self.sub_detectors = [get_detector(cfg) for cfg in detector_configs]
+        # Pass the ensemble's direction down to each sub-detector that does not
+        # set its own, so an alert asks for lower-side fires once at the top.
+        self.sub_detectors = [
+            get_detector({**cfg, "direction": cfg.get("direction") or self.direction}) for cfg in detector_configs
+        ]
 
     def detect(self, data: np.ndarray) -> DetectionResult:
         results = [d.detect(data) for d in self.sub_detectors]

@@ -53,7 +53,9 @@ class BasePyODDetector(BaseDetector):
         except (ValueError, np.linalg.LinAlgError):
             return DetectionResult(is_anomaly=False)
 
-        is_anomaly = prob > threshold
+        # PyOD scores by isolation only, so read the deviation's side from the
+        # test point relative to the training mean to honor the direction.
+        is_anomaly = prob > threshold and self._direction_allows(float(last_point[0, 0]), float(np.mean(train_data)))
 
         return DetectionResult(
             is_anomaly=is_anomaly,
@@ -100,7 +102,7 @@ class BasePyODDetector(BaseDetector):
 
             scores.append(prob)
 
-            if prob > threshold:
+            if prob > threshold and self._direction_allows(float(test_point[0, 0]), float(np.mean(train_data))):
                 triggered.append(i)
 
         return DetectionResult(

@@ -9584,6 +9584,15 @@ export namespace Schemas {
      */
     export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig | MetricsAlertConfig;
 
+    export type DetectorDirection = typeof DetectorDirection[keyof typeof DetectorDirection];
+
+
+    export const DetectorDirection = {
+      Both: 'both',
+      Up: 'up',
+      Down: 'down',
+    } as const;
+
     export interface PreprocessingConfig {
       /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
       diffs_n?: number | null;
@@ -9601,6 +9610,8 @@ export namespace Schemas {
     } as const;
 
     export interface ZScoreDetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
@@ -9618,6 +9629,8 @@ export namespace Schemas {
     } as const;
 
     export interface MADDetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
@@ -9635,6 +9648,8 @@ export namespace Schemas {
     } as const;
 
     export interface IQRDetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
       multiplier?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -9669,6 +9684,8 @@ export namespace Schemas {
     } as const;
 
     export interface ECODDetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
@@ -9686,6 +9703,8 @@ export namespace Schemas {
     } as const;
 
     export interface COPODDetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
@@ -9703,6 +9722,8 @@ export namespace Schemas {
     } as const;
 
     export interface IsolationForestDetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** Number of trees in the forest (default: 100) */
       n_estimators?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -9731,6 +9752,8 @@ export namespace Schemas {
     } as const;
 
     export interface KNNDetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
       method?: Method | null;
       /** Number of neighbors to consider (default: 5) */
@@ -9752,6 +9775,8 @@ export namespace Schemas {
     } as const;
 
     export interface HBOSDetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** Number of histogram bins (default: 10) */
       n_bins?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -9771,6 +9796,8 @@ export namespace Schemas {
     } as const;
 
     export interface LOFDetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** Number of neighbors for LOF (default: 20) */
       n_neighbors?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -9790,6 +9817,8 @@ export namespace Schemas {
     } as const;
 
     export interface OCSVMDetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** SVM kernel type (default: "rbf") */
       kernel?: string | null;
       /** Upper bound on training errors fraction (default: 0.1) */
@@ -9811,6 +9840,8 @@ export namespace Schemas {
     } as const;
 
     export interface PCADetectorConfig {
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
@@ -9838,6 +9869,8 @@ export namespace Schemas {
     export interface EnsembleDetectorConfig {
       /** Sub-detector configurations (minimum 2) */
       detectors: (ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig)[];
+      /** Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both') */
+      direction?: DetectorDirection | null;
       /** How to combine sub-detector results */
       operator: EnsembleOperator;
       type: EnsembleDetectorConfigType;

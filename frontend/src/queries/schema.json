@@ -6320,6 +6320,10 @@
         "COPODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -20591,6 +20595,11 @@
             "required": ["type"],
             "type": "object"
         },
+        "DetectorDirection": {
+            "description": "Which side of the baseline a deviation must fall on to count as an anomaly",
+            "enum": ["both", "up", "down"],
+            "type": "string"
+        },
         "DetectorType": {
             "enum": [
                 "zscore",
@@ -20809,6 +20818,10 @@
         "ECODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -21541,6 +21554,10 @@
                         "$ref": "#/definitions/SingleDetectorConfig"
                     },
                     "type": "array"
+                },
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
                 },
                 "operator": {
                     "$ref": "#/definitions/EnsembleOperator",
@@ -29012,6 +29029,10 @@
         "HBOSDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "n_bins": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of histogram bins (default: 10)"
@@ -29864,6 +29885,10 @@
         "IQRDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "multiplier": {
                     "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)",
                     "type": "number"
@@ -30830,6 +30855,10 @@
         "IsolationForestDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "n_estimators": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of trees in the forest (default: 100)"
@@ -30857,6 +30886,10 @@
         "KNNDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "method": {
                     "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')",
                     "enum": ["largest", "mean", "median"],
@@ -31057,6 +31090,10 @@
         "LOFDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "n_neighbors": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of neighbors for LOF (default: 20)"
@@ -32108,6 +32145,10 @@
         "MADDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -38530,6 +38571,10 @@
         "OCSVMDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "kernel": {
                     "description": "SVM kernel type (default: \"rbf\")",
                     "type": "string"
@@ -38561,6 +38606,10 @@
         "PCADetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"
@@ -58074,6 +58123,10 @@
         "ZScoreDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection",
+                    "description": "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                },
                 "preprocessing": {
                     "$ref": "#/definitions/PreprocessingConfig",
                     "description": "Preprocessing transforms applied before detection"

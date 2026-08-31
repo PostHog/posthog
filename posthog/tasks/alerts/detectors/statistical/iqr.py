@@ -98,7 +98,7 @@ class IQRDetector(BaseDetector):
         window_distances = _iqr_fence_distances(window_data, lower_fence, upper_fence, iqr)
 
         prob = _iqr_distance_to_probability(raw_distance, window_distances)
-        is_anomaly = prob > threshold
+        is_anomaly = prob > threshold and self._direction_allows(current_value, (lower_fence + upper_fence) / 2)
 
         return DetectionResult(
             is_anomaly=is_anomaly,
@@ -166,7 +166,7 @@ class IQRDetector(BaseDetector):
 
             prob = _iqr_distance_to_probability(raw_distance, window_distances)
             scores.append(prob)
-            if prob > threshold:
+            if prob > threshold and self._direction_allows(val, (lower_fence + upper_fence) / 2):
                 triggered.append(i + diffs_n)
 
         return DetectionResult(

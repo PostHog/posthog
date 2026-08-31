@@ -212,6 +212,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             .array(
                                 zod.union([
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -253,6 +259,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Rolling window size for calculating mean\/std (default: 30)'),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -294,6 +306,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         multiplier: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -374,6 +392,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Upper bound - values above this are anomalies'),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -415,6 +439,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -456,6 +486,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         n_estimators: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -501,6 +537,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         method: zod
                                             .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
                                             .optional()
@@ -552,6 +594,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         n_bins: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -597,6 +645,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         n_neighbors: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -644,6 +698,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         kernel: zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
@@ -695,6 +755,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -740,10 +806,22 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 ])
                             )
                             .describe('Sub-detector configurations (minimum 2)'),
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         operator: zod.enum(['and', 'or']).describe('How to combine sub-detector results'),
                         type: zod.enum(['ensemble']).default(alertsCreateBodyDetectorConfigOneOneTypeDefault),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -783,6 +861,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             .describe('Rolling window size for calculating mean\/std (default: 30)'),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -822,6 +906,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         multiplier: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -896,6 +986,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             .describe('Upper bound - values above this are anomalies'),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -935,6 +1031,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -974,6 +1076,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         n_estimators: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -1017,6 +1125,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         method: zod
                             .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
                             .optional()
@@ -1064,6 +1178,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         n_bins: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -1107,6 +1227,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         n_neighbors: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -1150,6 +1276,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         kernel: zod
                             .union([zod.string(), zod.null()])
                             .optional()
@@ -1197,6 +1329,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -1521,6 +1659,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .array(
                                 zod.union([
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -1564,6 +1708,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Rolling window size for calculating mean\/std (default: 30)'),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -1607,6 +1757,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         multiplier: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -1691,6 +1847,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Upper bound - values above this are anomalies'),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -1734,6 +1896,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -1777,6 +1945,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         n_estimators: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -1824,6 +1998,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         method: zod
                                             .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
                                             .optional()
@@ -1877,6 +2057,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         n_bins: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -1924,6 +2110,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         n_neighbors: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -1971,6 +2163,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         kernel: zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
@@ -2022,6 +2220,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        direction: zod
+                                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -2067,10 +2271,22 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 ])
                             )
                             .describe('Sub-detector configurations (minimum 2)'),
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         operator: zod.enum(['and', 'or']).describe('How to combine sub-detector results'),
                         type: zod.enum(['ensemble']).default(alertsPartialUpdateBodyDetectorConfigOneOneTypeDefault),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -2110,6 +2326,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .describe('Rolling window size for calculating mean\/std (default: 30)'),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -2149,6 +2371,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         multiplier: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2223,6 +2451,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .describe('Upper bound - values above this are anomalies'),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -2262,6 +2496,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -2301,6 +2541,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         n_estimators: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2346,6 +2592,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         method: zod
                             .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
                             .optional()
@@ -2393,6 +2645,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         n_bins: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2436,6 +2694,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         n_neighbors: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2479,6 +2743,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         kernel: zod
                             .union([zod.string(), zod.null()])
                             .optional()
@@ -2526,6 +2796,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             ),
                     }),
                     zod.object({
+                        direction: zod
+                            .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                            .optional()
+                            .describe(
+                                "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -2697,6 +2973,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .array(
                         zod.union([
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 preprocessing: zod
                                     .union([
                                         zod.object({
@@ -2738,6 +3020,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .describe('Rolling window size for calculating mean\/std (default: 30)'),
                             }),
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 preprocessing: zod
                                     .union([
                                         zod.object({
@@ -2779,6 +3067,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                             }),
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 multiplier: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -2859,6 +3153,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     .describe('Upper bound - values above this are anomalies'),
                             }),
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 preprocessing: zod
                                     .union([
                                         zod.object({
@@ -2900,6 +3200,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             }),
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 preprocessing: zod
                                     .union([
                                         zod.object({
@@ -2941,6 +3247,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             }),
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 n_estimators: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -2986,6 +3298,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             }),
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 method: zod
                                     .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
                                     .optional()
@@ -3035,6 +3353,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             }),
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 n_bins: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -3080,6 +3404,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             }),
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 n_neighbors: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -3127,6 +3457,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             }),
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 kernel: zod
                                     .union([zod.string(), zod.null()])
                                     .optional()
@@ -3178,6 +3514,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             }),
                             zod.object({
+                                direction: zod
+                                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                                    ),
                                 preprocessing: zod
                                     .union([
                                         zod.object({
@@ -3223,10 +3565,22 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         ])
                     )
                     .describe('Sub-detector configurations (minimum 2)'),
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 operator: zod.enum(['and', 'or']).describe('How to combine sub-detector results'),
                 type: zod.enum(['ensemble']).default(alertsSimulateCreateBodyDetectorConfigOneOneTypeDefault),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 preprocessing: zod
                     .union([
                         zod.object({
@@ -3264,6 +3618,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .describe('Rolling window size for calculating mean\/std (default: 30)'),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 preprocessing: zod
                     .union([
                         zod.object({
@@ -3301,6 +3661,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .describe('Rolling window size for calculating median\/MAD (default: 30)'),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 multiplier: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3371,6 +3737,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     .describe('Upper bound - values above this are anomalies'),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 preprocessing: zod
                     .union([
                         zod.object({
@@ -3408,6 +3780,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 preprocessing: zod
                     .union([
                         zod.object({
@@ -3445,6 +3823,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 n_estimators: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3486,6 +3870,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 method: zod
                     .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
                     .optional()
@@ -3531,6 +3921,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 n_bins: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3572,6 +3968,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 n_neighbors: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3613,6 +4015,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 kernel: zod.union([zod.string(), zod.null()]).optional().describe('SVM kernel type (default: \"rbf\")'),
                 nu: zod
                     .union([zod.number(), zod.null()])
@@ -3655,6 +4063,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ),
             }),
             zod.object({
+                direction: zod
+                    .union([zod.enum(['both', 'up', 'down']), zod.null()])
+                    .optional()
+                    .describe(
+                        "Which side of the baseline fires. 'both' = any deviation, 'down' = drops only, 'up' = spikes only (default: 'both')"
+                    ),
                 preprocessing: zod
                     .union([
                         zod.object({

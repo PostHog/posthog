@@ -660,6 +660,79 @@ class TestEnsembleDetector:
             )
 
 
+# Stable baseline of ~10 rows, then one extreme point on a chosen side.
+DIRECTION_UP_SPIKE = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 1000])
+DIRECTION_DOWN_DROP = np.array([10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, 9, 10, -1000])
+
+
+def _direction_detector(name: str, direction: str) -> Any:
+    if name == "zscore":
+        return ZScoreDetector({"threshold": 0.9, "window": 10, "direction": direction})
+    if name == "iqr":
+        return IQRDetector({"threshold": 0.9, "window": 10, "direction": direction})
+    if name == "mad":
+        return MADDetector({"threshold": 0.9, "window": 10, "direction": direction})
+    return IsolationForestDetector({"threshold": 0.5, "direction": direction})
+
+
+class TestDetectorDirection:
+    # Full truth table: with "down" the upside is ignored, with "up" the drop is,
+    # and "both" keeps the current behavior. Guards the diurnal-ramp false positive.
+    @parameterized.expand(
+        [
+            (f"{name}_{direction}_{side}", name, direction, spike_up, expected)
+            for name in ("zscore", "iqr", "mad", "isolation_forest")
+            for direction, spike_up, expected, side in (
+                ("both", True, True, "spike"),
+                ("both", False, True, "drop"),
+                ("down", True, False, "spike"),
+                ("down", False, True, "drop"),
+                ("up", True, True, "spike"),
+                ("up", False, False, "drop"),
+            )
+        ]
+    )
+    def test_direction_gates_the_scored_side(
+        self, _name: str, name: str, direction: str, spike_up: bool, expected: bool
+    ) -> None:
+        data = DIRECTION_UP_SPIKE if spike_up else DIRECTION_DOWN_DROP
+        assert _direction_detector(name, direction).detect(data).is_anomaly is expected
+
+    @parameterized.expand(
+        [
+            ("zscore", ZScoreDetector({"threshold": 0.9, "window": 5, "direction": "down"})),
+            ("isolation_forest", IsolationForestDetector({"threshold": 0.5, "direction": "down"})),
+        ]
+    )
+    def test_batch_down_direction_only_triggers_drops(self, _name: str, detector: Any) -> None:
+        # Drop at index 11, spike at index 21 - only the drop is a lower-side fire.
+        data = np.array(
+            [10, 11, 10, 9, 10, 11, 10, 9, 10, 11, 10, -1000, 10, 11, 10, 9, 10, 11, 10, 9, 10, 1000, 10, 11, 10]
+        )
+        result = detector.detect_batch(data)
+        assert 11 in result.triggered_indices
+        assert 21 not in result.triggered_indices
+
+    def test_ensemble_threads_direction_to_sub_detectors(self) -> None:
+        config = {
+            "type": "ensemble",
+            "operator": "and",
+            "direction": "down",
+            "detectors": [
+                {"type": "zscore", "threshold": 0.9, "window": 10},
+                {"type": "isolation_forest", "threshold": 0.5},
+            ],
+        }
+        # The threaded "down" suppresses the upside that "both" still fires on.
+        assert EnsembleDetector({**config, "direction": "both"}).detect(DIRECTION_UP_SPIKE).is_anomaly is True
+        assert EnsembleDetector(config).detect(DIRECTION_UP_SPIKE).is_anomaly is False
+        assert EnsembleDetector(config).detect(DIRECTION_DOWN_DROP).is_anomaly is True
+
+    def test_invalid_direction_raises(self) -> None:
+        with pytest.raises(ValueError, match="Invalid direction"):
+            ZScoreDetector({"threshold": 0.9, "direction": "sideways"})
+
+
 class TestComputeMinSamplesForDetector:
     @parameterized.expand(
         [
