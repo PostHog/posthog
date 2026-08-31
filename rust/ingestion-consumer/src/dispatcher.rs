@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use k8s_awareness::PeerTracker;
@@ -216,6 +217,10 @@ pub struct Dispatcher {
     /// Channel to the consumer's eager-flush send task. `None` disables eager
     /// release (the completion-time flush then does all the draining).
     eager_flush_tx: Mutex<Option<UnboundedSender<EagerFlush>>>,
+    /// Hold every routing key to at most one in-flight sub-batch: a pinned
+    /// key's new group defers behind its un-acked send instead of riding the
+    /// pin onto the worker stream. See `set_per_key_serialization`.
+    per_key_serialization: AtomicBool,
 }
 
 impl Dispatcher {
@@ -234,6 +239,7 @@ impl Dispatcher {
             aperture: None,
             debug_recorder: None,
             eager_flush_tx: Mutex::new(None),
+            per_key_serialization: AtomicBool::new(false),
         }
     }
 
@@ -252,6 +258,7 @@ impl Dispatcher {
             aperture: None,
             debug_recorder: None,
             eager_flush_tx: Mutex::new(None),
+            per_key_serialization: AtomicBool::new(false),
         }
     }
 
@@ -280,6 +287,20 @@ impl Dispatcher {
     /// batch's completion-time flush.
     pub fn set_eager_flush_sender(&self, tx: UnboundedSender<EagerFlush>) {
         *self.eager_flush_tx.lock().unwrap() = Some(tx);
+    }
+
+    /// Hold every routing key to at most one in-flight sub-batch. With the
+    /// hold on, a pinned key's new group defers behind its un-acked send, and
+    /// the eager release chains the key's groups at ack speed instead of
+    /// pipelining them onto the worker stream.
+    ///
+    /// This is the ordering precondition for partial acks: when two
+    /// sub-batches of one key are in flight and the older one is acked
+    /// PARTIAL, its timed-out remainder would redeliver behind the newer
+    /// sub-batch's completed messages and the key's writes would land out of
+    /// order. Must be on while a sub-batch soft budget is sent.
+    pub fn set_per_key_serialization(&self, enabled: bool) {
+        self.per_key_serialization.store(enabled, Ordering::Relaxed);
     }
 
     /// Point-in-time load/pin/stash snapshot for the debug UI.
@@ -395,13 +416,16 @@ impl Dispatcher {
         let mut unpinned_groups: Vec<MessageGroup> = Vec::new();
         let mut drain_deferred_count = 0u64;
         let mut cascade_deferred_count = 0u64;
+        let mut serialized_deferred_count = 0u64;
         let mut unroutable_deferred_count = 0u64;
+        let serialize_keys = self.per_key_serialization.load(Ordering::Relaxed);
 
         for group in key_groups {
             let pinned_worker = table.pins.get(&group.routing_key).map(|p| p.worker.clone());
             match pinned_worker {
                 Some(worker)
-                    if !table.stash.is_deferring(&group.routing_key)
+                    if !serialize_keys
+                        && !table.stash.is_deferring(&group.routing_key)
                         && !self.registry.is_dead(&worker)
                         && !self.registry.is_draining(&worker) =>
                 {
@@ -416,16 +440,23 @@ impl Dispatcher {
                     );
                     assignments.add_group(worker, group);
                 }
-                Some(_) => {
-                    // Pinned to a draining/dead worker, or the key already has
-                    // deferred groups pending — defer so newer messages can't
-                    // race ahead of the key's earlier in-flight/deferred ones.
-                    // A key that is already deferring counts as cascade
-                    // (queued behind its own deferred work) regardless of the
-                    // pinned worker's state, so the seed (drain) and the
-                    // amplification (cascade) are measured separately.
+                Some(worker) => {
+                    // Pinned to a draining/dead worker, the key already has
+                    // deferred groups pending, or per-key serialization holds
+                    // the key behind its un-acked send — defer so newer
+                    // messages can't race ahead of the key's earlier
+                    // in-flight/deferred ones. A key that is already deferring
+                    // counts as cascade (queued behind its own deferred work)
+                    // regardless of the pinned worker's state, so the seed
+                    // (drain) and the amplification (cascade) are measured
+                    // separately.
                     if table.stash.is_deferring(&group.routing_key) {
                         cascade_deferred_count += 1;
+                    } else if serialize_keys
+                        && !self.registry.is_dead(&worker)
+                        && !self.registry.is_draining(&worker)
+                    {
+                        serialized_deferred_count += 1;
                     } else {
                         drain_deferred_count += 1;
                     }
@@ -547,6 +578,13 @@ impl Dispatcher {
             )
             .increment(cascade_deferred_count);
         }
+        if serialized_deferred_count > 0 {
+            counter!(
+                "ingestion_consumer_dispatcher_deferred_groups_total",
+                "reason" => "serialized",
+            )
+            .increment(serialized_deferred_count);
+        }
         if unroutable_deferred_count > 0 {
             counter!(
                 "ingestion_consumer_dispatcher_deferred_groups_total",
@@ -571,6 +609,13 @@ impl Dispatcher {
                 groups: cascade_deferred_count,
             });
         }
+        if serialized_deferred_count > 0 {
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "serialized",
+                groups: serialized_deferred_count,
+            });
+        }
         if unroutable_deferred_count > 0 {
             record_if(&self.debug_recorder, || DebugEventKind::Deferred {
                 batch_id: batch_id.to_string(),
@@ -582,7 +627,7 @@ impl Dispatcher {
             batch_id: batch_id.to_string(),
             routing_keys,
             sub_batches: assignments.sub_batch_infos(),
-            deferred_groups: drain_deferred_count + cascade_deferred_count,
+            deferred_groups: drain_deferred_count + cascade_deferred_count + serialized_deferred_count,
             unroutable_groups: unroutable_deferred_count,
         });
 
@@ -2069,6 +2114,62 @@ mod tests {
             assert!(!dispatcher.has_unfinished_flush(batch));
             assert_eq!(dispatcher.take_eager_accepted(batch), 1);
         }
+    }
+
+    #[test]
+    fn test_serialized_key_holds_new_groups_until_the_send_resolves() {
+        // The one-in-flight-sub-batch-per-key hold: with serialization on, a
+        // pinned key's next group must not ride the pin onto the stream while
+        // the previous send is un-acked. This is the ordering precondition
+        // for partial-ack redelivery.
+        let dispatcher = Dispatcher::new(healthy_registry(1));
+        dispatcher.set_per_key_serialization(true);
+        dispatcher.register_batch("batch-1");
+        dispatcher.register_batch("batch-2");
+
+        let b1 = dispatcher.assign("batch-1", vec![make_msg_at("t:a", 1)]);
+        assert_eq!(b1.len(), 1, "fresh key routes immediately");
+
+        let b2 = dispatcher.assign(
+            "batch-2",
+            vec![make_msg_at("t:a", 2), make_msg_at("t:b", 3)],
+        );
+        assert_eq!(b2.len(), 1, "only the fresh key routes");
+        assert_eq!(b2[0].routing_keys, vec!["t:b".to_string()]);
+        assert_eq!(
+            dispatcher.stashed_messages(),
+            1,
+            "the pinned key holds behind its un-acked send"
+        );
+
+        dispatcher.on_sub_batch_acked(&b1[0].key_offsets);
+        dispatcher.on_sub_batch_resolved(&b1[0].worker, 1, &b1[0].routing_keys, false, false);
+        let flushed = dispatcher.flush_deferred("batch-2");
+        assert_eq!(flushed.len(), 1, "the held group flushes after the ack");
+        assert_eq!(flushed[0].messages[0].offset, 2);
+    }
+
+    #[test]
+    fn test_serialized_hold_releases_eagerly_at_ack() {
+        // With the hold on, a hot key's consecutive groups drain at ack speed
+        // through the eager release instead of pipelining onto the stream.
+        let dispatcher = Dispatcher::new(healthy_registry(1));
+        dispatcher.set_per_key_serialization(true);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        dispatcher.set_eager_flush_sender(tx);
+        dispatcher.register_batch("batch-1");
+        dispatcher.register_batch("batch-2");
+
+        let b1 = dispatcher.assign("batch-1", vec![make_msg_at("t:a", 1)]);
+        assert!(dispatcher
+            .assign("batch-2", vec![make_msg_at("t:a", 2)])
+            .is_empty());
+
+        dispatcher.on_sub_batch_acked(&b1[0].key_offsets);
+        dispatcher.on_sub_batch_resolved(&b1[0].worker, 1, &b1[0].routing_keys, false, false);
+        let flush = rx.try_recv().expect("the ack releases the held group");
+        assert_eq!(flush.batch_id, "batch-2");
+        assert_eq!(flush.sub_batch.messages[0].offset, 2);
     }
 
     #[test]

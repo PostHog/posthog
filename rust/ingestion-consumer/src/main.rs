@@ -222,6 +222,25 @@ async fn async_main(config: Config) -> Result<()> {
     if let Some(recorder) = &debug_recorder {
         dispatcher.set_debug_recorder(Arc::clone(recorder));
     }
+    // A sub-batch soft budget requires the hold: a PARTIAL ack redelivers a
+    // key's remainder, which must not land behind the key's newer in-flight
+    // sub-batches.
+    let per_key_serialization = config.ingestion_worker_per_key_serialization
+        || config.ingestion_worker_sub_batch_soft_budget_ms > 0;
+    dispatcher.set_per_key_serialization(per_key_serialization);
+    if per_key_serialization {
+        info!(
+            soft_budget_ms = config.ingestion_worker_sub_batch_soft_budget_ms,
+            eager_deferred_flush = config.dispatcher_eager_deferred_flush,
+            "Per-key serialization enabled: one in-flight sub-batch per routing key"
+        );
+        if !config.dispatcher_eager_deferred_flush {
+            warn!(
+                "Per-key serialization without DISPATCHER_EAGER_DEFERRED_FLUSH: held groups \
+                 drain only at batch completion, which serializes hot keys on batch latency"
+            );
+        }
+    }
     match &peer_tracker {
         Some(tracker) => dispatcher.set_aperture(Arc::clone(tracker), config.min_aperture),
         None if config.routing_strategy == RoutingStrategy::Aperture => {
