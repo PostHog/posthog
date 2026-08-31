@@ -72,9 +72,13 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannel: (...a: unknown[]) => mocks.navigateToChannel(...a),
   navigateToHome: (...a: unknown[]) => mocks.navigateToHome(...a),
   navigateToInbox: (...a: unknown[]) => mocks.navigateToInbox(...a),
+  navigateToFeeds: vi.fn(),
   navigateToLoops: vi.fn(),
   navigateToCommandCenter: vi.fn(),
   navigateToSpacesContext: vi.fn(),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useProjectTaskFeeds", () => ({
+  useProjectTaskFeeds: () => [],
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
