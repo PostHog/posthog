@@ -20,6 +20,7 @@ from django.test.client import RequestFactory
 from django.utils.timezone import now
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
@@ -469,6 +470,21 @@ class TestRelativeDateParse(TestCase):
             relative_date_parse("2019-12-31", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
             "2019-12-31",
         )
+
+    @parameterized.expand(
+        [
+            ("years", "-7301y"),
+            ("months", "-999999m"),
+            ("weeks", "-9999999w"),
+            ("days", "-999999999d"),
+        ]
+    )
+    @freeze_time("2020-01-31")
+    def test_out_of_range_magnitude_raises_validation_error(self, _name, input):
+        # A magnitude that pushes the date outside datetime's range must surface as a
+        # 400 (ValidationError), not the bare ValueError dateutil raises (a 500).
+        with self.assertRaises(ValidationError):
+            relative_date_parse(input, ZoneInfo("UTC"))
 
 
 class TestDefaultEventName(BaseTest):

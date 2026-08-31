@@ -254,10 +254,16 @@ def relative_date_parse_with_delta_mapping(
             days_to_add = 6 - weekday_index
             parsed_dt += datetime.timedelta(days=days_to_add)
 
-    if increase:
-        parsed_dt += relativedelta(**delta_mapping)  # type: ignore
-    else:
-        parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+    try:
+        if increase:
+            parsed_dt += relativedelta(**delta_mapping)  # type: ignore
+        else:
+            parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+    except (ValueError, TypeError, OverflowError):
+        # A huge magnitude (e.g. "7301y") pushes the date outside datetime's range,
+        # which dateutil reports as a bare ValueError. Surface it as a 400 that names
+        # the bad input instead of a 500.
+        raise serializers.ValidationError(f"Relative date '{input}' is out of range")
 
     if match_group_dict["kind"] == "q":
         # Quarter boundaries depend on the resulting month, so they can't be expressed
