@@ -184,7 +184,7 @@ def is_cohort_recalculation_only_save(kwargs: dict) -> bool:
 class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(
         null=True,
@@ -250,12 +250,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         }""",
     )
     query = models.JSONField(null=True, blank=True)
-    people = models.ManyToManyField("posthog.Person", through="CohortPeople")  # type: models.ManyToManyField
+    people = models.ManyToManyField("posthog.Person", through="CohortPeople", related_name="+")  # type: models.ManyToManyField
     version = models.IntegerField(blank=True, null=True)
     pending_version = models.IntegerField(blank=True, null=True)
     count = models.IntegerField(blank=True, null=True)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, blank=True, null=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, blank=True, null=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)
 
     is_calculating = models.BooleanField(default=False)
@@ -1389,7 +1389,7 @@ def get_or_create_internal_test_users_cohort(
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
     cohort = models.ForeignKey("Cohort", on_delete=models.DO_NOTHING, db_constraint=False)
-    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False)
+    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False, related_name="+")
     version = models.IntegerField(blank=True, null=True)
 
     class Meta:

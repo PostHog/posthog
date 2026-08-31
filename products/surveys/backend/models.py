@@ -299,7 +299,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         ),
     )
 
-    actions = models.ManyToManyField(Action)
+    actions = models.ManyToManyField(Action, related_name="+")
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Survey"]:

@@ -1,1 +1,1 @@
-0003_alter_alertconfiguration_calculation_interval
+0004_alter_alert_insight_alter_alert_team_and_more

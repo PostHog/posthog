@@ -327,8 +327,10 @@ class Task(DeletedMetaFields, models.Model):
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, related_name="+"
+    )
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
@@ -350,6 +352,7 @@ class Task(DeletedMetaFields, models.Model):
         blank=True,
         limit_choices_to={"kind": "github"},
         help_text="GitHub integration for this task",
+        related_name="+",
     )
     # Keep the selected personal installation as a preference for deterministic
     # authorship when a user has multiple GitHub installations. SET_NULL on
@@ -362,6 +365,7 @@ class Task(DeletedMetaFields, models.Model):
         db_index=False,
         limit_choices_to={"kind": "github"},
         help_text="User-scoped GitHub integration used for user-authored task runs",
+        related_name="+",
     )
 
     repository = models.CharField(
@@ -1980,7 +1984,7 @@ class TaskRun(models.Model):
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     active_task_session = models.ForeignKey(
         TaskSession,
         on_delete=models.SET_NULL,
@@ -2918,7 +2922,9 @@ class TaskWorkflowDispatch(TeamScopedRootMixin):
         DEAD = "dead", "dead"
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
     task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="workflow_dispatches", db_index=False)
     workflow_id = models.CharField(max_length=512)
     dispatch_kind = models.CharField(max_length=16, choices=Kind.choices)
@@ -3339,8 +3345,8 @@ class SandboxEnvironment(UUIDModel):
         FULL = "full", "Full"
         CUSTOM = "custom", "Custom"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     name = models.CharField(max_length=255)
 
@@ -3565,10 +3571,7 @@ class SandboxCustomImage(TeamScopedRootMixin):
 
 class DesktopBetaTermsAcceptance(models.Model):
     organization = models.OneToOneField(
-        "posthog.Organization",
-        on_delete=models.CASCADE,
-        primary_key=True,
-        db_constraint=False,
+        "posthog.Organization", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
     )
     accepted_by_user_id = models.BigIntegerField()
     accepted_at = models.DateTimeField(auto_now_add=True)

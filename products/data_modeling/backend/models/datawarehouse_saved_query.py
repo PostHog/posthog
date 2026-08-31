@@ -93,7 +93,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         MANAGED_VIEWSET = DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     latest_error = models.TextField(default=None, null=True, blank=True)
     columns = models.JSONField(
         default=dict,
@@ -122,7 +122,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
 
     # In case the saved query is materialized to a table, this will be set
-    table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    table = models.ForeignKey(
+        "warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
     # The name of the view at the time of soft deletion

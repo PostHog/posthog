@@ -123,11 +123,7 @@ class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
         db_constraint=False,
     )
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     environment_id = models.BigIntegerField()
     schema_id = models.UUIDField()

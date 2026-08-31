@@ -37,7 +37,7 @@ class Ticket(UUIDTModel):
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
     person: "Person | None"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     ticket_number = models.PositiveIntegerField()
     channel_source = models.CharField(max_length=20, choices=Channel, default=Channel.WIDGET)
     channel_detail = models.CharField(max_length=30, choices=ChannelDetail, null=True, blank=True)

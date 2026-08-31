@@ -227,7 +227,7 @@ class Plugin(models.Model):
 
 
 class PluginConfig(models.Model):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, related_name="+")
     plugin = models.ForeignKey("cdp.Plugin", on_delete=models.CASCADE)
     enabled = models.BooleanField(default=False)
     order = models.IntegerField()
@@ -269,7 +269,7 @@ class PluginConfig(models.Model):
 
 
 class PluginAttachment(models.Model):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, related_name="+")
     plugin_config = models.ForeignKey("cdp.PluginConfig", on_delete=models.CASCADE, null=True)
     key = models.CharField(max_length=200)
     content_type = models.CharField(max_length=200)

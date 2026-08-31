@@ -151,20 +151,16 @@ class Subscription(ModelActivityMixin, models.Model):
     DEFAULT_AI_REPORT_WINDOW_DAYS = 7
 
     # Relations - i.e. WHAT are we exporting?
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
-    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True, related_name="+")
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True, related_name="+")
     dashboard_export_insights = models.ManyToManyField(
         "product_analytics.Insight",
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
     integration = models.ForeignKey(
-        "posthog.Integration",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_index=False,
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, related_name="+"
     )
 
     prompt = models.TextField(null=True, blank=True)
@@ -201,7 +197,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
     # Meta
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
     # False when paused or auto-disabled because the delivery prerequisite is
@@ -578,7 +574,7 @@ class SubscriptionDelivery(UUIDModel):
         SKIPPED = "skipped"
 
     subscription = models.ForeignKey("Subscription", on_delete=models.CASCADE, related_name="deliveries")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     # Temporal correlation — workflow_id for debugging, idempotency_key for dedup.
     # idempotency_key is generated via temporalio.workflow.uuid4() which is deterministic

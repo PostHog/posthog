@@ -67,8 +67,8 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         DATA_WAREHOUSE = "data_warehouse", "Data warehouse"
         OTHER = "other", "Other"
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.IDLE)
@@ -338,7 +338,7 @@ class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMeta
     type = models.CharField(max_length=50, choices=Type)
     data = models.JSONField(help_text="Artifact content. Structure depends on artifact type.")
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="artifacts")
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
 
     class Meta:
         indexes = [

@@ -1027,9 +1027,9 @@ class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     objects: DataWarehouseModelPathManager = DataWarehouseModelPathManager()
 
     path = LabelTreeField(null=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     table = models.ForeignKey(
-        "warehouse_sources.DataWarehouseTable", null=True, default=None, on_delete=models.SET_NULL
+        "warehouse_sources.DataWarehouseTable", null=True, default=None, on_delete=models.SET_NULL, related_name="+"
     )
     saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery", null=True, default=None, on_delete=models.SET_NULL
