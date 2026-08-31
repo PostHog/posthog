@@ -19,15 +19,8 @@ import { taskConnectorsPickerLogic } from './taskConnectorsPickerLogic'
  * the workflow agent, so the list is the same for every editor and matches what the run reaches.
  * Sharing a server with the project happens on the MCP servers page, not here.
  */
-export default function CyclotronJobInputTaskConnectors({ value, onChange }: CustomInputRendererProps): JSX.Element {
+export default function CyclotronJobInputTaskConnectors(props: CustomInputRendererProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { workflowAccount, teamWorkflowServers, serviceAccountsLoading, serviceAccountsFailed } =
-        useValues(taskConnectorsPickerLogic)
-
-    const selectedIds: string[] = Array.isArray(value) ? value : []
-    const toggleServer = (serverId: string, selected: boolean): void => {
-        onChange(selected ? [...selectedIds, serverId] : selectedIds.filter((id) => id !== serverId))
-    }
 
     if (!featureFlags[FEATURE_FLAGS.MCP_GATEWAY]) {
         return (
@@ -35,6 +28,20 @@ export default function CyclotronJobInputTaskConnectors({ value, onChange }: Cus
                 MCP servers for workflow tasks aren't available in this project yet.
             </span>
         )
+    }
+
+    // Mount the picker's data logic only inside the enabled branch, so a project outside the rollout
+    // never requests the service-account catalog. Mirrors ScoutMcpServersPicker.
+    return <TaskConnectorsPicker {...props} />
+}
+
+function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JSX.Element {
+    const { workflowAccount, teamWorkflowServers, serviceAccountsLoading, serviceAccountsFailed } =
+        useValues(taskConnectorsPickerLogic)
+
+    const selectedIds: string[] = Array.isArray(value) ? value : []
+    const toggleServer = (serverId: string, selected: boolean): void => {
+        onChange(selected ? [...selectedIds, serverId] : selectedIds.filter((id) => id !== serverId))
     }
 
     // Stored ids with no team share behind them (a server no longer shared with the project, or a
