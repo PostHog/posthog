@@ -15,7 +15,10 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type { LayoutPreset } from "@posthog/core/command-center/grid";
-export { getGridDimensions } from "@posthog/core/command-center/grid";
+export {
+  getCellSessionId,
+  getGridDimensions,
+} from "@posthog/core/command-center/grid";
 
 export type CommandCenterPlacement = {
   kind: "task" | "canvas";
@@ -29,6 +32,9 @@ interface CommandCenterStoreState {
   activeTaskId: string | null;
   activeCellIndex: number | null;
   zoom: number;
+  // Tiles composing a new task in place. Persisted alongside their drafts, so
+  // quitting mid-sentence reopens the same half-written task in the same tile.
+  creatingCells: number[];
   // Persisted so autofill bootstraps the grid only once, not on every remount.
   hasAutofilled: boolean;
   pendingPlacement: CommandCenterPlacement | null;
@@ -59,6 +65,8 @@ interface CommandCenterStoreActions {
   setZoom: (zoom: number) => void;
   zoomIn: () => void;
   zoomOut: () => void;
+  startCreating: (cellIndex: number) => void;
+  stopCreating: (cellIndex: number) => void;
   requestPlacement: (placement: CommandCenterPlacement) => void;
   cancelPlacement: () => void;
 }
@@ -69,11 +77,24 @@ export const COMMAND_CENTER_INITIAL_STATE: CommandCenterStoreState = {
   activeTaskId: null,
   activeCellIndex: null,
   zoom: 1,
+  creatingCells: [],
   hasAutofilled: false,
   pendingPlacement: null,
 };
 
 type CommandCenterStore = CommandCenterStoreState & CommandCenterStoreActions;
+
+/**
+ * Drop composer state from tiles that a write just filled or removed. Without
+ * it a tile can hold both a task and an open composer, and only one of them
+ * renders — so the other looks lost.
+ */
+function keepCreatingOnEmptyCells(
+  creatingCells: readonly number[],
+  cells: readonly (string | null)[],
+): number[] {
+  return creatingCells.filter((i) => i < cells.length && cells[i] == null);
+}
 
 export const useCommandCenterStore = create<CommandCenterStore>()(
   persist(
@@ -99,6 +120,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
                 : null,
             layout: preset,
             cells,
+            creatingCells: keepCreatingOnEmptyCells(state.creatingCells, cells),
           };
         }),
 
@@ -121,6 +143,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             // Highlight where it landed — otherwise a task dropped into an
             // empty tile of a busy grid is easy to miss.
             activeCellIndex: cellIndex,
+            creatingCells: keepCreatingOnEmptyCells(state.creatingCells, cells),
             // Manually placing a task counts as curating the grid.
             hasAutofilled: true,
             pendingPlacement: null,
@@ -141,6 +164,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             cells,
             activeTaskId: null,
             activeCellIndex: cellIndex,
+            creatingCells: keepCreatingOnEmptyCells(state.creatingCells, cells),
             hasAutofilled: true,
             pendingPlacement: null,
           };
@@ -155,6 +179,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             cells,
             activeTaskId: null,
             activeCellIndex: cellIndex,
+            creatingCells: keepCreatingOnEmptyCells(state.creatingCells, cells),
             hasAutofilled: true,
           };
         }),
@@ -168,6 +193,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             cells,
             activeTaskId: null,
             activeCellIndex: cellIndex,
+            creatingCells: keepCreatingOnEmptyCells(state.creatingCells, cells),
             hasAutofilled: true,
           };
         }),
@@ -191,6 +217,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
                   state.activeCellIndex < cells.length
                 ? state.activeCellIndex
                 : null,
+            creatingCells: keepCreatingOnEmptyCells(state.creatingCells, cells),
             // A bulk placement is the user curating the grid, so the one-shot
             // autofill must not later stuff tiles behind their back.
             hasAutofilled: true,
@@ -233,6 +260,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             cells,
             activeTaskId,
             activeCellIndex: activeTaskId ? cells.indexOf(activeTaskId) : null,
+            creatingCells: keepCreatingOnEmptyCells(state.creatingCells, cells),
           };
         }),
 
@@ -268,6 +296,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
           activeTaskId: null,
           activeCellIndex: null,
           cells: state.cells.map(() => null),
+          creatingCells: [],
         })),
 
       setZoom: (zoom) => set({ zoom: clampZoom(zoom) }),
@@ -275,6 +304,18 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
         set((state) => ({ zoom: clampZoom(state.zoom + ZOOM_STEP) })),
       zoomOut: () =>
         set((state) => ({ zoom: clampZoom(state.zoom - ZOOM_STEP) })),
+
+      startCreating: (cellIndex) =>
+        set((state) => ({
+          creatingCells: state.creatingCells.includes(cellIndex)
+            ? state.creatingCells
+            : [...state.creatingCells, cellIndex],
+        })),
+
+      stopCreating: (cellIndex) =>
+        set((state) => ({
+          creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
+        })),
 
       requestPlacement: (placement) => set({ pendingPlacement: placement }),
       cancelPlacement: () => set({ pendingPlacement: null }),
@@ -288,6 +329,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
         activeTaskId: state.activeTaskId,
         activeCellIndex: state.activeCellIndex,
         zoom: state.zoom,
+        creatingCells: state.creatingCells,
         hasAutofilled: state.hasAutofilled,
       }),
     },

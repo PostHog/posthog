@@ -5,7 +5,6 @@ import {
   Plus,
   Terminal,
 } from "@phosphor-icons/react";
-import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { Popover } from "@radix-ui/themes";
 import { type ReactNode, useCallback, useState } from "react";
 import { Combobox } from "../../../primitives/combobox/Combobox";
@@ -17,6 +16,8 @@ interface TaskSelectorProps {
   cellIndex: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Compose the new task in the tile itself, rather than on the full-page screen. */
+  onNewTask: () => void;
   onNewTerminal?: (cwd?: string) => void;
   onBrainrot?: () => void;
   children: ReactNode;
@@ -29,6 +30,7 @@ export function TaskSelector({
   cellIndex,
   open,
   onOpenChange,
+  onNewTask,
   onNewTerminal,
   onBrainrot,
   children,
@@ -61,8 +63,8 @@ export function TaskSelector({
 
   const handleNewTask = useCallback(() => {
     handleOpenChange(false);
-    openTaskInput();
-  }, [handleOpenChange]);
+    onNewTask();
+  }, [handleOpenChange, onNewTask]);
 
   const handleNewTerminal = useCallback(() => {
     if (folders.length > 1) {

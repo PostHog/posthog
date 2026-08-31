@@ -22,6 +22,8 @@ function resetStore() {
   useCommandCenterStore.setState(COMMAND_CENTER_INITIAL_STATE);
 }
 
+const store = () => useCommandCenterStore.getState();
+
 describe("commandCenterStore", () => {
   beforeEach(resetStore);
 
@@ -280,6 +282,45 @@ describe("commandCenterStore", () => {
       useCommandCenterStore.getState().assignTask(2, "t1");
       expect(useCommandCenterStore.getState().pendingPlacement).toBeNull();
       expect(useCommandCenterStore.getState().cells[2]).toBe("t1");
+    });
+  });
+
+  describe("in-tile composer", () => {
+    it("tracks one composer per tile", () => {
+      useCommandCenterStore.getState().startCreating(2);
+      useCommandCenterStore.getState().startCreating(2);
+      expect(useCommandCenterStore.getState().creatingCells).toEqual([2]);
+
+      useCommandCenterStore.getState().stopCreating(2);
+      expect(useCommandCenterStore.getState().creatingCells).toEqual([]);
+    });
+
+    // A tile showing both a composer and its contents renders only one of
+    // them, so the other looks lost.
+    it.each([
+      { what: "a task", fill: () => store().assignTask(1, "t1") },
+      { what: "a terminal", fill: () => store().setTerminalCell(1, "term-1") },
+      { what: "brainrot", fill: () => store().setBrainrotCell(1) },
+      { what: "a canvas", fill: () => store().setCanvasCell(1, "canvas-1") },
+    ])("closes the composer once the tile holds $what", ({ fill }) => {
+      useCommandCenterStore.setState({ creatingCells: [1, 2] });
+
+      fill();
+
+      expect(useCommandCenterStore.getState().creatingCells).toEqual([2]);
+    });
+
+    it("closes composers that optimize repacked onto a filled or dropped tile", () => {
+      useCommandCenterStore.setState({
+        layout: "2x2",
+        cells: [null, "t1", null, null],
+        creatingCells: [0, 3],
+      });
+
+      // Packs "t1" alone: index 0 now holds it, and index 3 no longer exists.
+      useCommandCenterStore.getState().optimizeLayout([1]);
+
+      expect(useCommandCenterStore.getState().creatingCells).toEqual([]);
     });
   });
 });
