@@ -21,10 +21,10 @@ impl MockSink {
         self.events.lock().unwrap().clone()
     }
 
-    /// The degenerate output table over this mock. The clone shares the
+    /// The degenerate output registry over this mock. The clone shares the
     /// capture buffer, so the caller keeps reading events back off the
     /// handle it already holds.
-    pub fn table(&self) -> Arc<OutputRegistry> {
+    pub fn registry(&self) -> Arc<OutputRegistry> {
         Arc::new(OutputRegistry::single(self.clone()))
     }
 }

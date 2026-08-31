@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn table_publishes_to_its_output() {
+    async fn registry_publishes_to_its_output() {
         let leaf = MockSink::new();
         let table = OutputRegistry::single(leaf.clone());
 

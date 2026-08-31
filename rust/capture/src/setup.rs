@@ -291,9 +291,9 @@ pub async fn build_components(
     };
 
     let outputs = Arc::new(
-        create_output_table(&config, sink_handle, advisory_handle)
+        create_output_registry(&config, sink_handle, advisory_handle)
             .await
-            .expect("failed to create the output table"),
+            .expect("failed to create the output registry"),
     );
     let outputs_for_flush = outputs.clone();
 
@@ -565,7 +565,7 @@ fn create_v1_sink_router(
     Ok(Arc::new(router))
 }
 
-async fn create_output_table(
+async fn create_output_registry(
     config: &Config,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
@@ -1211,7 +1211,7 @@ mod tests {
         config.kafka.outputs_completeness_check_enabled = true;
         config.kafka.kafka_dlq_topic = String::new();
 
-        let err = create_output_table(&config, None, None)
+        let err = create_output_registry(&config, None, None)
             .await
             .err()
             .expect("boot must be refused when an output topic is empty");
@@ -1224,7 +1224,7 @@ mod tests {
         // The default: with the check off, the same blank topic boots (and
         // would fail at first produce instead).
         config.kafka.outputs_completeness_check_enabled = false;
-        create_output_table(&config, None, None)
+        create_output_registry(&config, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
     }

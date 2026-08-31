@@ -198,14 +198,11 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     }
 }
 
-/// Map a lane address to the sink's configured [`Destination`]. The sink owns
-/// this mapping only until the outputs layer exists to own the address →
-/// output table. Every `(pipeline, lane)` pair is spelled out so that a new
-/// lane, or a change making an unbacked pair reachable, has to visit this
-/// match instead of being absorbed by a wildcard. `None` marks a pair
-/// [`pipeline::resolve`] never produces — no output backs it, and the caller
-/// dlqs the event (the typed-per-pipeline-lanes step makes these pairs
-/// unrepresentable).
+/// Map a lane address to the sink's configured [`Destination`]. Every
+/// `(pipeline, lane)` pair is spelled out so that a new lane, or a change
+/// making an unbacked pair reachable, has to visit this match instead of
+/// being absorbed by a wildcard. `None` marks a pair [`pipeline::resolve`]
+/// never produces — no output backs it, and the caller dlqs the event.
 fn lane_output(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
     match (pipeline, lane) {
         (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),

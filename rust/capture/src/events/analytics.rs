@@ -996,7 +996,7 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -1041,7 +1041,7 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -1087,7 +1087,7 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -1133,7 +1133,7 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -1186,7 +1186,7 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -1218,7 +1218,13 @@ mod tests {
         let sink = Arc::new(MockSink::new());
 
         // No restriction service
-        let result = run_pipeline(sink.table(), events, &context, PipelineOptions::default()).await;
+        let result = run_pipeline(
+            sink.registry(),
+            events,
+            &context,
+            PipelineOptions::default(),
+        )
+        .await;
 
         assert!(result.is_ok());
         let captured = sink.get_events();
@@ -1261,7 +1267,7 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -1306,7 +1312,7 @@ mod tests {
         service.update(manager).await;
 
         let result = run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -1392,9 +1398,14 @@ mod tests {
 
         let sink = Arc::new(MockSink::new());
 
-        run_pipeline(sink.table(), events, &context, PipelineOptions::default())
-            .await
-            .unwrap();
+        run_pipeline(
+            sink.registry(),
+            events,
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 2);
@@ -1509,7 +1520,7 @@ mod tests {
         oversized.uuid = Some(offender_uuid);
 
         let err = run_pipeline(
-            sink.table(),
+            sink.registry(),
             vec![
                 create_test_event_with_name(
                     "$ai_generation",
@@ -1561,7 +1572,7 @@ mod tests {
             .insert("big".to_string(), json!("x".repeat(800)));
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             vec![oversized],
             &context,
             PipelineOptions::default(),
@@ -1622,7 +1633,7 @@ mod tests {
         ];
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -1689,7 +1700,7 @@ mod tests {
         let sink = Arc::new(MockSink::new());
         let collector = Arc::new(CollectingEmitter::new());
         let result = run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -1736,9 +1747,14 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        run_pipeline(sink.table(), events, &context, PipelineOptions::default())
-            .await
-            .expect("capture-analytics must accept a mixed batch");
+        run_pipeline(
+            sink.registry(),
+            events,
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .expect("capture-analytics must accept a mixed batch");
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 2);
@@ -1857,7 +1873,7 @@ mod tests {
             .insert("$current_url".to_string(), json!("x".repeat(500)));
 
         process_events(
-            sink.table(),
+            sink.registry(),
             Arc::new(TokenDropper::default()),
             None,
             router::HistoricalConfig::new(false, 1),
@@ -1933,7 +1949,7 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -1990,7 +2006,7 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2046,7 +2062,7 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2116,7 +2132,7 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2185,7 +2201,7 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2249,7 +2265,7 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2305,7 +2321,7 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2354,9 +2370,14 @@ mod tests {
 
         let sink = Arc::new(MockSink::new());
 
-        run_pipeline(sink.table(), events, &context, PipelineOptions::default())
-            .await
-            .unwrap();
+        run_pipeline(
+            sink.registry(),
+            events,
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
@@ -2380,7 +2401,7 @@ mod tests {
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2436,7 +2457,7 @@ mod tests {
             .then(|| build_limiter(10, 10, Some("test_token".to_string()), false));
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2469,7 +2490,7 @@ mod tests {
         let limiter = build_limiter(1, 1, None, true);
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2506,7 +2527,7 @@ mod tests {
         let limiter = build_limiter(1, 1, None, false);
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2560,7 +2581,7 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2597,7 +2618,7 @@ mod tests {
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2645,7 +2666,7 @@ mod tests {
         let overflow_limiter = build_limiter(1, 1, None, true);
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2706,7 +2727,7 @@ mod tests {
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2771,7 +2792,7 @@ mod tests {
         let collector = Arc::new(CollectingEmitter::new());
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2820,7 +2841,7 @@ mod tests {
         let collector = Arc::new(CollectingEmitter::new());
 
         let result = run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2923,7 +2944,7 @@ mod tests {
         service.update(manager).await;
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -2965,7 +2986,7 @@ mod tests {
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -3008,9 +3029,14 @@ mod tests {
 
         let sink = Arc::new(MockSink::new());
 
-        run_pipeline(sink.table(), events, &context, PipelineOptions::default())
-            .await
-            .unwrap();
+        run_pipeline(
+            sink.registry(),
+            events,
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
             sink.get_events().len(),
@@ -3036,9 +3062,14 @@ mod tests {
 
         let sink = Arc::new(MockSink::new());
 
-        run_pipeline(sink.table(), events, &context, PipelineOptions::default())
-            .await
-            .unwrap();
+        run_pipeline(
+            sink.registry(),
+            events,
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
@@ -3070,7 +3101,7 @@ mod tests {
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
         run_pipeline(
-            sink.table(),
+            sink.registry(),
             events,
             &context,
             PipelineOptions {
@@ -3448,9 +3479,14 @@ mod tests {
 
         let sink = Arc::new(MockSink::new());
 
-        run_pipeline(sink.table(), events, &context, PipelineOptions::default())
-            .await
-            .unwrap();
+        run_pipeline(
+            sink.registry(),
+            events,
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 2, "should produce original + redirect");
@@ -3485,9 +3521,14 @@ mod tests {
 
         let sink = Arc::new(MockSink::new());
 
-        run_pipeline(sink.table(), events, &context, PipelineOptions::default())
-            .await
-            .unwrap();
+        run_pipeline(
+            sink.registry(),
+            events,
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(
@@ -3511,9 +3552,14 @@ mod tests {
 
         let sink = Arc::new(MockSink::new());
 
-        run_pipeline(sink.table(), events, &context, PipelineOptions::default())
-            .await
-            .unwrap();
+        run_pipeline(
+            sink.registry(),
+            events,
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .unwrap();
 
         let captured = sink.get_events();
         assert_eq!(captured.len(), 1);
@@ -3777,7 +3823,7 @@ mod tests {
         ];
 
         let sink = Arc::new(MockSink::new());
-        let (result, emitted) = run_batch_collecting_warnings(events, sink.table()).await;
+        let (result, emitted) = run_batch_collecting_warnings(events, sink.registry()).await;
         result.unwrap();
 
         let sent = sink.get_events();
@@ -3810,7 +3856,7 @@ mod tests {
         ];
 
         let (result, emitted) =
-            run_batch_collecting_warnings(events, MockSink::new().table()).await;
+            run_batch_collecting_warnings(events, MockSink::new().registry()).await;
         result.unwrap();
 
         assert_eq!(emitted.len(), 1);
@@ -3829,7 +3875,7 @@ mod tests {
         let events = vec![event_with_distinct_id(&"z".repeat(200))];
 
         let (result, emitted) =
-            run_batch_collecting_warnings(events, MockSink::new().table()).await;
+            run_batch_collecting_warnings(events, MockSink::new().registry()).await;
         result.unwrap();
 
         assert!(emitted.is_empty());
@@ -3857,7 +3903,7 @@ mod tests {
                 event_with_distinct_id(&dropped_id),
                 event_with_distinct_id("normal_user"),
             ],
-            sink.table(),
+            sink.registry(),
             dropper.clone(),
         )
         .await;
@@ -3873,7 +3919,7 @@ mod tests {
                 event_with_distinct_id(&dropped_id),
                 event_with_distinct_id(&surviving_id),
             ],
-            sink.table(),
+            sink.registry(),
             dropper,
         )
         .await;
