@@ -5,12 +5,20 @@ import pytest
 
 from products.tasks.backend.logic.stream.redis_stream import (
     DATA_KEY,
+    TASK_RUN_STREAM_COMPLETED_TTL_SECONDS,
+    TASK_RUN_STREAM_SEQUENCE_TIMEOUT,
+    TASK_RUN_STREAM_TIMEOUT,
     TaskRunRedisStream,
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
     TaskRunStreamSequenceGap,
     _stream_id_sort_key,
+    get_task_run_stream_completed_key,
+    get_task_run_stream_key,
+    publish_task_run_stream_complete,
+    reset_task_run_stream,
 )
+from products.tasks.backend.redis import get_tasks_stream_redis_sync
 
 
 def _new_stream() -> TaskRunRedisStream:
@@ -107,6 +115,25 @@ async def test_mark_complete_is_idempotent() -> None:
         assert await _read_stream_events(redis_stream) == [{"type": "STREAM_STATUS", "status": "complete"}]
     finally:
         await redis_stream.delete_stream()
+
+
+@pytest.mark.parametrize("already_completed", [False, True])
+def test_publish_task_run_stream_complete_shortens_stream_ttl(already_completed: bool) -> None:
+    run_id = str(uuid4())
+    stream_key = get_task_run_stream_key(run_id)
+    client = get_tasks_stream_redis_sync()
+    try:
+        client.xadd(stream_key, {DATA_KEY: json.dumps({"type": "message"})})
+        client.expire(stream_key, TASK_RUN_STREAM_TIMEOUT)
+        if already_completed:
+            client.set(get_task_run_stream_completed_key(stream_key), "1", ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
+
+        assert publish_task_run_stream_complete(run_id)
+
+        ttl = client.ttl(stream_key)
+        assert 0 < ttl <= TASK_RUN_STREAM_COMPLETED_TTL_SECONDS
+    finally:
+        reset_task_run_stream(run_id)
 
 
 @pytest.mark.parametrize(
