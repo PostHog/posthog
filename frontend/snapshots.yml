@@ -1852,6 +1852,10 @@ snapshots:
         hash: v1.k794b7964.369d8902d1857ba89bc0995bbf90de39a2664d4c0ad9d7457b2c6c2972c65865.Q3OsOnoxbBawKNFS75yyCxSY3RTWKLXvDelOZhZQ6BE
     components-product-empty-state--support-waiting-for-data--light:
         hash: v1.k794b7964.81466638b2ad508f29fb15596fe41e493559cb42d140fc9a0631a5beb52a90af.eTpjSWKyf2FL3SoGdY-EGFLGwLo407-BlQiMsILXDkc
+    components-product-empty-state--tracing-needs-setup--dark:
+        hash: v1.k794b7964.31166d2274ea22226bc3281a0fe2f39caef85292a870fa58b0339964bcb2cb6b.xl8D1Zuw7EzZn8ptdhasdeA8LNEskINpumcYVM619Jg
+    components-product-empty-state--tracing-needs-setup--light:
+        hash: v1.k794b7964.186a74ebee46c9341b2dffbc73c647d7be5f38bdbabbeaf4098237c96ca56c35.i2DjPIjhqrqsIkHPC5Kkd28o97GAL-z6XDcrnjfsE54
     components-product-empty-state--user-interviews-needs-setup--dark:
         hash: v1.k794b7964.5834b5549690d205c2ec9d9b9765f392eeba757749a0cf243c810311f3733079.Ju4u90HdGqU4tcIDHMsmpInKHheBwMYRvpYnd8oGa30
     components-product-empty-state--user-interviews-needs-setup--light:
