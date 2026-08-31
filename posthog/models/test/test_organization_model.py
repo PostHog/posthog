@@ -219,7 +219,9 @@ class TestOrganization(BaseTest):
         assert get_cached_organization_memberships(self.user) == []
 
     def test_access_cache_is_invalidated_when_membership_is_created(self):
-        new_user = User.objects.create_user(email="cache-membership@example.com", password="password")
+        new_user = User.objects.create_user(
+            email="cache-membership@example.com", password="password", first_name="Cache"
+        )
 
         # Cache both the missing individual membership and the user's empty membership list.
         assert get_cached_organization_membership(self.organization.id, new_user) is None
