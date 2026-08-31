@@ -8,6 +8,8 @@ workspace = true
 
 [features]
 pg-test-support = []
+# Arms the tests that need a reachable ClickHouse, which the rust CI job's compose stack provides.
+ch-test-support = []
 
 [[bin]]
 name = "reconcile_dispatch"

@@ -2,6 +2,8 @@
 //! evaluator into tiles, and emits the scan metrics. Depends on `domain`, `config`, and the sibling
 //! `sql`/`row` modules; never on `store` or `kafka`.
 
+use std::sync::Arc;
+
 use chrono::Utc;
 use chrono_tz::Tz;
 use clickhouse::query::RowCursor;
@@ -10,6 +12,7 @@ use cohort_core::day_idx_in_tz;
 use cohort_core::events::CohortStreamEvent;
 use cohort_core::filters::TeamId;
 use cohort_core::hogvm::VmErrorClass;
+use common_types::cohort::TeamAllowlist;
 use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -19,23 +22,29 @@ use super::row::{row_to_event, EventRow};
 use super::scan_volume::{self, ScanKind};
 use super::sql::{plan_scan, scan_sql, ScanPlan};
 use crate::domain::{
-    conditions_active_on, ActiveConditions, AggregateError, CancelCause, ChunkAccumulator,
-    ChunkDomainError, ClaimedChunk, DayIdx, EventNameSet, Halted, PinnedCondition, PinnedRun,
-    RecordOutcome, RecordStats, ScanVolume, ScannedChunk, SeedDomain, SeedTile, UtcMillis,
+    conditions_active_on, ActiveConditions, AggregateError, BlobSource, CancelCause,
+    ChunkAccumulator, ChunkDomainError, ChunkProjection, ClaimedChunk, ConditionAnalyses, DayIdx,
+    EventNameSet, Halted, PinnedCondition, PinnedRun, RecordOutcome, RecordStats, ScanVolume,
+    ScannedChunk, SeedDomain, SeedTile, UtcMillis,
 };
 use crate::observability::metrics::{
-    MetricTimer, AGGREGATE_ENTRIES, CHUNKS_VACUOUS, CHUNK_SCAN_DURATION_SECONDS,
-    CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS, ROWS_SCANNED,
+    team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
+    CHUNK_SCAN_DURATION_SECONDS, CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS,
+    PROJECTION_KEYS, ROWS_SCANNED,
 };
 
 #[derive(Clone)]
 pub struct ChunkScanner {
     client: clickhouse::Client,
+    /// Only what bounds the `team_id` label on the projection metrics. The scanner makes no
+    /// admission decision from it — discovery already did, and re-deciding here would give one
+    /// chunk a second, quieter place to be dropped.
+    allowlist: TeamAllowlist,
 }
 
 impl ChunkScanner {
-    pub fn new(client: clickhouse::Client) -> Self {
-        Self { client }
+    pub fn new(client: clickhouse::Client, allowlist: TeamAllowlist) -> Self {
+        Self { client, allowlist }
     }
 
     pub async fn scan(
@@ -102,10 +111,16 @@ impl ChunkScanner {
                 return Ok((Vec::new(), ScanVolume::default()));
             }
         };
+        // Derived per chunk rather than cached on the run: it is a pure function of the pinned
+        // bytecode, so a chunk retried on another replica derives the identical projection, and the
+        // analysis is bounded per condition rather than per run.
+        let projection =
+            ConditionAnalyses::build(&run.conditions, &run.filters).projection(&active);
+        self.record_projection(run.team_id, &projection);
 
         let mut cursor = self
             .client
-            .query(&scan_sql(&scan_spec))
+            .query(&scan_sql(&scan_spec, &projection))
             .with_option(
                 LOG_COMMENT_OPTION,
                 ScanLogComment::BehavioralChunk {
@@ -139,6 +154,38 @@ impl ChunkScanner {
         let tiles = accumulator.into_tiles(&domain, run.run_id, spec.lease.epoch());
         Ok((tiles, volume))
     }
+
+    /// Publish what this chunk's scan narrowed to, so a team that stops projecting is visible
+    /// before its scan cost is.
+    fn record_projection(&self, team_id: TeamId, projection: &ChunkProjection) {
+        let team = team_label(&self.allowlist, team_id);
+        counter!(
+            CHUNKS_PROJECTED,
+            "outcome" => projection.outcome(),
+            "team_id" => team.clone(),
+        )
+        .increment(1);
+        let ChunkProjection::Projected(plan) = projection else {
+            return;
+        };
+        for (blob, source) in [
+            ("properties", &plan.properties),
+            ("person_properties", &plan.person_properties),
+        ] {
+            record_projected_keys(blob, source, team.clone());
+        }
+    }
+}
+
+/// A blob's kept-key count, where there is one. [`BlobSource::Full`] has none — see
+/// [`PROJECTION_KEYS`].
+fn record_projected_keys(blob: &'static str, source: &BlobSource, team: Arc<str>) {
+    let keys = match source {
+        BlobSource::Full => return,
+        BlobSource::Empty => 0,
+        BlobSource::Keys(keys) => keys.len(),
+    };
+    histogram!(PROJECTION_KEYS, "blob" => blob, "team_id" => team).record(keys as f64);
 }
 
 /// Whether the cursor yielded anything, which is what separates a chunk with no matching history

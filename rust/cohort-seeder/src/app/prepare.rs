@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use cohort_core::bucket_tz::window_start_for_now;
-use cohort_core::filters::{CohortId, TeamId};
+use cohort_core::filters::CohortId;
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, gauge};
 use sqlx::PgPool;
@@ -22,7 +22,7 @@ use crate::domain::{
     PinnedRun, PinnedWarning, PlanCaps, RunId,
 };
 use crate::observability::metrics::{
-    BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_CLASSIFIED,
+    team_label, BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_CLASSIFIED,
     CONDITIONS_DROPPED, CONDITIONS_UNANALYZABLE, LOOKBACK_TRUNCATED, RUNS_DISCOVERED,
     RUNS_PLANNING_STAMPED, RUNS_PLANNING_WITHHELD, RUNS_WAITING_BOUNDARY, RUNS_WITHOUT_CHUNKS,
     RUN_CHUNKS_REMAINING, RUN_VALIDATION_FAILURES, TZ_FALLBACK, WINDOW_DAYS_MISMATCH,
@@ -468,32 +468,6 @@ fn record_condition_census(allowlist: &TeamAllowlist, run_id: RunId, run: &Pinne
     );
 }
 
-/// How many teams the census names individually before it stops naming any.
-///
-/// Sized well above the shadow rollout's team count, so the collapse is a ceiling rather than a
-/// routine truncation.
-const MAX_LABELLED_TEAMS: usize = 32;
-
-/// The label every team shares once the census stops naming them.
-const UNLABELLED_TEAM: &str = "other";
-
-/// The team a census belongs to, as a metric label.
-///
-/// A team gets its own series only while `REALTIME_COHORT_TEAM_ALLOWLIST` names few enough of them.
-/// The allowlist does not bound this on its own: it accepts `all` (which a set-but-empty variable
-/// also parses to) and ranges of up to 100,000 ids, and the recorder never evicts a series, so a
-/// wide rollout would retain one per team that ever seeded. The label is here because the
-/// deliverable is one team's number, which a blended counter cannot give; the per-run log line
-/// carries the exact team either way, so collapsing costs the dashboard, not the answer.
-fn team_label(allowlist: &TeamAllowlist, team_id: TeamId) -> Arc<str> {
-    match allowlist {
-        TeamAllowlist::Only(ids) if ids.len() <= MAX_LABELLED_TEAMS => {
-            Arc::from(team_id.0.to_string().as_str())
-        }
-        TeamAllowlist::Only(_) | TeamAllowlist::All => Arc::from(UNLABELLED_TEAM),
-    }
-}
-
 fn record_pinned_warnings(warnings: &[PinnedWarning]) {
     for warning in warnings {
         match warning {
@@ -561,36 +535,5 @@ fn run_error_disposition(run_id: Option<RunId>, error: &RunError) -> RunErrorDis
         | RunError::UnknownScope(_)
         | RunError::NotFound(_)
         | RunError::NotActive(_) => RunErrorDisposition::Retry,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use super::*;
-
-    /// An allowlist that can grow with the customer base must not mint a metric series per team.
-    /// The recorder never evicts one, so a label that tracks team count leaks for the whole process
-    /// lifetime — and `all`, which a set-but-empty variable also parses to, is the configuration
-    /// the boundedness claim used to assume away.
-    #[test]
-    fn only_a_narrow_allowlist_names_teams_in_the_census_label() {
-        let narrow = TeamAllowlist::Only(HashSet::from([2, 7]));
-        assert_eq!(&*team_label(&narrow, TeamId(2)), "2");
-
-        let wide = TeamAllowlist::Only((0..=MAX_LABELLED_TEAMS as i32).collect());
-        assert_eq!(&*team_label(&wide, TeamId(2)), UNLABELLED_TEAM);
-        assert_eq!(
-            &*team_label(&TeamAllowlist::All, TeamId(2)),
-            UNLABELLED_TEAM
-        );
-        assert_eq!(
-            &*team_label(
-                &"".parse::<TeamAllowlist>().expect("blank parses"),
-                TeamId(2)
-            ),
-            UNLABELLED_TEAM
-        );
     }
 }
