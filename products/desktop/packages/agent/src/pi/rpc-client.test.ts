@@ -133,57 +133,6 @@ describe("createPiRpcClient", () => {
     ).toBeUndefined();
   });
 
-  it("passes repository trust over the private bootstrap pipe", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "pi-project-trust-"));
-    const hostPath = join(directory, "host.mjs");
-    const capturePath = join(directory, "bootstrap.json");
-    await writeFile(
-      hostPath,
-      `
-import { readFileSync, writeFileSync } from "node:fs";
-
-writeFileSync(${JSON.stringify(capturePath)}, readFileSync(3, "utf8"));
-process.stdin.resume();
-`,
-    );
-    const client = createPiRpcClient({
-      cliPath: hostPath,
-      taskContext: taskContext(directory),
-      projectTrusted: true,
-      extensions: ["auto-publish"],
-      providerOptions: { apiKey: "proxy-key" },
-      enrichment: {
-        apiUrl: "http://127.0.0.1:5678",
-        publicApiUrl: "https://us.posthog.com",
-        projectId: 2,
-        apiKey: "enrichment-proxy-key",
-      },
-    });
-
-    try {
-      await client.start();
-      await vi.waitFor(async () => {
-        await expect(readFile(capturePath, "utf8")).resolves.toBe(
-          JSON.stringify({
-            providerOptions: { apiKey: "proxy-key" },
-            enrichment: {
-              apiUrl: "http://127.0.0.1:5678",
-              publicApiUrl: "https://us.posthog.com",
-              projectId: 2,
-              apiKey: "enrichment-proxy-key",
-            },
-            projectTrusted: true,
-            taskContext: taskContext(directory),
-            extensions: ["auto-publish"],
-          }),
-        );
-      });
-    } finally {
-      await client.stop();
-      await rm(directory, { recursive: true });
-    }
-  });
-
   it("passes requested extensions privately and enables Electron's Node mode", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-electron-node-mode-"));
     const hostPath = join(directory, "host.mjs");

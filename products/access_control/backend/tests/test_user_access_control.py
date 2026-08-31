@@ -328,8 +328,8 @@ class TestUserAccessControl(BaseUserAccessControlTest):
     def test_filters_project_queryset_based_on_acs(self):
         team2 = Team.objects.create(organization=self.organization)
         team3 = Team.objects.create(organization=self.organization)
-        # No default access
-        self._create_access_control(resource="project", resource_id=team2.id, access_level="none")
+        # No default access, stored on the project's own team rather than self.team
+        AccessControl.objects.create(team=team2, resource="project", resource_id=team2.id, access_level="none")
         # No default access
         self._create_access_control(resource="project", resource_id=team3.id, access_level="none")
         # This user access

@@ -1,6 +1,6 @@
-export const AGENT_BOOT_CONTRACT_VERSION = 1;
+const AGENT_BOOT_CONTRACT_VERSION = 1;
 
-export const AGENT_BOOT_PHASES = [
+const AGENT_BOOT_PHASES = [
   "context_fetch",
   "acp_initialize",
   "repository_ready",

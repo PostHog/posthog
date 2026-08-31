@@ -346,9 +346,13 @@ export function SurveysTable(): JSX.Element {
         ]
     )
 
+    const hasSearchTerm = Boolean(searchTerm.trim())
+    const hasActiveFilters =
+        hasSearchTerm || filters.status !== 'any' || filters.type !== 'any' || filters.created_by != null
     const isInitialDataLoad = surveys.length === 0 && hasNextPage
     const isTableLoading = dataLoading || isInitialDataLoad
-    const shouldShowEmptyState = !isTableLoading && surveys.length === 0
+    const shouldShowEmptyState =
+        !isTableLoading && tab === SurveysTabs.Active && !hasActiveFilters && surveys.length === 0
 
     if (shouldShowEmptyState) {
         return <SurveysEmptyState />
@@ -436,10 +440,10 @@ export function SurveysTable(): JSX.Element {
                 emptyState={tab === SurveysTabs.Active ? 'No surveys. Create a new survey?' : 'No surveys found'}
                 loading={isTableLoading}
                 footer={
-                    (searchTerm ? hasNextSearchPage : hasNextPage) && (
+                    (hasSearchTerm ? hasNextSearchPage : hasNextPage) && (
                         <div className="flex justify-center p-1">
                             <LemonButton
-                                onClick={searchTerm ? loadNextSearchPage : loadNextPage}
+                                onClick={hasSearchTerm ? loadNextSearchPage : loadNextPage}
                                 className="min-w-full text-center"
                                 disabledReason={isTableLoading ? 'Loading surveys' : ''}
                             >

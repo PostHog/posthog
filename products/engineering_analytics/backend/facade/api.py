@@ -47,6 +47,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     TeamCIActivity,
     TeamCIHealthList,
     TeamMergeTrend,
+    TrunkQuarantineDebt,
     WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
@@ -442,6 +443,16 @@ def get_broken_tests(
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
     return logic.build_github_sources(team=team, user_access_control=user_access_control)
+
+
+def get_trunk_quarantine(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TrunkQuarantineDebt:
+    return logic.build_trunk_quarantine(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
 
 
 def get_quarantine(

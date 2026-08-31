@@ -118,6 +118,7 @@ import type { CRYPTO_SERVICE } from "@posthog/platform/crypto";
 import type { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import type { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import type { DIALOG_SERVICE } from "@posthog/platform/dialog";
+import type { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
 import type { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import type { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -257,6 +258,7 @@ import type { DevLogsService } from "../services/dev-logs/service";
 import type { DevMetricsService } from "../services/dev-metrics/service";
 import type { DevNetworkService } from "../services/dev-network/service";
 import type { DiscordPresenceService } from "../services/discord-presence/service";
+import type { DiskCache } from "../services/disk-cache/service";
 import type { EncryptionService } from "../services/encryption/service";
 import type { SecureStoreService } from "../services/secure-store/service";
 import type { settingsStore } from "../services/settingsStore";
@@ -335,6 +337,7 @@ export interface MainBindings {
   [WORKSPACE_SETTINGS_SERVICE]: ElectronWorkspaceSettings;
   [APP_METRICS_SERVICE]: ElectronAppMetrics;
   [DEV_HOST_ACTIONS_SERVICE]: ElectronDevHostActions;
+  [DISK_CACHE_SERVICE]: DiskCache;
 
   // Database (main aliases + ws-server source tokens via toService)
   [MAIN_DATABASE_SERVICE]: DatabaseService;
