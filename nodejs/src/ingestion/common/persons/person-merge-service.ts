@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { isDistinctIdIllegal } from '~/common/persons/person-utils'
+import { isDistinctIdUnmergeable } from '~/common/persons/person-utils'
 import {
     PersonClaimedByLifecycleOpError,
     PersonTombstoneBlockedError,
@@ -31,20 +31,6 @@ import {
     MergePersonsResult,
     MergePersonsSourceResult,
 } from './persons-store'
-
-/**
- * Ids no merge can ever involve, settled client-side with a warning. A
- * strict superset of isDistinctIdIllegal, not a duplicate of it: the
- * illegal list is ids that never resolve to a person anywhere, while the
- * two extras here are merge-request constraints — NUL cannot exist in
- * Postgres text (the capture path strips it from event.distinct_id but
- * not from $anon_distinct_id or alias property values), and over 400 code
- * points cannot exist in the varchar(400) column. Sending any of them
- * draws a deterministic INVALID_ARGUMENT that no redelivery can change.
- */
-function isDistinctIdUnmergeable(distinctId: string): boolean {
-    return isDistinctIdIllegal(distinctId) || distinctId.includes('\u0000') || [...distinctId].length > 400
-}
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
