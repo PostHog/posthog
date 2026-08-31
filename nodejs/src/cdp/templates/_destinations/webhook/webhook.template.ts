@@ -102,7 +102,7 @@ if (inputs.debug) {
             secret: true,
             required: false,
             description:
-                'If set, each request includes signed webhook-id, webhook-timestamp, and webhook-signature headers following the Standard Webhooks spec. Paste the secret from the receiving service, with or without the whsec_ prefix.',
+                'Signs each request following the Standard Webhooks spec. Paste the secret from the receiving service, with or without the whsec_ prefix.',
         },
         {
             key: 'debug',
