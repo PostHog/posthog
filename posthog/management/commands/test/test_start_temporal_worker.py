@@ -1,12 +1,21 @@
 import pytest
 
+from django.conf import settings
+
 from posthog.management.commands.start_temporal_worker import (
     DATA_SYNC_WORKFLOWS,
+    PULSE_ACTIVITIES,
+    PULSE_WORKFLOWS,
     WA_DIGEST_ACTIVITIES,
     WA_DIGEST_WORKFLOWS,
     WEEKLY_DIGEST_WORKFLOWS,
     _task_queue_specs,
     workflows_include_data_import_syncs,
+)
+
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as REGISTERED_PULSE_ACTIVITIES,
+    WORKFLOWS as REGISTERED_PULSE_WORKFLOWS,
 )
 
 
@@ -48,3 +57,19 @@ def test_wa_digests_are_registered_with_the_weekly_digest() -> None:
     workflows, activities = entries[0]
     assert set(WA_DIGEST_WORKFLOWS) <= set(workflows)
     assert set(WA_DIGEST_ACTIVITIES) <= set(activities)
+
+
+def test_pulse_workflows_have_a_separately_routable_landing_zone() -> None:
+    entries = [
+        (task_queue, workflows, activities)
+        for task_queue, workflows, activities in _task_queue_specs
+        if REGISTERED_PULSE_WORKFLOWS[0] in workflows
+    ]
+
+    assert len(entries) == 1
+    task_queue, workflows, activities = entries[0]
+    assert task_queue == settings.PULSE_TASK_QUEUE
+    assert PULSE_WORKFLOWS == REGISTERED_PULSE_WORKFLOWS
+    assert PULSE_ACTIVITIES == REGISTERED_PULSE_ACTIVITIES
+    assert set(PULSE_WORKFLOWS) <= set(workflows)
+    assert set(PULSE_ACTIVITIES) <= set(activities)

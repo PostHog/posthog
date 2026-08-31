@@ -16,6 +16,7 @@ from products.product_analytics.backend.facade.api import (
     insights_including_soft_deleted_for_team,
     recent_unique_viewer_counts_by_insight,
     record_insight_view,
+    viewable_insight_ids_for_user,
 )
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -122,3 +123,16 @@ class TestInsightReads(BaseTest):
         )
 
         assert {insight.pk for insight in insights} == {deleted_insight.pk, live_insight.pk}
+
+    def test_viewable_insight_ids_are_live_scoped_and_reduced_to_ids(self) -> None:
+        live_insight = Insight.objects.create(team=self.team, name="Live")
+        deleted_insight = Insight.objects.create(team=self.team, name="Deleted", deleted=True)
+        other_team = Team.objects.create(organization=self.organization)
+        other_team_insight = Insight.objects.create(team=other_team, name="Other team")
+
+        assert viewable_insight_ids_for_user(
+            team=self.team,
+            user=self.user,
+            insight_ids={live_insight.pk, deleted_insight.pk, other_team_insight.pk},
+        ) == {live_insight.pk}
+        assert viewable_insight_ids_for_user(team=self.team, user=self.user, insight_ids=set()) == set()

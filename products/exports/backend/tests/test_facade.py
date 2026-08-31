@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -12,10 +13,15 @@ from posthog.models.user import User
 from products.exports.backend.facade.api import (
     _validate_adhoc_export_context,
     get_delivery_image_url,
+    get_persisted_ai_report_delivery,
     render_png_export,
+    snapshot_contexts_are_viewable_preloaded,
 )
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight
+
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
 class TestValidateAdhocExportContext(SimpleTestCase):
@@ -87,6 +93,24 @@ class TestRenderPngExportInsightLookup(BaseTest):
             render_png_export(team=self.team, created_by=self.user, **kwargs)
 
 
+class TestPreloadedSnapshotContexts(BaseTest):
+    def test_returns_only_currently_viewable_snapshot_keys(self) -> None:
+        insight = Insight.objects.create(team=self.team, short_id="viewable1", query={"kind": "InsightVizNode"})
+        viewable_key = uuid4()
+        missing_key = uuid4()
+
+        viewable_keys = snapshot_contexts_are_viewable_preloaded(
+            team=self.team,
+            user=self.user,
+            contexts_by_key={
+                viewable_key: [{"insight_id": insight.id}],
+                missing_key: [{"insight_id": insight.id + 1}],
+            },
+        )
+
+        assert viewable_keys == {viewable_key}
+
+
 class TestGetDeliveryImageUrl(BaseTest):
     def test_created_by_filter_pins_the_asset_to_its_renderer(self):
         other = User.objects.create(email="other-renderer@example.com")
@@ -123,3 +147,38 @@ class TestAdhocRenderRequiresQueryAccess(SimpleTestCase):
             access_control.return_value.check_access_level_for_resource.return_value = False
             with self.assertRaisesMessage(ValueError, "query access"):
                 render_png_export(team=MagicMock(), created_by=MagicMock(), export_context=context)
+
+
+class TestPersistedAIReportDelivery(BaseTest):
+    def test_reads_only_the_matching_deliverys_persisted_report(self) -> None:
+        subscription = create_subscription(team=self.team, created_by=self.user, prompt="Weekly report")
+        delivery = SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            target_type=subscription.target_type,
+            target_value=subscription.target_value,
+            content_snapshot={
+                "ai_report": "# Weekly report",
+                "ai_report_prompt": "private prompt",
+                "ai_report_diagnostics": [{"hogql": "SELECT secret"}],
+            },
+        )
+
+        result = get_persisted_ai_report_delivery(
+            team_id=self.team.id, subscription_id=subscription.id, delivery_id=delivery.id
+        )
+
+        assert result is not None
+        assert result.base_report == "# Weekly report"
+        assert result.target_type == subscription.target_type
+        assert result.target_value == subscription.target_value
+        assert (
+            get_persisted_ai_report_delivery(team_id=self.team.id, subscription_id=subscription.id, delivery_id=uuid4())
+            is None
+        )
+        assert (
+            get_persisted_ai_report_delivery(
+                team_id=self.team.id, subscription_id=subscription.id + 1, delivery_id=delivery.id
+            )
+            is None
+        )

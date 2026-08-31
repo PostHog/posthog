@@ -51,6 +51,7 @@ from .process_task.activities import (
     update_task_run_status,
     wait_dev_stack_preview,
 )
+from .process_task.activities.export_draft_publication_bundle import export_draft_publication_bundle
 from .process_task.activities.feature_flags import is_slack_app_agent_design_enabled_for_task_activity
 from .process_task.activities.get_pr_babysit_snapshot import get_pr_babysit_snapshot
 from .process_task.activities.get_pr_context import get_pr_context
@@ -106,6 +107,7 @@ ACTIVITIES = [
     cleanup_sandbox,
     complete_run_stream,
     emit_progress_activity,
+    export_draft_publication_bundle,
     enforce_self_driving_run_quota,
     track_workflow_event,
     post_slack_update,

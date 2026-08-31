@@ -4,7 +4,10 @@ import dataclasses
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
+from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
+
+from products.subscriptions.backend.facade.contracts import ProactiveDispatchSnapshot
 
 # AI report query failures we never name in owner/recipient-facing copy. The recipient didn't
 # write the query, so the OOM advice is unactionable. Type still lands in diagnostics, logs, and
@@ -120,7 +123,7 @@ class SubscriptionTriggerType:
     MANUAL = "manual"  # User clicked "Test delivery"
 
 
-@dataclasses.dataclass
+@frozen
 class DueSubscription:
     subscription_id: int
     team_id: int
@@ -129,6 +132,7 @@ class DueSubscription:
     # Lets the scheduler fan out AI-prompt subscriptions to ProcessAISubscriptionWorkflow
     # and everything else to ProcessSubscriptionWorkflow.
     resource_type: str = ""
+    proactive_snapshot: ProactiveDispatchSnapshot | None = None
 
 
 @dataclasses.dataclass
@@ -140,6 +144,18 @@ class FetchDueSubscriptionsActivityInputs:
         return {
             "buffer_minutes": self.buffer_minutes,
         }
+
+
+@frozen
+class BuildScheduledProactiveSnapshotManifestInputs:
+    subscription_ids: list[int]
+
+
+@frozen
+class LoadScheduledProactiveSnapshotInputs:
+    manifest_ref: str
+    team_id: int
+    subscription_id: int
 
 
 @dataclasses.dataclass
@@ -175,7 +191,7 @@ class CreateExportAssetsResult:
     failure_context: NoExportableInsightsContext | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class DeliverSubscriptionInputs:
     subscription_id: int
     exported_asset_ids: list[int]
@@ -190,9 +206,12 @@ class DeliverSubscriptionInputs:
     # The delivery row to write outcomes onto. AI deliveries also read the generated
     # report markdown back from it (kept off the Temporal wire, ~2 MiB cap).
     delivery_id: typing.Optional[uuid.UUID] = None
+    # A durable, immutable combined AI report and Pulse action bundle. Old histories
+    # omit the field and retain the legacy delivery rendering path.
+    pulse_delivery_ledger_id: uuid.UUID | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class ProcessSubscriptionWorkflowInputs:
     subscription_id: int
     team_id: int = 0
@@ -206,9 +225,12 @@ class ProcessSubscriptionWorkflowInputs:
     # Lets HandleSubscriptionValueChangeWorkflow route AI-prompt subs to
     # ProcessAISubscriptionWorkflow. Passed by the API from the loaded instance.
     resource_type: str = ""
+    # Only newly dispatched scheduled workflows populate this immutable snapshot.
+    # Old histories omit it and deserialize to None.
+    proactive_snapshot: ProactiveDispatchSnapshot | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class TrackedSubscriptionInputs:
     """Internal inputs for ProcessSubscriptionWorkflow with SLO tracking.
 
@@ -229,6 +251,8 @@ class TrackedSubscriptionInputs:
     trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     resource_type: str = ""
+    proactive_snapshot: ProactiveDispatchSnapshot | None = None
+    proactive_snapshot_manifest_ref: str | None = None
 
 
 RecipientResultStatus = typing.Literal["success", "failed", "partial"]

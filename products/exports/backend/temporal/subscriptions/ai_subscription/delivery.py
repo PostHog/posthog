@@ -1,7 +1,10 @@
+import re
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from html import escape
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from django.db import transaction
 
@@ -85,6 +88,39 @@ _ALLOWED_EMAIL_TAGS = {
     "td",
 }
 _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
+_PULSE_FAILURE_TEXT = {
+    "timeout": "Some Pulse work did not finish before the delivery deadline.",
+    "finalization_timeout": "Some Pulse work did not finish before the delivery deadline.",
+    "action_failed": "One suggested action could not be completed.",
+}
+_PULSE_OUTCOME_FAILURE_TEXT = {
+    "permissions_lost": "Source access was lost.",
+    "retry_exhausted": "The measurement was unsuccessful after two attempts.",
+    "not_ready_expired": "The comparison was not ready before the measurement window closed.",
+    "evidence_unavailable": "Measurement evidence was unavailable.",
+    "measurement_inconclusive": "The measurement could not produce a reliable result.",
+}
+_PULSE_ARTIFACT_LABELS = {
+    "draft_pr": "Draft pull request",
+    "experiment_draft": "Experiment draft",
+}
+_TRUSTED_PULL_REQUEST_PATH = re.compile(r"^/[^/\r\n]+/[^/\r\n]+/pull/[1-9][0-9]*$")
+_TRUSTED_EXPERIMENT_PATH = re.compile(r"^/project/[1-9][0-9]*/experiments/[1-9][0-9]*$")
+_TRUSTED_PULSE_TOOL_NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,255}$")
+_PULSE_ENUM_VALUE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+@frozen
+class PulseDeliveryRender:
+    markdown: str
+    trusted_links: tuple[tuple[str, str], ...]
+
+
+@frozen
+class _TrustedPulseArtifactLink:
+    label: str
+    url: str
+
 
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
@@ -324,6 +360,185 @@ def render_ai_email_html(markdown: str) -> str:
     return nh3.clean(rendered, tags=_ALLOWED_EMAIL_TAGS, attributes=_ALLOWED_EMAIL_ATTRS)
 
 
+def render_pulse_delivery_appendix(frozen_bundle: bytes) -> PulseDeliveryRender:
+    """Render only the allowlisted fields from an immutable Pulse delivery bundle."""
+    try:
+        payload = json.loads(frozen_bundle)
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("Pulse delivery bundle is invalid.") from error
+    if not isinstance(payload, dict) or payload.get("version") != "pulse_delivery_bundle:v1":
+        raise ValueError("Pulse delivery bundle is invalid.")
+    base_report = payload.get("base_report")
+    readouts = payload.get("readouts", [])
+    actions = payload.get("actions")
+    failures = payload.get("failures")
+    if (
+        not isinstance(base_report, str)
+        or not isinstance(readouts, list)
+        or not isinstance(actions, list)
+        or not isinstance(failures, list)
+    ):
+        raise ValueError("Pulse delivery bundle is invalid.")
+
+    sections: list[str] = [base_report]
+    trusted_links: list[tuple[str, str]] = []
+    rendered_readouts = [section for readout in readouts[:3] if (section := _render_pulse_readout(readout)) is not None]
+    if rendered_readouts:
+        sections.extend(["## Outcome readouts", *rendered_readouts])
+    for readout in readouts[:3]:
+        if isinstance(readout, dict):
+            _extend_trusted_pulse_links(trusted_links, readout.get("links"))
+
+    sections.append("## Proactive actions")
+    for action in actions[:3]:
+        if not isinstance(action, dict):
+            continue
+        rank, title, why, impact = action.get("rank"), action.get("title"), action.get("why"), action.get("impact")
+        if not isinstance(rank, int) or not all(isinstance(value, str) for value in (title, why, impact)):
+            continue
+        details = [f"- Why: {why}", f"- Expected impact: {impact}"]
+        adoption = _pulse_enum_label(action.get("adoption_state"))
+        if adoption is not None:
+            details.append(f"- Adoption: {adoption}")
+        operational_details = action.get("operational_details")
+        task_result = action.get("task_result")
+        operational_status = operational_details.get("status") if isinstance(operational_details, dict) else None
+        if operational_status is None and isinstance(task_result, dict):
+            operational_status = task_result.get("status")
+        status = _pulse_enum_label(operational_status)
+        if status is not None:
+            details.append(f"- Status: {status}")
+        prepared_artifacts = action.get("prepared_artifacts")
+        if prepared_artifacts is None and isinstance(task_result, dict):
+            prepared_artifacts = task_result.get("artifacts")
+        details.extend(_pulse_artifact_lines(prepared_artifacts))
+        provenance = operational_details.get("provenance") if isinstance(operational_details, dict) else None
+        if provenance is None:
+            provenance = action.get("provenance")
+        if isinstance(provenance, list):
+            tool_names = [
+                item["tool_name"]
+                for item in provenance[:20]
+                if isinstance(item, dict)
+                and isinstance(item.get("tool_name"), str)
+                and _TRUSTED_PULSE_TOOL_NAME.fullmatch(item["tool_name"])
+            ]
+            if tool_names:
+                details.append("- Evidence: " + ", ".join(f"`{tool_name}`" for tool_name in tool_names))
+        sections.append(f"### {rank}. {title}\n\n" + "\n".join(details))
+        _extend_trusted_pulse_links(trusted_links, action.get("links"))
+    failure_codes = [failure.get("code") for failure in failures[:3] if isinstance(failure, dict)]
+    failure_text = [
+        _PULSE_FAILURE_TEXT.get(code, "Some Pulse work could not be completed.")
+        for code in failure_codes
+        if isinstance(code, str)
+    ]
+    if failure_text:
+        sections.append("### Pulse notes\n\n" + "\n".join(f"- {text}" for text in failure_text))
+    return PulseDeliveryRender(markdown="\n\n".join(sections), trusted_links=tuple(trusted_links))
+
+
+def _render_pulse_readout(readout: object) -> str | None:
+    if not isinstance(readout, dict):
+        return None
+    title = readout.get("recommendation_title")
+    baseline_value = readout.get("baseline_value")
+    if not isinstance(title, str) or not isinstance(baseline_value, str):
+        return None
+    details: list[str] = []
+    metric_name = readout.get("metric_name")
+    metric_unit = _pulse_enum_label(readout.get("metric_unit"))
+    if isinstance(metric_name, str) and metric_unit is not None:
+        details.append(f"- Measurement: {metric_name} ({metric_unit.lower()})")
+    outcome = _pulse_enum_label(readout.get("verdict"))
+    if outcome is not None:
+        details.append(f"- Outcome: {outcome}")
+    details.append(f"- Baseline: {baseline_value}")
+    observed_value = readout.get("observed_value")
+    if isinstance(observed_value, str):
+        details.append(f"- Observed: {observed_value}")
+    absolute_delta = readout.get("absolute_delta")
+    if isinstance(absolute_delta, str):
+        details.append(f"- Absolute movement: {absolute_delta}")
+    relative_delta = readout.get("relative_delta")
+    if isinstance(relative_delta, str):
+        details.append(f"- Relative movement: {relative_delta}%")
+    confidence = readout.get("confidence")
+    if isinstance(confidence, str):
+        details.append(f"- Confidence: {confidence}")
+    baseline_from, baseline_to = readout.get("baseline_from"), readout.get("baseline_to")
+    if isinstance(baseline_from, str) and isinstance(baseline_to, str):
+        details.append(f"- Baseline window: {baseline_from} to {baseline_to}")
+    observed_from, observed_to = readout.get("observed_from"), readout.get("observed_to")
+    if isinstance(observed_from, str) and isinstance(observed_to, str):
+        details.append(f"- Observed window: {observed_from} to {observed_to}")
+    details.extend(_pulse_artifact_lines(readout.get("prepared_artifacts")))
+    failure_code = readout.get("failure_code")
+    if isinstance(failure_code, str):
+        details.append(f"- Note: {_PULSE_OUTCOME_FAILURE_TEXT.get(failure_code, 'The outcome could not be measured.')}")
+    return f"### {title}\n\n" + "\n".join(details)
+
+
+def _pulse_artifact_lines(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    lines: list[str] = []
+    for artifact in value[:2]:
+        if not isinstance(artifact, dict):
+            continue
+        kind = artifact.get("kind")
+        status = _pulse_enum_label(artifact.get("status"))
+        if not isinstance(kind, str) or status is None:
+            continue
+        label = _PULSE_ARTIFACT_LABELS.get(kind)
+        if label is not None:
+            lines.append(f"- Prepared artifact: {label}: {status}")
+    return lines
+
+
+def _pulse_enum_label(value: object) -> str | None:
+    if not isinstance(value, str) or not _PULSE_ENUM_VALUE.fullmatch(value):
+        return None
+    return value.replace("_", " ").capitalize()
+
+
+def _extend_trusted_pulse_links(links: list[tuple[str, str]], candidate: object) -> None:
+    if not isinstance(candidate, dict):
+        return
+    for label, url in candidate.items():
+        trusted_link = _trusted_pulse_artifact_link(label=label, url=url)
+        if trusted_link is not None:
+            link = (trusted_link.label, trusted_link.url)
+            if link not in links:
+                links.append(link)
+
+
+def _trusted_pulse_artifact_link(*, label: object, url: object) -> _TrustedPulseArtifactLink | None:
+    if not isinstance(label, str) or not isinstance(url, str) or url != url.strip() or "\r" in url or "\n" in url:
+        return None
+    if label == "pull_request":
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme == "https"
+            and parsed.netloc == "github.com"
+            and not parsed.query
+            and not parsed.fragment
+            and _TRUSTED_PULL_REQUEST_PATH.fullmatch(parsed.path)
+        ):
+            return _TrustedPulseArtifactLink(label="Pull Request", url=url)
+    if label == "experiment" and _TRUSTED_EXPERIMENT_PATH.fullmatch(url):
+        return _TrustedPulseArtifactLink(label="Experiment", url=url)
+    return None
+
+
+def _render_trusted_links_html(links: tuple[tuple[str, str], ...]) -> str:
+    if not links:
+        return ""
+    return (
+        "<p>" + "<br>".join(f'<a href="{escape(url, quote=True)}">{escape(label)}</a>' for label, url in links) + "</p>"
+    )
+
+
 def send_email_ai_subscription_report(
     *,
     email: str,
@@ -332,16 +547,18 @@ def send_email_ai_subscription_report(
     delivery_run_id: str,
     delivery_id: uuid.UUID,
     charts: list[dict] | None = None,
+    provider_idempotency_key: str | None = None,
+    trusted_links: tuple[tuple[str, str], ...] = (),
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
-    html = render_ai_email_html(markdown)
+    html = render_ai_email_html(markdown) + _render_trusted_links_html(trusted_links)
     title = subscription.title or "Your PostHog AI report"
     subscription_url = subscription.url or absolute_uri(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
     )
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
 
-    campaign_key = f"ai_subscription_report_{subscription.id}_{delivery_run_id}"
+    campaign_key = provider_idempotency_key or f"ai_subscription_report_{subscription.id}_{delivery_run_id}"
 
     message = EmailMessage(
         campaign_key=campaign_key,
@@ -479,11 +696,20 @@ async def send_slack_ai_subscription_report(
     integration: Integration,
     delivery_id: uuid.UUID,
     charts: list[dict] | None = None,
+    trusted_links: tuple[tuple[str, str], ...] = (),
 ) -> SlackDeliveryResult:
     def build(with_charts: list[dict] | None) -> SlackMessage:
-        return _build_ai_slack_message(
+        message = _build_ai_slack_message(
             subscription, markdown, delivery_id=delivery_id, integration=integration, charts=with_charts
         )
+        if trusted_links:
+            message.blocks.append(
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": "\n".join(f"<{url}|{label}>" for label, url in trusted_links)},
+                }
+            )
+        return message
 
     try:
         return await deliver_slack_message_data(integration, subscription, build(charts))
@@ -502,6 +728,7 @@ __all__ = [
     "build_ai_subscription_report",
     "build_chart_image_urls",
     "render_ai_email_html",
+    "render_pulse_delivery_appendix",
     "send_email_ai_subscription_report",
     "send_slack_ai_subscription_report",
 ]

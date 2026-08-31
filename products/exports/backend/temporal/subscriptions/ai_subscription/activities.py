@@ -2,6 +2,7 @@ import uuid
 import datetime as dt
 import dataclasses
 from datetime import datetime
+from typing import Literal
 
 from django.utils import timezone as tz
 
@@ -20,6 +21,7 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
     build_chart_image_urls,
+    render_pulse_delivery_appendix,
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
@@ -46,6 +48,11 @@ from products.exports.backend.temporal.subscriptions.types import (
     GenerateAIReportInputs,
     GenerateAIReportResult,
     RecipientResult,
+)
+from products.subscriptions.backend.facade import pulse as pulse_facade
+from products.subscriptions.backend.facade.contracts import (
+    BeginPulseDeliveryBundleInput,
+    FinishPulseDeliveryBundleInput,
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
@@ -379,6 +386,16 @@ async def _deliver_ai_subscription(
         (snapshot or {}).get(AI_REPORT_CHARTS_KEY) or [], team_id=subscription.team_id
     )
 
+    if inputs.pulse_delivery_ledger_id is not None:
+        return await _deliver_ai_subscription_with_pulse_bundle(
+            subscription=subscription,
+            inputs=inputs,
+            recipient_results=recipient_results,
+            markdown=markdown,
+            delivery_id=delivery_id,
+            chart_images=chart_images,
+        )
+
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
         # Dedup key for MessagingRecord: stable across this run's retries, unique per run so a re-test re-sends.
         workflow_run_id = temporalio.activity.info().workflow_run_id
@@ -413,3 +430,110 @@ async def _deliver_ai_subscription(
     raise ApplicationError(
         f"AI delivery reached an unsupported target {subscription.target_type!r}", non_retryable=True
     )
+
+
+async def _deliver_ai_subscription_with_pulse_bundle(
+    *,
+    subscription: Subscription,
+    inputs: DeliverSubscriptionInputs,
+    recipient_results: list[RecipientResult],
+    markdown: str,
+    delivery_id: uuid.UUID,
+    chart_images: list[dict],
+) -> DeliverSubscriptionResult:
+    ledger_id = inputs.pulse_delivery_ledger_id
+    if ledger_id is None:
+        raise ApplicationError("Pulse delivery requires a ledger ID", non_retryable=True)
+    try:
+        attempt = await database_sync_to_async(pulse_facade.begin_pulse_delivery_bundle, thread_sensitive=False)(
+            BeginPulseDeliveryBundleInput(team_id=subscription.team_id, ledger_id=ledger_id)
+        )
+    except pulse_facade.PulseDeliveryAlreadyAccepted:
+        return DeliverSubscriptionResult(recipient_results=[])
+    try:
+        rendered = render_pulse_delivery_appendix(attempt.content)
+    except ValueError as error:
+        await database_sync_to_async(pulse_facade.finish_pulse_delivery_bundle, thread_sensitive=False)(
+            FinishPulseDeliveryBundleInput(
+                team_id=subscription.team_id,
+                ledger_id=ledger_id,
+                outcome="failed",
+                failure_code="bundle_render_failed",
+            )
+        )
+        raise ApplicationError("Pulse delivery bundle cannot be rendered", non_retryable=True) from error
+
+    try:
+        if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
+            workflow_run_id = temporalio.activity.info().workflow_run_id
+            if workflow_run_id is None:
+                raise ApplicationError("AI email delivery requires a workflow run id", non_retryable=True)
+
+            async def _send_email(email: str) -> None:
+                await database_sync_to_async(send_email_ai_subscription_report, thread_sensitive=False)(
+                    email=email,
+                    subscription=subscription,
+                    markdown=rendered.markdown,
+                    delivery_run_id=workflow_run_id,
+                    delivery_id=delivery_id,
+                    charts=chart_images,
+                    provider_idempotency_key=attempt.provider_idempotency_key,
+                    trusted_links=rendered.trusted_links,
+                )
+
+            result = await deliver_email(subscription, inputs, recipient_results, _send_email)
+        elif subscription.target_type == Subscription.SubscriptionTarget.SLACK:
+            # The current Slack transport does not expose a provider idempotency key. The
+            # ledger therefore records uncertain transport failures instead of asserting
+            # exactly-once delivery across an ambiguous retry.
+            result = await deliver_slack(
+                subscription,
+                recipient_results,
+                lambda integration: send_slack_ai_subscription_report(
+                    subscription=subscription,
+                    markdown=rendered.markdown,
+                    integration=integration,
+                    delivery_id=delivery_id,
+                    charts=chart_images,
+                    trusted_links=rendered.trusted_links,
+                ),
+            )
+        else:
+            raise ApplicationError(
+                f"AI delivery reached an unsupported target {subscription.target_type!r}", non_retryable=True
+            )
+    except Exception:
+        try:
+            await database_sync_to_async(pulse_facade.finish_pulse_delivery_bundle, thread_sensitive=False)(
+                FinishPulseDeliveryBundleInput(
+                    team_id=subscription.team_id,
+                    ledger_id=ledger_id,
+                    outcome="delivery_unknown",
+                    failure_code="provider_exception",
+                )
+            )
+        except Exception:
+            LOGGER.exception("pulse_delivery.finish_unknown_failed", ledger_id=ledger_id)
+        raise
+
+    outcome, failure_code = _pulse_delivery_outcome(result)
+    await database_sync_to_async(pulse_facade.finish_pulse_delivery_bundle, thread_sensitive=False)(
+        FinishPulseDeliveryBundleInput(
+            team_id=subscription.team_id,
+            ledger_id=ledger_id,
+            outcome=outcome,
+            failure_code=failure_code,
+        )
+    )
+    return result
+
+
+def _pulse_delivery_outcome(
+    result: DeliverSubscriptionResult,
+) -> tuple[Literal["accepted", "failed", "delivery_unknown"], str | None]:
+    statuses = {recipient.status for recipient in result.recipient_results}
+    if statuses == {"success"}:
+        return "accepted", None
+    if statuses and statuses <= {"failed"}:
+        return "failed", "recipient_delivery_failed"
+    return "delivery_unknown", "partial_provider_delivery"

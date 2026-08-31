@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 
 from unittest.mock import patch
@@ -13,6 +14,15 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.facade import api as tasks_api
+from products.tasks.backend.facade.contracts import (
+    AdvanceStagedTaskInput,
+    CapabilityManifestDTO,
+    CreateStagedTaskInput,
+    PublicationLeaseReservationDTO,
+    RepositoryBaseBindingDTO,
+    RepositoryGrantBindingDTO,
+)
 from products.tasks.backend.logic.services.loop_runs import (
     DISABLED_REASON_REPEATED_FAILURES,
     DISABLED_REASON_USAGE_LIMITED,
@@ -32,7 +42,9 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     Task,
     TaskClientProvenance,
+    TaskPublicationLease,
     TaskRun,
+    TaskStagedRunTransition,
 )
 from products.tasks.backend.temporal.client import _terminalize_unstarted_task_run
 from products.tasks.backend.temporal.constants import LOOP_RUN_STALE_SECONDS
@@ -84,11 +96,19 @@ class TestRenderTriggerContext(SimpleTestCase):
         self.assertIn(f"[truncated: payload exceeded {TRIGGER_CONTEXT_MAX_BYTES} bytes]", context)
 
 
+@override_settings(GITHUB_APP_SLUG="posthog")
 class LoopRunsTestCase(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_user(email="loop-owner@example.com", first_name="Loop", password="password")
+        self.github_integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITHUB,
+            integration_id="staged-installation-1",
+            config={"installation_id": "staged-installation-1"},
+            errors="",
+        )
         # A loop owner is a member of the team's org; the fire path requires current membership.
         self.organization.members.add(self.user)
         # The cloud usage gate makes a live HTTP call to the LLM gateway; unmocked it is
@@ -118,6 +138,75 @@ class LoopRunsTestCase(TestCase):
         loop = Loop(**defaults)
         loop.save()
         return loop
+
+    def create_staged_execution_run(self, loop: Loop) -> tuple[TaskRun, TaskPublicationLease, TaskStagedRunTransition]:
+        caller_id = uuid.uuid4()
+        created = tasks_api.create_staged_task(
+            CreateStagedTaskInput(
+                team_id=self.team.id,
+                caller_id=caller_id,
+                actor_id=self.user.id,
+                idempotency_key="loop-staged-analysis",
+                origin_product=Task.OriginProduct.LOOP,
+                title="Analyze loop change",
+                description="Analyze before execution.",
+                repository="posthog/posthog",
+                repository_grant=RepositoryGrantBindingDTO(
+                    repository="posthog/posthog",
+                    github_integration_id=self.github_integration.id,
+                    github_installation_id="staged-installation-1",
+                    grant_version="1",
+                ),
+                repository_base=RepositoryBaseBindingDTO(
+                    repository="posthog/posthog", base_sha="a" * 40, base_branch="main"
+                ),
+                analysis_manifest=CapabilityManifestDTO(version=1, phase="analysis", capabilities=("read",)),
+            )
+        )
+        source_run = TaskRun.objects.get(id=created.analysis_run_id)
+        source_run.state["snapshot_external_id"] = "loop-analysis-snapshot"
+        source_run.state["sandbox_backend"] = "modal"
+        source_run.save(update_fields=["state", "updated_at"])
+        advanced = tasks_api.advance_staged_task(
+            AdvanceStagedTaskInput(
+                team_id=self.team.id,
+                caller_id=caller_id,
+                task_id=created.task_id,
+                source_run_id=created.analysis_run_id,
+                idempotency_key="loop-staged-execution",
+                execution_manifest=CapabilityManifestDTO(version=1, phase="execution", capabilities=("read", "draft")),
+                reservation=PublicationLeaseReservationDTO(
+                    logical_artifact_key="loop-artifact",
+                    action_key="loop-action",
+                    repository="posthog/posthog",
+                    base_sha="a" * 40,
+                    base_branch="main",
+                    commit_message="Create draft",
+                    pr_title="Draft",
+                    pr_body="",
+                    github_integration_id=self.github_integration.id,
+                    github_installation_id="staged-installation-1",
+                    grant_version="1",
+                    starts_before=django_timezone.now() + timedelta(minutes=4),
+                    expires_at=django_timezone.now() + timedelta(minutes=5),
+                ),
+            )
+        )
+        task = Task.objects.get(id=created.task_id)
+        task.loop = loop
+        task.save(update_fields=["loop", "updated_at"])
+        source_run.status = TaskRun.Status.COMPLETED
+        source_run.save(update_fields=["status", "updated_at"])
+        execution_run = TaskRun.objects.get(id=advanced.execution_run_id)
+        execution_run.state["loop_id"] = str(loop.id)
+        execution_run.status = TaskRun.Status.IN_PROGRESS
+        execution_run.save(update_fields=["state", "status", "updated_at"])
+        assert advanced.publication_lease_id is not None
+        return (
+            execution_run,
+            TaskPublicationLease.objects.for_team(self.team.id).get(id=advanced.publication_lease_id),
+            TaskStagedRunTransition.objects.for_team(self.team.id).get(id=advanced.transition_id),
+        )
 
     def create_trigger(self, loop: Loop, **overrides) -> LoopTrigger:
         defaults = {
@@ -426,6 +515,45 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertIsNotNone(zombie_run.completed_at)
         # Only the freshly created run is active; the zombie was reaped, not counted.
         self.assertEqual(self.active_run_count(loop), 1)
+
+    def test_cancel_previous_revokes_staged_execution_before_signalling(self) -> None:
+        loop = self.create_loop(overlap_policy=Loop.OverlapPolicy.CANCEL_PREVIOUS)
+        run, lease, transition = self.create_staged_execution_run(loop)
+
+        def assert_revoked_before_signal(workflow_id: str) -> None:
+            self.assertEqual(workflow_id, run.workflow_id)
+            lease.refresh_from_db()
+            transition.refresh_from_db()
+            self.assertEqual(lease.status, TaskPublicationLease.Status.REVOKED)
+            self.assertEqual(transition.status, TaskStagedRunTransition.Status.CANCELLED)
+
+        self.mock_signal_cancel.side_effect = assert_revoked_before_signal
+
+        result = fire_loop(loop, None, "staged-cancel", "ctx")
+
+        self.assertTrue(result.created)
+        run.refresh_from_db()
+        lease.refresh_from_db()
+        transition.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        self.assertEqual(lease.status, TaskPublicationLease.Status.REVOKED)
+        self.assertEqual(transition.status, TaskStagedRunTransition.Status.CANCELLED)
+
+    def test_stale_reaper_revokes_staged_execution_capability(self) -> None:
+        loop = self.create_loop(overlap_policy=Loop.OverlapPolicy.SKIP)
+        run, lease, transition = self.create_staged_execution_run(loop)
+        stale_ts = django_timezone.now() - timedelta(seconds=LOOP_RUN_STALE_SECONDS + 60)
+        TaskRun.objects.filter(id=run.id).update(updated_at=stale_ts)
+
+        result = fire_loop(loop, None, "staged-stale", "ctx")
+
+        self.assertTrue(result.created)
+        run.refresh_from_db()
+        lease.refresh_from_db()
+        transition.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.FAILED)
+        self.assertEqual(lease.status, TaskPublicationLease.Status.REVOKED)
+        self.assertEqual(transition.status, TaskStagedRunTransition.Status.CANCELLED)
 
 
 class TestFireLoopCreatesRun(LoopRunsTestCase):

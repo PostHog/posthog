@@ -6,11 +6,13 @@ from uuid import UUID
 from django.db.models import Count, OuterRef, QuerySet, Subquery
 from django.utils.timezone import now
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
     from posthog.models.user import User
 
 # The columns `InsightVariableDefinition` carries; `values` and `values_query` stay on the row.
@@ -81,6 +83,16 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
     return list(Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids))
+
+
+def viewable_insight_ids_for_user(*, team: "Team", user: "User", insight_ids: Collection[int]) -> set[int]:
+    if not insight_ids:
+        return set()
+    insights = Insight.objects.filter(team_id=team.id, id__in=insight_ids, deleted=False)
+    viewable_insights = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
+        insights, resource="insight"
+    )
+    return set(viewable_insights.values_list("id", flat=True))
 
 
 def recent_viewers_by_insight(

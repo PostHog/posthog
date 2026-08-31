@@ -103,6 +103,7 @@ class AgentServerLaunchMixin(SandboxBase):
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
         peer_messaging: bool = False,
+        disable_web_tools: bool = False,
         posthog_exec_permission_regex: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
@@ -136,6 +137,7 @@ class AgentServerLaunchMixin(SandboxBase):
             if posthog_exec_permission_regex
             else ""
         )
+        disable_web_tools_flag = " --disableWebTools true" if disable_web_tools else ""
         # Scope BASH_ENV to the agent-server process (not the container env) so only the
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
@@ -146,7 +148,7 @@ class AgentServerLaunchMixin(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
+            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{disable_web_tools_flag}"
         )
 
         if repo_ready_file:
@@ -242,6 +244,7 @@ class AgentServerLaunchMixin(SandboxBase):
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         peer_messaging: bool = False,
+        credential_free_repository: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -264,15 +267,23 @@ class AgentServerLaunchMixin(SandboxBase):
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+        self.write_file(
+            BASH_ENV_SCRIPT,
+            generate_bash_env_script(credential_free_repository=credential_free_repository).encode(),
+        )
         # Install the gh shim at runtime too (see agentsh.GH_GUARD_INSTALL_PATH): a resume from a
         # pre-shim filesystem snapshot — or any window where the base image lags this backend —
         # would otherwise leave gh with no token once the frozen launch-env token is unset.
-        self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
-        self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
+        if not credential_free_repository:
+            self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+            self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
 
         if allowed_domains is not None:
-            self._setup_agentsh(WORKING_DIR, allowed_domains)
+            self._setup_agentsh(
+                WORKING_DIR,
+                allowed_domains,
+                credential_free_repository=credential_free_repository,
+            )
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -286,7 +297,17 @@ class AgentServerLaunchMixin(SandboxBase):
         if agent_runtime == "pi" and not self.agent_server_supports_pi_runtime():
             raise RuntimeError("Installed sandbox agent-server does not support the Pi runtime")
 
-        if auto_publish and not self.agent_server_supports_auto_publish():
+        if credential_free_repository:
+            create_pr = False
+            auto_publish = False
+            if not self.credential_free_runtime_is_supported(agent_runtime, runtime_adapter):
+                raise RuntimeError("Credential-free repository sandboxes require the Claude runtime")
+            if (
+                not self.agent_server_supports_exec_permission_regex()
+                or not self.agent_server_supports_disable_web_tools()
+            ):
+                raise RuntimeError("Installed sandbox agent-server cannot prove credential-free policy compatibility")
+        elif auto_publish and not self.agent_server_supports_auto_publish():
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
             auto_publish = False
 
@@ -325,6 +346,7 @@ class AgentServerLaunchMixin(SandboxBase):
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
             peer_messaging=peer_messaging,
+            disable_web_tools=credential_free_repository,
             posthog_exec_permission_regex=exec_permission_regex,
         )
 
@@ -361,14 +383,20 @@ class AgentServerLaunchMixin(SandboxBase):
     def mark_repo_ready(self, repo_ready_file: str) -> None:
         self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)
 
-    def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
+    def _setup_agentsh(
+        self,
+        workspace_path: str,
+        allowed_domains: list[str] | None = None,
+        *,
+        credential_free_repository: bool = False,
+    ) -> None:
         if allowed_domains is not None:
             logger.info("Configuring agentsh in sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains))
         else:
             logger.info("Configuring agentsh in sandbox %s (allow-all mode)", self.id)
 
         config_yaml = generate_config_yaml(enable_ptrace=True, full_trace=True)
-        policy_yaml = generate_policy_yaml(allowed_domains)
+        policy_yaml = generate_policy_yaml(allowed_domains, credential_free_repository=credential_free_repository)
 
         self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
         self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)

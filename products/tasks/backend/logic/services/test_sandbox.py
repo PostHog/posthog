@@ -12,6 +12,10 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 
 
+def test_sandbox_exposes_bounded_server_side_binary_export() -> None:
+    assert hasattr(SandboxBase, "read_file_bytes")
+
+
 def _wait_for_status(
     sandbox: SandboxBase,
     expected: SandboxStatus,

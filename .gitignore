@@ -17,7 +17,8 @@ __pycache__/
 .parcel-cache
 pbt-divergences.jsonl
 posthog/hogql/test/fixtures/real_queries/
-.posthog/
+.posthog/*
+!.posthog/pulse-publication-gates.json
 .postgres-backups/
 .python-version
 .temporal-worker-settings

@@ -448,6 +448,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     const SERVER_MINT_ONLY_SCOPES = new Set([
         'internal_run:read',
         'loop_context_internal:write',
+        'pulse_experiment_draft:write',
         'signal_scout_internal:read',
         'signal_scout_internal:write',
         'signal_scout_report:read',
@@ -488,6 +489,8 @@ describe('server-minted scope matching', () => {
     it('requires literal internal scopes instead of accepting a wildcard', () => {
         expect(hasScope(['*'], 'loop_context_internal:write')).toBe(false)
         expect(hasScope(['loop_context_internal:write'], 'loop_context_internal:write')).toBe(true)
+        expect(hasScope(['*'], 'pulse_experiment_draft:write')).toBe(false)
+        expect(hasScope(['pulse_experiment_draft:write'], 'pulse_experiment_draft:write')).toBe(true)
     })
 
     // The scratchpad write scope was split out of `signal_scout_internal`, which is on the

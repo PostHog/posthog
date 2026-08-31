@@ -1163,6 +1163,39 @@ class ModalSandbox(AgentServerLaunchMixin):
                 cause=e,
             )
 
+    def read_file_bytes(self, path: str, max_bytes: int) -> bytes:
+        if max_bytes < 0:
+            raise ValueError("max_bytes must not be negative")
+        if not path.startswith("/") or "\x00" in path:
+            raise ValueError("path must be an absolute sandbox path")
+        if not self.is_running():
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+        try:
+            remote_file = self._sandbox.open(path, "rb")
+            try:
+                payload = remote_file.read(max_bytes + 1)
+            finally:
+                remote_file.close()
+            if len(payload) > max_bytes:
+                raise SandboxExecutionError(
+                    "Sandbox export exceeds the byte limit",
+                    {"sandbox_id": self.id, "path": path, "max_bytes": max_bytes},
+                    cause=RuntimeError("sandbox export exceeds the byte limit"),
+                )
+            return payload
+        except SandboxExecutionError:
+            raise
+        except Exception as error:
+            raise SandboxExecutionError(
+                "Failed to export sandbox file",
+                {"sandbox_id": self.id, "path": path, "error": str(error)},
+                cause=error,
+            ) from error
+
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
         return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)

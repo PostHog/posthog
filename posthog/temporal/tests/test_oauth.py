@@ -12,8 +12,11 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
+    MCP_SCOPE_PRESETS,
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
+    PULSE_ANALYSIS_SCOPES,
+    PULSE_READ_SCOPES_V1,
     RESEARCH_WITHHELD_SCOPES,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_USER_WRITE_SCOPES,
@@ -29,6 +32,38 @@ _WIZARD_CLIENT_ID = "wizard-test-client-id"
 
 
 class TestResolveScopes(SimpleTestCase):
+    def test_pulse_analysis_is_a_versioned_read_only_manifest(self) -> None:
+        result = resolve_scopes("pulse_analysis")
+
+        assert result == list(PULSE_ANALYSIS_SCOPES)
+        assert set(PULSE_READ_SCOPES_V1) <= set(result)
+        assert "llm_gateway:read" in result
+        assert "internal_run:read" in result
+        assert "task:write" not in result
+        assert not any(scope.endswith(":write") for scope in result)
+
+    def test_pulse_analysis_drops_internal_scopes_for_user_grants(self) -> None:
+        result = resolve_scopes("pulse_analysis", include_internal_scopes=False)
+
+        assert result == list(PULSE_READ_SCOPES_V1)
+        assert "llm_gateway:read" not in result
+        assert "internal_run:read" not in result
+
+    def test_pulse_presets_do_not_inherit_future_public_scopes(self) -> None:
+        assert PULSE_READ_SCOPES_V1 != tuple(MCP_READ_SCOPES)
+        assert "person:read" not in PULSE_READ_SCOPES_V1
+        assert "session_recording:read" not in PULSE_READ_SCOPES_V1
+        assert "activity_log:read" not in PULSE_READ_SCOPES_V1
+        assert "billing:read" not in PULSE_READ_SCOPES_V1
+
+    def test_pulse_execution_is_not_a_generic_preset(self) -> None:
+        assert "pulse_execution" not in MCP_SCOPE_PRESETS
+        assert "pulse_experiment_draft:write" not in resolve_scopes("pulse_analysis")
+
+    def test_explicit_pulse_experiment_scope_enables_write_tool_filtering(self) -> None:
+        assert has_write_scopes([*PULSE_ANALYSIS_SCOPES, "pulse_experiment_draft:write"])
+        assert not has_write_scopes(list(PULSE_ANALYSIS_SCOPES))
+
     def test_read_only_preset(self) -> None:
         result = resolve_scopes("read_only")
         assert set(result) == set(MCP_READ_SCOPES + INTERNAL_SCOPES)

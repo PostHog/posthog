@@ -1,10 +1,12 @@
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    build_scheduled_proactive_snapshot_manifest,
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    load_scheduled_proactive_snapshot,
     notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -27,6 +29,8 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     fetch_due_subscriptions_activity,
+    build_scheduled_proactive_snapshot_manifest,
+    load_scheduled_proactive_snapshot,
     validate_subscription_for_delivery,
     create_export_assets,
     deliver_subscription,

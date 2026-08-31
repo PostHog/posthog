@@ -7,7 +7,8 @@ between the experiments product and the rest of the system.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, Literal
 
 from posthog.dataclasses import frozen
 
@@ -94,6 +95,42 @@ class CreateExperimentInput:
     serializer_context: dict | None = None
 
 
+@frozen
+class PulseExperimentVariant:
+    """A server-approved experiment variant for a Pulse-created draft."""
+
+    key: str
+    name: str
+
+
+@frozen
+class PulseExperimentMetricRef:
+    """A narrow metric reference accepted by the Pulse experiment-draft primitive."""
+
+    kind: Literal["event", "action"]
+    event_name: str | None = None
+    action_id: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind == "event" and (not self.event_name or self.action_id is not None):
+            raise ValueError("An event metric requires event_name only")
+        if self.kind == "action" and (self.action_id is None or self.event_name is not None):
+            raise ValueError("An action metric requires action_id only")
+
+
+@frozen
+class PulseExperimentDraftInput:
+    """The complete, bounded server input for creating an inert Pulse experiment draft."""
+
+    name: str
+    hypothesis: str
+    description: str
+    target_description: str
+    variants: tuple[PulseExperimentVariant, ...]
+    primary_metric: PulseExperimentMetricRef
+    secondary_metrics: tuple[PulseExperimentMetricRef, ...] = ()
+
+
 @dataclass(frozen=True)
 class FeatureFlag:
     """Feature flag output."""
@@ -119,3 +156,19 @@ class Experiment:
     start_date: datetime | None = None
     end_date: datetime | None = None
     updated_at: datetime | None = None
+
+
+@frozen
+class PulseExperimentLifecycleDTO:
+    """Lifecycle and cached primary-result state for one exact Pulse experiment."""
+
+    experiment_id: int
+    state: Literal["draft", "launched", "ended", "deleted"]
+    launched_at: datetime | None
+    ended_at: datetime | None
+    result_state: Literal["not_ready", "measured", "inconclusive"]
+    observed_value: Decimal | None = None
+    delta: Decimal | None = None
+    confidence: Decimal | None = None
+    verdict: Literal["improved", "flat", "regressed", "inconclusive"] | None = None
+    experiment_path: str = ""

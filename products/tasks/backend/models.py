@@ -2880,6 +2880,544 @@ class TaskRun(models.Model):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
 
 
+class TaskStagedRunTransition(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ADVANCED = "advanced", "Advanced"
+        CANCELLED = "cancelled", "Cancelled"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    caller_id = models.UUIDField()
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="staged_run_transitions", db_constraint=False)
+    source_task_run = models.ForeignKey(
+        TaskRun,
+        on_delete=models.CASCADE,
+        related_name="staged_successor_transitions",
+        db_constraint=False,
+    )
+    successor_task_run = models.ForeignKey(
+        TaskRun,
+        on_delete=models.CASCADE,
+        related_name="staged_predecessor_transitions",
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+    source_workspace_snapshot_ref = models.CharField(max_length=512)
+    requested_capability_manifest = models.JSONField(default=dict)
+    status = models.CharField(max_length=16, choices=Status, default=Status.PENDING)
+    idempotency_key = models.CharField(max_length=255)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_staged_run_transition"
+        constraints = [
+            models.UniqueConstraint(fields=["task"], name="task_staged_transition_task_uniq"),
+            models.UniqueConstraint(fields=["source_task_run"], name="task_staged_transition_source_uniq"),
+            models.UniqueConstraint(
+                fields=["successor_task_run"],
+                condition=models.Q(successor_task_run__isnull=False),
+                name="task_staged_transition_successor_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "caller_id", "idempotency_key"],
+                name="task_staged_transition_caller_idemp_uniq",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(source_workspace_snapshot_ref__gt=""),
+                name="task_staged_transition_snapshot_present",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(successor_task_run__isnull=True)
+                | ~models.Q(source_task_run=models.F("successor_task_run")),
+                name="task_staged_transition_distinct_runs",
+            ),
+        ]
+
+
+class TaskPublicationLease(TeamScopedRootMixin, UUIDModel):
+    class PublicationMode(models.TextChoices):
+        DRAFT = "draft", "Draft"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        CONSUMED = "consumed", "Consumed"
+        REVOKED = "revoked", "Revoked"
+        EXPIRED = "expired", "Expired"
+        FINALIZED = "finalized", "Finalized"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    caller_id = models.UUIDField()
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="publication_leases", db_constraint=False)
+    staged_run_transition = models.ForeignKey(
+        TaskStagedRunTransition,
+        on_delete=models.CASCADE,
+        related_name="publication_leases",
+    )
+    task_run = models.ForeignKey(
+        TaskRun, on_delete=models.CASCADE, related_name="publication_leases", db_constraint=False
+    )
+    logical_artifact_key = models.CharField(max_length=255)
+    idempotency_key = models.CharField(max_length=255)
+    repository = models.CharField(max_length=255)
+    base_sha = models.CharField(max_length=64)
+    base_branch = models.CharField(max_length=255, null=True, blank=True)
+    commit_message = models.CharField(max_length=500, null=True, blank=True)
+    pr_title = models.CharField(max_length=256, null=True, blank=True)
+    pr_body = models.TextField(null=True, blank=True)
+    commit_author_name = models.CharField(max_length=160, null=True, blank=True)
+    commit_author_email = models.CharField(max_length=254, null=True, blank=True)
+    commit_timestamp = models.BigIntegerField(null=True, blank=True)
+    head_branch = models.CharField(max_length=255)
+    expected_github_app_slug = models.CharField(max_length=255, null=True, blank=True)
+    expected_github_app_login = models.CharField(max_length=255, null=True, blank=True)
+    github_integration_id = models.BigIntegerField(null=True, blank=True)
+    github_installation_id = models.CharField(max_length=255, null=True, blank=True)
+    action_key = models.CharField(max_length=255)
+    grant_version = models.CharField(max_length=128)
+    publication_mode = models.CharField(max_length=16, choices=PublicationMode, default=PublicationMode.DRAFT)
+    status = models.CharField(max_length=16, choices=Status, default=Status.ACTIVE)
+    starts_before = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    expired_at = models.DateTimeField(null=True, blank=True)
+    finalized_at = models.DateTimeField(null=True, blank=True)
+    final_artifact_ref = models.CharField(max_length=512, null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_publication_lease"
+        indexes = [
+            models.Index(
+                fields=["expires_at"],
+                condition=models.Q(status="active"),
+                name="task_pub_lease_active_exp_idx",
+            )
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "idempotency_key"], name="task_pub_lease_idempotency_uniq"),
+            models.UniqueConstraint(
+                fields=["staged_run_transition"],
+                name="task_pub_lease_transition_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "logical_artifact_key"],
+                condition=models.Q(status__in=["active", "finalized"]),
+                name="task_pub_lease_live_artifact_uniq",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(publication_mode="draft"),
+                name="task_pub_lease_draft_only",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(starts_before__gt=models.F("created_at")),
+                name="task_pub_lease_start_after_create",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(expires_at__gt=models.F("starts_before")),
+                name="task_pub_lease_expiry_after_start",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(expires_at__gt=models.F("created_at")),
+                name="task_pub_lease_expiry_after_create",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(github_integration_id__isnull=False, github_installation_id__isnull=False)
+                    | models.Q(github_integration_id__isnull=True, github_installation_id__isnull=True)
+                ),
+                name="task_pub_lease_github_binding_paired",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status="active",
+                        consumed_at__isnull=True,
+                        revoked_at__isnull=True,
+                        expired_at__isnull=True,
+                        finalized_at__isnull=True,
+                        final_artifact_ref__isnull=True,
+                    )
+                    | models.Q(
+                        status="consumed",
+                        consumed_at__isnull=False,
+                        revoked_at__isnull=True,
+                        expired_at__isnull=True,
+                        finalized_at__isnull=True,
+                        final_artifact_ref__isnull=True,
+                    )
+                    | models.Q(
+                        status="revoked",
+                        consumed_at__isnull=True,
+                        revoked_at__isnull=False,
+                        expired_at__isnull=True,
+                        finalized_at__isnull=True,
+                        final_artifact_ref__isnull=True,
+                    )
+                    | models.Q(
+                        status="expired",
+                        consumed_at__isnull=True,
+                        revoked_at__isnull=True,
+                        expired_at__isnull=False,
+                        finalized_at__isnull=True,
+                        final_artifact_ref__isnull=True,
+                    )
+                    | models.Q(
+                        status="finalized",
+                        consumed_at__isnull=False,
+                        revoked_at__isnull=True,
+                        expired_at__isnull=True,
+                        finalized_at__isnull=False,
+                        final_artifact_ref__isnull=False,
+                    )
+                ),
+                name="task_pub_lease_state_valid",
+            ),
+        ]
+
+
+class TaskDraftPublication(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        RESERVED = "reserved", "Reserved"
+        UPLOADED = "uploaded", "Uploaded"
+        COMMIT_CREATED = "commit_created", "Commit created"
+        BRANCH_CREATING = "branch_creating", "Branch creating"
+        BRANCH_CREATED = "branch_created", "Branch created"
+        PR_CREATING = "pr_creating", "Pull request creating"
+        PUBLISHED = "published", "Published"
+        FINALIZED = "finalized", "Finalized"
+        PUBLICATION_UNKNOWN = "publication_unknown", "Publication unknown"
+        BLOCKED = "blocked", "Blocked"
+        REVOKED = "revoked", "Revoked"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    lease = models.OneToOneField(TaskPublicationLease, on_delete=models.CASCADE, related_name="draft_publication")
+    repository = models.CharField(max_length=255)
+    base_sha = models.CharField(max_length=64)
+    base_branch = models.CharField(max_length=255)
+    commit_message = models.CharField(max_length=500)
+    pr_title = models.CharField(max_length=256)
+    pr_body = models.TextField(blank=True)
+    commit_author_name = models.CharField(max_length=160)
+    commit_author_email = models.CharField(max_length=254)
+    commit_timestamp = models.BigIntegerField()
+    branch = models.CharField(max_length=255)
+    expected_github_app_slug = models.CharField(max_length=255)
+    expected_github_app_login = models.CharField(max_length=255)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.RESERVED)
+    bundle_storage_path = models.CharField(max_length=512, null=True, blank=True)
+    bundle_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    bundle_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    bundle_byte_count = models.PositiveIntegerField(null=True, blank=True)
+    github_commit_sha = models.CharField(max_length=64, null=True, blank=True)
+    pr_number = models.PositiveIntegerField(null=True, blank=True)
+    pr_url = models.URLField(max_length=512, null=True, blank=True)
+    is_draft = models.BooleanField(default=True)
+    reserved_at = models.DateTimeField(default=django_timezone.now)
+    uploaded_at = models.DateTimeField(null=True, blank=True)
+    commit_created_at = models.DateTimeField(null=True, blank=True)
+    branch_created_at = models.DateTimeField(null=True, blank=True)
+    pr_creation_started_at = models.DateTimeField(null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    finalized_at = models.DateTimeField(null=True, blank=True)
+    reconciled_at = models.DateTimeField(null=True, blank=True)
+    blocked_at = models.DateTimeField(null=True, blank=True)
+    publication_unknown_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_draft_publication"
+        constraints = [
+            models.CheckConstraint(condition=models.Q(is_draft=True), name="task_draft_publication_draft_only"),
+            models.CheckConstraint(
+                condition=models.Q(branch__regex=r"^codex/[0-9a-f]{32}$"),
+                name="task_draft_publication_server_branch",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status="reserved",
+                        bundle_storage_path__isnull=True,
+                        bundle_head_sha__isnull=True,
+                        bundle_sha256__isnull=True,
+                        bundle_byte_count__isnull=True,
+                        github_commit_sha__isnull=True,
+                        pr_number__isnull=True,
+                        pr_url__isnull=True,
+                        uploaded_at__isnull=True,
+                        commit_created_at__isnull=True,
+                        branch_created_at__isnull=True,
+                        pr_creation_started_at__isnull=True,
+                        published_at__isnull=True,
+                        finalized_at__isnull=True,
+                        reconciled_at__isnull=True,
+                        blocked_at__isnull=True,
+                        publication_unknown_at__isnull=True,
+                        revoked_at__isnull=True,
+                    )
+                    | models.Q(
+                        status="uploaded",
+                        bundle_storage_path__isnull=False,
+                        bundle_head_sha__isnull=False,
+                        bundle_sha256__isnull=False,
+                        bundle_byte_count__isnull=False,
+                        github_commit_sha__isnull=True,
+                        pr_number__isnull=True,
+                        pr_url__isnull=True,
+                        uploaded_at__isnull=False,
+                        commit_created_at__isnull=True,
+                        branch_created_at__isnull=True,
+                        pr_creation_started_at__isnull=True,
+                        published_at__isnull=True,
+                        finalized_at__isnull=True,
+                        reconciled_at__isnull=True,
+                        blocked_at__isnull=True,
+                        publication_unknown_at__isnull=True,
+                        revoked_at__isnull=True,
+                    )
+                    | models.Q(
+                        status="commit_created",
+                        bundle_storage_path__isnull=False,
+                        bundle_head_sha__isnull=False,
+                        bundle_sha256__isnull=False,
+                        bundle_byte_count__isnull=False,
+                        github_commit_sha__isnull=False,
+                        pr_number__isnull=True,
+                        pr_url__isnull=True,
+                        uploaded_at__isnull=False,
+                        commit_created_at__isnull=False,
+                        branch_created_at__isnull=True,
+                        pr_creation_started_at__isnull=True,
+                        published_at__isnull=True,
+                        finalized_at__isnull=True,
+                        blocked_at__isnull=True,
+                        publication_unknown_at__isnull=True,
+                        revoked_at__isnull=True,
+                    )
+                    | models.Q(
+                        status="branch_creating",
+                        bundle_storage_path__isnull=False,
+                        bundle_head_sha__isnull=False,
+                        bundle_sha256__isnull=False,
+                        bundle_byte_count__isnull=False,
+                        github_commit_sha__isnull=False,
+                        pr_number__isnull=True,
+                        pr_url__isnull=True,
+                        uploaded_at__isnull=False,
+                        commit_created_at__isnull=False,
+                        branch_created_at__isnull=True,
+                        pr_creation_started_at__isnull=True,
+                        published_at__isnull=True,
+                        finalized_at__isnull=True,
+                        blocked_at__isnull=True,
+                        publication_unknown_at__isnull=True,
+                        revoked_at__isnull=True,
+                    )
+                    | models.Q(
+                        status="branch_created",
+                        bundle_storage_path__isnull=False,
+                        bundle_head_sha__isnull=False,
+                        bundle_sha256__isnull=False,
+                        bundle_byte_count__isnull=False,
+                        github_commit_sha__isnull=False,
+                        pr_number__isnull=True,
+                        pr_url__isnull=True,
+                        uploaded_at__isnull=False,
+                        commit_created_at__isnull=False,
+                        branch_created_at__isnull=False,
+                        pr_creation_started_at__isnull=True,
+                        published_at__isnull=True,
+                        finalized_at__isnull=True,
+                        blocked_at__isnull=True,
+                        publication_unknown_at__isnull=True,
+                        revoked_at__isnull=True,
+                    )
+                    | models.Q(
+                        status="pr_creating",
+                        bundle_storage_path__isnull=False,
+                        bundle_head_sha__isnull=False,
+                        bundle_sha256__isnull=False,
+                        bundle_byte_count__isnull=False,
+                        github_commit_sha__isnull=False,
+                        pr_number__isnull=True,
+                        pr_url__isnull=True,
+                        uploaded_at__isnull=False,
+                        commit_created_at__isnull=False,
+                        branch_created_at__isnull=False,
+                        pr_creation_started_at__isnull=False,
+                        published_at__isnull=True,
+                        finalized_at__isnull=True,
+                        blocked_at__isnull=True,
+                        publication_unknown_at__isnull=True,
+                        revoked_at__isnull=True,
+                    )
+                    | models.Q(
+                        status="published",
+                        bundle_storage_path__isnull=False,
+                        bundle_head_sha__isnull=False,
+                        bundle_sha256__isnull=False,
+                        bundle_byte_count__isnull=False,
+                        github_commit_sha__isnull=False,
+                        pr_number__isnull=False,
+                        pr_url__isnull=False,
+                        uploaded_at__isnull=False,
+                        commit_created_at__isnull=False,
+                        branch_created_at__isnull=False,
+                        pr_creation_started_at__isnull=False,
+                        published_at__isnull=False,
+                        finalized_at__isnull=True,
+                        blocked_at__isnull=True,
+                        publication_unknown_at__isnull=True,
+                        revoked_at__isnull=True,
+                    )
+                    | models.Q(
+                        status="finalized",
+                        bundle_storage_path__isnull=False,
+                        bundle_head_sha__isnull=False,
+                        bundle_sha256__isnull=False,
+                        bundle_byte_count__isnull=False,
+                        github_commit_sha__isnull=False,
+                        pr_number__isnull=False,
+                        pr_url__isnull=False,
+                        uploaded_at__isnull=False,
+                        commit_created_at__isnull=False,
+                        branch_created_at__isnull=False,
+                        pr_creation_started_at__isnull=False,
+                        published_at__isnull=False,
+                        finalized_at__isnull=False,
+                        blocked_at__isnull=True,
+                        publication_unknown_at__isnull=True,
+                        revoked_at__isnull=True,
+                    )
+                    | models.Q(
+                        status="publication_unknown",
+                        bundle_storage_path__isnull=False,
+                        bundle_head_sha__isnull=False,
+                        bundle_sha256__isnull=False,
+                        bundle_byte_count__isnull=False,
+                        uploaded_at__isnull=False,
+                        github_commit_sha__isnull=False,
+                        commit_created_at__isnull=False,
+                        pr_number__isnull=True,
+                        pr_url__isnull=True,
+                        published_at__isnull=True,
+                        publication_unknown_at__isnull=False,
+                        reconciled_at__isnull=True,
+                        blocked_at__isnull=True,
+                        finalized_at__isnull=True,
+                        revoked_at__isnull=True,
+                    )
+                    | models.Q(
+                        status="blocked",
+                        bundle_storage_path__isnull=False,
+                        bundle_head_sha__isnull=False,
+                        bundle_sha256__isnull=False,
+                        bundle_byte_count__isnull=False,
+                        github_commit_sha__isnull=True,
+                        pr_number__isnull=True,
+                        pr_url__isnull=True,
+                        uploaded_at__isnull=False,
+                        commit_created_at__isnull=True,
+                        branch_created_at__isnull=True,
+                        pr_creation_started_at__isnull=True,
+                        published_at__isnull=True,
+                        finalized_at__isnull=True,
+                        blocked_at__isnull=False,
+                        publication_unknown_at__isnull=True,
+                        revoked_at__isnull=True,
+                    )
+                    | models.Q(
+                        status="revoked",
+                        pr_number__isnull=True,
+                        pr_url__isnull=True,
+                        published_at__isnull=True,
+                        finalized_at__isnull=True,
+                        revoked_at__isnull=False,
+                    )
+                ),
+                name="task_draft_publication_state_valid",
+            ),
+            models.UniqueConstraint(fields=["team", "branch"], name="task_draft_publication_branch_uniq"),
+        ]
+
+
+class TaskPublicationGatePolicy(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        READY = "ready", "Ready"
+        UNAVAILABLE = "unavailable", "Unavailable"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    lease = models.OneToOneField(TaskPublicationLease, on_delete=models.CASCADE, related_name="publication_gate_policy")
+    repository = models.CharField(max_length=255)
+    base_sha = models.CharField(max_length=64)
+    source_path = models.CharField(max_length=512, null=True, blank=True)
+    source_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    required_gates = models.JSONField(default=list)
+    status = models.CharField(max_length=16, choices=Status, default=Status.UNAVAILABLE)
+    reason = models.CharField(max_length=128, null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_publication_gate_policy"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status="ready",
+                        source_path__isnull=False,
+                        source_sha256__isnull=False,
+                        reason__isnull=True,
+                    )
+                    | models.Q(
+                        status="unavailable",
+                        source_path__isnull=True,
+                        source_sha256__isnull=True,
+                        reason="gate_policy_unavailable",
+                    )
+                ),
+                name="task_pub_gate_policy_state_valid",
+            )
+        ]
+
+
+class TaskPublicationGateLedger(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PASSED = "passed", "Passed"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    policy = models.ForeignKey(TaskPublicationGatePolicy, on_delete=models.CASCADE, related_name="ledger_rows")
+    lease = models.ForeignKey(TaskPublicationLease, on_delete=models.CASCADE, related_name="publication_gate_rows")
+    gate_key = models.CharField(max_length=64)
+    label = models.CharField(max_length=80)
+    argv = models.JSONField(default=list)
+    status = models.CharField(max_length=16, choices=Status, default=Status.PENDING)
+    exit_code = models.IntegerField(null=True, blank=True)
+    output_storage_path = models.CharField(max_length=512, null=True, blank=True)
+    output_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    output_byte_count = models.PositiveIntegerField(null=True, blank=True)
+    attempts = models.PositiveIntegerField(default=0)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_publication_gate_ledger"
+        constraints = [
+            models.UniqueConstraint(fields=["policy", "gate_key"], name="task_pub_gate_ledger_policy_key_uniq")
+        ]
+        indexes = [models.Index(fields=["team", "lease", "status"], name="task_pub_gate_lease_state")]
+
+
 class TaskWorkflowDispatch(TeamScopedRootMixin):
     class Kind(models.TextChoices):
         CREATE = "create", "create"

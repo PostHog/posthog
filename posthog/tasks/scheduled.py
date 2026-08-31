@@ -97,7 +97,6 @@ from products.feature_flags.backend.tasks import (
 )
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
-from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
@@ -113,6 +112,7 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.subscriptions.backend.facade.tasks import reconcile_pulse_runs_task
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
@@ -359,6 +359,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/10"),
         reconcile_loop_trigger_schedules_task.s(),
         name="reconcile loop trigger schedules",
+    )
+
+    # Proactive runs remain durable after a workflow timeout; converge terminal Tasks state every five minutes.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        reconcile_pulse_runs_task.s(),
+        name="reconcile proactive subscription Pulse runs",
+        expires_seconds=5 * 60,
     )
 
     # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
@@ -727,14 +736,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/15"),
         reconcile_pending_legal_documents.s(),
         name="reconcile pending legal documents",
-    )
-
-    # Reconcile pulse briefs stranded in GENERATING by an externally-terminated workflow.
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/15"),
-        mark_stale_pulse_briefs_failed.s(),
-        name="mark stale pulse briefs failed",
     )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):

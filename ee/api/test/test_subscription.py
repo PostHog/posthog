@@ -43,6 +43,11 @@ from products.exports.backend.temporal.subscriptions.types import (
     SubscriptionTriggerType,
 )
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.pulse import PulseValidationError, get_proactive_config
+from products.subscriptions.backend.facade.testing import (
+    create_public_research_subject_for_test,
+    proactive_config_exists_for_test,
+)
 
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
@@ -130,6 +135,14 @@ class TestSubscriptionTemporal(APILicensedTest):
             "prompt": None,
             "ai_prompt_config": {},
             "contexts": [],
+            "proactive_config": {
+                "enabled": False,
+                "repository": None,
+                "repository_integration_id": None,
+                "create_draft_pr": False,
+                "repository_grant_id": None,
+                "public_research_subject_id": None,
+            },
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -2606,6 +2619,211 @@ class TestAISubscriptionAPI(APILicensedTest):
         created = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         return created.json()["id"]
+
+    @parameterized.expand(
+        [
+            ("free_text_subject", "public_research_subject", "Acme earnings"),
+            ("arbitrary_domain", "canonical_domain", "unreviewed.example"),
+            ("subject_text", "subject", "Quarterly product news"),
+        ]
+    )
+    def test_create_rejects_unknown_proactive_config_fields(
+        self, mock_is_cloud, mock_flag, mock_sync, _name: str, field: str, value: str
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(proactive_config={"enabled": True, field: value}, send_test_now=False),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not Subscription.objects.filter(team=self.team, title="Weekly AI report").exists()
+
+    def test_create_rejects_unknown_proactive_subject_uuid(self, mock_is_cloud, mock_flag, mock_sync) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                proactive_config={"enabled": True, "public_research_subject_id": uuid4()}, send_test_now=False
+            ),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_create_rejects_public_research_subject_from_another_team(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        subject_id = create_public_research_subject_for_test(
+            team=other_team,
+            name="Other team release notes",
+            canonical_domain="example.com",
+            reviewed_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                proactive_config={"enabled": True, "public_research_subject_id": subject_id}, send_test_now=False
+            ),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_create_persists_an_eligible_reviewed_public_research_subject(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        subject_id = create_public_research_subject_for_test(
+            team=self.team,
+            name="Public release notes",
+            canonical_domain="example.com",
+            reviewed_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                proactive_config={"enabled": True, "public_research_subject_id": subject_id}, send_test_now=False
+            ),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["proactive_config"] == {
+            "enabled": True,
+            "repository": None,
+            "repository_integration_id": None,
+            "create_draft_pr": False,
+            "repository_grant_id": None,
+            "public_research_subject_id": str(subject_id),
+        }
+        stored = get_proactive_config(team_id=self.team.id, subscription_id=response.json()["id"])
+        assert stored.enabled is True
+        assert stored.public_research_subject_id == subject_id
+
+    def test_patch_returns_the_persisted_proactive_configuration(self, mock_is_cloud, mock_flag, mock_sync) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(proactive_config={"enabled": True}, send_test_now=False),
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"proactive_config": {"enabled": False}, "send_test_now": False},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["proactive_config"] == {
+            "enabled": False,
+            "repository": None,
+            "repository_integration_id": None,
+            "create_draft_pr": False,
+            "repository_grant_id": None,
+            "public_research_subject_id": None,
+        }
+
+    def test_create_rolls_back_subscription_context_and_config_when_proactive_write_fails(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        dashboard = Dashboard.objects.create(team=self.team, name="Rollback dashboard", created_by=self.user)
+        failure = PulseValidationError({"enabled": ["Injected failure."]})
+
+        with patch("ee.api.subscription.proactive_pulse.configure_proactive_subscription", side_effect=failure):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions",
+                self._make_ai_payload(
+                    title="Atomic proactive create",
+                    contexts=[{"dashboard_id": dashboard.id}],
+                    proactive_config={"enabled": True},
+                    send_test_now=False,
+                ),
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not Subscription.objects.filter(team=self.team, title="Atomic proactive create").exists()
+        assert not SubscriptionContext.objects.for_team(self.team.id).filter(team=self.team).exists()
+        assert not proactive_config_exists_for_test(team_id=self.team.id)
+
+    def test_patch_rolls_back_subscription_context_and_config_when_proactive_write_fails(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        old_dashboard = Dashboard.objects.create(team=self.team, name="Old dashboard", created_by=self.user)
+        new_dashboard = Dashboard.objects.create(team=self.team, name="New dashboard", created_by=self.user)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                title="Atomic proactive patch",
+                contexts=[{"dashboard_id": old_dashboard.id}],
+                proactive_config={"enabled": True},
+                send_test_now=False,
+            ),
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        subscription_id = created.json()["id"]
+        failure = PulseValidationError({"enabled": ["Injected failure."]})
+
+        with patch("ee.api.subscription.proactive_pulse.configure_proactive_subscription", side_effect=failure):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+                {
+                    "title": "Changed after failure",
+                    "contexts": [{"dashboard_id": new_dashboard.id}],
+                    "proactive_config": {"enabled": False},
+                    "send_test_now": False,
+                },
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        subscription = Subscription.objects.get(id=subscription_id)
+        config = get_proactive_config(team_id=self.team.id, subscription_id=subscription_id)
+        assert subscription.title == "Atomic proactive patch"
+        assert config.enabled is True
+        assert list(
+            SubscriptionContext.objects.for_team(self.team.id)
+            .filter(subscription_id=subscription_id)
+            .values_list("dashboard_id", flat=True)
+        ) == [old_dashboard.id]
+
+    def test_soft_delete_rolls_back_when_proactive_write_fails(self, mock_is_cloud, mock_flag, mock_sync) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                title="Atomic proactive delete",
+                proactive_config={"enabled": True},
+                send_test_now=False,
+            ),
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        subscription_id = created.json()["id"]
+        failure = PulseValidationError({"enabled": ["Injected failure."]})
+
+        with patch("ee.api.subscription.proactive_pulse.configure_proactive_subscription", side_effect=failure):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+                {"deleted": True, "proactive_config": {"enabled": False}},
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        subscription = Subscription.objects.get(id=subscription_id)
+        config = get_proactive_config(team_id=self.team.id, subscription_id=subscription_id)
+        assert subscription.deleted is False
+        assert config.enabled is True
 
     @parameterized.expand(
         [

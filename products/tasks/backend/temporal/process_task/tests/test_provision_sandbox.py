@@ -259,6 +259,30 @@ def test_restricted_vm_applies_compiled_modal_policy() -> None:
     assert config.network_policy_fingerprint == "policy-hash"
 
 
+def test_credential_free_context_requires_modal_network_enforcement() -> None:
+    config = SandboxConfig(name="credential-free")
+    context = _context(
+        credential_free_repository=True,
+        allowed_domains=["github.com", "registry.npmjs.org"],
+        modal_domain_allowlist=["github.com", "registry.npmjs.org"],
+        network_policy_fingerprint="credential-free-policy",
+        use_modal_network_allowlist=True,
+    )
+
+    _apply_modal_network_policy(config, context, use_vm_sandbox=False)
+
+    assert config.outbound_domain_allowlist == ["github.com", "registry.npmjs.org"]
+    assert config.network_policy_fingerprint == "credential-free-policy"
+
+
+def test_credential_free_context_fails_closed_without_modal_network_enforcement() -> None:
+    config = SandboxConfig(name="credential-free")
+    context = _context(credential_free_repository=True, allowed_domains=["github.com"])
+
+    with pytest.raises(SandboxNetworkPolicyError):
+        _apply_modal_network_policy(config, context, use_vm_sandbox=False)
+
+
 @override_settings(DEBUG=False)
 def test_restricted_vm_recompiles_modal_policy_for_legacy_context() -> None:
     config = SandboxConfig(name="restricted-vm", vm_runtime=True)

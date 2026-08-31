@@ -9,6 +9,41 @@ feature: subscriptions
 url_prefix: /subscriptions
 ui_apps: {}
 tools:
+    experiment-pulse-draft-create:
+        operation: subscriptions_pulse_experiment_drafts_create
+        enabled: true
+        scopes:
+            - pulse_experiment_draft:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Create reserved experiment draft
+        description: >
+            Create the single inert experiment draft reserved for this staged Pulse task. The server binds the request
+            to the current task and selected action, creates a new inactive feature flag with zero traffic, and records
+            the resulting experiment as a verified artifact. Supply two to five variants and reference metrics only by
+            an existing event name or action ID. The tool cannot select an existing flag, choose rollout percentages,
+            target users, launch, schedule, or archive an experiment. An exact retry returns the same draft; a changed
+            retry is rejected.
+    pulse-outcome-replay-get:
+        operation: subscriptions_pulse_outcome_replays_retrieve
+        enabled: true
+        scopes:
+            - internal_run:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get claimed outcome replay
+        description: >
+            Get the one server-derived comparison measurement instruction for a claimed Pulse outcome plan. This tool
+            works only from the active task-bound Pulse analysis sandbox and only while the plan remains claimed by that
+            run. Call it with a claimed plan ID before the measurement. Execute exactly the returned tool_name with
+            comparison_arguments in one call, then return that call's ACP evidence tool-call ID in the readout output.
+        param_overrides:
+            id:
+                description: Claimed outcome plan UUID from the current task's claimed_outcomes list.
     subscriptions-create:
         operation: subscriptions_create
         enabled: true
@@ -180,6 +215,15 @@ tools:
             - insight_short_id
             - invite_message
             - send_test_now
+    subscriptions-pulse-actions-decision-create:
+        operation: subscriptions_pulse_actions_decision_create
+        enabled: false
+    subscriptions-pulse-configuration-options-list:
+        operation: subscriptions_pulse_configuration_options_list
+        enabled: false
+    subscriptions-pulse-history-list:
+        operation: subscriptions_pulse_history_list
+        enabled: false
     subscriptions-retrieve:
         operation: subscriptions_retrieve
         enabled: true

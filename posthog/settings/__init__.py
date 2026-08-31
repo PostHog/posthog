@@ -56,6 +56,7 @@ from posthog.settings.personhog import *
 from posthog.settings.ses import *
 from posthog.settings.email import *
 from posthog.settings.exports import *
+from posthog.settings.subscriptions import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 

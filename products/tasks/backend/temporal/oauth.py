@@ -9,6 +9,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
+    PULSE_ANALYSIS_SCOPES,
     McpScopePreset,
     PosthogMcpScopes,
     SandboxOAuthApplication,
@@ -37,6 +38,8 @@ __all__ = [
     "create_oauth_access_token_for_run",
     "create_oauth_access_token_for_user",
     "create_wizard_oauth_access_token",
+    "is_pulse_mcp_scope_posture",
+    "resolve_task_run_mcp_scopes",
 ]
 
 # Loop CRUD MCP tools must never be reachable from inside a loop-fired run, regardless of the
@@ -44,6 +47,40 @@ __all__ = [
 # triggered run has no legitimate reason to create/edit/delete loops, and this closes the
 # injected-instructions plant-a-persistent-loop path. loop:read stays granted.
 LOOP_FIRED_RUN_EXCLUDED_SCOPES = frozenset({"loop:write"})
+PULSE_EXPERIMENT_DRAFT_SCOPE = "pulse_experiment_draft:write"
+
+
+def is_pulse_mcp_scope_posture(scopes: PosthogMcpScopes) -> bool:
+    """Whether a token posture is the private, explicitly staged Pulse surface.
+
+    The check is deliberately exact for custom scope lists: a generic task token that happens
+    to include Pulse read access must keep its normal configured MCP servers.
+    """
+    if scopes == "pulse_analysis":
+        return True
+    if isinstance(scopes, str):
+        return False
+
+    granted = frozenset(scopes)
+    allowed = frozenset((*PULSE_ANALYSIS_SCOPES, PULSE_EXPERIMENT_DRAFT_SCOPE))
+    return set(PULSE_ANALYSIS_SCOPES) <= granted and granted <= allowed
+
+
+def _is_pulse_experiment_execution_state(state: dict[str, Any] | None) -> bool:
+    manifest = (state or {}).get("staged_manifest")
+    return (
+        isinstance(manifest, dict)
+        and manifest.get("version") == 1
+        and manifest.get("phase") == "execution"
+        and isinstance(manifest.get("capabilities"), list)
+        and "experiment_draft" in manifest["capabilities"]
+    )
+
+
+def resolve_task_run_mcp_scopes(scopes: PosthogMcpScopes, state: dict[str, Any] | None) -> PosthogMcpScopes:
+    if _is_pulse_experiment_execution_state(state):
+        return [*PULSE_ANALYSIS_SCOPES, PULSE_EXPERIMENT_DRAFT_SCOPE]
+    return scopes
 
 
 # Every Signals sandbox surface mints under the dedicated Signals OAuth app, so the LLM
@@ -179,6 +216,7 @@ def create_oauth_access_token_for_run(
     to mint creator credentials for a Slack run by omitting one kwarg. Loop-fired runs
     (``loop_id`` in run state) get ``loop:write`` stripped from the granted scopes here.
     """
+    scopes = resolve_task_run_mcp_scopes(scopes, state)
     with transaction.atomic():
         locked_task = (
             Task.objects.select_for_update(of=("self",))
@@ -194,6 +232,12 @@ def create_oauth_access_token_for_run(
             )
 
         actor_user = get_task_run_credential_user(locked_task, state)
+        if _is_pulse_experiment_execution_state(state):
+            from products.subscriptions.backend.facade.api import (  # noqa: PLC0415 — avoids the Tasks and Subscriptions facade import cycle
+                issue_pulse_experiment_draft_token,
+            )
+
+            return issue_pulse_experiment_draft_token(team_id=locked_task.team_id, task_id=locked_task.id)
         loop_id = (state or {}).get("loop_id")
         effective_scopes = scopes
         credential_owner_kind: str | None = None

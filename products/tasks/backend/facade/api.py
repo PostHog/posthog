@@ -23,7 +23,7 @@ from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
@@ -122,11 +122,14 @@ from products.tasks.backend.models import (
     TaskArtifact,
     TaskClientProvenance,
     TaskCommentActivity,
+    TaskDraftPublication,
     TaskOwnershipChangedError,
     TaskPin,
+    TaskPublicationLease,
     TaskRun,
     TaskSearchDocument,
     TaskSession,
+    TaskStagedRunTransition,
     TaskThreadMessage,
     TaskThreadMessageMention,
     TaskWorkflowDispatch,
@@ -141,6 +144,9 @@ from products.tasks.backend.visibility import (
 )
 
 from . import contracts
+
+if TYPE_CHECKING:
+    from products.tasks.backend.logic.services.publication_gate_ledger import PublicationGateStatus
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +179,7 @@ __all__ = [
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
+    "advance_staged_task",
     "apply_task_run_model_config",
     "ensure_task_run_session",
     "beacon_task_presence",
@@ -185,6 +192,7 @@ __all__ = [
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
+    "create_staged_task",
     "build_sandbox_custom_image",
     "create_sandbox_custom_image",
     "create_sandbox_environment",
@@ -195,6 +203,9 @@ __all__ = [
     "create_task_run_living_artifact",
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
+    "is_active_staged_analysis_task_binding",
+    "resolve_staged_task_capability_binding",
+    "revoke_staged_task_capabilities",
     "claim_and_fail_stale_run",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
@@ -210,6 +221,8 @@ __all__ = [
     "get_latest_active_internal_task_run_for_organization",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
+    "get_staged_execution_by_idempotency",
+    "get_staged_task_by_idempotency",
     "get_merged_pr_task_ids",
     "get_latest_run_by_task",
     "get_resume_snapshot_carry_state",
@@ -224,6 +237,8 @@ __all__ = [
     "get_task_detail",
     "get_task_id_for_run",
     "get_task_run",
+    "get_staged_draft_publication",
+    "get_staged_artifact_lifecycle",
     "get_task_run_session",
     "sync_task_run_session",
     "get_task_run_detail",
@@ -242,6 +257,7 @@ __all__ = [
     "leave_task_presence",
     "list_sandbox_custom_images",
     "list_sandbox_environments",
+    "list_authorizable_repositories",
     "sandbox_custom_images_enabled",
     "agent_peer_messaging_enabled",
     "list_task_run_living_artifacts",
@@ -255,12 +271,14 @@ __all__ = [
     "presign_task_run_artifact",
     "presign_task_run_artifact_download",
     "read_task_run_artifact",
+    "get_completed_posthog_mcp_tool_calls",
     "read_task_run_logs",
     "record_comment_activity",
     "signal_task_run_client_activity",
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_slack_thread_context",
+    "resolve_repository_authorization",
     "resume_task_run_in_cloud",
     "run_task",
     "send_cancel",
@@ -1332,6 +1350,395 @@ def collect_task_run_state_metrics(
 # --- Writes ---
 
 
+def _create_staged_task(input: contracts.CreateStagedTaskInput) -> contracts.CreatedStagedTaskDTO:
+    from products.tasks.backend.logic.services.staged_task_runs import (  # noqa: PLC0415 -- keeps Temporal off django.setup()
+        create_staged_task,
+    )
+
+    return create_staged_task(input)
+
+
+def _get_staged_task_by_idempotency(
+    input: contracts.GetStagedTaskByIdempotencyInput,
+) -> contracts.CreatedStagedTaskDTO | None:
+    from products.tasks.backend.logic.services.staged_task_runs import (  # noqa: PLC0415 -- keeps Temporal off django.setup()
+        get_staged_task_by_idempotency,
+    )
+
+    return get_staged_task_by_idempotency(input)
+
+
+def _get_staged_execution_by_idempotency(
+    input: contracts.GetStagedExecutionByIdempotencyInput,
+) -> contracts.AdvancedStagedTaskDTO | None:
+    from products.tasks.backend.logic.services.staged_task_runs import (  # noqa: PLC0415 -- keeps Temporal off django.setup()
+        get_staged_execution_by_idempotency,
+    )
+
+    return get_staged_execution_by_idempotency(input)
+
+
+def _resolve_staged_repository_base(
+    input: contracts.ResolveStagedRepositoryBaseInput,
+) -> contracts.RepositoryBaseBindingDTO:
+    from products.tasks.backend.logic.services.staged_task_runs import (  # noqa: PLC0415 -- keeps Temporal off django.setup()
+        resolve_staged_repository_base,
+    )
+
+    return resolve_staged_repository_base(input)
+
+
+def _advance_staged_task(input: contracts.AdvanceStagedTaskInput) -> contracts.AdvancedStagedTaskDTO:
+    from products.tasks.backend.logic.services.staged_task_runs import (  # noqa: PLC0415 -- keeps Temporal off django.setup()
+        advance_staged_task,
+    )
+
+    return advance_staged_task(input)
+
+
+def _revoke_staged_task_capabilities(
+    input: contracts.RevokeStagedTaskCapabilitiesInput,
+) -> contracts.RevokeStagedTaskCapabilitiesDTO:
+    from products.tasks.backend.logic.services.staged_task_runs import (  # noqa: PLC0415 -- keeps Temporal off django.setup()
+        revoke_staged_task_capabilities,
+    )
+
+    return revoke_staged_task_capabilities(input)
+
+
+def revoke_staged_capabilities_for_terminal_run(run_id: str) -> bool:
+    from products.tasks.backend.logic.services.staged_task_runs import (  # noqa: PLC0415 -- keeps Temporal off django.setup()
+        revoke_staged_capabilities_for_terminal_run as revoke,
+    )
+
+    return revoke(run_id)
+
+
+def get_publication_gate_status(run_id: str) -> "PublicationGateStatus | None":
+    from products.tasks.backend.logic.services.publication_gate_ledger import (  # noqa: PLC0415 -- keeps Temporal off django.setup()
+        get_publication_gate_status as get_status,
+    )
+
+    return get_status(run_id)
+
+
+def create_staged_task(input: contracts.CreateStagedTaskInput) -> contracts.CreatedStagedTaskDTO:
+    """Create or return a caller-neutral staged analysis task."""
+    return _create_staged_task(input)
+
+
+def get_staged_task_by_idempotency(
+    input: contracts.GetStagedTaskByIdempotencyInput,
+) -> contracts.CreatedStagedTaskDTO | None:
+    """Resolve an existing staged task through its caller-owned idempotency binding."""
+    return _get_staged_task_by_idempotency(input)
+
+
+def get_staged_execution_by_idempotency(
+    input: contracts.GetStagedExecutionByIdempotencyInput,
+) -> contracts.AdvancedStagedTaskDTO | None:
+    """Resolve an existing staged successor through its caller-owned transition binding."""
+    return _get_staged_execution_by_idempotency(input)
+
+
+def resolve_staged_repository_base(
+    input: contracts.ResolveStagedRepositoryBaseInput,
+) -> contracts.RepositoryBaseBindingDTO:
+    """Resolve the immutable repository base for a staged analysis through Tasks' GitHub transport."""
+    return _resolve_staged_repository_base(input)
+
+
+def advance_staged_task(input: contracts.AdvanceStagedTaskInput) -> contracts.AdvancedStagedTaskDTO:
+    """Create or return the reserved staged execution task run."""
+    return _advance_staged_task(input)
+
+
+def resolve_staged_task_capability_binding(
+    *, team_id: int, task_id: UUID, required_capability: str
+) -> contracts.StagedTaskCapabilityBindingDTO | None:
+    if not required_capability:
+        return None
+    with transaction.atomic():
+        task = (
+            Task.objects.select_for_update(of=("self",))
+            .filter(id=task_id, team_id=team_id, deleted=False, internal=True, created_by_id__isnull=False)
+            .first()
+        )
+        if task is None:
+            return None
+        actor_id = task.created_by_id
+        if actor_id is None:
+            return None
+        transition = (
+            TaskStagedRunTransition.objects.for_team(team_id)
+            .select_for_update(of=("self",))
+            .filter(task_id=task.id, team_id=team_id, status=TaskStagedRunTransition.Status.ADVANCED)
+            .first()
+        )
+        if transition is None or transition.successor_task_run_id is None:
+            return None
+        run = (
+            TaskRun.objects.select_for_update(of=("self",))
+            .filter(id=transition.successor_task_run_id, task_id=task.id, team_id=team_id)
+            .first()
+        )
+        if run is None or run.is_terminal or not run.matches_task_ownership(task):
+            return None
+        state = run.state if isinstance(run.state, dict) else {}
+        if state.get("staged_capabilities_revoked") is True:
+            return None
+        manifest = state.get("staged_manifest")
+        if not isinstance(manifest, dict) or manifest != transition.requested_capability_manifest:
+            return None
+        capabilities = manifest.get("capabilities")
+        bindings = manifest.get("bindings")
+        task_state = task.state if isinstance(task.state, dict) else {}
+        caller_id = task_state.get("staged_caller_id")
+        if (
+            state.get("staged_phase") != "execution"
+            or state.get("staged_transition_id") != str(transition.id)
+            or manifest.get("version") != 1
+            or manifest.get("phase") != "execution"
+            or not isinstance(capabilities, list)
+            or required_capability not in capabilities
+            or not isinstance(bindings, dict)
+            or not isinstance(bindings.get("publication_allowed"), bool)
+            or bindings.get("caller_id") != caller_id
+            or bindings.get("task_id") != str(task.id)
+            or bindings.get("run_id") != str(run.id)
+            or str(transition.caller_id) != caller_id
+            or transition.source_task_run.team_id != team_id
+            or transition.source_task_run.task_id != task.id
+            or task_state.get("staged_idempotency_key") != task.origin_key
+        ):
+            return None
+        try:
+            parsed_caller_id = UUID(caller_id)
+        except (TypeError, ValueError):
+            return None
+        return contracts.StagedTaskCapabilityBindingDTO(
+            team_id=team_id,
+            task_id=task.id,
+            task_run_id=run.id,
+            caller_id=parsed_caller_id,
+            actor_id=actor_id,
+        )
+
+
+def is_active_staged_analysis_task_binding(
+    *, team_id: int, task_id: UUID, task_run_id: UUID, caller_id: UUID, actor_id: int
+) -> bool:
+    """Whether a caller-owned staged analysis run is still the active sandbox identity."""
+    task = Task.objects.filter(
+        id=task_id,
+        team_id=team_id,
+        deleted=False,
+        internal=True,
+        created_by_id=actor_id,
+    ).first()
+    if task is None:
+        return False
+    task_state = task.state if isinstance(task.state, dict) else {}
+    if (
+        task.origin_product != Task.OriginProduct.TASK_ANALYSIS
+        or task.origin_key != f"pulse:{caller_id}:analysis"
+        or task_state.get("staged_caller_id") != str(caller_id)
+        or task_state.get("staged_idempotency_key") != task.origin_key
+        or task_state.get("staged_mcp_scope_preset") != "pulse_analysis"
+    ):
+        return False
+    run = TaskRun.objects.filter(
+        id=task_run_id,
+        task_id=task.id,
+        team_id=team_id,
+        status=TaskRun.Status.IN_PROGRESS,
+    ).first()
+    if run is None or not run.matches_task_ownership(task):
+        return False
+    state = run.state if isinstance(run.state, dict) else {}
+    manifest = state.get("staged_manifest")
+    bindings = manifest.get("bindings") if isinstance(manifest, dict) else None
+    return (
+        state.get("staged_phase") == "analysis"
+        and isinstance(manifest, dict)
+        and manifest.get("version") == 1
+        and manifest.get("phase") == "analysis"
+        and manifest.get("capabilities") == ["read", "research"]
+        and isinstance(bindings, dict)
+        and bindings.get("caller_id") == str(caller_id)
+        and bindings.get("task_id") == str(task.id)
+        and bindings.get("run_id") == str(run.id)
+        and bindings.get("publication_allowed") is False
+    )
+
+
+def revoke_staged_task_capabilities(
+    input: contracts.RevokeStagedTaskCapabilitiesInput,
+) -> contracts.RevokeStagedTaskCapabilitiesDTO:
+    """Revoke a staged execution capability after its caller cancels or times out."""
+    return _revoke_staged_task_capabilities(input)
+
+
+def cancel_staged_task(input: contracts.CancelStagedTaskInput) -> contracts.CancelStagedTaskDTO:
+    """Revoke and cancel the exact staged successor owned by the caller binding."""
+    revoked = _revoke_staged_task_capabilities(
+        contracts.RevokeStagedTaskCapabilitiesInput(
+            team_id=input.team_id,
+            caller_id=input.caller_id,
+            task_id=input.task_id,
+            source_run_id=input.source_run_id,
+        )
+    ).revoked
+    transition = (
+        TaskStagedRunTransition.objects.for_team(input.team_id)
+        .filter(
+            team_id=input.team_id,
+            caller_id=input.caller_id,
+            task_id=input.task_id,
+            source_task_run_id=input.source_run_id,
+        )
+        .first()
+    )
+    from products.tasks.backend.facade.cancellation import (  # noqa: PLC0415 — avoids the facade cancellation cycle
+        cancel_task_run,
+    )
+
+    if transition is None or transition.successor_task_run_id is None:
+        outcome, _run = cancel_task_run(
+            input.source_run_id,
+            input.task_id,
+            input.team_id,
+            reason="Proactive subscription run stopped",
+            source="subscription_pulse",
+        )
+        return contracts.CancelStagedTaskDTO(revoked=revoked, outcome=outcome, execution_run_id=None)
+
+    outcome, _run = cancel_task_run(
+        transition.successor_task_run_id,
+        input.task_id,
+        input.team_id,
+        reason="Proactive subscription run stopped",
+        source="subscription_pulse",
+    )
+    return contracts.CancelStagedTaskDTO(
+        revoked=revoked,
+        outcome=outcome,
+        execution_run_id=transition.successor_task_run_id,
+    )
+
+
+def get_staged_draft_publication(
+    input: contracts.GetStagedDraftPublicationInput,
+) -> contracts.StagedDraftPublicationDTO | None:
+    """Read a draft publication only after proving the caller-owned staged binding."""
+    transition = (
+        TaskStagedRunTransition.objects.for_team(input.team_id)
+        .filter(
+            team_id=input.team_id,
+            caller_id=input.caller_id,
+            task_id=input.task_id,
+            source_task_run_id=input.source_run_id,
+            successor_task_run_id=input.execution_run_id,
+            status=TaskStagedRunTransition.Status.ADVANCED,
+        )
+        .first()
+    )
+    if transition is None:
+        return None
+    lease = (
+        TaskPublicationLease.objects.for_team(input.team_id)
+        .filter(
+            id=input.publication_lease_id,
+            team_id=input.team_id,
+            caller_id=input.caller_id,
+            task_id=input.task_id,
+            task_run_id=input.execution_run_id,
+            staged_run_transition_id=transition.id,
+        )
+        .first()
+    )
+    if lease is None:
+        return None
+    publication = TaskDraftPublication.objects.for_team(input.team_id).filter(lease_id=lease.id).first()
+    if publication is None:
+        return None
+    gate_status = get_publication_gate_status(str(input.execution_run_id))
+    return contracts.StagedDraftPublicationDTO(
+        status=publication.status,
+        pr_number=publication.pr_number,
+        pr_url=publication.pr_url,
+        gate_status=gate_status.overall_status if gate_status is not None else None,
+        gate_completed_at=gate_status.completed_at if gate_status is not None else None,
+        gates=tuple(contracts.PublicationGateDTO(label=label, status=status) for label, status in gate_status.gates)
+        if gate_status is not None
+        else (),
+    )
+
+
+def get_staged_artifact_lifecycle(
+    input: contracts.GetStagedArtifactLifecycleInput,
+) -> contracts.StagedArtifactLifecycleDTO | None:
+    """Read webhook-attested lifecycle state after proving every staged ownership binding."""
+    transition = (
+        TaskStagedRunTransition.objects.for_team(input.team_id)
+        .filter(
+            team_id=input.team_id,
+            caller_id=input.caller_id,
+            task_id=input.task_id,
+            source_task_run_id=input.source_run_id,
+            successor_task_run_id=input.execution_run_id,
+            status=TaskStagedRunTransition.Status.ADVANCED,
+        )
+        .first()
+    )
+    if transition is None:
+        return None
+    lease = (
+        TaskPublicationLease.objects.for_team(input.team_id)
+        .filter(
+            id=input.publication_lease_id,
+            team_id=input.team_id,
+            caller_id=input.caller_id,
+            task_id=input.task_id,
+            task_run_id=input.execution_run_id,
+            staged_run_transition_id=transition.id,
+        )
+        .first()
+    )
+    if lease is None:
+        return None
+    publication = TaskDraftPublication.objects.for_team(input.team_id).filter(lease_id=lease.id).first()
+    if publication is None:
+        return None
+    state: Literal["open", "merged", "closed", "unknown"] = "unknown"
+    task_output = (
+        TaskRun.objects.filter(id=input.execution_run_id, task_id=input.task_id, team_id=input.team_id)
+        .values_list("output", flat=True)
+        .first()
+    )
+    lifecycle = task_output.get("webhook_pr_lifecycle") if isinstance(task_output, dict) else None
+    changed_at = None
+    if publication.status == TaskDraftPublication.Status.FINALIZED and isinstance(lifecycle, dict):
+        lifecycle_url = lifecycle.get("pr_url")
+        lifecycle_state = lifecycle.get("state")
+        lifecycle_timestamp = lifecycle.get("changed_at")
+        if lifecycle_url == publication.pr_url and lifecycle_state in {"merged", "closed"}:
+            try:
+                changed_at = (
+                    datetime.fromisoformat(lifecycle_timestamp) if isinstance(lifecycle_timestamp, str) else None
+                )
+            except ValueError:
+                changed_at = None
+            if changed_at is not None and changed_at.tzinfo is not None:
+                state = cast(Literal["merged", "closed"], lifecycle_state)
+    return contracts.StagedArtifactLifecycleDTO(
+        state=state,
+        pr_number=publication.pr_number,
+        pr_url=publication.pr_url,
+        changed_at=changed_at,
+    )
+
+
 def create_and_run_task(
     *,
     team,
@@ -1598,6 +2005,7 @@ def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None)
     if run is None:
         return False
     run.mark_failed(error, error_type=error_type)
+    revoke_staged_capabilities_for_terminal_run(str(run.id))
     run.task.soft_delete_if_unclaimed_prewarm(run)
     return True
 
@@ -1651,6 +2059,7 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_failed(error, error_type=error_type)
+        revoke_staged_capabilities_for_terminal_run(str(run.id))
     return True
 
 
@@ -2149,6 +2558,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
+        "staged_phase",
+        "staged_manifest",
+        "staged_transition_id",
+        "staged_capabilities_revoked",
+        "publication_lease_id",
+        "credential_free_checkout",
+        "brokered_publication",
         *SERVER_OWNED_RESUME_STATE_KEYS,
         "workflow_id",
         "pending_dispatch",
@@ -2221,7 +2637,7 @@ _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, 
 # its PR closed. Any caller-writable path to this flag would let a `task:write` holder mark an open
 # PR merged, resolve the report, and refund it while keeping the work — so every output writer has to
 # go through `_merge_caller_output`, not merge caller output directly.
-_WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS = frozenset({"pr_merged"})
+_WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS = frozenset({"pr_merged", "webhook_pr_lifecycle"})
 
 
 def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
@@ -2708,6 +3124,7 @@ def update_task_run(
     # (consecutive_failures would double-count). The workflow's status-update activity
     # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        revoke_staged_capabilities_for_terminal_run(str(run.id))
         handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
@@ -3747,6 +4164,17 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     return "".join(parts)
 
 
+def get_completed_posthog_mcp_tool_calls(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> list[contracts.CompletedPostHogMCPToolCallDTO]:
+    """Read completed generic PostHog MCP calls from this run's persisted ACP log."""
+    from products.tasks.backend.facade.evidence import (  # noqa: PLC0415 — storage-backed parser is off the core facade path
+        get_completed_posthog_mcp_tool_calls as _get_completed_posthog_mcp_tool_calls,
+    )
+
+    return _get_completed_posthog_mcp_tool_calls(task_run_id=run_id, task_id=task_id, team_id=team_id)
+
+
 def create_task_run_connection_token(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int, distinct_id: str
 ) -> str | None:
@@ -4445,6 +4873,35 @@ def user_has_usable_personal_github(user_id: int) -> bool:
     user = User.objects.filter(id=user_id).first()
     integration = get_user_github_integration(user, allow_refresh=False)
     return user_github_integration_is_usable(integration)
+
+
+def list_authorizable_repositories(*, team_id: int, user_id: int) -> list[contracts.AuthorizableRepositoryDTO]:
+    """List exact write-capable GitHub repository bindings for an explicit user authorization."""
+    from products.tasks.backend.logic.services.repository_authorization import (  # noqa: PLC0415 — keeps facade startup light
+        list_authorizable_repositories as _list_authorizable_repositories,
+    )
+
+    return _list_authorizable_repositories(
+        contracts.ListAuthorizableRepositoriesInput(team_id=team_id, user_id=user_id)
+    )
+
+
+def resolve_repository_authorization(
+    *, team_id: int, user_id: int, repository: str, github_integration_id: int | None = None
+) -> contracts.AuthorizableRepositoryDTO | None:
+    """Revalidate a selected repository binding before an external product persists its grant."""
+    from products.tasks.backend.logic.services.repository_authorization import (  # noqa: PLC0415 — keeps facade startup light
+        resolve_repository_authorization as _resolve_repository_authorization,
+    )
+
+    return _resolve_repository_authorization(
+        contracts.ResolveRepositoryAuthorizationInput(
+            team_id=team_id,
+            user_id=user_id,
+            repository=repository,
+            github_integration_id=github_integration_id,
+        )
+    )
 
 
 def _ensure_task_team_github_integration(task: Task) -> bool:

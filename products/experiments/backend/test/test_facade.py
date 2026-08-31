@@ -5,8 +5,12 @@ from datetime import UTC, datetime
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
-from products.experiments.backend.facade import create_experiment
+from products.experiments.backend.facade import create_experiment, get_pulse_experiment_lifecycle
 from products.experiments.backend.facade.contracts import CreateExperimentInput
+from products.experiments.backend.models.experiment import (
+    Experiment as ExperimentModel,
+    ExperimentMetricResult,
+)
 
 
 class TestCreateExperiment(APIBaseTest):
@@ -75,6 +79,108 @@ class TestCreateExperiment(APIBaseTest):
 
         assert result.is_draft is False
         assert result.start_date == start_date
+
+    def test_pulse_lifecycle_keeps_an_inert_draft_pending(self):
+        """A Pulse draft must not become adopted before a person launches it."""
+        experiment = create_experiment(
+            team=self.team,
+            user=self.user,
+            input_dto=CreateExperimentInput(name="Draft checkout", feature_flag_key="pulse-draft-checkout"),
+        )
+
+        lifecycle = get_pulse_experiment_lifecycle(team_id=self.team.id, experiment_id=experiment.id)
+
+        assert lifecycle is not None
+        assert lifecycle.state == "draft"
+        assert lifecycle.launched_at is None
+        assert lifecycle.result_state == "not_ready"
+        assert lifecycle.observed_value is None
+
+    def test_pulse_lifecycle_uses_the_experiment_launch_time(self):
+        """The outcome schedule must be anchored to the authoritative start_date."""
+        start_date = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        experiment = create_experiment(
+            team=self.team,
+            user=self.user,
+            input_dto=CreateExperimentInput(
+                name="Launched checkout", feature_flag_key="pulse-launched-checkout", start_date=start_date
+            ),
+        )
+
+        lifecycle = get_pulse_experiment_lifecycle(team_id=self.team.id, experiment_id=experiment.id)
+
+        assert lifecycle is not None
+        assert lifecycle.state == "launched"
+        assert lifecycle.launched_at == start_date
+        assert lifecycle.result_state == "not_ready"
+
+    def test_pulse_lifecycle_reports_deleted_drafts_without_a_result(self):
+        """A deleted draft is abandonment, not a measured or launched experiment."""
+        experiment = create_experiment(
+            team=self.team,
+            user=self.user,
+            input_dto=CreateExperimentInput(
+                name="Deleted checkout", feature_flag_key="pulse-deleted-checkout", deleted=True
+            ),
+        )
+
+        lifecycle = get_pulse_experiment_lifecycle(team_id=self.team.id, experiment_id=experiment.id)
+
+        assert lifecycle is not None
+        assert lifecycle.state == "deleted"
+        assert lifecycle.launched_at is None
+        assert lifecycle.result_state == "not_ready"
+
+    def test_pulse_lifecycle_keeps_completed_untyped_results_retryable(self):
+        metric_uuid = "pulse-primary-metric"
+        start_date = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        created = create_experiment(
+            team=self.team,
+            user=self.user,
+            input_dto=CreateExperimentInput(
+                name="Completed checkout result",
+                feature_flag_key="pulse-completed-checkout",
+                start_date=start_date,
+                metrics=[
+                    {
+                        "kind": "ExperimentMetric",
+                        "uuid": metric_uuid,
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+                metrics_ordering=(metric_uuid,),
+                allow_unknown_events=True,
+            ),
+        )
+        experiment = ExperimentModel.objects.get(id=created.id)
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid=metric_uuid,
+            query_from=start_date,
+            query_to=start_date,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"variants": [{"value": "not-an-authoritative-scalar"}]},
+            completed_at=start_date,
+        )
+
+        lifecycle = get_pulse_experiment_lifecycle(team_id=self.team.id, experiment_id=experiment.id)
+
+        assert lifecycle is not None
+        assert lifecycle.result_state == "not_ready"
+        assert lifecycle.observed_value is None
+        assert lifecycle.delta is None
+        assert lifecycle.confidence is None
+        assert lifecycle.verdict is None
+
+    def test_pulse_lifecycle_requires_the_exact_team(self):
+        experiment = create_experiment(
+            team=self.team,
+            user=self.user,
+            input_dto=CreateExperimentInput(name="Team-bound draft", feature_flag_key="pulse-team-bound"),
+        )
+
+        assert get_pulse_experiment_lifecycle(team_id=self.team.id + 1, experiment_id=experiment.id) is None
 
     def test_create_experiment_with_metrics(self):
         """Test creating experiment with metrics."""

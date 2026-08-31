@@ -3,14 +3,18 @@ from freezegun import freeze_time
 
 from django.db import OperationalError
 
+from posthog.temporal.oauth import PULSE_ANALYSIS_SCOPES
+
 from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
+from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
     StartAgentServerInput,
     _agentsh_domains_for,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
+    _invoke_start_agent_server,
     _is_agent_shadow_enabled,
     _launch_agent_shadow,
     _LaunchParams,
@@ -60,6 +64,7 @@ def _context(
     network_policy_fingerprint: str | None = None,
     use_modal_vm_sandbox: bool = False,
     use_modal_network_allowlist: bool = False,
+    credential_free_repository: bool = False,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -77,6 +82,7 @@ def _context(
         network_policy_fingerprint=network_policy_fingerprint,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
+        credential_free_repository=credential_free_repository,
         _branch=branch,
     )
 
@@ -326,6 +332,63 @@ def test_prepare_launch_retries_task_read_and_keeps_db_drop_identity(mocker) -> 
         _prepare_launch(_context(), mocker.Mock(), "sandbox-id")
 
     assert task_get.call_count == 2
+
+
+def test_credential_free_launch_omits_publication_and_passes_the_enforced_mode(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.update_state_atomic"
+    )
+    context = _context(
+        repository="PostHog/posthog",
+        state={"auto_publish": True},
+        credential_free_repository=True,
+    )
+    params = _LaunchParams(
+        mcp_configs=[],
+        relayed_mcp_servers=[],
+        actor_user_id=None,
+        agentsh_domains=["github.com"],
+        protected_base_branch=None,
+        event_ingest_token=None,
+        task_run_session_token=None,
+        event_ingest_url=None,
+        event_ingest_keep_stream_open=False,
+    )
+
+    _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None, wait_for_health=True)
+
+    kwargs = sandbox.start_agent_server.call_args.kwargs
+    assert kwargs["credential_free_repository"] is True
+    assert kwargs["create_pr"] is False
+    assert kwargs["auto_publish"] is False
+    assert kwargs["relayed_mcp_servers"] is None
+
+
+def test_credential_free_launch_uses_runtime_domains_without_github_and_disables_web_tools(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.update_state_atomic"
+    )
+    context = _context(repository="PostHog/posthog", credential_free_repository=True)
+    params = _LaunchParams(
+        mcp_configs=[],
+        relayed_mcp_servers=[],
+        actor_user_id=None,
+        agentsh_domains=["registry.npmjs.org"],
+        protected_base_branch=None,
+        event_ingest_token=None,
+        task_run_session_token=None,
+        event_ingest_url=None,
+        event_ingest_keep_stream_open=False,
+    )
+
+    _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None, wait_for_health=True)
+
+    kwargs = sandbox.start_agent_server.call_args.kwargs
+    assert "github.com" not in kwargs["allowed_domains"]
+    assert "api.github.com" not in kwargs["allowed_domains"]
+    assert kwargs["credential_free_repository"] is True
 
 
 @pytest.mark.parametrize(
@@ -601,6 +664,63 @@ def test_agent_shadow_result_rejects_stale_launch_marker(mocker) -> None:
     )
 
     assert _read_agent_shadow_result(sandbox, "run-id") == {}
+
+
+def test_prepare_launch_pulse_execution_derives_scopes_and_excludes_non_posthog_mcp_servers(mocker) -> None:
+    context = _context(
+        state={
+            "staged_manifest": {
+                "version": 1,
+                "phase": "execution",
+                "capabilities": ["read", "experiment_draft"],
+            }
+        }
+    )
+    task = mocker.Mock(
+        runtime=Task.Runtime.ACP,
+        origin_product="user_created",
+        internal=False,
+        mcp_builtin_agent_key=None,
+        mcp_credential_owner_id=None,
+        mcp_gateway_server_allowlist=None,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
+    ).return_value.get.return_value = task
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_task_run_credential_user",
+        return_value=mocker.Mock(id=17),
+    )
+    create_token = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
+        return_value="oauth-token",
+    )
+    posthog_config = mocker.Mock()
+    posthog_config.name = "posthog"
+    get_posthog_configs = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_ph_mcp_configs",
+        return_value=[posthog_config],
+    )
+    get_user_mcp_configs = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_user_mcp_server_configs"
+    )
+    get_imported_configs = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_imported_mcp_server_configs"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.filter"
+    ).return_value.first.return_value = mocker.Mock(imported_mcp_servers=[{"name": "linear"}])
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+
+    params = _prepare_launch(context, "read_only", "sandbox-id")
+
+    assert params.mcp_configs == [posthog_config]
+    assert params.relayed_mcp_servers == []
+    expected_scopes = [*PULSE_ANALYSIS_SCOPES, "pulse_experiment_draft:write"]
+    create_token.assert_called_once_with(task, context.state, scopes=expected_scopes)
+    assert get_posthog_configs.call_args.kwargs["scopes"] == expected_scopes
+    get_user_mcp_configs.assert_not_called()
+    get_imported_configs.assert_not_called()
 
 
 @pytest.mark.django_db

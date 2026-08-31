@@ -884,6 +884,7 @@ class DockerSandbox(SandboxBase):
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
         peer_messaging: bool = False,
+        disable_web_tools: bool = False,
         posthog_exec_permission_regex: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
@@ -921,6 +922,7 @@ class DockerSandbox(SandboxBase):
             if posthog_exec_permission_regex
             else ""
         )
+        disable_web_tools_flag = " --disableWebTools true" if disable_web_tools else ""
         # Scope BASH_ENV to the agent-server process (not the container env) so only the
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
@@ -931,7 +933,7 @@ class DockerSandbox(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
+            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{disable_web_tools_flag}"
         )
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
@@ -1001,6 +1003,7 @@ class DockerSandbox(SandboxBase):
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         peer_messaging: bool = False,
+        credential_free_repository: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -1022,11 +1025,19 @@ class DockerSandbox(SandboxBase):
         # the (backend-refreshed) GitHub token from the env file per command, so
         # mid-session credential refreshes reach git/gh. Needed for both agentsh
         # and non-agentsh runs.
-        self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
-        self._install_gh_guard()
+        self.write_file(
+            BASH_ENV_SCRIPT,
+            generate_bash_env_script(credential_free_repository=credential_free_repository).encode(),
+        )
+        if not credential_free_repository:
+            self._install_gh_guard()
 
         if allowed_domains is not None:
-            self._setup_agentsh(WORKING_DIR, allowed_domains)
+            self._setup_agentsh(
+                WORKING_DIR,
+                allowed_domains,
+                credential_free_repository=credential_free_repository,
+            )
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -1040,7 +1051,17 @@ class DockerSandbox(SandboxBase):
         if agent_runtime == "pi" and not self.agent_server_supports_pi_runtime():
             raise RuntimeError("Installed sandbox agent-server does not support the Pi runtime")
 
-        if auto_publish and not self.agent_server_supports_auto_publish():
+        if credential_free_repository:
+            create_pr = False
+            auto_publish = False
+            if not self.credential_free_runtime_is_supported(agent_runtime, runtime_adapter):
+                raise RuntimeError("Credential-free repository sandboxes require the Claude runtime")
+            if (
+                not self.agent_server_supports_exec_permission_regex()
+                or not self.agent_server_supports_disable_web_tools()
+            ):
+                raise RuntimeError("Installed sandbox agent-server cannot prove credential-free policy compatibility")
+        elif auto_publish and not self.agent_server_supports_auto_publish():
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
             auto_publish = False
 
@@ -1079,6 +1100,7 @@ class DockerSandbox(SandboxBase):
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
             peer_messaging=peer_messaging,
+            disable_web_tools=credential_free_repository,
             posthog_exec_permission_regex=exec_permission_regex,
         )
 
@@ -1135,6 +1157,7 @@ class DockerSandbox(SandboxBase):
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
                 peer_messaging=peer_messaging,
+                disable_web_tools=credential_free_repository,
                 posthog_exec_permission_regex=exec_permission_regex,
             )
             if self._launch_and_check(command):
@@ -1169,7 +1192,13 @@ class DockerSandbox(SandboxBase):
     def mark_repo_ready(self, repo_ready_file: str) -> None:
         self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)
 
-    def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
+    def _setup_agentsh(
+        self,
+        workspace_path: str,
+        allowed_domains: list[str] | None = None,
+        *,
+        credential_free_repository: bool = False,
+    ) -> None:
         if allowed_domains is not None:
             logger.info(
                 "Configuring agentsh in Docker sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains)
@@ -1178,7 +1207,7 @@ class DockerSandbox(SandboxBase):
             logger.info("Configuring agentsh in Docker sandbox %s (allow-all mode)", self.id)
 
         config_yaml = generate_config_yaml(enable_ptrace=False)
-        policy_yaml = generate_policy_yaml(allowed_domains)
+        policy_yaml = generate_policy_yaml(allowed_domains, credential_free_repository=credential_free_repository)
 
         self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
         self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)

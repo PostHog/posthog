@@ -13,6 +13,22 @@ def _resolve_schema(schema: dict[str, Any], value: dict[str, Any]) -> dict[str, 
 
 
 class TestSubscriptionOpenApiContract:
+    def test_proactive_config_uses_a_write_schema_without_server_grants(self) -> None:
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+
+        response_config = _resolve_schema(
+            schema,
+            schema["components"]["schemas"]["Subscription"]["properties"]["proactive_config"]["allOf"][0],
+        )
+        assert "repository_grant_id" in response_config["properties"]
+
+        for component_name in ("SubscriptionWrite", "PatchedSubscriptionWrite"):
+            request_config = _resolve_schema(
+                schema,
+                schema["components"]["schemas"][component_name]["properties"]["proactive_config"]["allOf"][0],
+            )
+            assert "repository_grant_id" not in request_config["properties"]
+
     def test_ai_contexts_are_an_exact_bounded_union(self) -> None:
         schema = SchemaGenerator().get_schema(request=None, public=True)
 

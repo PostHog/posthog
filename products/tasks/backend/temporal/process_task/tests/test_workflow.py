@@ -1089,6 +1089,87 @@ class TestFollowupDeliveryFailureBookkeeping:
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    @pytest.mark.parametrize(
+        "publication_export_enabled, expected_events",
+        [(False, ["terminalize"]), (True, ["export", "terminalize"])],
+    )
+    async def test_versions_leased_staged_draft_export_before_terminal_status(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        publication_export_enabled: bool,
+        expected_events: list[str],
+    ) -> None:
+        events: list[str] = []
+
+        async def export(_sandbox_id: str) -> None:
+            events.append("export")
+
+        async def terminalize(*_args, **_kwargs) -> None:
+            events.append("terminalize")
+
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(
+            github_integration_id=123,
+            state={"staged_phase": "execution", "publication_lease_id": "lease-id"},
+        )
+        wf._task_completed = True
+        wf._completion_status = "completed"
+        monkeypatch.setattr(
+            process_task_workflow_module,
+            "_staged_draft_publication_export_enabled",
+            lambda: publication_export_enabled,
+        )
+        monkeypatch.setattr(wf, "_export_staged_draft_publication", export)
+        monkeypatch.setattr(wf, "_update_task_run_status", terminalize)
+
+        await wf._terminalize_after_agent_work("sandbox-id")
+
+        assert events == expected_events
+
+    async def test_does_not_export_normal_completed_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        events: list[str] = []
+
+        async def export(_sandbox_id: str) -> None:
+            events.append("export")
+
+        async def terminalize(*_args, **_kwargs) -> None:
+            events.append("terminalize")
+
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123)
+        wf._task_completed = True
+        wf._completion_status = "completed"
+        monkeypatch.setattr(wf, "_export_staged_draft_publication", export)
+        monkeypatch.setattr(wf, "_update_task_run_status", terminalize)
+
+        await wf._terminalize_after_agent_work("sandbox-id")
+
+        assert events == ["terminalize"]
+
+    async def test_export_failure_prevents_completed_terminalization(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        events: list[str] = []
+
+        async def export(_sandbox_id: str) -> None:
+            raise RuntimeError("gate policy unavailable")
+
+        async def terminalize(*_args, **_kwargs) -> None:
+            events.append("terminalize")
+
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(
+            github_integration_id=123,
+            state={"staged_phase": "execution", "publication_lease_id": "lease-id"},
+        )
+        wf._task_completed = True
+        wf._completion_status = "completed"
+        monkeypatch.setattr(wf, "_export_staged_draft_publication", export)
+        monkeypatch.setattr(wf, "_update_task_run_status", terminalize)
+
+        with pytest.raises(RuntimeError, match="gate policy unavailable"):
+            await wf._terminalize_after_agent_work("sandbox-id")
+
+        assert events == []
+
     def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
         # Research / repo-selection sessions run as SIGNAL_REPORT-origin tasks with
         # create_pr=False; scheduling the recheck for them would let the quota gate cancel
@@ -2579,6 +2660,7 @@ class TestProcessTaskWorkflowUnit:
     async def test_get_sandbox_for_repository_falls_back_to_fresh_sandbox_when_resume_injection_fails(
         self, monkeypatch, custom_image_name, expected_image_source, expected_image_source_label
     ):
+        monkeypatch.setattr(settings, "SANDBOX_PROVIDER", None)
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,

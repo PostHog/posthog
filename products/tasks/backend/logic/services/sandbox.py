@@ -342,6 +342,12 @@ class SandboxBase(ABC):
     @abstractmethod
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
+    def read_file_bytes(self, path: str, max_bytes: int) -> bytes:
+        """Read a bounded server-side file export when the provider supports it."""
+        if max_bytes < 0:
+            raise ValueError("max_bytes must not be negative")
+        raise NotImplementedError(f"Sandbox provider {self.__class__.__name__} cannot export files")
+
     def stop_agent_server(self) -> ExecutionResult:
         """Stop the agent server gracefully so it can flush terminal events."""
         return self.execute(
@@ -439,6 +445,14 @@ class SandboxBase(ABC):
             "grep -q posthogExecPermissionRegex /scripts/node_modules/.bin/agent-server", timeout_seconds=10
         )
         return result.exit_code == 0
+
+    def agent_server_supports_disable_web_tools(self) -> bool:
+        result = self.execute("grep -q disableWebTools /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
+        return result.exit_code == 0
+
+    @staticmethod
+    def credential_free_runtime_is_supported(agent_runtime: str | None, runtime_adapter: str | None) -> bool:
+        return agent_runtime != "pi" and runtime_adapter in (None, "claude")
 
     def agent_server_supports_pi_runtime(self) -> bool:
         result = self.execute(
@@ -547,6 +561,7 @@ class SandboxBase(ABC):
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         peer_messaging: bool = False,
+        credential_free_repository: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 

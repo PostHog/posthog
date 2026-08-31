@@ -1,13 +1,28 @@
+import uuid
 from datetime import timedelta
 
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
+from django.utils import timezone
+
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from products.tasks.backend.models import Loop, Task, TaskRun
+from posthog.models import Integration
+
+from products.tasks.backend.facade import api as tasks_api
+from products.tasks.backend.facade.contracts import (
+    AdvanceStagedTaskInput,
+    CapabilityManifestDTO,
+    CreateStagedTaskInput,
+    PublicationLeaseReservationDTO,
+    RepositoryBaseBindingDTO,
+    RepositoryGrantBindingDTO,
+)
+from products.tasks.backend.models import Loop, Task, TaskPublicationLease, TaskRun, TaskStagedRunTransition
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_INACTIVITY_STATE_KEY,
@@ -78,6 +93,21 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.error_message == error_msg
 
     @pytest.mark.django_db(transaction=True)
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.update_task_run_status."
+        "revoke_staged_capabilities_for_terminal_run"
+    )
+    def test_failed_run_revokes_staged_capabilities_before_workflow_cleanup(
+        self, revoke_staged_capabilities, activity_environment, test_task_run
+    ):
+        async_to_sync(activity_environment.run)(
+            update_task_run_status,
+            UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.FAILED),
+        )
+
+        revoke_staged_capabilities.assert_called_once_with(str(test_task_run.id))
+
+    @pytest.mark.django_db(transaction=True)
     def test_timed_out_inactivity_sets_state_marker_without_error_message(self, activity_environment, test_task_run):
         test_task_run.state = {**(test_task_run.state or {}), "existing_key": "kept"}
         test_task_run.save(update_fields=["state"])
@@ -95,6 +125,93 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.state.get("timed_out_inactivity") is True
         # Merge, not replace: pre-existing state keys survive the marker write.
         assert test_task_run.state.get("existing_key") == "kept"
+
+    @pytest.mark.django_db(transaction=True)
+    @override_settings(GITHUB_APP_SLUG="posthog")
+    @pytest.mark.parametrize(
+        "status,timed_out_inactivity,timeout_marker",
+        [
+            (TaskRun.Status.COMPLETED, True, None),
+            (TaskRun.Status.COMPLETED, False, TIMED_OUT_WALL_CLOCK_STATE_KEY),
+            (TaskRun.Status.FAILED, False, SANDBOX_GONE_STATE_KEY),
+        ],
+    )
+    def test_timeout_terminalization_revokes_staged_capability_once(
+        self, activity_environment, test_task_run, status, timed_out_inactivity, timeout_marker
+    ):
+        caller_id = uuid.uuid4()
+        github_integration = Integration.objects.create(
+            team_id=test_task_run.team_id,
+            kind=Integration.IntegrationKind.GITHUB,
+            integration_id="staged-installation-1",
+            config={"installation_id": "staged-installation-1"},
+            errors="",
+        )
+        created = tasks_api.create_staged_task(
+            CreateStagedTaskInput(
+                team_id=test_task_run.team_id,
+                caller_id=caller_id,
+                actor_id=test_task_run.task.created_by_id,
+                idempotency_key=f"staged-timeout-analysis-{timeout_marker or 'inactivity'}",
+                origin_product=Task.OriginProduct.WORKFLOW,
+                title="Staged timeout task",
+                description="Staged timeout task",
+                repository="posthog/posthog",
+                repository_grant=RepositoryGrantBindingDTO(
+                    repository="posthog/posthog",
+                    github_integration_id=github_integration.id,
+                    github_installation_id="staged-installation-1",
+                    grant_version="1",
+                ),
+                repository_base=RepositoryBaseBindingDTO(
+                    repository="posthog/posthog", base_sha="a" * 40, base_branch="main"
+                ),
+                analysis_manifest=CapabilityManifestDTO(version=1, phase="analysis", capabilities=("read",)),
+            )
+        )
+        source = TaskRun.objects.get(id=created.analysis_run_id)
+        source.state.update(snapshot_external_id="modal-analysis-snapshot", sandbox_backend="modal")
+        source.save(update_fields=["state"])
+        advanced = tasks_api.advance_staged_task(
+            AdvanceStagedTaskInput(
+                team_id=test_task_run.team_id,
+                caller_id=caller_id,
+                task_id=created.task_id,
+                source_run_id=source.id,
+                idempotency_key=f"staged-timeout-execution-{timeout_marker or 'inactivity'}",
+                execution_manifest=CapabilityManifestDTO(version=1, phase="execution", capabilities=("read",)),
+                reservation=PublicationLeaseReservationDTO(
+                    logical_artifact_key=f"staged-timeout-artifact-{timeout_marker or 'inactivity'}",
+                    action_key="staged-timeout",
+                    repository="posthog/posthog",
+                    base_sha="a" * 40,
+                    base_branch="main",
+                    commit_message="Create draft",
+                    pr_title="Draft",
+                    pr_body="",
+                    github_integration_id=github_integration.id,
+                    github_installation_id="staged-installation-1",
+                    grant_version="1",
+                    starts_before=timezone.now() + timedelta(minutes=4),
+                    expires_at=timezone.now() + timedelta(minutes=5),
+                ),
+            )
+        )
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(advanced.execution_run_id),
+            status=status,
+            timed_out_inactivity=timed_out_inactivity,
+            timeout_marker=timeout_marker,
+        )
+
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        assert advanced.publication_lease_id is not None
+        lease = TaskPublicationLease.objects.unscoped().get(id=advanced.publication_lease_id)
+        transition = TaskStagedRunTransition.objects.unscoped().get(id=advanced.transition_id)
+        assert lease.status == TaskPublicationLease.Status.REVOKED
+        assert transition.status == TaskStagedRunTransition.Status.CANCELLED
 
     @pytest.mark.django_db(transaction=True)
     def test_timed_out_unclaimed_prewarm_soft_deletes_task(

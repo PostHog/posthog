@@ -24,6 +24,7 @@ from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
     from posthog.models.user import User
 
 
@@ -111,6 +112,11 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
     """The requested insights that belong to this team, including soft-deleted rows."""
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
+
+
+def viewable_insight_ids_for_user(*, team: "Team", user: "User", insight_ids: Collection[int]) -> set[int]:
+    """The requested live insights this user can currently view, reduced to stable ids."""
+    return logic.viewable_insight_ids_for_user(team=team, user=user, insight_ids=insight_ids)
 
 
 def recent_viewers_by_insight(

@@ -40,11 +40,13 @@ from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExcee
 from products.exports.backend.temporal.subscriptions.activities import (
     _resolve_exportable_insights,
     advance_next_delivery_date,
+    build_scheduled_proactive_snapshot_manifest,
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    load_scheduled_proactive_snapshot,
     notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -170,6 +172,8 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
         fetch_due_subscriptions_activity,
+        build_scheduled_proactive_snapshot_manifest,
+        load_scheduled_proactive_snapshot,
         create_delivery_record,
         validate_subscription_for_delivery,
         create_export_assets,
@@ -204,20 +208,22 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
 async def subscriptions_worker(temporal_client: Client):
     """Spin up a Temporal worker for subscription workflows/activities."""
 
-    async with Worker(
-        temporal_client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
-        workflows=[
-            ScheduleAllSubscriptionsWorkflow,
-            HandleSubscriptionValueChangeWorkflow,
-            ProcessSubscriptionWorkflow,
-            ProcessAISubscriptionWorkflow,
-        ],
-        activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
-        interceptors=[SloInterceptor()],
-        workflow_runner=UnsandboxedWorkflowRunner(),
-    ):
-        yield  # allow the test to run while the worker is active
+    with ThreadPoolExecutor(max_workers=50) as activity_executor:
+        async with Worker(
+            temporal_client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[
+                ScheduleAllSubscriptionsWorkflow,
+                HandleSubscriptionValueChangeWorkflow,
+                ProcessSubscriptionWorkflow,
+                ProcessAISubscriptionWorkflow,
+            ],
+            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=activity_executor,
+        ):
+            yield  # allow the test to run while the worker is active
 
 
 @patch("posthog.temporal.exports.activities.exporter")

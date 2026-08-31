@@ -1,6 +1,7 @@
 import uuid
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import asdict
 from typing import Any, ClassVar, Optional
 
 from django.conf import settings
@@ -74,6 +75,8 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade import pulse as proactive_pulse
+from products.subscriptions.backend.facade.contracts import ProactiveConfigInput
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
@@ -150,6 +153,51 @@ _DELIVERY_TARGETS = _TargetLookups(
     dashboards=Dashboard.objects_including_soft_deleted,
     tiles=DashboardTile.objects_including_soft_deleted,
 )
+
+
+class ProactiveSubscriptionConfigWriteSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether future AI report deliveries may run proactive follow-up.",
+    )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        max_length=255,
+        help_text="Exact repository in owner/repository format. Required before draft pull requests are allowed.",
+    )
+    repository_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="Exact GitHub integration selected with the repository for draft pull request authorization.",
+    )
+    create_draft_pr = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether Pulse may create one draft pull request on a future delivery.",
+    )
+    public_research_subject_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Optional eligible reviewed public research subject. Omit to disable public research.",
+    )
+
+    def to_internal_value(self, data: Mapping[str, Any]) -> dict[str, Any]:
+        unknown_fields = sorted(set(data) - set(self.fields))
+        if unknown_fields:
+            raise serializers.ValidationError({field: ["This field is not allowed."] for field in unknown_fields})
+        return super().to_internal_value(data)
+
+
+class ProactiveSubscriptionConfigSerializer(ProactiveSubscriptionConfigWriteSerializer):
+    repository_grant_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Server-issued active repository grant for the selected repository. It cannot be chosen by clients.",
+    )
 
 
 def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
@@ -390,6 +438,11 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             f"list to clear, or pass up to {MAX_AI_SUBSCRIPTION_CONTEXTS} items to replace all contexts."
         ),
     )
+    proactive_config: serializers.Field = ProactiveSubscriptionConfigWriteSerializer(
+        required=False,
+        write_only=True,
+        help_text="Optional standing consent and limits for proactive follow-up on future AI report deliveries.",
+    )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
     resource_type = serializers.ChoiceField(
@@ -416,6 +469,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             "prompt",
             "ai_prompt_config",
             "contexts",
+            "proactive_config",
             "target_type",
             "target_value",
             "frequency",
@@ -560,6 +614,10 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         if "contexts" not in representation:
             representation["contexts"] = self._context_representation(instance)
+        if "proactive_config" not in representation:
+            representation["proactive_config"] = asdict(
+                proactive_pulse.get_proactive_config(team_id=instance.team_id, subscription_id=instance.id)
+            )
         return representation
 
     def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
@@ -700,6 +758,18 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             if resource_type != Subscription.ResourceType.AI_PROMPT:
                 raise ValidationError({"contexts": ["Context only applies to AI subscriptions."]})
             attrs["contexts"] = self._validate_contexts(attrs["contexts"])
+        proactive_config = attrs.get("proactive_config")
+        if proactive_config is not None:
+            proactive_input = ProactiveConfigInput(**proactive_config)
+            proactive_errors = proactive_pulse.validate_proactive_config(
+                team_id=self.context["team_id"],
+                subscription_id=existing.id if existing is not None else None,
+                current_user_id=self.context["request"].user.id,
+                resource_type=resource_type,
+                config=proactive_input,
+            )
+            if proactive_errors:
+                raise ValidationError({"proactive_config": proactive_errors})
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
@@ -1029,10 +1099,19 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         send_test_now = validated_data.pop("send_test_now", True)
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         contexts = validated_data.pop("contexts", [])
+        proactive_config_data = validated_data.pop("proactive_config", None)
         with transaction.atomic():
             with attribute_subscription_saves(get_request_analytics_properties(request)):
                 instance: Subscription = super().create(validated_data)
             self._replace_contexts(instance, contexts)
+            if proactive_config_data is not None:
+                proactive_pulse.configure_proactive_subscription(
+                    team_id=instance.team_id,
+                    subscription_id=instance.id,
+                    current_user_id=request.user.id,
+                    resource_type=instance.resource_type,
+                    config=ProactiveConfigInput(**proactive_config_data),
+                )
 
         # Bust the org-wide active-summary count cache so the next quota
         # fetch reflects this row, regardless of summary_enabled — over-busting
@@ -1108,6 +1187,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         contexts_in_payload = "contexts" in validated_data
         contexts = validated_data.pop("contexts", [])
+        proactive_config_data = validated_data.pop("proactive_config", None)
         new_context_identifiers = self._context_identifiers(contexts) if contexts_in_payload else None
         contexts_changed = False
         analytics_props = get_request_analytics_properties(request)
@@ -1147,6 +1227,14 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                         self._replace_contexts(instance, contexts)
                         instance.ai_query_plan = None
                         instance.save(update_fields=["ai_query_plan"])
+                    if proactive_config_data is not None:
+                        proactive_pulse.configure_proactive_subscription(
+                            team_id=instance.team_id,
+                            subscription_id=instance.id,
+                            current_user_id=request.user.id,
+                            resource_type=instance.resource_type,
+                            config=ProactiveConfigInput(**proactive_config_data),
+                        )
             _invalidate_summary_quota_cache(instance.team.organization_id)
             return instance
 
@@ -1160,6 +1248,14 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 self._replace_contexts(instance, contexts)
                 instance.ai_query_plan = None
                 instance.save(update_fields=["ai_query_plan"])
+            if proactive_config_data is not None:
+                proactive_pulse.configure_proactive_subscription(
+                    team_id=instance.team_id,
+                    subscription_id=instance.id,
+                    current_user_id=request.user.id,
+                    resource_type=instance.resource_type,
+                    config=ProactiveConfigInput(**proactive_config_data),
+                )
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
         # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
@@ -1251,10 +1347,17 @@ class SubscriptionSerializer(SubscriptionWriteSerializer):
     contexts: serializers.Field = serializers.SerializerMethodField(
         help_text="Dashboards and insights that ground this AI report. Deleted resources are omitted."
     )
+    proactive_config: serializers.Field = serializers.SerializerMethodField(
+        help_text="Standing proactive follow-up configuration for future AI report deliveries."
+    )
 
     @extend_schema_field(SUBSCRIPTION_CONTEXT_READ_SCHEMA)
     def get_contexts(self, obj: Subscription) -> list[dict[str, str | int]]:
         return self._context_representation(obj)
+
+    @extend_schema_field(ProactiveSubscriptionConfigSerializer)
+    def get_proactive_config(self, obj: Subscription) -> dict[str, object]:
+        return asdict(proactive_pulse.get_proactive_config(team_id=obj.team_id, subscription_id=obj.id))
 
 
 def _blocked_target_ids(

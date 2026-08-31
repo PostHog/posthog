@@ -66,6 +66,21 @@ class TestRefreshSandboxCredentialsActivity:
         assert event_name == "sandbox_credentials_refreshed"
         assert track_event.call_args.kwargs["properties"]["refreshed_kinds"] == ["github"]
 
+    def test_credential_free_repository_never_reads_or_refreshes_credentials(self, activity_environment, task_context):
+        credential_free_context = dataclasses.replace(task_context, credential_free_repository=True)
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Task.objects.select_related"
+        ) as task_query:
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=credential_free_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert output.no_credentials_left is True
+        assert output.refreshed_kinds == []
+        task_query.assert_not_called()
+
     def test_stops_refreshing_after_task_handoff(self, activity_environment, task_context, test_task, sandbox):
         test_task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: "new-owner"}
         test_task.save(update_fields=["state", "updated_at"])

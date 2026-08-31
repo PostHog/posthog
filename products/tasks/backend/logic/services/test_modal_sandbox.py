@@ -9,6 +9,7 @@ from products.tasks.backend.constants import (
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
 )
+from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
     LOCAL_MODAL_AGENT_SHADOW_DIR,
@@ -30,6 +31,32 @@ from products.tasks.backend.logic.services.sandbox import (
     workload_for_origin_product,
 )
 from products.tasks.backend.models import Task
+
+
+def _modal_sandbox_for_export(mocker) -> tuple[ModalSandbox, MagicMock]:
+    handle = MagicMock(object_id="sb-test")
+    handle.poll.return_value = None
+    mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+    return ModalSandbox(handle, SandboxConfig(name="test")), handle
+
+
+def test_bounded_export_reads_only_through_the_provider_file_handle(mocker) -> None:
+    sandbox, handle = _modal_sandbox_for_export(mocker)
+    handle.open.return_value.read.return_value = b"x"
+
+    assert sandbox.read_file_bytes("/tmp/tasks-draft-publications/export.bundle", 10) == b"x"
+
+    handle.open.return_value.close.assert_called_once_with()
+
+
+def test_bounded_export_rejects_a_short_read_size_race(mocker) -> None:
+    sandbox, handle = _modal_sandbox_for_export(mocker)
+    handle.open.return_value.read.return_value = b"x" * 11
+
+    with pytest.raises(SandboxExecutionError, match="exceeds the byte limit"):
+        sandbox.read_file_bytes("/tmp/tasks-draft-publications/export.bundle", 10)
+
+    handle.open.return_value.close.assert_called_once_with()
 
 
 def test_destroy_updates_status_before_modal_termination_settles(mocker):

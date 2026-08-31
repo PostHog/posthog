@@ -120,6 +120,7 @@ class TestGitHubPRWebhook(TestCase):
             "pull_request": {
                 "html_url": "https://github.com/posthog/posthog/pull/123",
                 "merged": True,
+                "merged_at": "2026-08-30T10:00:00Z",
             },
         }
 
@@ -138,6 +139,14 @@ class TestGitHubPRWebhook(TestCase):
         self.task_run.refresh_from_db()
         assert self.task_run.output is not None
         self.assertIs(self.task_run.output.get("pr_merged"), True)
+        self.assertEqual(
+            self.task_run.output.get("webhook_pr_lifecycle"),
+            {
+                "pr_url": "https://github.com/posthog/posthog/pull/123",
+                "state": "merged",
+                "changed_at": "2026-08-30T10:00:00+00:00",
+            },
+        )
 
     @parameterized.expand(
         [

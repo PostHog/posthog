@@ -9,6 +9,7 @@ import {
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
+import { getPulseToolManifest } from '@/lib/pulse-tool-manifest'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
@@ -198,8 +199,6 @@ export class RequestStateResolver {
         // `render-ui` is only meaningful for MCP Apps hosts (Claude web/desktop) that can
         // mount its iframe. Single-exec CLI clients like Claude Code can't mount it, so the
         // tool's advertisement and execution stay gated on the UI-host check.
-        const renderUiEnabled = clientProfile.isClaudeUiHost()
-
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,
             clientProfile,
@@ -210,6 +209,7 @@ export class RequestStateResolver {
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
+        const pulseToolManifest = getPulseToolManifest(apiKeyScopes)
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
         const availableFeatures = await context.stateManager.getAvailableFeatures()
         const isCloud = isCloudApi()
@@ -232,14 +232,22 @@ export class RequestStateResolver {
         }
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
-        const allTools = await filterStaffOnlyTools(
+        const catalogTools = await filterStaffOnlyTools(
             this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
             _apiKey ?? { scopes: [] },
             () => context.stateManager.getUser()
         )
+        // The scoped OAuth posture only selects this manifest. The final name filter is the
+        // authorization boundary that denies future tools sharing an existing Pulse scope.
+        const pulseToolNames = pulseToolManifest ? new Set<string>(pulseToolManifest) : undefined
+        const allTools = pulseToolManifest
+            ? catalogTools.filter((tool) => pulseToolNames?.has(tool.name))
+            : catalogTools
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
-        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        const scopeGatedTools =
+            useSingleExec && !pulseToolManifest ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        const renderUiEnabled = clientProfile.isClaudeUiHost() && !pulseToolManifest
 
         const [groupTypes, metadata, metadataCompact] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
@@ -265,7 +273,8 @@ export class RequestStateResolver {
                 useSingleExec &&
                 !readOnly &&
                 mergedFlags[MCP_GATEWAY_FLAG] === true &&
-                !mountsGatewayServersDirectly(props.taskOriginProduct),
+                !mountsGatewayServersDirectly(props.taskOriginProduct) &&
+                !pulseToolManifest,
             distinctId,
             renderUiEnabled,
             metadata,

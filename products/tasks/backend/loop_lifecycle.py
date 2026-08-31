@@ -17,6 +17,7 @@ from django.utils import timezone as django_timezone
 
 from posthog.models.integration import Integration
 
+from products.tasks.backend.logic.services.staged_task_runs import terminalize_staged_task_run
 from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
 from products.tasks.backend.models import Loop, LoopTrigger, Task, TaskRun
@@ -102,7 +103,10 @@ def _cancel_loop_runs_authored_by(user_id: int, *, organization_id: str | None =
     runs = list(queryset)
     if not runs:
         return
-    TaskRun.objects.filter(id__in=[run.id for run in runs]).update(
+    staged_run_ids = {
+        run.id for run in runs if terminalize_staged_task_run(str(run.id), status=TaskRun.Status.CANCELLED)
+    }
+    TaskRun.objects.filter(id__in=[run.id for run in runs if run.id not in staged_run_ids]).update(
         status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now
     )
     for run in runs:
@@ -145,7 +149,10 @@ def _cancel_loop_runs(loop: Loop) -> int:
     )
     if not runs:
         return 0
-    TaskRun.objects.filter(id__in=[run.id for run in runs]).update(
+    staged_run_ids = {
+        run.id for run in runs if terminalize_staged_task_run(str(run.id), status=TaskRun.Status.CANCELLED)
+    }
+    TaskRun.objects.filter(id__in=[run.id for run in runs if run.id not in staged_run_ids]).update(
         status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now
     )
     # Cancelling the DB row isn't enough: signal each workflow so the live sandbox actually winds

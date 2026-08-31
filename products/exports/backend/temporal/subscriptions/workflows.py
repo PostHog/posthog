@@ -3,7 +3,10 @@ import uuid
 import asyncio
 import datetime as dt
 from collections.abc import Callable, Coroutine
+from dataclasses import asdict, replace
 from typing import Any
+
+from django.conf import settings
 
 import temporalio.common
 import temporalio.workflow
@@ -24,11 +27,13 @@ from posthog.temporal.exports.types import (
 from products.exports.backend.tasks.failure_handler import is_user_query_error_type
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    build_scheduled_proactive_snapshot_manifest,
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    load_scheduled_proactive_snapshot,
     notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -42,6 +47,7 @@ from products.exports.backend.temporal.subscriptions.retry_policy import (
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
+    BuildScheduledProactiveSnapshotManifestInputs,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -51,6 +57,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
+    LoadScheduledProactiveSnapshotInputs,
     NoExportableInsightsErrorDetails,
     ProcessSubscriptionWorkflowInputs,
     RecipientResult,
@@ -60,6 +67,146 @@ from products.exports.backend.temporal.subscriptions.types import (
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
 )
+from products.subscriptions.backend.facade.contracts import (
+    PulseDeliveryBundleInput,
+    PulseStartInput,
+    PulseWorkflowInput,
+    PulseWorkflowResult,
+)
+from products.subscriptions.backend.facade.temporal import (
+    PULSE_WORKFLOW_RUN,
+    await_existing_pulse_workflow_result,
+    prepare_pulse_delivery_bundle,
+    prepare_pulse_workflow,
+    record_pulse_delivery_bundle_preparation_failure,
+    record_pulse_parent_failure,
+)
+
+
+def tracked_subscription_child_input(
+    tracked: TrackedSubscriptionInputs,
+) -> TrackedSubscriptionInputs | dict[str, object]:
+    if tracked.proactive_snapshot is not None or tracked.proactive_snapshot_manifest_ref is not None:
+        return tracked
+    legacy_input = asdict(tracked)
+    legacy_input.pop("proactive_snapshot", None)
+    legacy_input.pop("proactive_snapshot_manifest_ref", None)
+    return legacy_input
+
+
+def delivery_subscription_activity_input(
+    delivery: DeliverSubscriptionInputs,
+) -> DeliverSubscriptionInputs | dict[str, object]:
+    if delivery.pulse_delivery_ledger_id is not None:
+        return delivery
+    legacy_input = asdict(delivery)
+    legacy_input.pop("pulse_delivery_ledger_id", None)
+    return legacy_input
+
+
+async def run_pulse_before_delivery(
+    inputs: TrackedSubscriptionInputs, delivery_id: uuid.UUID
+) -> PulseWorkflowResult | None:
+    snapshot = inputs.proactive_snapshot
+    if snapshot is None or not snapshot.enabled:
+        return None
+    start_input = PulseStartInput(
+        team_id=inputs.team_id,
+        subscription_id=inputs.subscription_id,
+        delivery_id=delivery_id,
+        report_snapshot_ref=f"subscription-delivery:{delivery_id}",
+        proactive_snapshot=snapshot,
+    )
+    pulse_input: PulseWorkflowInput | None = None
+    try:
+        pulse_input = await temporalio.workflow.execute_activity(
+            prepare_pulse_workflow,
+            start_input,
+            task_queue=settings.PULSE_TASK_QUEUE,
+            start_to_close_timeout=dt.timedelta(minutes=2),
+            retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+        )
+        if pulse_input is None:
+            raise ApplicationError("Enabled Pulse delivery has no durable run.", non_retryable=True)
+        remaining = pulse_input.deadline - temporalio.workflow.now()
+        timeout = dt.timedelta(seconds=max(1, int(remaining.total_seconds())))
+        return await temporalio.workflow.execute_child_workflow(
+            PULSE_WORKFLOW_RUN,
+            pulse_input,
+            id=f"pulse:{inputs.subscription_id}:{delivery_id}",
+            parent_close_policy=temporalio.workflow.ParentClosePolicy.REQUEST_CANCEL,
+            execution_timeout=timeout,
+            id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            task_queue=settings.PULSE_TASK_QUEUE,
+        )
+    except WorkflowAlreadyStartedError:
+        try:
+            result = await temporalio.workflow.execute_activity(
+                await_existing_pulse_workflow_result,
+                start_input,
+                task_queue=settings.PULSE_TASK_QUEUE,
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+            )
+        except Exception:
+            result = None
+        if result is not None:
+            return result
+        return await _record_pulse_failure_result(
+            inputs=inputs,
+            start_input=start_input,
+            pulse_input=pulse_input,
+        )
+    except Exception:
+        return await _record_pulse_failure_result(inputs=inputs, start_input=start_input, pulse_input=pulse_input)
+
+
+async def _record_pulse_failure_result(
+    *,
+    inputs: TrackedSubscriptionInputs,
+    start_input: PulseStartInput,
+    pulse_input: PulseWorkflowInput | None,
+) -> PulseWorkflowResult:
+    try:
+        await temporalio.workflow.execute_activity(
+            record_pulse_parent_failure,
+            args=[start_input, "pulse_child_failed"],
+            task_queue=settings.PULSE_TASK_QUEUE,
+            start_to_close_timeout=dt.timedelta(minutes=2),
+            retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+        )
+        result = await temporalio.workflow.execute_activity(
+            await_existing_pulse_workflow_result,
+            start_input,
+            task_queue=settings.PULSE_TASK_QUEUE,
+            start_to_close_timeout=dt.timedelta(minutes=2),
+            retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+        )
+        if result is None:
+            raise ApplicationError("Enabled Pulse delivery has no terminal bundle.", non_retryable=True)
+        return result
+    except Exception:
+        temporalio.workflow.logger.exception(
+            "process_subscription.pulse_failure_recording_failed",
+            extra={"subscription_id": inputs.subscription_id, "delivery_id": str(start_input.delivery_id)},
+        )
+        if pulse_input is None:
+            fallback_run_id = uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"posthog:pulse:{inputs.team_id}:{inputs.subscription_id}:{start_input.delivery_id}",
+            )
+            return PulseWorkflowResult(
+                pulse_run_id=fallback_run_id,
+                status="failed",
+                result_ref=f"subscriptions/pulse/runs/{fallback_run_id}",
+                failure_code="pulse_child_failed",
+            )
+        return PulseWorkflowResult(
+            pulse_run_id=pulse_input.pulse_run_id,
+            status="failed",
+            result_ref=f"subscriptions/pulse/runs/{pulse_input.pulse_run_id}",
+            failure_code="pulse_child_failed",
+        )
 
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
@@ -127,6 +274,27 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             ),
         )
 
+        proactive_snapshot_manifest_ref: str | None = None
+        if temporalio.workflow.patched("subscription-scheduled-proactive-manifest-2026-08"):
+            ai_subscription_ids = [
+                subscription.subscription_id
+                for subscription in subscription_infos
+                if subscription.resource_type == AI_PROMPT_RESOURCE_TYPE
+            ]
+            if ai_subscription_ids:
+                try:
+                    proactive_snapshot_manifest_ref = await temporalio.workflow.execute_activity(
+                        build_scheduled_proactive_snapshot_manifest,
+                        BuildScheduledProactiveSnapshotManifestInputs(subscription_ids=ai_subscription_ids),
+                        start_to_close_timeout=dt.timedelta(minutes=10),
+                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "schedule_all_subscriptions.proactive_snapshot_manifest_failed",
+                        extra={"subscription_count": len(ai_subscription_ids)},
+                    )
+
         # Fan-out child workflows — one per subscription, fully isolated.
         # Deterministic ID (no run_id suffix) prevents duplicate deliveries when
         # schedule runs overlap: Temporal guarantees no two open workflows can
@@ -140,6 +308,10 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                 trigger_type=SubscriptionTriggerType.SCHEDULED,
                 scheduled_at=sub.next_delivery_date,
                 resource_type=sub.resource_type,
+                proactive_snapshot=sub.proactive_snapshot,
+                proactive_snapshot_manifest_ref=(
+                    proactive_snapshot_manifest_ref if sub.resource_type == AI_PROMPT_RESOURCE_TYPE else None
+                ),
                 slo=SloConfig(
                     operation=SloOperation.SUBSCRIPTION_DELIVERY,
                     area=SloArea.ANALYTIC_PLATFORM,
@@ -165,9 +337,10 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             else:
                 workflow = ProcessSubscriptionWorkflow.run
                 child_id = f"process-subscription-{sub.subscription_id}"
+            child_input: Any = tracked_subscription_child_input(tracked)
             task = temporalio.workflow.execute_child_workflow(
                 workflow,
-                tracked,
+                child_input,
                 id=child_id,
                 parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 execution_timeout=dt.timedelta(hours=2),
@@ -399,8 +572,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 if temporalio.workflow.patched("subscription-delivery-campaign-v2")
                 else deliver_subscription
             )
-            deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
-                delivery_activity,
+            delivery_input: Any = delivery_subscription_activity_input(
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
                     exported_asset_ids=delivery_asset_ids,
@@ -415,7 +587,11 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     change_summary=change_summary,
                     summary_skipped_over_budget=summary_skipped_over_budget,
                     delivery_id=delivery_id,
-                ),
+                )
+            )
+            deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
+                delivery_activity,
+                delivery_input,
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
             )
@@ -542,6 +718,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: TrackedSubscriptionInputs) -> None:
         delivery_id: uuid.UUID | None = None
+        proactive_snapshot = inputs.proactive_snapshot
         final_status = DeliveryStatus.SKIPPED
         delivery_recipient_results: list[dict] = []
         caught_error: BaseException | None = None
@@ -581,6 +758,29 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     final_status = DeliveryStatus.FAILED
                 return
 
+            if (
+                proactive_snapshot is None
+                and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
+                and inputs.proactive_snapshot_manifest_ref is not None
+                and temporalio.workflow.patched("subscription-ai-proactive-manifest-in-child-2026-08")
+            ):
+                try:
+                    proactive_snapshot = await temporalio.workflow.execute_activity(
+                        load_scheduled_proactive_snapshot,
+                        LoadScheduledProactiveSnapshotInputs(
+                            manifest_ref=inputs.proactive_snapshot_manifest_ref,
+                            team_id=inputs.team_id,
+                            subscription_id=inputs.subscription_id,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=1),
+                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "process_ai_subscription.proactive_snapshot_manifest_load_failed",
+                        extra={"subscription_id": inputs.subscription_id},
+                    )
+
             # Phase 1: generate the report. Consent is gated inside, before any LLM cost.
             # The markdown is persisted onto the delivery row (read back by delivery),
             # never returned on the wire — it can exceed Temporal's ~2 MiB payload cap.
@@ -609,14 +809,50 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 final_status = DeliveryStatus.SKIPPED
                 return
 
+            pulse_delivery_ledger_id: uuid.UUID | None = None
+            if delivery_id is not None:
+                pulse_result = await run_pulse_before_delivery(
+                    replace(inputs, proactive_snapshot=proactive_snapshot), delivery_id
+                )
+                if pulse_result is not None:
+                    bundle_input = PulseDeliveryBundleInput(
+                        team_id=inputs.team_id,
+                        pulse_run_id=pulse_result.pulse_run_id,
+                        destination=generate_result.target_type,
+                        failure_code=pulse_result.failure_code,
+                        subscription_id=inputs.subscription_id,
+                        delivery_id=delivery_id,
+                        report_snapshot_ref=f"subscription-delivery:{delivery_id}",
+                        config_snapshot_ref=(
+                            proactive_snapshot.config_snapshot_ref if proactive_snapshot is not None else None
+                        ),
+                    )
+                    try:
+                        bundle = await temporalio.workflow.execute_activity(
+                            prepare_pulse_delivery_bundle,
+                            bundle_input,
+                            task_queue=settings.PULSE_TASK_QUEUE,
+                            start_to_close_timeout=dt.timedelta(minutes=2),
+                            retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                        )
+                        pulse_delivery_ledger_id = bundle.ledger_id
+                    except Exception:
+                        bundle = await temporalio.workflow.execute_activity(
+                            record_pulse_delivery_bundle_preparation_failure,
+                            bundle_input,
+                            task_queue=settings.PULSE_TASK_QUEUE,
+                            start_to_close_timeout=dt.timedelta(minutes=2),
+                            retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                        )
+                        pulse_delivery_ledger_id = bundle.ledger_id
+
             # Phase 2: ship the persisted report.
             delivery_activity = (
                 deliver_subscription_v2
                 if temporalio.workflow.patched("subscription-delivery-campaign-v2")
                 else deliver_subscription
             )
-            deliver_result = await temporalio.workflow.execute_activity(
-                delivery_activity,
+            delivery_input: Any = delivery_subscription_activity_input(
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
                     exported_asset_ids=[],
@@ -629,7 +865,12 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     ),
                     invite_message=inputs.invite_message,
                     delivery_id=delivery_id,
-                ),
+                    pulse_delivery_ledger_id=pulse_delivery_ledger_id,
+                )
+            )
+            deliver_result = await temporalio.workflow.execute_activity(
+                delivery_activity,
+                delivery_input,
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
             )
@@ -745,6 +986,7 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
             invite_message=inputs.invite_message,
             trigger_type=inputs.trigger_type,
             resource_type=inputs.resource_type,
+            proactive_snapshot=inputs.proactive_snapshot,
             slo=SloConfig(
                 operation=SloOperation.SUBSCRIPTION_DELIVERY,
                 area=SloArea.ANALYTIC_PLATFORM,
@@ -770,9 +1012,10 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
         else:
             child_workflow = ProcessSubscriptionWorkflow.run
             child_id = f"process-subscription-{inputs.trigger_type}-{inputs.subscription_id}"
+        child_input: Any = tracked_subscription_child_input(tracked)
         await temporalio.workflow.execute_child_workflow(
             child_workflow,
-            tracked,
+            child_input,
             id=child_id,
             parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
             execution_timeout=dt.timedelta(hours=2),

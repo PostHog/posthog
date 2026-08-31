@@ -3,11 +3,39 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
-from posthog.temporal.oauth import PosthogMcpScopes
+from posthog.temporal.oauth import PULSE_ANALYSIS_SCOPES, PosthogMcpScopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, MCPBuiltInAgentKey, Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_oauth_access_token_for_run
+from products.tasks.backend.temporal.oauth import (
+    create_oauth_access_token,
+    create_oauth_access_token_for_run,
+    is_pulse_mcp_scope_posture,
+    resolve_task_run_mcp_scopes,
+)
+
+
+def test_pulse_scope_posture_requires_the_private_exact_manifest() -> None:
+    assert is_pulse_mcp_scope_posture("pulse_analysis")
+    assert is_pulse_mcp_scope_posture([*PULSE_ANALYSIS_SCOPES, "pulse_experiment_draft:write"])
+    assert not is_pulse_mcp_scope_posture(list(PULSE_ANALYSIS_SCOPES[:-1]))
+    assert not is_pulse_mcp_scope_posture([*PULSE_ANALYSIS_SCOPES, "task:write"])
+
+
+def test_pulse_execution_state_derives_the_exact_private_scope_posture() -> None:
+    state = {
+        "staged_manifest": {
+            "version": 1,
+            "phase": "execution",
+            "capabilities": ["read", "experiment_draft"],
+        }
+    }
+
+    assert resolve_task_run_mcp_scopes("read_only", state) == [
+        *PULSE_ANALYSIS_SCOPES,
+        "pulse_experiment_draft:write",
+    ]
+    assert resolve_task_run_mcp_scopes("read_only", {"staged_manifest": {"phase": "execution"}}) == "read_only"
 
 
 @pytest.mark.parametrize(

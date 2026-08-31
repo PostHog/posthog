@@ -11,12 +11,74 @@ import {
     SubscriptionsListQueryParams,
     SubscriptionsPartialUpdateBody,
     SubscriptionsPartialUpdateParams,
+    SubscriptionsPulseExperimentDraftsCreateBody,
+    SubscriptionsPulseOutcomeReplaysRetrieveParams,
     SubscriptionsRetrieveParams,
     SubscriptionsTestDeliveryCreateParams,
 } from '@/generated/subscriptions/api'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const ExperimentPulseDraftCreateSchema = SubscriptionsPulseExperimentDraftsCreateBody
+
+const experimentPulseDraftCreate = (): ToolBase<
+    typeof ExperimentPulseDraftCreateSchema,
+    Schemas.PulseExperimentDraftResponse
+> => ({
+    name: 'experiment-pulse-draft-create',
+    schema: ExperimentPulseDraftCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentPulseDraftCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.hypothesis !== undefined) {
+            body['hypothesis'] = params.hypothesis
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.target_description !== undefined) {
+            body['target_description'] = params.target_description
+        }
+        if (params.variants !== undefined) {
+            body['variants'] = params.variants
+        }
+        if (params.primary_metric !== undefined) {
+            body['primary_metric'] = params.primary_metric
+        }
+        if (params.secondary_metrics !== undefined) {
+            body['secondary_metrics'] = params.secondary_metrics
+        }
+        const result = await context.api.request<Schemas.PulseExperimentDraftResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/pulse/experiment-drafts/`,
+            body,
+        })
+        return result
+    },
+})
+
+const PulseOutcomeReplayGetSchema = SubscriptionsPulseOutcomeReplaysRetrieveParams.omit({ project_id: true }).extend({
+    id: SubscriptionsPulseOutcomeReplaysRetrieveParams.shape['id'].describe(
+        "Claimed outcome plan UUID from the current task's claimed_outcomes list."
+    ),
+})
+
+const pulseOutcomeReplayGet = (): ToolBase<typeof PulseOutcomeReplayGetSchema, Schemas.PulseOutcomeReplayResponse> => ({
+    name: 'pulse-outcome-replay-get',
+    schema: PulseOutcomeReplayGetSchema,
+    handler: async (context: Context, params: z.infer<typeof PulseOutcomeReplayGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PulseOutcomeReplayResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/pulse/outcome-replays/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
 
 const SubscriptionsCreateSchema = SubscriptionsCreateBody
 
@@ -40,6 +102,9 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         }
         if (params.ai_prompt_config !== undefined) {
             body['ai_prompt_config'] = params.ai_prompt_config
+        }
+        if (params.proactive_config !== undefined) {
+            body['proactive_config'] = params.proactive_config
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
@@ -244,6 +309,9 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         if (params.ai_prompt_config !== undefined) {
             body['ai_prompt_config'] = params.ai_prompt_config
         }
+        if (params.proactive_config !== undefined) {
+            body['proactive_config'] = params.proactive_config
+        }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
@@ -327,6 +395,8 @@ const subscriptionsTestDeliveryCreate = (): ToolBase<typeof SubscriptionsTestDel
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'experiment-pulse-draft-create': experimentPulseDraftCreate,
+    'pulse-outcome-replay-get': pulseOutcomeReplayGet,
     'subscriptions-create': subscriptionsCreate,
     'subscriptions-delete': subscriptionsDelete,
     'subscriptions-deliveries-list': subscriptionsDeliveriesList,
