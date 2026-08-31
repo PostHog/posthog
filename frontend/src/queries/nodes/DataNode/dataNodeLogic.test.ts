@@ -779,4 +779,22 @@ describe('dataNodeLogic', () => {
         logic.actions.loadData('force_blocking')
         await expectLogic(logic).toDispatchActions(['loadDataSuccess', 'loadTotalCount'])
     })
+
+    it('keeps the last good total count when a later refresh fails', async () => {
+        // A reload re-runs the count. A transient failure must not blank the header by nulling a
+        // count that already displayed correctly.
+        mockedQuery.mockResolvedValueOnce({ results: [[42]] })
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.ActorsQuery, select: ['id'] })
+
+        logic = dataNodeLogic({ key: testUniqueKey, query, autoLoad: false })
+        logic.mount()
+
+        logic.actions.loadTotalCount()
+        await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess']).toMatchValues({ totalCount: 42 })
+
+        // The next count query fails; the loader keeps the previous value instead of returning null.
+        mockedQuery.mockRejectedValueOnce(new Error('count query failed'))
+        logic.actions.loadTotalCount()
+        await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess']).toMatchValues({ totalCount: 42 })
+    })
 })

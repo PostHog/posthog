@@ -1396,7 +1396,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
                         posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
-                        return null
+                        // Keep the last good count so a transient failure does not blank the header.
+                        return values.totalCount
                     }
                 },
             },
@@ -1421,7 +1422,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             throw error
                         }
                         posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
-                        return null
+                        // Keep the last good count so a transient failure does not show "0 matched".
+                        return values.filteredCount
                     }
                 },
             },
