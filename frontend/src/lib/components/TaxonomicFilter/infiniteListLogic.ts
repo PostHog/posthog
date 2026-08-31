@@ -514,7 +514,7 @@ export interface infiniteListLogicMeta {
             recentFilterItems: TaxonomicDefinitionTypes[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             arg: ExcludedOperators | undefined,
-            arg2: import('lib/components/TaxonomicFilter/types').SelectingKeyOnly | undefined,
+            arg2: SelectingKeyOnly | undefined,
             arg3: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined
         ) => TaxonomicDefinitionTypes[]
         contextFilteredPinnedItems: (
