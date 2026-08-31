@@ -1497,7 +1497,9 @@ def team_api_test_factory():
                 organization_id=source_org.id, scope="Project", item_id=str(self.project.pk)
             )
             assert source_project_logs.count() == 1
-            assert source_project_logs.first().detail["name"] == "moved to another organization"
+            source_project_log = source_project_logs.get()
+            assert source_project_log.detail is not None
+            assert source_project_log.detail["name"] == "moved to another organization"
 
             # And one entry per environment that left, so the source org sees which ones moved
             source_team_logs = ActivityLog.objects.filter(
