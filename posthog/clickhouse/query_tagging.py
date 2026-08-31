@@ -48,6 +48,7 @@ def is_api_key_access_method(access_method: AccessMethod | str | None) -> bool:
 
 class Product(StrEnum):
     API = "api"
+    AUTORESEARCH = "autoresearch"
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
