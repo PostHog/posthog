@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { router } from 'kea-router'
 
-import { IconCheck, IconHide, IconUndo } from '@posthog/icons'
+import { IconHide, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -231,7 +231,17 @@ export function ReportCard({
                     )}
                     {outcomeLabel && (
                         <Tooltip title={report.dismissal_note || undefined}>
-                            <LemonTag size="small" icon={isResolved ? <IconCheck /> : <IconHide />}>
+                            <LemonTag
+                                size="small"
+                                icon={
+                                    <span
+                                        className={clsx(
+                                            'size-1.5 shrink-0 rounded-full',
+                                            isResolved ? 'bg-success' : 'bg-danger'
+                                        )}
+                                    />
+                                }
+                            >
                                 {outcomeLabel}
                             </LemonTag>
                         </Tooltip>
@@ -248,17 +258,7 @@ export function ReportCard({
     )
 
     return (
-        <div
-            className={clsx(
-                inboxCardRowClassName(attached, { dashed: !hasPr, success: isResolved }),
-                // Closed rows recede so open work stands out in the mixed flat list; hover restores
-                // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
-                // Resolved rows fade less and carry the success tint (see inboxCardRowClassName):
-                // finished work, not discarded work.
-                isDismissed && 'opacity-65 hover:opacity-100',
-                isResolved && 'opacity-80 hover:opacity-100'
-            )}
-        >
+        <div className={inboxCardRowClassName(attached, { dashed: !hasPr })}>
             <div className="relative flex min-w-0 flex-1">
                 {hasPr && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
