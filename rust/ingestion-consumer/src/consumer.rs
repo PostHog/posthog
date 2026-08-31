@@ -565,12 +565,12 @@ impl IngestionConsumer {
         } = pending;
 
         match pending.wait().await {
-            Ok(accepted) => {
+            Ok(outcome) => {
                 dispatcher.on_sub_batch_acked(&key_offsets);
                 // Credit before the resolve: the resolve may hand the batch's
                 // completion the all-clear, which must already see this
                 // acceptance in the ledger.
-                dispatcher.eager_flush_accepted(&batch_id, accepted);
+                dispatcher.eager_flush_accepted(&batch_id, outcome.accepted);
                 dispatcher.on_sub_batch_resolved(
                     &worker,
                     message_count,
@@ -755,7 +755,7 @@ impl IngestionConsumer {
 
             handles.push(tokio::spawn(async move {
                 match pending.wait().await {
-                    Ok(accepted) => {
+                    Ok(outcome) => {
                         // Advance ACK high-water marks before the resolve, which
                         // may evict the keys' sentinel state.
                         dispatcher.on_sub_batch_acked(&key_offsets);
@@ -767,7 +767,7 @@ impl IngestionConsumer {
                             false,
                         );
                         dispatcher.record_send_outcome(&worker, false);
-                        accepted
+                        outcome.accepted
                     }
                     Err(send_err) => {
                         // Re-defer the failed messages first, so the ref-count drop

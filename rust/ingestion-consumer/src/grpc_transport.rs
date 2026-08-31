@@ -57,14 +57,27 @@ use crate::transport::{
 };
 use crate::types::SerializedKafkaMessage;
 
-/// An acked chunk: the worker's accepted count, with the messages handed
-/// back so a split send can reassemble the whole sub-batch on failure.
+/// An acked chunk: the worker's accepted count and timed-out indices
+/// (chunk-local, in send order), with the messages handed back so a split
+/// send can reassemble the whole sub-batch on failure.
 struct Accepted {
     accepted: u32,
+    timed_out: Vec<u32>,
     messages: Vec<SerializedKafkaMessage>,
 }
 
 type StreamReply = Result<Accepted, SendError>;
+
+/// Resolution of a send whose ack arrived. `accepted` counts the messages
+/// the worker processed and acked. On a partial ack, `timed_out` carries the
+/// messages the worker's budget cut off and `completed` the acked remainder,
+/// both in send order; on a full ack both are empty.
+#[derive(Debug)]
+pub struct SendOutcome {
+    pub accepted: u32,
+    pub completed: Vec<SerializedKafkaMessage>,
+    pub timed_out: Vec<SerializedKafkaMessage>,
+}
 
 /// An enqueued sub-batch awaiting its acks; resolves like an HTTP send. A
 /// sub-batch over the size cap rides the stream as several consecutive
@@ -74,13 +87,16 @@ pub struct PendingWorkerStreamSend {
 }
 
 impl PendingWorkerStreamSend {
-    /// All-or-nothing: `Ok` only when every
-    /// chunk was accepted; on any failure the `SendError` carries back the
-    /// full original message set, in order, so the caller defers all of it.
-    /// Already-accepted chunks then replay, which is ordinary at-least-once.
-    pub async fn wait(self) -> Result<u32, SendError> {
-        let mut accepted_total = 0u32;
-        let mut messages: Vec<SerializedKafkaMessage> = Vec::new();
+    /// `Ok` only when every chunk was acked; on any failure the `SendError`
+    /// carries back the full original message set, in order, so the caller
+    /// defers all of it. Already-accepted chunks then replay, which is
+    /// ordinary at-least-once. An `Ok` outcome may still be partial: the
+    /// worker's budget cut off some messages, listed in
+    /// [`SendOutcome::timed_out`] with chunk-local indices already mapped
+    /// back to sub-batch positions.
+    pub async fn wait(self) -> Result<SendOutcome, SendError> {
+        let mut resolved: Vec<Accepted> = Vec::new();
+        let mut failed_messages: Vec<SerializedKafkaMessage> = Vec::new();
         let mut failure: Option<SendError> = None;
         for rx in self.chunks {
             let reply = match rx.await {
@@ -96,12 +112,15 @@ impl PendingWorkerStreamSend {
                 }),
             };
             match reply {
-                Ok(accepted) => {
-                    accepted_total += accepted.accepted;
-                    messages.extend(accepted.messages);
-                }
+                Ok(accepted) if failure.is_none() => resolved.push(accepted),
+                Ok(accepted) => failed_messages.extend(accepted.messages),
                 Err(mut err) => {
-                    messages.extend(std::mem::take(&mut err.messages));
+                    // The failure set carries every chunk's messages in send
+                    // order, resolved ones included.
+                    for chunk in resolved.drain(..) {
+                        failed_messages.extend(chunk.messages);
+                    }
+                    failed_messages.extend(std::mem::take(&mut err.messages));
                     match &mut failure {
                         // Keep the first failure's error; fold later guards
                         // into it so the stream fences until all are stashed.
@@ -115,14 +134,60 @@ impl PendingWorkerStreamSend {
                 }
             }
         }
-        match failure {
-            None => Ok(accepted_total),
-            Some(mut err) => {
-                err.messages = messages;
-                Err(err)
-            }
+        if let Some(mut err) = failure {
+            err.messages = failed_messages;
+            return Err(err);
+        }
+        let accepted = resolved.iter().map(|chunk| chunk.accepted).sum();
+        if resolved.iter().all(|chunk| chunk.timed_out.is_empty()) {
+            return Ok(SendOutcome {
+                accepted,
+                completed: Vec::new(),
+                timed_out: Vec::new(),
+            });
+        }
+        let mut completed = Vec::new();
+        let mut timed_out = Vec::new();
+        for chunk in resolved {
+            let (chunk_completed, chunk_timed_out) =
+                partition_by_timed_out(chunk.messages, &chunk.timed_out);
+            completed.extend(chunk_completed);
+            timed_out.extend(chunk_timed_out);
+        }
+        Ok(SendOutcome {
+            accepted,
+            completed,
+            timed_out,
+        })
+    }
+}
+
+/// Split a chunk's messages into (completed, timed out) per the ack's
+/// chunk-local indices, preserving send order in both halves. Indices were
+/// validated against the chunk on receipt (see `ack_shape_error`).
+fn partition_by_timed_out(
+    messages: Vec<SerializedKafkaMessage>,
+    timed_out: &[u32],
+) -> (Vec<SerializedKafkaMessage>, Vec<SerializedKafkaMessage>) {
+    if timed_out.is_empty() {
+        return (messages, Vec::new());
+    }
+    let mut cut = vec![false; messages.len()];
+    for &index in timed_out {
+        if let Some(slot) = cut.get_mut(index as usize) {
+            *slot = true;
         }
     }
+    let mut completed = Vec::with_capacity(messages.len() - timed_out.len());
+    let mut timed = Vec::with_capacity(timed_out.len());
+    for (index, message) in messages.into_iter().enumerate() {
+        if cut[index] {
+            timed.push(message);
+        } else {
+            completed.push(message);
+        }
+    }
+    (completed, timed)
 }
 
 struct WorkerStreamItem {
@@ -759,7 +824,11 @@ impl WorkerStreamRunner {
             let WorkerStreamItem {
                 reply, messages, ..
             } = entry.item;
-            let _ = reply.send(Ok(Accepted { accepted, messages }));
+            let _ = reply.send(Ok(Accepted {
+                accepted,
+                timed_out: Vec::new(),
+                messages,
+            }));
         }
         if was_full && ledger.len() < self.max_unacked && !queue.is_empty() {
             counter!(

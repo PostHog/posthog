@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
+use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport, SendOutcome};
 use ingestion_consumer::transport::{SendError, TransportError};
 use ingestion_consumer::types::SerializedKafkaMessage;
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
@@ -272,8 +272,8 @@ async fn sub_batches_reach_the_worker_in_enqueue_order() {
         .map(|i| transport.begin_send(&url, &format!("batch-{i}"), vec![msg("d1", i)], false))
         .collect();
     for (i, p) in pending.into_iter().enumerate() {
-        let accepted = p.wait().await.expect("send should succeed");
-        assert_eq!(accepted, 1, "sub-batch {i}");
+        let outcome = p.wait().await.expect("send should succeed");
+        assert_eq!(outcome.accepted, 1, "sub-batch {i}");
     }
 
     let received = mock.received.lock().await;
@@ -319,8 +319,8 @@ async fn out_of_order_acks_resolve_the_right_sends() {
             accepted: 2,
         })
         .unwrap();
-    assert_eq!(first.wait().await.expect("first ack"), 2);
-    assert_eq!(second.await.unwrap().expect("second ack"), 1);
+    assert_eq!(first.wait().await.expect("first ack").accepted, 2);
+    assert_eq!(second.await.unwrap().expect("second ack").accepted, 1);
 }
 
 async fn wait_for_received(mock: &MockHandle, count: usize) {
@@ -456,8 +456,8 @@ async fn an_oversized_sub_batch_rides_the_stream_as_ordered_chunks() {
         vec![msg("d1", 1), msg("d1", 2), msg("d1", 3)],
         false,
     );
-    let accepted = pending.wait().await.expect("all chunks accepted");
-    assert_eq!(accepted, 3, "accepted counts sum across chunks");
+    let outcome = pending.wait().await.expect("all chunks accepted");
+    assert_eq!(outcome.accepted, 3, "accepted counts sum across chunks");
 
     let received = mock.received.lock().await;
     let frames: Vec<(u64, &str, Vec<i64>)> = received
@@ -771,7 +771,7 @@ async fn the_soft_budget_rides_frames_but_not_split_chunks() {
 /// Drive one manual-mode round trip: send a two-message budgeted sub-batch
 /// (seq 1), wait for it to reach the worker, answer with `ack`, and return
 /// the send's outcome.
-async fn send_and_ack_raw(ack: SubBatchAck) -> Result<u32, SendError> {
+async fn send_and_ack_raw(ack: SubBatchAck) -> Result<SendOutcome, SendError> {
     let (ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
     let mut transport = GrpcTransport::new(
@@ -848,7 +848,7 @@ async fn malformed_partial_acks_fence_with_the_messages_returned() {
     ];
     for (case, ack) in cases {
         let err = match send_and_ack_raw(ack).await {
-            Ok(accepted) => panic!("{case}: must fail the send, got accepted={accepted}"),
+            Ok(outcome) => panic!("{case}: must fail the send, got {outcome:?}"),
             Err(err) => err,
         };
         assert!(
