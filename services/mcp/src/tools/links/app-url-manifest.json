@@ -1054,6 +1054,11 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalytics": {
+        "template": "/mcp-analytics",
+        "params": [],
+        "scope": "project"
+    },
     "mcpAnalyticsActivity": {
         "template": "/mcp-analytics/activity",
         "params": [],
@@ -1066,6 +1071,11 @@
     },
     "mcpAnalyticsIntentClustering": {
         "template": "/mcp-analytics/intent-clustering",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsMissingCapabilities": {
+        "template": "/mcp-analytics/missing-capabilities",
         "params": [],
         "scope": "project"
     },

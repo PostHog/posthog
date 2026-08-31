@@ -98,15 +98,15 @@ export function InboxCardSourceMeta({
  * Unified inbox list card for reports and pull requests. The presence of a parseable
  * implementation PR (`hasPr`) drives the divergences: PR cards get a solid border, a
  * `#1234` state badge, the repo slug in the meta row, no status/actionability chips, and a
- * "Review" action; plain reports get a dashed border, a summary placeholder, the
- * status/actionability chips, and "View report".
+ * "Review" action; plain reports get a dashed border, a summary placeholder, and the
+ * status/actionability chips.
  *
- * Under the redesign the inbox list gives a row one action, the one that moves the report forward;
- * archiving lives in the report detail pane and the bulk selection bar, where what is being
- * dismissed is in full view. Other surfaces that embed this card can still opt into a row-level
- * Archive via `onArchive`. The redesign also drops the status and actionability chips: the section a
- * row sits in (Needs a PR, Not actionable, ...) already says what they said. With the flag off every
- * row keeps its chips, its Archive button, and the "Review" label.
+ * Under the redesign the row itself is the way in: the whole card links to the report detail, so
+ * there is no separate open button. Archiving lives in the report detail pane and the bulk selection
+ * bar, where what is being dismissed is in full view. Other surfaces that embed this card can still
+ * opt into a row-level Archive via `onArchive`. The redesign also drops the status and actionability
+ * chips: the section a row sits in (Needs a PR, Not actionable, ...) already says what they said.
+ * With the flag off every row keeps its chips, its Archive button, and "Review".
  */
 export function ReportCard({
     report,
@@ -160,6 +160,7 @@ export function ReportCard({
     })
 
     const isRefunded = !!report.refund
+    const showsArchive = !!onArchive || !redesign
 
     // On the Resolved view, surface why it was dismissed (reason tag + note tooltip) when we have it.
     // Key off the report still being suppressed, not the tab: a report that was dismissed, restored,
@@ -272,7 +273,7 @@ export function ReportCard({
                 pane, where the consequences are in view. Resolved reports are terminal and a refunded
                 archived report can't be restored, so neither carries actions – skip the column (and
                 divider) for both. */}
-            {!isResolved && !(isArchived && isRefunded) && (
+            {!isResolved && !(isArchived && isRefunded) && (isArchived || showsArchive || !redesign) && (
                 <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     {isArchived ? (
                         // A refunded report can't be restored (its PR can never be billed again).
@@ -294,7 +295,7 @@ export function ReportCard({
                         )
                     ) : (
                         <>
-                            {(onArchive || !redesign) && (
+                            {showsArchive && (
                                 <LemonButton
                                     type="secondary"
                                     size="small"
@@ -308,23 +309,25 @@ export function ReportCard({
                                     Archive
                                 </LemonButton>
                             )}
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                tooltip="Open the full report to see its summary, evidence, and actions"
-                                onClick={
-                                    preview
-                                        ? undefined
-                                        : (event) => {
-                                              event.preventDefault()
-                                              event.stopPropagation()
-                                              router.actions.push(detailUrl)
-                                          }
-                                }
-                                tabIndex={preview ? -1 : undefined}
-                            >
-                                {hasPr || !redesign ? 'Review' : 'View report'}
-                            </LemonButton>
+                            {!redesign && (
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    tooltip="Open the full report to see its summary, evidence, and actions"
+                                    onClick={
+                                        preview
+                                            ? undefined
+                                            : (event) => {
+                                                  event.preventDefault()
+                                                  event.stopPropagation()
+                                                  router.actions.push(detailUrl)
+                                              }
+                                    }
+                                    tabIndex={preview ? -1 : undefined}
+                                >
+                                    Review
+                                </LemonButton>
+                            )}
                         </>
                     )}
                 </div>

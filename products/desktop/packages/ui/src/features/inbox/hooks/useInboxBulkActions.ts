@@ -193,24 +193,6 @@ function effectiveBulkIdsFromSelection(
   return [selection];
 }
 
-/** Snooze disabled reason when `selectedIds` are treated as the bulk selection (matches toolbar logic). */
-export function inboxBulkSnoozeDisabledReason(
-  reports: SignalReport[],
-  selectedIds: string[],
-): string | null {
-  return getSelectedReportEligibility(reports, selectedIds)
-    .snoozeDisabledReason;
-}
-
-/** Suppress/dismiss disabled reason when `selectedIds` are treated as the bulk selection. */
-export function inboxBulkSuppressDisabledReason(
-  reports: SignalReport[],
-  selectedIds: string[],
-): string | null {
-  return getSelectedReportEligibility(reports, selectedIds)
-    .suppressDisabledReason;
-}
-
 /**
  * Per-report suppress-disabled reason precomputed in one O(N) pass.
  * Cheaper than calling `inboxBulkSuppressDisabledReason(reports, [id])` per

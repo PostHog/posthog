@@ -8,7 +8,6 @@ from posthog.schema import (
     DashboardFilter,
     DataWarehouseNode,
     EventsNode,
-    FunnelsQuery,
     IntervalType,
     LifecycleQuery,
     RetentionFilter,
@@ -20,7 +19,6 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     resolve_effective_dashboard_filters,
 )
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
@@ -29,17 +27,13 @@ from posthog.models import Team
 
 _TIME_SERIES = [EventsNode(event="$pageview")]
 
-# Only core-owned runners belong here. Product-owned runners (paths, stickiness) cover the
-# same dashboard-filter behavior in their own product tests.
+# Only core-owned runners belong here. Product-owned runners (funnels, paths, stickiness) cover
+# the same dashboard-filter behavior in their own product tests.
 # Runners whose query model carries an `interval` field.
 INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
     (
         "trends",
         lambda team: TrendsQueryRunner(query=TrendsQuery(series=_TIME_SERIES, interval=IntervalType.DAY), team=team),
-    ),
-    (
-        "funnels",
-        lambda team: FunnelsQueryRunner(query=FunnelsQuery(series=_TIME_SERIES), team=team),
     ),
     (
         "lifecycle",
