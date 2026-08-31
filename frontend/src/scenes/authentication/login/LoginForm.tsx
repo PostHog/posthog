@@ -124,6 +124,23 @@ export function LoginForm(): JSX.Element {
                     }
                 />
                 <SessionRiskBanner className="mb-4" />
+                {isCodeSent && (
+                    <div className="mb-4 -mt-3 flex flex-col items-center gap-1 text-sm">
+                        <Link
+                            onClick={() => resendCodeBasedVerification(null)}
+                            disabledReason={resendResponseLoading ? 'Sending...' : undefined}
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                        >
+                            Not seeing it? Resend code
+                        </Link>
+                        {resendResponse?.success && (
+                            <p className="flex items-center gap-1 text-success mb-0" role="status">
+                                <IconCheckCircle />
+                                <span>Code sent. Check your inbox.</span>
+                            </p>
+                        )}
+                    </div>
+                )}
                 {generalError && (
                     <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         <span>
@@ -190,21 +207,6 @@ export function LoginForm(): JSX.Element {
                             Verify and log in
                         </LemonButton>
                         <div className="flex flex-col items-center gap-3">
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                disabled={resendResponseLoading}
-                                loading={resendResponseLoading}
-                                onClick={() => resendCodeBasedVerification(null)}
-                            >
-                                Resend code
-                            </LemonButton>
-                            {resendResponse?.success && (
-                                <p className="flex items-center gap-1 text-success mb-0" role="status">
-                                    <IconCheckCircle />
-                                    <span>Code sent — check your inbox.</span>
-                                </p>
-                            )}
                             <Link
                                 onClick={() => exitCodeVerification()}
                                 className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
