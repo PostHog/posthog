@@ -534,7 +534,6 @@ describe('batchExportConfigFormLogic', () => {
                     'table_name',
                     'redshift_s3_bucket',
                     'redshift_s3_bucket_region_name',
-                    'redshift_s3_key_prefix',
                     'redshift_s3_integration_id',
                 ],
             },
@@ -1076,6 +1075,41 @@ describe('batchExportConfigFormLogic', () => {
                         copy_inputs: {
                             s3_bucket: 'rs-staging',
                             s3_key_prefix: 'rs/copy/',
+                            region_name: 'us-east-1',
+                            bucket_credentials: S3_STAGING_INTEGRATION.id,
+                            authorization: S3_STAGING_INTEGRATION.id,
+                        },
+                    },
+                },
+            },
+            {
+                // A blank S3 key prefix is valid: the backend defaults a missing prefix to the
+                // bucket root. The form must not require it, and must omit it from the payload when
+                // unset so the backend applies that default.
+                name: 'Redshift (COPY, blank S3 key prefix stages at bucket root)',
+                service: 'Redshift' as const,
+                requiredValues: {
+                    integration_id: AWS_REDSHIFT_INTEGRATION.id,
+                    host: 'rs-host',
+                    database: 'rs-db',
+                    schema: 'public',
+                    table_name: 'events',
+                    redshift_s3_bucket: 'rs-staging',
+                    redshift_s3_bucket_region_name: 'us-east-1',
+                    redshift_s3_integration_id: S3_STAGING_INTEGRATION.id,
+                },
+                expectedDestination: {
+                    type: 'Redshift',
+                    integration: AWS_REDSHIFT_INTEGRATION.id,
+                    config: {
+                        host: 'rs-host',
+                        database: 'rs-db',
+                        schema: 'public',
+                        table_name: 'events',
+                        properties_data_type: 'super',
+                        mode: 'COPY',
+                        copy_inputs: {
+                            s3_bucket: 'rs-staging',
                             region_name: 'us-east-1',
                             bucket_credentials: S3_STAGING_INTEGRATION.id,
                             authorization: S3_STAGING_INTEGRATION.id,

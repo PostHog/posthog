@@ -136,7 +136,9 @@ export const redshiftDefinition: DestinationDefinition = {
         }
 
         if (formValues.mode === 'COPY') {
-            fields.push('redshift_s3_bucket', 'redshift_s3_bucket_region_name', 'redshift_s3_key_prefix')
+            // s3_key_prefix is intentionally not required: the backend defaults a missing prefix to
+            // the bucket root, so leaving it blank is a valid choice, not an error.
+            fields.push('redshift_s3_bucket', 'redshift_s3_bucket_region_name')
 
             if (usesS3Connection(isNew, formValues)) {
                 fields.push('redshift_s3_integration_id')
