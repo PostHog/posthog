@@ -292,7 +292,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),
-        restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
+        restriction_level: zod
+            .union([zod.literal(21), zod.literal(37)])
+            .optional()
+            .describe('\* `21` - Can view dashboard\n\* `37` - Can edit dashboard'),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
