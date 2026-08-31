@@ -63,16 +63,6 @@ export function isMac(): boolean {
     return navigator.platform.includes('Mac')
 }
 
-export function isWebKitBrowser(): boolean {
-    // macOS Safari reports the Apple vendor. iOS forces every browser onto WebKit,
-    // so also treat any iOS user agent as WebKit regardless of the vendor string it reports.
-    return navigator.vendor === 'Apple Computer, Inc.' || /iPad|iPhone|iPod/.test(navigator.userAgent)
-}
-
-export function isChromiumBrowser(): boolean {
-    return navigator.vendor === 'Google Inc.' || /Chrome|Chromium/.test(navigator.userAgent)
-}
-
 export function platformCommandControlKey(modifier: string): string {
     return `${isMac() ? '⌘' : 'Ctrl + '}${modifier}`
 }

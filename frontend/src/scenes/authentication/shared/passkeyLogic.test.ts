@@ -11,9 +11,9 @@ jest.mock('@simplewebauthn/browser', () => ({
     browserSupportsWebAuthnAutofill: jest.fn(),
 }))
 
-// isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
 const WEBKIT_VENDOR = 'Apple Computer, Inc.'
 const CHROMIUM_VENDOR = 'Google Inc.'
+const FIREFOX_VENDOR = ''
 
 function setVendor(vendor: string): void {
     Object.defineProperty(window.navigator, 'vendor', { value: vendor, configurable: true })
@@ -68,8 +68,11 @@ describe('passkeyLogic', () => {
             expect(options.optionsJSON.allowCredentials).toEqual([])
         })
 
-        it('requests a passkey via browser autofill on Chromium too', async () => {
-            setVendor(CHROMIUM_VENDOR)
+        it.each([
+            { vendor: CHROMIUM_VENDOR, browser: 'Chromium' },
+            { vendor: FIREFOX_VENDOR, browser: 'Firefox' },
+        ])('requests a passkey via browser autofill on $browser', async ({ vendor }) => {
+            setVendor(vendor)
 
             logic.actions.startConditionalPasskeyLogin()
             await expectLogic(logic).toFinishAllListeners()

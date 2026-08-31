@@ -9,7 +9,6 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { isChromiumBrowser, isWebKitBrowser } from 'lib/utils/dom'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -209,10 +208,6 @@ export const passkeyLogic = kea<passkeyLogicType>([
             actions.startPasskeyAuthentication()
         },
         startConditionalPasskeyLogin: async () => {
-            // Firefox does not support passkey autofill, so it uses the precheck-triggered modal.
-            if (!isWebKitBrowser() && !isChromiumBrowser()) {
-                return
-            }
             // Latch synchronously before the first await so a repeat trigger can't race past the guard.
             if (cache.passkeyAutofillStarted) {
                 return

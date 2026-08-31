@@ -14,13 +14,6 @@ import { initKeaTests } from '~/test/init'
 jest.mock('posthog-js')
 jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
 
-const CHROMIUM_VENDOR = 'Google Inc.'
-const FIREFOX_VENDOR = ''
-
-function setVendor(vendor: string): void {
-    Object.defineProperty(window.navigator, 'vendor', { value: vendor, configurable: true })
-}
-
 describe('loginLogic', () => {
     describe('redirect vulnerability', () => {
         beforeEach(() => {
@@ -110,7 +103,6 @@ describe('loginLogic', () => {
     describe('passkey auto-trigger after precheck', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let beginHandler: jest.Mock
-        const originalVendor = window.navigator.vendor
 
         beforeEach(() => {
             ;(startAuthentication as jest.Mock).mockRejectedValue(
@@ -146,26 +138,17 @@ describe('loginLogic', () => {
         afterEach(() => {
             passkeyLogic().unmount()
             logic.unmount()
-            setVendor(originalVendor)
             jest.clearAllMocks()
         })
 
-        it.each([
-            [FIREFOX_VENDOR, true],
-            [CHROMIUM_VENDOR, false],
-        ])('auto-prompts for a passkey in Firefox but not Chromium', async (vendor, shouldPrompt) => {
-            setVendor(vendor)
+        it('auto-prompts for a passkey after precheck', async () => {
             logic.actions.precheck({ email: 'user@example.com' })
 
-            if (shouldPrompt) {
-                await expectLogic(passkeyLogic)
-                    .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthentication'])
-                    .toFinishAllListeners()
-            } else {
-                await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
-            }
+            await expectLogic(passkeyLogic)
+                .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthentication'])
+                .toFinishAllListeners()
 
-            expect(beginHandler).toHaveBeenCalledTimes(shouldPrompt ? 1 : 0)
+            expect(beginHandler).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -296,14 +279,21 @@ describe('loginLogic', () => {
         let precheckResponse: Record<string, any>
         beforeEach(() => {
             precheckResponse = { saml_available: false }
-            useMocks({ post: { '/api/login/precheck': () => [200, precheckResponse] } })
+            useMocks({
+                post: {
+                    '/api/login/precheck': () => [200, precheckResponse],
+                    '/api/webauthn/login/begin/': () => [200, { allowCredentials: [] }],
+                },
+            })
             initKeaTests()
             router.actions.push('/login')
             logic = loginLogic()
             logic.mount()
+            passkeyLogic().mount()
         })
 
         afterEach(() => {
+            passkeyLogic().unmount()
             logic.unmount()
             jest.clearAllMocks()
         })
@@ -405,11 +395,17 @@ describe('loginLogic', () => {
                 password_login_available: false,
                 social_providers: ['google-oauth2'],
             }
-            useMocks({ post: { '/api/login/precheck': () => [200, precheckResponse] } })
+            useMocks({
+                post: {
+                    '/api/login/precheck': () => [200, precheckResponse],
+                    '/api/webauthn/login/begin/': () => [200, { allowCredentials: [] }],
+                },
+            })
             initKeaTests()
             router.actions.push('/login')
             logic = loginLogic()
             logic.mount()
+            passkeyLogic().mount()
             assignMock = jest.fn()
             Object.defineProperty(window, 'location', {
                 value: { ...window.location, assign: assignMock },
@@ -418,6 +414,7 @@ describe('loginLogic', () => {
         })
 
         afterEach(() => {
+            passkeyLogic().unmount()
             logic.unmount()
             jest.clearAllMocks()
         })
