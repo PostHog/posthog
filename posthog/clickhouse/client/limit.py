@@ -11,7 +11,7 @@ from celery import current_task
 from prometheus_client import Counter
 
 from posthog import redis, settings
-from posthog.clickhouse.cluster import ExponentialBackoff
+from posthog.clickhouse.backoff import ExponentialBackoff
 from posthog.clickhouse.query_tagging import Product, add_fallback_query_tags, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen

@@ -11,10 +11,13 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from posthog.schema import HogQLQueryResponse
+
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
+from posthog.models.team import Team
 from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
 from posthog.test.persons import create_person
 
@@ -33,175 +36,143 @@ def _prop_row(
 
 
 class TestPointInTimeProperties(SimpleTestCase):
+    def setUp(self):
+        self.team = Team(id=1)
+
     def test_build_person_properties_at_time_validation(self):
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
 
-        # Test invalid team_id
-        with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(0, timestamp, ["user123"])
-        self.assertIn("team_id must be a positive integer", str(cm.exception))
-
-        with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(-1, timestamp, ["user123"])
-        self.assertIn("team_id must be a positive integer", str(cm.exception))
-
         # Test invalid timestamp
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(1, cast(datetime, "2023-01-01"), ["user123"])
+            build_person_properties_at_time(self.team, cast(datetime, "2023-01-01"), ["user123"])
         self.assertIn("timestamp must be a datetime object", str(cm.exception))
 
         # Test invalid distinct_ids (empty list)
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(1, timestamp, [])
+            build_person_properties_at_time(self.team, timestamp, [])
         self.assertIn("distinct_ids must be a non-empty list", str(cm.exception))
 
         # Test invalid distinct_ids (not a list)
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(1, timestamp, "not_a_list")  # type: ignore[arg-type]
+            build_person_properties_at_time(self.team, timestamp, "not_a_list")  # type: ignore[arg-type]
         self.assertIn("distinct_ids must be a non-empty list", str(cm.exception))
 
         # Test invalid distinct_ids (contains empty string)
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(1, timestamp, ["user123", ""])
+            build_person_properties_at_time(self.team, timestamp, ["user123", ""])
         self.assertIn("All distinct_ids must be non-empty strings", str(cm.exception))
 
         # Invalid row_limit
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(1, timestamp, ["user123"], row_limit=0)
+            build_person_properties_at_time(self.team, timestamp, ["user123"], row_limit=0)
         self.assertIn("row_limit must be a positive integer", str(cm.exception))
 
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_build_person_properties_at_time_empty_result(self, mock_sync_execute):
+    @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_build_person_properties_at_time_empty_result(self, mock_execute_hogql_query):
         """Zero rows means the person had no property activity at or before timestamp."""
-        mock_sync_execute.return_value = []
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(results=[])
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(self.team, timestamp, ["user123"])
 
         self.assertEqual(properties, {})
-        mock_sync_execute.assert_called_once()
+        mock_execute_hogql_query.assert_called_once()
 
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_build_person_properties_at_time_single_set(self, mock_sync_execute):
-        mock_sync_execute.return_value = [
-            _prop_row(set_dict={"name": "John Doe", "email": "john@example.com"}, event="$set"),
-        ]
+    @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_build_person_properties_at_time_single_set(self, mock_execute_hogql_query):
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(
+            results=[
+                _prop_row(set_dict={"name": "John Doe", "email": "john@example.com"}, event="$set"),
+            ]
+        )
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(self.team, timestamp, ["user123"])
 
         self.assertEqual(properties, {"name": "John Doe", "email": "john@example.com"})
 
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_build_person_properties_at_time_multiple_sets(self, mock_sync_execute):
-        mock_sync_execute.return_value = [
-            _prop_row(set_dict={"name": "John", "age": 25}, event="$set"),
-            _prop_row(set_dict={"name": "John Doe", "location": "SF"}, event="$pageview"),
-            _prop_row(set_dict={"age": 26}, event="$set"),
-        ]
+    @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_build_person_properties_at_time_multiple_sets(self, mock_execute_hogql_query):
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(
+            results=[
+                _prop_row(set_dict={"name": "John", "age": 25}, event="$set"),
+                _prop_row(set_dict={"name": "John Doe", "location": "SF"}, event="$pageview"),
+                _prop_row(set_dict={"age": 26}, event="$set"),
+            ]
+        )
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(self.team, timestamp, ["user123"])
 
         self.assertEqual(properties, {"name": "John Doe", "age": 26, "location": "SF"})
 
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_build_person_properties_at_time_malformed_json(self, mock_sync_execute):
-        mock_sync_execute.return_value = [
-            ("invalid json", "", "$set"),
-            _prop_row(set_dict={"name": "John"}, event="$set"),
-            ("", "", "$pageview"),
-        ]
+    @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_build_person_properties_at_time_malformed_json(self, mock_execute_hogql_query):
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(
+            results=[
+                ("invalid json", "", "$set"),
+                _prop_row(set_dict={"name": "John"}, event="$set"),
+                ("", "", "$pageview"),
+            ]
+        )
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time(1, timestamp, ["user123"])
+        properties = build_person_properties_at_time(self.team, timestamp, ["user123"])
 
         self.assertEqual(properties, {"name": "John"})
 
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_build_person_properties_at_time_clickhouse_error(self, mock_sync_execute):
-        mock_sync_execute.side_effect = Exception("ClickHouse connection failed")
-
-        timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-        with self.assertRaises(Exception) as cm:
-            build_person_properties_at_time(1, timestamp, ["user123"])
-
-        self.assertIn("Failed to query ClickHouse events", str(cm.exception))
-
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_row_limit_is_passed_to_query(self, mock_sync_execute):
-        mock_sync_execute.return_value = []
-
-        timestamp = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-
-        build_person_properties_at_time(1, timestamp, ["user123"], row_limit=500)
-
-        mock_sync_execute.assert_called_once()
-        args, _ = mock_sync_execute.call_args
-        query, params = args[0], args[1]
-
-        self.assertIn("LIMIT 500", query)
-        self.assertEqual(params["upper_bound"], timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"))
-
 
 class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_build_person_properties_with_set_once_basic(self, mock_sync_execute):
+    def setUp(self):
+        self.team = Team(id=1)
+
+    @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_build_person_properties_with_set_once_basic(self, mock_execute_hogql_query):
         """$set_once only sets properties that don't exist yet."""
-        mock_sync_execute.return_value = [
-            _prop_row(set_dict={"name": "John"}, event="$set"),
-            _prop_row(set_once_dict={"name": "Jane", "email": "jane@example.com"}, event="$set_once"),
-        ]
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(
+            results=[
+                _prop_row(set_dict={"name": "John"}, event="$set"),
+                _prop_row(set_once_dict={"name": "Jane", "email": "jane@example.com"}, event="$set_once"),
+            ]
+        )
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
+        properties = build_person_properties_at_time(self.team, timestamp, ["user123"], include_set_once=True)
 
         # name stays as "John" (not overwritten by $set_once); email is set by $set_once since it didn't exist
         self.assertEqual(properties, {"name": "John", "email": "jane@example.com"})
 
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_build_person_properties_with_set_once_order_matters(self, mock_sync_execute):
-        mock_sync_execute.return_value = [
-            _prop_row(set_once_dict={"name": "Jane", "email": "jane@example.com"}, event="$set_once"),
-            _prop_row(set_dict={"name": "John"}, event="$set"),
-        ]
+    @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_build_person_properties_with_set_once_order_matters(self, mock_execute_hogql_query):
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(
+            results=[
+                _prop_row(set_once_dict={"name": "Jane", "email": "jane@example.com"}, event="$set_once"),
+                _prop_row(set_dict={"name": "John"}, event="$set"),
+            ]
+        )
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
+        properties = build_person_properties_at_time(self.team, timestamp, ["user123"], include_set_once=True)
 
         # $set_once sets name first, then $set overwrites it
         self.assertEqual(properties, {"name": "John", "email": "jane@example.com"})
 
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_build_person_properties_with_set_once_multiple_set_once(self, mock_sync_execute):
-        mock_sync_execute.return_value = [
-            _prop_row(set_once_dict={"name": "First", "email": "first@example.com"}, event="$set_once"),
-            _prop_row(set_once_dict={"name": "Second", "location": "SF"}, event="$set_once"),
-        ]
+    @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_build_person_properties_with_set_once_multiple_set_once(self, mock_execute_hogql_query):
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(
+            results=[
+                _prop_row(set_once_dict={"name": "First", "email": "first@example.com"}, event="$set_once"),
+                _prop_row(set_once_dict={"name": "Second", "location": "SF"}, event="$set_once"),
+            ]
+        )
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
+        properties = build_person_properties_at_time(self.team, timestamp, ["user123"], include_set_once=True)
 
         self.assertEqual(
             properties,
             {"name": "First", "email": "first@example.com", "location": "SF"},
         )
-
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_build_person_properties_at_time_with_distinct_ids_direct(self, mock_sync_execute):
-        mock_sync_execute.return_value = [
-            _prop_row(set_dict={"name": "Jane Doe", "email": "jane@example.com"}, event="$set"),
-        ]
-
-        timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time(1, timestamp, distinct_ids=["user123", "user456", "user789"])
-
-        self.assertEqual(properties, {"name": "Jane Doe", "email": "jane@example.com"})
-
-        mock_sync_execute.assert_called_once()
-        call_args = mock_sync_execute.call_args
-        self.assertEqual(call_args[0][1]["distinct_ids"], ["user123", "user456", "user789"])
 
 
 class TestGetPersonAndDistinctIdsForIdentifierValidation(SimpleTestCase):

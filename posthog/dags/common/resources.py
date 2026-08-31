@@ -15,8 +15,9 @@ import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog import settings
+from posthog.clickhouse.backoff import ExponentialBackoff
 from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
-from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.routing import get_producer

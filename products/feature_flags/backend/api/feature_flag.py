@@ -4389,7 +4389,7 @@ class FeatureFlagViewSet(
                 if feature_flag.created_at:
                     lower_bound = min(max(lower_bound, feature_flag.created_at), timestamp)
                 person_properties = build_person_properties_at_time(
-                    team_id=self.team_id,
+                    team=self.team,
                     timestamp=timestamp,
                     distinct_ids=distinct_ids,
                     include_set_once=True,

@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
-from posthog.models.person.point_in_time_properties import build_person_properties_at_time
+from posthog.models.person.point_in_time_properties import DEFAULT_PROPERTY_ROW_LIMIT, build_person_properties_at_time
 
 
 class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
@@ -41,7 +41,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         properties = build_person_properties_at_time(
-            self.team.pk,
+            self.team,
             upper_bound,
             [distinct_id],
         )
@@ -69,7 +69,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         properties = build_person_properties_at_time(
-            self.team.pk,
+            self.team,
             upper_bound,
             [distinct_id],
             include_set_once=True,
@@ -126,7 +126,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         properties = build_person_properties_at_time(
-            self.team.pk,
+            self.team,
             upper_bound,
             [distinct_id],
             include_set_once=True,
@@ -160,7 +160,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         properties = build_person_properties_at_time(
-            self.team.pk,
+            self.team,
             upper_bound,
             [distinct_id],
         )
@@ -171,7 +171,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
         properties = build_person_properties_at_time(
-            self.team.pk,
+            self.team,
             upper_bound,
             ["user-clickhouse-nonexistent"],
         )
@@ -206,7 +206,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         properties = build_person_properties_at_time(
-            self.team.pk,
+            self.team,
             upper_bound,
             [distinct_id],
             row_limit=row_limit,
@@ -230,10 +230,73 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
+        with self.capture_select_queries() as queries:
+            properties = build_person_properties_at_time(
+                self.team,
+                upper_bound,
+                [distinct_id],
+            )
+
+        self.assertEqual(properties, {"hello": "world"})
+        # The default row_limit exceeds HogQL's usual top-level cap; a capped query would
+        # silently drop the newest property updates on busy persons.
+        self.assertEqual(len(queries), 1)
+        self.assertIn(f"LIMIT {DEFAULT_PROPERTY_ROW_LIMIT}", queries[0])
+        self.assertNotIn("JOIN", queries[0])
+
+    def test_merges_property_events_across_distinct_ids(self):
+        upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id="user-clickhouse-alias-a",
+            properties={"$set": {"name": "Alias A"}},
+            timestamp=upper_bound - timedelta(hours=2),
+        )
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id="user-clickhouse-alias-b",
+            properties={"$set": {"email": "b@example.com"}},
+            timestamp=upper_bound - timedelta(hours=1),
+        )
+        flush_persons_and_events()
+
         properties = build_person_properties_at_time(
-            self.team.pk,
+            self.team,
+            upper_bound,
+            ["user-clickhouse-alias-a", "user-clickhouse-alias-b"],
+        )
+
+        self.assertEqual(properties, {"name": "Alias A", "email": "b@example.com"})
+
+    def test_window_bounds_are_instants_in_non_utc_team_timezone(self):
+        self.team.timezone = "Pacific/Auckland"
+        self.team.save()
+        distinct_id = "user-clickhouse-timezone"
+        upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set": {"before": "yes"}},
+            timestamp=upper_bound - timedelta(hours=1),
+        )
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set": {"after": "yes"}},
+            timestamp=upper_bound + timedelta(minutes=1),
+        )
+        flush_persons_and_events()
+
+        properties = build_person_properties_at_time(
+            self.team,
             upper_bound,
             [distinct_id],
         )
 
-        self.assertEqual(properties, {"hello": "world"})
+        self.assertEqual(properties, {"before": "yes"})
