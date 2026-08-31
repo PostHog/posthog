@@ -16,6 +16,7 @@ T_UNOWNED = "posthog/api/test/test_shared/TestShared::test_unowned"
 T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
 T_RESTAMPED = "products/moved/backend/tests/test_moved/TestMoved::test_restamped"
 T_PASS_ONLY = "products/quiet/backend/tests/test_quiet/TestQuiet::test_pass_only"
+T_HANDLE_OWNED = "posthog/api/test/test_handle/TestHandle::test_handle_owned"
 
 
 class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
@@ -80,6 +81,8 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(16, T_RESTAMPED, "failed", ts=cls.current_b, owner="team-new", run="602", pr="602"),
             # No owner stamp: buckets under the literal 'unowned'.
             cls._span(12, T_UNOWNED, "rerun_passed", ts=cls.current_b, owner="", run="401", pr="401"),
+            # An '@handle' stamp is a person, not a team (older spans carry them): also 'unowned'.
+            cls._span(19, T_HANDLE_OWNED, "rerun_passed", ts=cls.current_b, owner="@someone", run="801", pr="801"),
             # A re-run pass with no same-run failure: a shard re-executed alongside the flaky one.
             # It pairs with nothing, so its team must not appear in the roster at all.
             cls._span(
@@ -162,7 +165,9 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         assert (replay["same_commit_recovery_run_count"], replay["same_commit_recovery_run_count_prior"]) == (1, 2)
         assert (replay["quarantined_failed_run_count"], replay["quarantined_failed_run_count_prior"]) == (1, 0)
 
-        assert (rows["unowned"]["flaky_test_count"], rows["unowned"]["same_commit_recovery_run_count"]) == (1, 1)
+        # The unstamped test and the '@handle'-stamped one both land here; no '@someone' row exists.
+        assert (rows["unowned"]["flaky_test_count"], rows["unowned"]["same_commit_recovery_run_count"]) == (2, 2)
+        assert "@someone" not in rows
 
         # A re-run attempt went green on the same commit, so it is current-window flaky; the prior
         # window's 3 unrecovered PR failures are a regression, not a flake.

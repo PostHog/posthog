@@ -68,26 +68,19 @@ export function DeltaBadge({
     )
 }
 
-/** Current count + delta vs the prior window; a zero prior with current signal reads "new". */
-export function CountWithDelta({
-    current,
-    prior,
-    goodWhenDown = true,
-}: {
-    current: number
-    prior: number
-    goodWhenDown?: boolean
-}): JSX.Element {
+/** Current count with the prior window's count as muted context. Table cells stay colorless on
+ *  purpose: four colored percent badges per row drown the numbers they annotate. */
+export function CountWithPrior({ current, prior }: { current: number; prior: number }): JSX.Element {
     return (
         <div className="flex items-baseline justify-end gap-1.5">
             <span className="text-sm font-semibold tabular-nums">{humanFriendlyNumber(current)}</span>
-            {prior > 0 ? (
-                <DeltaBadge value={percentChange(current, prior)} goodWhenDown={goodWhenDown} />
-            ) : current > 0 ? (
-                <Tooltip title="No signal in the previous window. This is new.">
-                    <span className="text-xs font-semibold whitespace-nowrap text-danger">new</span>
+            {prior !== current && (
+                <Tooltip title="Count in the previous window">
+                    <span className="text-xs text-tertiary tabular-nums whitespace-nowrap">
+                        was {humanFriendlyNumber(prior)}
+                    </span>
                 </Tooltip>
-            ) : null}
+            )}
         </div>
     )
 }

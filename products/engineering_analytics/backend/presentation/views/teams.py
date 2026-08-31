@@ -69,7 +69,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
             "seen both failing and passing in the window, regression_test_count is owned tests that failed "
             "with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an "
             "equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI "
-            "emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); unstamped "
+            "emission time from the repo's ownership map (the distributed owners.yaml files); unstamped "
             "spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest "
             "owner only. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
