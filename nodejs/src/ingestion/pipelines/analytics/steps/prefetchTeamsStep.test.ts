@@ -1,3 +1,4 @@
+import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { prefetchTeamsStep } from '~/ingestion/pipelines/analytics/steps/prefetchTeamsStep'
@@ -46,13 +47,20 @@ describe('prefetchTeamsStep', () => {
         expect(teamManager.getTeamsByTokens).not.toHaveBeenCalled()
     })
 
-    it('keeps events flowing when the warm-up load fails', async () => {
-        jest.mocked(teamManager.getTeamsByTokens).mockRejectedValue(new Error('postgres down'))
+    it('keeps events flowing and warns when the warm-up load fails on a retriable error', async () => {
+        jest.mocked(teamManager.getTeamsByTokens).mockRejectedValue(
+            Object.assign(new Error('postgres down'), { isRetriable: true })
+        )
         const step = prefetchTeamsStep<TestInput>(teamManager, true)
 
         const results = await step([createInput('token-a')])
         await new Promise((resolve) => setImmediate(resolve))
 
         expect(results.map((result) => result.type)).toEqual([PipelineResultType.OK])
+        expect(logger.warn).toHaveBeenCalledWith(
+            '⚠️',
+            'prefetchTeams failed on a retriable error',
+            expect.objectContaining({ error: expect.stringContaining('postgres down') })
+        )
     })
 })

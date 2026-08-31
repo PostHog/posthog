@@ -9,8 +9,10 @@ type PrefetchTeamsStepInput = { headers: EventHeaders }
  * Warms the team cache for all tokens in the chunk with one batched query,
  * instead of a single-row fetch per token when resolveTeamStep walks the
  * events sequentially. Fire-and-forget: the team lazy loader coalesces the
- * per-event lookups onto this in-flight batched load, and a load failure here
- * is retried by resolveTeamStep's own lookup.
+ * per-event lookups issued while this load is in flight onto the same
+ * promise, so they fail together with it and resolveTeamStep handles the
+ * error. The catch below only keeps the discarded copy of the rejection from
+ * becoming an unhandled rejection.
  */
 export function prefetchTeamsStep<T extends PrefetchTeamsStepInput>(teamManager: TeamManager, enabled: boolean) {
     return function prefetchTeamsStep(events: T[]): Promise<PipelineResult<T>[]> {
@@ -23,7 +25,13 @@ export function prefetchTeamsStep<T extends PrefetchTeamsStepInput>(teamManager:
             }
             if (tokens.size > 0) {
                 void teamManager.getTeamsByTokens([...tokens]).catch((error) => {
-                    logger.warn('⚠️', 'prefetchTeams failed', { error: String(error) })
+                    // Recover only on an explicit retriable error. An unflagged error, such as a
+                    // broken query, rethrows and crashes loudly rather than being masked.
+                    if (error?.isRetriable === true) {
+                        logger.warn('⚠️', 'prefetchTeams failed on a retriable error', { error: String(error) })
+                        return
+                    }
+                    throw error
                 })
             }
         }

@@ -1,4 +1,5 @@
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { logger } from '~/common/utils/logger'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { prefetchEventSchemasStep } from '~/ingestion/pipelines/analytics/steps/prefetchEventSchemasStep'
 import { Team } from '~/types'
@@ -36,13 +37,20 @@ describe('prefetchEventSchemasStep', () => {
         expect(manager.getSchemasForTeams).not.toHaveBeenCalled()
     })
 
-    it('keeps events flowing when the warm-up load fails', async () => {
-        jest.mocked(manager.getSchemasForTeams).mockRejectedValue(new Error('postgres down'))
+    it('keeps events flowing and warns when the warm-up load fails on a retriable error', async () => {
+        jest.mocked(manager.getSchemasForTeams).mockRejectedValue(
+            Object.assign(new Error('postgres down'), { isRetriable: true })
+        )
         const step = prefetchEventSchemasStep<TestInput>(manager, true)
 
         const results = await step([createInput(3)])
         await new Promise((resolve) => setImmediate(resolve))
 
         expect(results.map((result) => result.type)).toEqual([PipelineResultType.OK])
+        expect(logger.warn).toHaveBeenCalledWith(
+            '⚠️',
+            'prefetchEventSchemas failed on a retriable error',
+            expect.objectContaining({ error: expect.stringContaining('postgres down') })
+        )
     })
 })
