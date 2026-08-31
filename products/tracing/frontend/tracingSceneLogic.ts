@@ -62,6 +62,7 @@ export interface tracingSceneLogicValues {
     latencyHeatmapData: TracingLatencyHeatmapData // tracingDataLogic
     latencyHeatmapLoading: boolean // tracingDataLogic
     listRows: Span[] // tracingDataLogic
+    matchingCountsError: string | null // tracingDataLogic
     showHeatmap: boolean // tracingDataLogic
     spanTree: {
         current: SpanTreeNode[]
@@ -269,6 +270,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'hasMoreToLoad',
                 'hasRunQuery',
                 'totalMatchingFilters',
+                'matchingCountsError',
                 'traceSpans',
                 'traceSpansLoading',
                 'traceSpansLoadingMore',

@@ -952,8 +952,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response(
                 {
                     "detail": (
-                        "This count scans too much data to run as a pre-flight. Narrow the date "
-                        "range or add serviceNames, statusCodes, or filterGroup filters, then retry."
+                        "This count would scan too much data. Add a service, status code, or property "
+                        "filter to narrow it, then retry. A shorter date range also helps."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
