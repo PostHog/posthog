@@ -14,7 +14,6 @@ from posthog.models import Organization, Team
 
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL
 from products.replay_vision.backend.queries.scanner_candidate_query import (
-    CORRELATION_MAX_SESSIONS,
     CandidateSession,
     ScannerCandidateQuery,
     build_candidate_batch,
@@ -171,30 +170,6 @@ class TestSessionInPredicates:
         predicates = session_in_predicates(self._query(filter_test_accounts=True, with_event_filter=True).get_query())
 
         assert len(predicates) == 2
-
-    def test_a_window_with_too_many_sessions_falls_back_to_one_query(self) -> None:
-        # A bloom filter cannot prune on a long id list, so past the ceiling the second query would
-        # read the whole window again on top of the first. One plain query is cheaper.
-        candidate_query = self._query(filter_test_accounts=False, with_event_filter=True)
-        executed: list[str] = []
-
-        def execute(query: ast.SelectQuery, query_type: str) -> list[CandidateSession]:
-            executed.append(query_type)
-            if len(executed) == 1:
-                return [
-                    CandidateSession(session_id=f"s-{i}", session_end=_T0) for i in range(CORRELATION_MAX_SESSIONS + 1)
-                ]
-            return []
-
-        run_correlated_batch(
-            build=candidate_query.get_query,
-            execute=execute,
-            scan_query_type="scan",
-            match_query_type="match",
-            dispatch_limit=10,
-        )
-
-        assert executed == ["scan", "match"]
 
     def test_an_or_filter_still_bounds_the_match_query_to_the_scanned_page(self) -> None:
         # With operand OR a session can match through a non-event branch, which the subquery

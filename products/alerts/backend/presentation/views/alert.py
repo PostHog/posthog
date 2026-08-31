@@ -33,6 +33,7 @@ from posthog.api.fields import OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
+from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.trigram_search import (
@@ -251,6 +252,7 @@ class AlertDeliverySerializer(serializers.Serializer):
 
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
+    error = serializers.SerializerMethodField(allow_null=True)
     investigation_notebook_short_id = serializers.SerializerMethodField(
         help_text="Short ID of the Notebook produced by the investigation agent, when the agent ran for this check."
     )
@@ -268,6 +270,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "created_at",
             "calculated_value",
             "state",
+            "error",
             "targets_notified",
             "anomaly_scores",
             "triggered_points",
@@ -286,6 +289,16 @@ class AlertCheckSerializer(serializers.ModelSerializer):
 
     def get_targets_notified(self, instance: AlertCheck) -> bool:
         return instance.targets_notified != {}
+
+    def get_error(self, instance: AlertCheck) -> dict[str, str] | None:
+        if not isinstance(instance.error, dict):
+            return None
+        message = instance.error.get("message")
+        if not isinstance(message, str):
+            return None
+        if instance.error.get("code") == "email_unavailable":
+            return {"code": "email_unavailable", "message": message}
+        return {"message": "This alert encountered an error. Check the alert configuration and try again."}
 
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
         notebook = instance.investigation_notebook
@@ -1257,6 +1270,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         failed_delivery_channels: list[str] = []
         successful_email_count = 0
         successful_destination_count = 0
+        email_delivery_unavailable = bool(email_targets) and not is_email_available()
         if email_targets:
             try:
                 send_test_alert_email(alert, recipients=email_targets, idempotency_key=str(uuid.uuid4()))
@@ -1280,8 +1294,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             failed_delivery_channels.append("destination")
 
         if successful_email_count == 0 and successful_destination_count == 0:
+            detail = (
+                "Email delivery is unavailable for this instance. Configure email settings before trying again."
+                if email_delivery_unavailable
+                else "Unable to start the test delivery. Check the configured channels and try again."
+            )
             return Response(
-                {"detail": "Unable to start the test delivery. Check the configured channels and try again."},
+                {"detail": detail},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         posthoganalytics.capture(

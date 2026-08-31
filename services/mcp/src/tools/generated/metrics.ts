@@ -45,6 +45,7 @@ const metricNamesList = (): ToolBase<typeof MetricNamesListSchema, Schemas._Metr
             path: `/api/projects/${encodeURIComponent(String(projectId))}/metrics/values/`,
             query: {
                 limit: params.limit,
+                service: params.service,
                 value: params.value,
             },
         })

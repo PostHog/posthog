@@ -59,6 +59,7 @@ import type {
 } from '../../schema/schema-general'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
+import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
@@ -374,6 +375,13 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                 ? {
                       ...state.scatter,
                       ...settings.scatter,
+                  }
+                : undefined,
+        boxPlot:
+            state.boxPlot || settings.boxPlot
+                ? {
+                      ...state.boxPlot,
+                      ...settings.boxPlot,
                   }
                 : undefined,
         leftYAxisSettings:
@@ -1854,6 +1862,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 applyScatterXAxis(actions, values.columns, values.selectedXAxis, values.selectedYAxis)
             }
 
+            if (visualizationType === ChartDisplayType.BoxPlot) {
+                actions.updateChartSettings({
+                    boxPlot: getAutoBoxPlotSettings(values.columns, values.chartSettings.boxPlot),
+                })
+            }
+
             const isAutoHeatmap =
                 visualizationType === ChartDisplayType.Auto &&
                 getAutoVisualizationType(values.columns, values.response) === ChartDisplayType.TwoDimensionalHeatmap
@@ -1969,6 +1983,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
             if (values.effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
                 applyAutoHeatmapSettings(actions, value, values.chartSettings.heatmap ?? {})
+            }
+
+            if (values.effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+                actions.updateChartSettings({
+                    boxPlot: getAutoBoxPlotSettings(value, values.chartSettings.boxPlot),
+                })
             }
 
             // The generic setup above only lands a numeric x for a scatter by luck (a DATE column or a

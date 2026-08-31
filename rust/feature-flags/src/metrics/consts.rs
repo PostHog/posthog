@@ -227,6 +227,12 @@ pub const FLAGS_BILLING_SECONDS_SINCE_SUCCESSFUL_FLUSH: &str =
 
 pub const FLAGS_BILLING_FLUSH_DURATION_MS: &str = "flags_billing_flush_duration_ms";
 
+// Counters: records the usage-ingestion mirror accepted / gave up on. A gap
+// between them and `flags_billing_entries_flushed_total` is expected while the
+// mirror is rolled out to a subset of teams.
+pub const FLAGS_USAGE_RECORDS_SENT: &str = "flags_usage_records_sent_total";
+pub const FLAGS_USAGE_RECORDS_FAILED: &str = "flags_usage_records_failed_total";
+
 // Histogram of per-call `record()` latency in microseconds, with no labels
 // to keep the hot-path emission allocation-free. The expected uncontended
 // p50 is sub-microsecond (one atomic increment + a hash + a HashMap entry

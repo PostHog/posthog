@@ -21,7 +21,7 @@ import hashlib
 import logging
 from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -65,15 +65,27 @@ from products.posthog_ai.backend.task_ownership import detach_conversations_for_
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
+    ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
+    ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
+    ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
+    ANALYSIS_TARGET_RUN_ID_STATE_KEY,
+    ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
+    DEV_STACK_PREVIEW_PORT,
+    DEV_STACK_PREVIEW_STATE_KEY,
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
+    PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    SERVER_OWNED_RESUME_STATE_KEYS,
+    TASK_ANALYSIS_FEATURE_FLAG,
+    TASK_ANALYSIS_INSIGHTS_STATE_KEY,
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
+    is_same_run_resume_state,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_shadow_enabled
@@ -98,8 +110,8 @@ from products.tasks.backend.models import (
     ChannelFeedMessage,
     ChannelInstructions,
     ChannelStar,
-    CodeInvite,
-    CodeInviteRedemption,
+    DesktopBetaTermsAcceptance,
+    InvalidTaskOriginError,
     MCPBuiltInAgentKey,
     SandboxCustomImage,
     SandboxEnvironment,
@@ -144,14 +156,6 @@ TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
-# --- Code-invite redeem outcomes ---
-# Returned on ``CodeInviteRedeemResult.outcome``; the presentation layer maps each to an
-# HTTP response. ``REDEEMED`` covers both a fresh redemption and the idempotent no-op when
-# the user already redeemed this code (both surface as success).
-CODE_INVITE_REDEEMED = "redeemed"
-CODE_INVITE_INVALID_CODE = "invalid_code"
-CODE_INVITE_NOT_REDEEMABLE = "not_redeemable"
-
 WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
 # Runtime posture for a setup-wizard cloud run, applied in create_wizard_cloud_run. The model is
@@ -162,9 +166,6 @@ WIZARD_CLOUD_RUN_MODEL = "claude-sonnet-5"
 WIZARD_CLOUD_RUN_AI_STAGE = "wizard_pr_agent"
 
 __all__ = [
-    "CODE_INVITE_INVALID_CODE",
-    "CODE_INVITE_NOT_REDEEMABLE",
-    "CODE_INVITE_REDEEMED",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
@@ -190,7 +191,6 @@ __all__ = [
     "create_channel_task",
     "create_task",
     "create_task_without_run",
-    "create_shared_channel_task_without_run",
     "create_task_run_connection_token",
     "create_task_run_living_artifact",
     "create_task_run_stream_read_token",
@@ -207,6 +207,7 @@ __all__ = [
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
     "get_active_wizard_cloud_run",
+    "get_latest_active_internal_task_run_for_organization",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_merged_pr_task_ids",
@@ -227,6 +228,8 @@ __all__ = [
     "sync_task_run_session",
     "get_task_run_detail",
     "get_task_run_sandbox_connection",
+    "resolve_task_run_preview_redirect",
+    "task_run_preview_ready",
     "get_task_run_living_artifact",
     "capture_relay_command_telemetry",
     "get_task_run_stream_info",
@@ -254,11 +257,7 @@ __all__ = [
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
-    "record_task_activity_for_users",
-    "set_task_activity_target",
     "signal_task_run_client_activity",
-    "update_shared_task_context",
-    "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_slack_thread_context",
@@ -428,9 +427,20 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     }
 )
 
+# Served only to the run's own task-bound sandbox, which reads them to build the agent's
+# first message; without them it silently falls back to `task.description`. Withheld from
+# human readers: a workflow task is team-readable, and its boot prompt embeds the triggering
+# event wholesale, which for a Slack trigger can be a private channel's message content.
+# `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
+# filter drops never reaches the agent server, so the gate would silently do nothing.
+_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override"})
 
-def _public_task_run_state(state: dict | None) -> dict:
-    return {key: value for key, value in (state or {}).items() if key in _TASK_RUN_PUBLIC_STATE_KEYS}
+
+def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
+    allowed = _TASK_RUN_PUBLIC_STATE_KEYS
+    if include_agent_keys:
+        allowed = allowed | _TASK_RUN_AGENT_STATE_KEYS
+    return {key: value for key, value in (state or {}).items() if key in allowed}
 
 
 def _task_run_log_url(run: TaskRun) -> str | None:
@@ -450,7 +460,7 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
-def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
+def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
     Reproduces the SMF-derived fields ``TaskRunDetailSerializer`` computed: ``log_url`` does
@@ -476,11 +486,12 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
         log_url=_task_run_log_url(run),
         error_message=run.error_message,
         output=run.output,
-        state=_public_task_run_state(run.state),
+        state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
         updated_at=run.updated_at,
         completed_at=run.completed_at,
+        preview_available=task_run_preview_ready(run.state),
     )
 
 
@@ -621,10 +632,15 @@ def _task_detail_to_dto(
         latest_run_id=latest_run_id,
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
+        origin_key=task.origin_key,
     )
 
 
 def _sandbox_env_to_dto(env: SandboxEnvironment) -> contracts.SandboxEnvironmentDTO:
+    # The names are reported back so a caller can tell which variables are set; the values
+    # stay server-side. A value that failed to decrypt comes back as its ciphertext string
+    # rather than a dict, and that is not a variable set, so it reports as none.
+    env_vars = env.environment_variables if isinstance(env.environment_variables, dict) else {}
     return contracts.SandboxEnvironmentDTO(
         id=env.id,
         team_id=env.team_id,
@@ -636,7 +652,8 @@ def _sandbox_env_to_dto(env: SandboxEnvironment) -> contracts.SandboxEnvironment
         allowed_domains=list(env.allowed_domains or []),
         repositories=list(env.repositories or []),
         effective_domains=env.get_effective_domains(),
-        has_environment_variables=bool(env.environment_variables),
+        has_environment_variables=bool(env_vars),
+        environment_variable_keys=sorted(env_vars),
         created_by=_user_basic_info(env.created_by if env.created_by_id else None),
         created_at=env.created_at,
         updated_at=env.updated_at,
@@ -789,6 +806,33 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
 def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     """The channel a (non-deleted) task is filed in, or None."""
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
+
+
+def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
+    """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
+
+    Callers use it to attribute a sandbox agent's writes to the stage that started it. Only
+    ``SIGNAL_REPORT``-origin tasks qualify, and ``ai_stage`` is written server-side once at run
+    creation (see ``Task.create_and_run``), so the sandbox whose token names the task cannot set
+    or change it — which is what makes it safe to treat as an identity rather than a claim.
+
+    A task's runs all carry the stage the pipeline started it for, so the newest run answers for
+    the task. ``None`` covers everything else: a scout run, a user-created task, a legacy row
+    predating the stamp.
+    """
+    state = (
+        TaskRun.objects.filter(
+            task_id=task_id,
+            team_id=team_id,
+            task__deleted=False,
+            task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        .order_by("-created_at")
+        .values_list("state", flat=True)
+        .first()
+    )
+    stage = (state or {}).get("ai_stage")
+    return stage if isinstance(stage, str) and stage else None
 
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
@@ -1024,6 +1068,30 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
     return None
 
 
+def get_latest_active_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str
+) -> contracts.TaskRunDTO | None:
+    """Return the newest active cloud run for a server-owned organization flow."""
+    run = (
+        TaskRun.objects.filter(
+            team__organization_id=organization_id,
+            task__team__organization_id=organization_id,
+            task__internal=True,
+            environment=TaskRun.Environment.CLOUD,
+            state__ai_stage=ai_stage,
+            status__in=[
+                TaskRun.Status.NOT_STARTED,
+                TaskRun.Status.QUEUED,
+                TaskRun.Status.IN_PROGRESS,
+            ],
+        )
+        .select_related("task", "task__created_by")
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    return _task_run_to_dto(run) if run is not None else None
+
+
 def get_stale_queued_task_run_ids(
     older_than: timedelta,
     limit: int,
@@ -1095,7 +1163,7 @@ def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> lis
         run = runs.get(run_id)
         state = run.state if run and isinstance(run.state, dict) else {}
         has_legacy_intent = bool(state.get("pending_dispatch"))
-        awaiting_restart_rollout = bool(state.get("handoff_resumed"))
+        awaiting_restart_rollout = is_same_run_resume_state(state)
         if run_id not in dispatch_run_ids and not has_legacy_intent and not awaiting_restart_rollout:
             WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc()
             logger.warning(
@@ -1215,9 +1283,9 @@ def collect_task_run_state_metrics(
     parent origin_product) so no ORM leaks across the boundary.
 
     A QUEUED run's age counts from ``queued_at``, not from row creation:
-    ``prepare_for_cloud_handoff`` re-queues an existing run without resetting ``created_at``,
-    so a desktop-to-cloud handoff would otherwise report the whole prior run's lifetime as
-    queue wait. Rows queued before ``queued_at`` existed fall back to ``created_at``, which is
+    ``prepare_for_cloud_resume`` re-queues an existing run without resetting ``created_at``,
+    so a cloud restart would otherwise report the whole prior run's lifetime as queue wait.
+    Rows queued before ``queued_at`` existed fall back to ``created_at``, which is
     exact for a run that was only ever queued once. Every other non-terminal status counts
     from creation, where elapsed lifetime is the useful age.
     """
@@ -1387,9 +1455,8 @@ def recent_wizard_cloud_run_times(user_id: int, since: datetime) -> list[datetim
 
     The filter trusts only PATCH-immutable markers: ``created_by`` (set at creation) and the
     protected ``wizard_config`` state key that only ``create_wizard_cloud_run`` stamps (see
-    ``_PROTECTED_RUN_STATE_KEYS``). Mutable fields like the run's ``environment`` are
-    deliberately NOT filtered — a run PATCHed from cloud to local must keep consuming quota,
-    or flipping it would launder sandbox boots out of the limits.
+    ``_PROTECTED_RUN_STATE_KEYS``). The environment is not part of the quota identity because
+    these immutable markers already identify every wizard cloud run.
 
     Deliberately user-scoped across teams: the throttle is per user, and a user can run the
     wizard on projects in different teams. Returns only timestamps, no run data.
@@ -1459,66 +1526,6 @@ def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, t
     )
 
 
-def create_shared_channel_task_without_run(
-    *,
-    team_id: int,
-    channel_id: str | UUID,
-    title: str,
-    description: str,
-    origin_product: "Task.OriginProduct",
-    state: dict[str, Any] | None = None,
-    signal_report_id: str | UUID | None = None,
-) -> UUID:
-    """Create a shared channel task without starting an agent run."""
-    channel = Channel.objects.filter(
-        id=channel_id,
-        team_id=team_id,
-        channel_type=Channel.ChannelType.PUBLIC,
-        deleted=False,
-    ).first()
-    if channel is None:
-        raise ValueError("Shared channel not found")
-    task = Task.objects.create(
-        team_id=team_id,
-        channel=channel,
-        title=title,
-        description=description,
-        origin_product=origin_product,
-        state=state or {},
-        signal_report_id=signal_report_id,
-    )
-    return task.id
-
-
-def record_task_activity_for_users(*, team_id: int, task_id: str | UUID, user_ids: Collection[int], kind: str) -> None:
-    """Project one task into each recipient's personal Activity feed."""
-    activity_at = django_timezone.now()
-    for user_id in set(user_ids):
-        TaskActivity.record(
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            kind=kind,
-            activity_at=activity_at,
-        )
-
-
-def set_task_activity_target(*, team_id: int, task_id: str | UUID, scope: str, target_id: str | UUID) -> None:
-    if scope != "desktop_canvas":
-        raise ValueError("Unsupported Activity target scope")
-    task = Task.objects.get(id=task_id, team_id=team_id)
-    task.state = {**(task.state or {}), "activity_target": {"scope": scope, "id": str(target_id)}}
-    task.save(update_fields=["state", "updated_at"])
-
-
-def update_shared_task_context(*, team_id: int, task_id: str | UUID, title: str, description: str) -> None:
-    Task.objects.filter(id=task_id, team_id=team_id).update(
-        title=title[:255],
-        description=description,
-        updated_at=django_timezone.now(),
-    )
-
-
 def create_run(
     task_id: str | UUID,
     *,
@@ -1540,6 +1547,24 @@ def update_task_run_state(
 ) -> dict:
     """Atomically merge state updates into a run's ``state`` and return the new state."""
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
+
+
+def promote_run_to_user_authorship(run_id: str | UUID, actor_user_id: int) -> bool:
+    """Promote a bot-authored run to user authorship when the actor now has a usable GitHub install.
+
+    Delegates to ``upgrade_run_to_user_authorship``, which persists the change and leaves
+    runs that are bot-authored by design (signal reports, caller-token runs) untouched.
+    Returns True when the run was promoted.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep tasks internals off the api import path
+        upgrade_run_to_user_authorship,
+    )
+
+    run = TaskRun.objects.select_related("task").filter(id=run_id).first()
+    actor_user = User.objects.filter(id=actor_user_id).first()
+    if run is None or actor_user is None:
+        return False
+    return upgrade_run_to_user_authorship(run, actor_user, run.state) is not None
 
 
 def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
@@ -1611,9 +1636,8 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     noise, not signal.
 
     Compare-and-set claim (like ``claim_and_fail_stale_run``): the conditional update flips the
-    run only while it is still QUEUED *and* local, so a run that left the queue — or was handed
-    off to cloud (handoff keeps status QUEUED) — between the candidate scan and this call is
-    skipped rather than terminalized under its just-dispatched workflow. The winner finalizes
+    run only while it is still QUEUED *and* local, so a run that left the queue between the
+    candidate scan and this call is skipped. The winner finalizes
     via ``mark_completed`` (``completed_at``, stream + analytics). Intentionally cross-team
     (janitor sweep).
     """
@@ -1720,52 +1744,20 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
     return snapshot.id
 
 
-# --- Desktop invites ---
+def get_desktop_beta_terms_acceptance(organization_id: UUID) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    return contracts.DesktopBetaTermsAcceptanceDTO(
+        is_desktop_beta_terms_accepted=DesktopBetaTermsAcceptance.objects.filter(
+            organization_id=organization_id
+        ).exists()
+    )
 
 
-def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:
-    """Redeem a PostHog Desktop invite for a user.
-
-    Idempotent: a user who already redeemed this code gets ``REDEEMED`` without a second
-    redemption row. A fresh redemption takes a row lock on the invite, re-checks
-    redeemability under the lock, records the redemption, bumps ``redemption_count``, and
-    captures the activation analytics — all in one transaction, mirroring the original view.
-    """
-    code_str = code.strip()
-
-    try:
-        invite_code = CodeInvite.objects.get(code__iexact=code_str)
-    except CodeInvite.DoesNotExist:
-        return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_INVALID_CODE)
-
-    user = User.objects.get(pk=user_id)
-
-    if CodeInviteRedemption.objects.filter(invite_code=invite_code, user=user).exists():
-        return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_REDEEMED)
-
-    with transaction.atomic():
-        invite_code = CodeInvite.objects.select_for_update().get(id=invite_code.id)
-
-        if not invite_code.is_redeemable:
-            return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_NOT_REDEEMABLE)
-
-        organization = user.organization if hasattr(user, "organization") else None
-
-        CodeInviteRedemption.objects.create(
-            invite_code=invite_code,
-            user=user,
-            organization=organization,
-        )
-
-        CodeInvite.objects.filter(id=invite_code.id).update(redemption_count=F("redemption_count") + 1)
-
-        posthoganalytics.capture(
-            distinct_id=str(user.distinct_id),
-            event="code_invite_redeemed",
-            groups=groups(organization=organization),
-        )
-
-    return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_REDEEMED)
+def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    DesktopBetaTermsAcceptance.objects.get_or_create(
+        organization_id=organization_id,
+        defaults={"accepted_by_user_id": user_id},
+    )
+    return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
 
 
 # --- Sandbox environments (presentation CRUD) ---
@@ -2129,6 +2121,8 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 #     a caller could otherwise force the VM runtime while the feature flag or custom-image gate is off.
 #   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
 #     restored on resume and where directory snapshots are mounted.
+#   - same-run resume markers control whether provisioning reloads the current run's logs and
+#     starts the sandbox idle. Legacy marker names remain protected during rollout.
 #   - workflow_id is the run's Temporal workflow address (``TaskRun.workflow_id`` prefers it over
 #     the derived id); a caller could otherwise repoint their run at another team's workflow and
 #     signal or terminate-and-restart it.
@@ -2147,6 +2141,14 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "repositories",
         "verified_pr_urls",
         "sandbox_id",
+        # Sandbox connection state is written only by the provisioning activity. A PATCHable
+        # sandbox_backend/sandbox_url would let a task controller point the account-wide hogland
+        # bearer (or the connect token) at an arbitrary server, so it stays server-owned.
+        "sandbox_backend",
+        "sandbox_url",
+        "sandbox_connect_token",
+        "sandbox_jwt_kid",
+        DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
@@ -2161,9 +2163,11 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # the run-log mirror with the rollout off).
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
+        PR_LOOP_ENABLED_STATE_KEY,
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
+        *SERVER_OWNED_RESUME_STATE_KEYS,
         "workflow_id",
         "pending_dispatch",
         # Written once at loop fire time; seeding copies these storage paths into the
@@ -2183,6 +2187,15 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "timed_out_inactivity",
         "timed_out_wall_clock",
         "sandbox_gone",
+        TASK_ANALYSIS_INSIGHTS_STATE_KEY,
+        ANALYSIS_TARGET_TASK_ID_STATE_KEY,
+        ANALYSIS_TARGET_RUN_ID_STATE_KEY,
+        # Server-stamped at analysis creation (task_analysis._target_context_state) and read back
+        # at insight-report time to attribute the captured event to a repository and sandbox
+        # image. A PATCHable value would let the sandbox agent forge that attribution.
+        ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
+        ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
+        ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
         # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
@@ -2359,10 +2372,16 @@ def list_task_runs(task_id: str | UUID, team_id: int) -> list[contracts.TaskRunD
     return [_task_run_detail_to_dto(run) for run in runs]
 
 
-def get_task_run_detail(run_id: str | UUID, task_id: str | UUID, team_id: int) -> contracts.TaskRunDetailDTO | None:
-    """A single run as a detail DTO, scoped to its task + team."""
+def get_task_run_detail(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, include_agent_state: bool = False
+) -> contracts.TaskRunDetailDTO | None:
+    """A single run as a detail DTO, scoped to its task + team.
+
+    ``include_agent_state`` is for the run's own task-bound sandbox only: it adds the
+    boot-prompt keys that are withheld from human readers.
+    """
     run = _get_visible_run(run_id, task_id, team_id)
-    return _task_run_detail_to_dto(run) if run is not None else None
+    return _task_run_detail_to_dto(run, include_agent_state=include_agent_state) if run is not None else None
 
 
 def get_task_run_stream_info(
@@ -2600,6 +2619,7 @@ def update_task_run(
     )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
+        observe_prewarmed_unused_if_never_activated,
         observe_wizard_run_unbound,
     )
 
@@ -2608,6 +2628,16 @@ def update_task_run(
         return None
 
     validated_data = dict(validated_data)
+    if (
+        "status" in validated_data
+        and not caller_is_agent
+        and run.task.origin_product == Task.OriginProduct.TASK_ANALYSIS
+    ):
+        # A human-driven status write on an analysis run is a way to buy another funded analysis:
+        # marking it failed or cancelled frees the per-run idempotency slot. The workflow and the
+        # run's own agent write status through paths that do not pass through here.
+        validated_data.pop("status")
+
     has_output_merge = "output" in validated_data and isinstance(validated_data["output"], dict)
     has_state_merge = "state" in validated_data and isinstance(validated_data["state"], dict)
     if has_state_merge:
@@ -2617,7 +2647,13 @@ def update_task_run(
     state_remove_keys = [
         k for k in (validated_data.get("state_remove_keys") or []) if k not in _PROTECTED_RUN_STATE_KEYS
     ]
-    has_state_mutation = has_state_merge or bool(state_remove_keys)
+    raw_state_append = validated_data.get("state_append")
+    state_append = (
+        {k: v for k, v in raw_state_append.items() if k not in _PROTECTED_RUN_STATE_KEYS}
+        if isinstance(raw_state_append, dict)
+        else {}
+    )
+    has_state_mutation = has_state_merge or bool(state_remove_keys) or bool(state_append)
     update_fields: set[str] = set()
 
     with transaction.atomic():
@@ -2625,9 +2661,7 @@ def update_task_run(
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
         if only_if_non_terminal and run.is_terminal:
             return _task_run_detail_to_dto(run)
-
         old_status = run.status
-        old_environment = run.environment
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
         old_commit_head = _commit_push_head_sha(run.output)
 
@@ -2640,7 +2674,7 @@ def update_task_run(
                 setattr(run, key, _apply_caller_output(existing_output, value, merged_output))
                 update_fields.add(key)
                 continue
-            if key == "state_remove_keys":
+            if key in ("state_remove_keys", "state_append"):
                 continue
             if key == "state" and has_state_merge:
                 existing_state = run.state if isinstance(run.state, dict) else {}
@@ -2659,6 +2693,21 @@ def update_task_run(
             next_state = dict(existing_state)
             for remove_key in state_remove_keys:
                 next_state.pop(remove_key, None)
+            run.state = next_state
+            update_fields.add("state")
+
+        if state_append:
+            next_state = dict(run.state) if isinstance(run.state, dict) else {}
+            for append_key, item in state_append.items():
+                current = next_state.get(append_key)
+                if isinstance(current, list):
+                    next_state[append_key] = [*current, item]
+                elif current is None:
+                    next_state[append_key] = [item]
+                else:
+                    # Appending to a key that holds a scalar used to drop the scalar. Keeping it as
+                    # the first element loses nothing, and this path has no way to return a 400.
+                    next_state[append_key] = [current, item]
             run.state = next_state
             update_fields.add("state")
 
@@ -2694,6 +2743,12 @@ def update_task_run(
                 },
             )
         observe_wizard_run_unbound(run)
+        # This write terminalizes the Run on its own — the cancel fallback takes it when the workflow
+        # is already gone — so the warm miss is booked here rather than by the status activity, which
+        # sees the row already terminal and skips.
+        observe_prewarmed_unused_if_never_activated(
+            run, reason="released" if new_status == TaskRun.Status.CANCELLED else "other"
+        )
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
@@ -2701,10 +2756,6 @@ def update_task_run(
             )
 
             notify_task_run_cancelled(run)
-    new_environment = validated_data.get("environment")
-    if new_environment == "local" and old_environment == TaskRun.Environment.CLOUD:
-        signal_workflow_completion(run.id, "cancelled", "handoff")
-
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
         _refresh_self_driving_quota_for_pr(run, old_pr_url)
@@ -2713,13 +2764,16 @@ def update_task_run(
         post_pr_created_thread_update(run, new_pr_url)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
         # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
-        # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
-        # so the double-emit is harmless. Tolerant: a logging/stream hiccup must not fail the PATCH.
+        # these. Tolerant: a logging/stream hiccup must not fail the PATCH.
         try:
             run.emit_progress_event("pr", "completed", "Opened pull request", "setup", detail=new_pr_url)
-            run.emit_progress_event("ci", "in_progress", "Keeping CI green", "setup")
+            if (run.state or {}).get(PR_LOOP_ENABLED_STATE_KEY):
+                run.emit_progress_event("ci", "in_progress", "Keeping CI green", "setup")
         except Exception:
             logger.warning("task_run.pr_progress_emit_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+    if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        run.close_ci_progress_step()
 
     new_commit_head = _commit_push_head_sha(run.output)
     if caller_is_agent and isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
@@ -2808,6 +2862,7 @@ def append_task_run_log(
     if run is None:
         return None
     run.append_log(entries)
+    run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
 
@@ -3651,6 +3706,39 @@ def read_task_run_artifact(
     return content, artifact, None
 
 
+def analyze_task_run(run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int) -> tuple[str, bool] | None:
+    """Create (or return the existing) PostHog-funded analysis task for a run.
+
+    Returns ``(analysis_task_id, created)``, or ``None`` when the run is not visible.
+    Raises ``TaskAnalysisError`` with a caller-safe message when the run cannot be analyzed
+    (for example, it has no log yet).
+    """
+    from products.tasks.backend.logic.services.task_analysis import (  # noqa: PLC0415 — keep storage/temporal deps off the api import path
+        create_task_analysis,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    task = Task.objects.filter(id=run.task_id, team_id=team_id).first()
+    if task is None:
+        return None
+    analysis_task, created = create_task_analysis(team=task.team, user_id=user_id, target_task=task, target_run=run)
+    return str(analysis_task.id), created
+
+
+def report_task_analysis_insight(run_id: str | UUID, task_id: str | UUID, team_id: int, *, insight: dict) -> int | None:
+    """Append one validated analysis finding to a run. Returns its index, or ``None`` if not visible."""
+    from products.tasks.backend.logic.services.task_analysis import (  # noqa: PLC0415 — keep storage deps off the api import path
+        append_analysis_insight,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return append_analysis_insight(run=run, insight=insight)
+
+
 def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     """Concatenated JSONL logs across the run's resume chain (oldest ancestor first)."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
@@ -3705,6 +3793,16 @@ def create_task_run_stream_read_token(run_id: str | UUID, task_id: str | UUID, t
 
 def task_uses_pi_runtime(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, runtime=Task.Runtime.PI).exists()
+
+
+def task_is_one_shot_analysis(task_id: str | UUID, team_id: int) -> bool:
+    """Whether this task is a server-created analysis, which accepts no further runs.
+
+    Analysis generations are excluded from the customer's credit rollup by their task origin,
+    so a second run under the same task would be unbilled model time for any prompt its owner
+    sends. The run the server created is the whole task.
+    """
+    return Task.objects.filter(id=task_id, team_id=team_id, origin_product=Task.OriginProduct.TASK_ANALYSIS).exists()
 
 
 def task_created_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
@@ -3799,6 +3897,7 @@ def signal_task_run_user_message(
 
     if reason := get_compute_quota_denial_reason(run.task):
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
+    accepted_at = django_timezone.now()
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -3812,9 +3911,16 @@ def signal_task_run_user_message(
         )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
+            if not run.is_terminal and (run.state or {}).get("await_user_message"):
+                raise
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
+    if message_id and content and content.strip():
+        try:
+            run.record_pending_followup_message(message_id, content, accepted_at=accepted_at)
+        except Exception:
+            logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
     return True
 
 
@@ -4088,11 +4194,107 @@ def get_task_run_sandbox_connection(
     if not run_state.sandbox_url:
         return contracts.TaskRunSandboxConnectionDTO(sandbox_url=None, sandbox_connect_token=None)
 
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        sandbox_transport_token,
+    )
+
     connection_token = _create(task_run=run, user_id=user_id, distinct_id=distinct_id)
+    transport_token, token_param = sandbox_transport_token(run.state, run_state.sandbox_url)
     return contracts.TaskRunSandboxConnectionDTO(
         sandbox_url=run_state.sandbox_url,
-        sandbox_connect_token=run_state.sandbox_connect_token,
+        sandbox_connect_token=transport_token,
         connection_token=connection_token,
+        sandbox_token_param=token_param,
+    )
+
+
+TaskRunPreviewOutcome = Literal["ready", "not_ready", "ended", "unavailable"]
+
+
+@frozen
+class TaskRunPreviewRedirect:
+    outcome: TaskRunPreviewOutcome
+    redirect_url: str | None = field(default=None, repr=False)
+
+
+_PREVIEW_NOT_READY = TaskRunPreviewRedirect(outcome="not_ready")
+_PREVIEW_ENDED = TaskRunPreviewRedirect(outcome="ended")
+_PREVIEW_UNAVAILABLE = TaskRunPreviewRedirect(outcome="unavailable")
+_PREVIEW_HEALTH_PROBE = (
+    "curl -sf --max-time 5 http://localhost:8010/_health >/dev/null"
+    f" && curl -sf --max-time 5 http://127.0.0.1:{DEV_STACK_PREVIEW_PORT}/@vite/client >/dev/null"
+)
+_PREVIEW_HEALTH_PROBE_TIMEOUT_SECONDS = 20
+
+
+def task_run_preview_ready(state: dict | None) -> bool:
+    run_state = state or {}
+    preview = run_state.get(DEV_STACK_PREVIEW_STATE_KEY)
+    if not isinstance(preview, dict):
+        return False
+    port = preview.get("port")
+    if isinstance(port, bool) or port != DEV_STACK_PREVIEW_PORT:
+        return False
+    sandbox_id = run_state.get("sandbox_id")
+    return bool(sandbox_id) and preview.get("sandbox_id") == sandbox_id
+
+
+def resolve_task_run_preview_redirect(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int
+) -> TaskRunPreviewRedirect | None:
+    from products.tasks.backend.exceptions import (
+        SandboxNotFoundError,  # noqa: PLC0415 — keep temporalio off the api import path
+    )
+    from products.tasks.backend.logic.services.sandbox import (  # noqa: PLC0415 — keeps the sandbox providers off the api import path
+        get_sandbox_class,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+
+    state = run.state if isinstance(run.state, dict) else {}
+    if not task_run_preview_ready(state):
+        return _PREVIEW_NOT_READY
+    sandbox_id = state["sandbox_id"]
+
+    try:
+        sandbox = get_sandbox_class().get_by_id(str(sandbox_id))
+        running = sandbox.is_running()
+    except SandboxNotFoundError:
+        return _PREVIEW_ENDED
+    except Exception:
+        logger.exception("task_run_preview_sandbox_lookup_failed", extra={"run_id": str(run.id)})
+        return _PREVIEW_UNAVAILABLE
+
+    if not running:
+        return _PREVIEW_ENDED
+
+    try:
+        probe = sandbox.execute(_PREVIEW_HEALTH_PROBE, timeout_seconds=_PREVIEW_HEALTH_PROBE_TIMEOUT_SECONDS)
+    except SandboxNotFoundError:
+        return _PREVIEW_ENDED
+    except Exception:
+        logger.exception("task_run_preview_health_probe_failed", extra={"run_id": str(run.id)})
+        return _PREVIEW_UNAVAILABLE
+    if probe.exit_code != 0:
+        return _PREVIEW_UNAVAILABLE
+
+    try:
+        credentials = sandbox.create_preview_connect_credentials(
+            port=DEV_STACK_PREVIEW_PORT, user_metadata={"user_id": user_id, "team_id": team_id}
+        )
+    except SandboxNotFoundError:
+        return _PREVIEW_ENDED
+    except Exception:
+        logger.exception("task_run_preview_token_mint_failed", extra={"run_id": str(run.id)})
+        return _PREVIEW_UNAVAILABLE
+
+    if not credentials.token:
+        return _PREVIEW_UNAVAILABLE
+    return TaskRunPreviewRedirect(
+        outcome="ready",
+        redirect_url=f"{credentials.url.rstrip('/')}/?_modal_connect_token={credentials.token}",
     )
 
 
@@ -4354,6 +4556,12 @@ def bootstrap_task_run(
     task = _get_task_for_run_control(task_id, team_id, user_id)
     if task is None:
         return None
+    if task.origin_product == Task.OriginProduct.TASK_ANALYSIS:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="detail", detail="An analysis task runs once. Start a new analysis instead."
+            )
+        )
     mode = validated_data.get("mode", "background")
     environment = validated_data.get("environment", TaskRun.Environment.LOCAL)
     branch = validated_data.get("branch")
@@ -4470,6 +4678,12 @@ def bootstrap_task_run(
     )
     try:
         run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+    except InvalidTaskOriginError as error:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
 
@@ -4636,7 +4850,8 @@ def resume_task_run_in_cloud(
     """Resume a run in a cloud sandbox, terminating any prior workflow.
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
-    ``"already_active"`` (400), ``"ownership_changed"`` (400), ``"auth_error:<detail>"``
+    ``"already_active"`` (400), ``"not_cloud"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400),
+    ``"auth_error:<detail>"``
     (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
@@ -4689,8 +4904,13 @@ def resume_task_run_in_cloud(
         )
         if not run.matches_task_ownership(task):
             return "ownership_changed", None, None
+        if run.environment != TaskRun.Environment.CLOUD:
+            return "not_cloud", None, None
 
-        is_cloud_active = run.environment == TaskRun.Environment.CLOUD and run.status in (
+        if task.origin_product not in Task.OriginProduct.values:
+            return "invalid_origin", None, None
+
+        is_cloud_active = run.status in (
             TaskRun.Status.QUEUED,
             TaskRun.Status.IN_PROGRESS,
         )
@@ -4719,7 +4939,7 @@ def resume_task_run_in_cloud(
         prior_completed_at = run.completed_at
         prior_queued_at = run.queued_at
         prior_state = dict(run.state or {})
-        run.prepare_for_cloud_handoff()
+        run.prepare_for_cloud_resume()
 
         if restart_dispatch_enabled:
             snapshot = RestartSnapshot(
@@ -4749,7 +4969,7 @@ def resume_task_run_in_cloud(
             raise RuntimeError("Failed to reset task run event stream")
         resume_task_in_cloud_workflow(str(run.id), run.workflow_id)
     except Exception as e:
-        logger.exception("Failed to trigger handoff workflow", extra={"task_run_id": str(run.id), "error": str(e)})
+        logger.exception("Failed to trigger resume workflow", extra={"task_run_id": str(run.id), "error": str(e)})
         with transaction.atomic():
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
             run.status = prior_status
@@ -4890,6 +5110,26 @@ def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
         return False
 
 
+def task_analysis_enabled(team: Team, user: User) -> bool:
+    """Rollout gate for the PostHog-funded analysis endpoint, fail-closed like the Pi gates."""
+    distinct_id = user.distinct_id or f"user_{user.id}"
+    organization_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                TASK_ANALYSIS_FEATURE_FLAG,
+                distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("task-analysis flag check failed; treating as disabled")
+        return False
+
+
 def task_runtime(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> str | None:
     return (
         _visible_task_qs(team_id, user_id, for_control=for_control)
@@ -4897,6 +5137,35 @@ def task_runtime(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
         .values_list("runtime", flat=True)
         .first()
     )
+
+
+@frozen
+class ControlVisibleTask:
+    runtime: str
+    origin_product: str
+
+
+def task_control_runtime_and_origin(
+    task_id: str | UUID, team_id: int, user_id: int | None
+) -> ControlVisibleTask | None:
+    """The runtime and origin product of a task the user may drive, or ``None`` when it is not
+    control-visible.
+
+    One narrow control-predicate query for the warm-resume gate. The control predicate is a subset
+    of the read predicate, so a control-visible task is always read-visible. This covers the same
+    404 gate as a read query plus a separate control ``EXISTS`` check. It does not load the detail
+    DTO, prefetch every run, or presign the latest run's log URL.
+    """
+    row = (
+        _visible_task_qs(team_id, user_id, for_control=True)
+        .filter(id=task_id)
+        .values_list("runtime", "origin_product")
+        .first()
+    )
+    if row is None:
+        return None
+    runtime, origin_product = row
+    return ControlVisibleTask(runtime=runtime, origin_product=origin_product)
 
 
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:
@@ -5304,9 +5573,13 @@ def create_task(
     warm_reasoning_effort = validated_data.pop("reasoning_effort", None)
     warm_sandbox_environment_id = validated_data.pop("sandbox_environment_id", None)
     warm_custom_image_id = validated_data.pop("custom_image_id", None)
+    warm_initial_permission_mode = validated_data.pop("initial_permission_mode", None)
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
+    # Names the task from the pasted content while `description` stays the bare prompt. Write-only,
+    # never persisted, so it must be popped before `Task.objects.create(**validated_data)`.
+    naming_source = (validated_data.pop("naming_source", None) or "").strip() or None
     channel = validated_data.get("channel")
     if (
         channel is not None
@@ -5332,14 +5605,16 @@ def create_task(
         if default_integration:
             validated_data["github_integration"] = default_integration
 
-    if (
-        warm_branch_provided
-        and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
-        and user_id is not None
-    ):
+    # Reuse is scoped to the submitting origin product: `_find_idling_warm_run` filters on it, so an
+    # origin that never warms simply finds nothing. The warm call and this create call are separate
+    # requests that must agree on the origin — when they disagree the lookup misses and we cold-create,
+    # which costs latency but can never hand over a Run booted under another product's budget or
+    # PR-authorship rules.
+    if warm_branch_provided and user_id is not None:
         warm_run = _find_idling_warm_run(
             team_id,
             user_id,
+            origin_product=validated_data["origin_product"],
             repository=validated_data.get("repository"),
             repositories=validated_data.get("repositories", []),
             github_integration_id=getattr(validated_data.get("github_integration"), "id", None),
@@ -5349,6 +5624,7 @@ def create_task(
             reasoning_effort=warm_reasoning_effort,
             sandbox_environment_id=warm_sandbox_environment_id,
             custom_image_id=warm_custom_image_id,
+            initial_permission_mode=warm_initial_permission_mode,
         )
         if warm_run is not None and not _warm_sandbox_selection_is_accessible(
             team_id=team_id,
@@ -5389,7 +5665,7 @@ def create_task(
             description = (validated_data.get("description") or "").strip()
             update_fields: list[str] = []
             if description and not (warm_task.title or "").strip():
-                warm_task.title = generate_task_title(description)
+                warm_task.title = generate_task_title(naming_source or description)
                 warm_task.title_manually_set = False
                 update_fields += ["title", "title_manually_set"]
             if description and not (warm_task.description or "").strip():
@@ -5476,8 +5752,8 @@ def create_task(
             validated_data["github_user_integration"] = github_user_integration.integration
 
     title = (validated_data.get("title") or "").strip()
-    if not title and validated_data.get("description"):
-        validated_data["title"] = generate_task_title(validated_data["description"])
+    if not title and (naming_source or validated_data.get("description")):
+        validated_data["title"] = generate_task_title(naming_source or validated_data["description"])
         validated_data.setdefault("title_manually_set", False)
     elif title:
         validated_data.setdefault("title_manually_set", True)
@@ -5904,6 +6180,7 @@ def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
     *,
+    origin_product: str,
     repository: str | None,
     repositories: list[str] | None = None,
     github_integration_id: int | None,
@@ -5913,18 +6190,25 @@ def _find_idling_warm_run(
     reasoning_effort: str | None = None,
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
+    initial_permission_mode: str | None = None,
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
-    A warm Run is a non-terminal ``USER_CREATED`` Run for the same optional repo+branch still awaiting its
-    first user message (the ``await_user_message`` state marker). This is the backend's single source
-    of truth for the warm pool: it dedupes warm provisioning (so a repeated ``warm`` call reuses the
+    A warm Run is a non-terminal Run of the same origin product, for the same optional repo+branch, still
+    awaiting its first user message (the ``await_user_message`` state marker). This is the backend's single
+    source of truth for the warm pool: it dedupes warm provisioning (so a repeated ``warm`` call reuses the
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
     warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
 
+    ``origin_product`` is required and never defaulted: it selects the OAuth app, the warm quota gate, the
+    pool caps, and PR authorship, all of which are fixed when the warm boots and cannot be changed at
+    activation. Matching across origins would hand a Run provisioned under one product's budget and
+    authorship rules to another.
+
     Reuse also requires the warm Run's runtime, model, sandbox environment, and custom image selections to
-    match the request. Reasoning effort is deliberately excluded: activation applies the final effort before
-    the first turn. Other mismatches return ``None`` so the caller cold-creates on the correct sandbox.
+    match the request, plus its permission mode when the caller states one. Reasoning effort is deliberately
+    excluded: activation applies the final effort before the first turn. Other mismatches return ``None`` so
+    the caller cold-creates on the correct sandbox.
     The optional repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
     matched in Python over the small candidate set.
     """
@@ -5936,7 +6220,7 @@ def _find_idling_warm_run(
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
             task__team_id=team_id,
             task__created_by_id=user_id,
-            task__origin_product=Task.OriginProduct.USER_CREATED,
+            task__origin_product=origin_product,
             task__deleted=False,
             task__github_integration_id=github_integration_id,
             state__await_user_message=True,
@@ -5966,8 +6250,15 @@ def _find_idling_warm_run(
             state.get("sandbox_environment_id") or None,
             state.get("custom_image_id") or None,
         )
-        if have == wanted:
-            return run
+        if have != wanted:
+            continue
+        # Asymmetric on purpose, and load-bearing: a warm Run's state ALWAYS holds a concrete permission
+        # mode (warm_task_sandbox writes one unconditionally), while callers that never send one — the
+        # Code app — must keep reusing their warms. Folding this into the tuple above would compare None
+        # against "default" and break every one of those reuses.
+        if initial_permission_mode is not None and state.get("initial_permission_mode") != initial_permission_mode:
+            continue
+        return run
     return None
 
 
@@ -6058,7 +6349,11 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
-    activation_state_updates: dict[str, object] = {}
+    # Claims the Run as activated before the signal goes out. `await_user_message` can only be cleared
+    # after the signal — clearing it first would drop a Run out of the warm pool that a failed signal
+    # never activated, stranding its sandbox. That leaves a window where the Run is being activated but
+    # still looks idle, so this marker is what the unused-warm metric reads to tell the two apart.
+    activation_state_updates: dict[str, object] = {"warm_activated": True}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
@@ -6094,10 +6389,18 @@ def warm_task_sandbox(
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
     client_provenance: TaskClientProvenance | None = None,
+    origin_product: str = Task.OriginProduct.USER_CREATED,
+    initial_permission_mode: str | None = None,
 ) -> contracts.WarmTaskDTO | None:
-    """Warm a full idling Run for a Code-app cloud task while the user composes.
+    """Warm a full idling Run for a cloud task while the user composes.
 
-    Births a draft Task (``USER_CREATED``), then ``SandboxWarmer.warm()`` provisions an interactive
+    ``origin_product`` is stamped on the draft Task and fixes what the warm can later be reused for: it
+    selects the OAuth app, the warm quota gate (``USER_CREATED`` has no billing gate; ``POSTHOG_AI`` runs
+    the AI-credit check), the warm-pool caps, and PR authorship. None of these can change at activation,
+    so a submit only reuses a warm born under the same origin. Defaults to ``USER_CREATED`` for the
+    Code-app callers that predate the parameter.
+
+    Births a draft Task, then ``SandboxWarmer.warm()`` provisions an interactive
     Run that boots, optionally clones and checks out ``branch``, then starts the agent on the selected
     ``runtime_adapter``/``model``/``reasoning_effort`` (carried on the Run state and read by the
     agent-server at launch, so the sandbox boots on the right runtime), then idles awaiting the first
@@ -6109,7 +6412,8 @@ def warm_task_sandbox(
     (``Throttled``). The caller treats ``None`` as "no warm run; fall through to a cold create+run".
 
     When present, ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
-    (see :func:`resolve_team_github_integration_id`). Repository-less warms omit it.
+    (see :func:`resolve_team_github_integration_id`). A repository requires it; a repository-less warm
+    may carry it so the Run boots with the same GitHub credentials a repo-less create would get.
     """
     from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
         PermissionDenied,
@@ -6135,7 +6439,12 @@ def warm_task_sandbox(
         github_integration = Integration.objects.filter(
             id=github_integration_id, team_id=team_id, kind="github"
         ).first()
-    if bool(normalized_repositories) != bool(github_integration):
+    # An integration id that does not resolve to this team's GitHub integration is never warmed on, and
+    # a repository cannot be cloned without one. An integration without a repository is fine: the
+    # create path stores that pair too, and reuse matches on the integration id.
+    if github_integration_id is not None and github_integration is None:
+        return None
+    if normalized_repositories and github_integration is None:
         return None
     sandbox_environment = None
     if sandbox_environment_id is not None:
@@ -6160,6 +6469,7 @@ def warm_task_sandbox(
     existing = _find_idling_warm_run(
         team_id,
         user_id,
+        origin_product=origin_product,
         repository=repository,
         repositories=normalized_repositories,
         github_integration_id=github_integration_id,
@@ -6169,6 +6479,7 @@ def warm_task_sandbox(
         reasoning_effort=reasoning_effort,
         sandbox_environment_id=sandbox_environment_id,
         custom_image_id=custom_image_id,
+        initial_permission_mode=initial_permission_mode,
     )
     if existing is not None:
         return contracts.WarmTaskDTO(task_id=existing.task_id, run_id=existing.id)
@@ -6177,7 +6488,7 @@ def warm_task_sandbox(
         team=team,
         title="",
         description="",
-        origin_product=Task.OriginProduct.USER_CREATED,
+        origin_product=Task.OriginProduct(origin_product),
         user_id=user_id,
         repository=repository,
         client_provenance=client_provenance,
@@ -6188,10 +6499,15 @@ def warm_task_sandbox(
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
-    initial_permission_mode = "auto" if runtime_adapter == RuntimeAdapter.CODEX.value else "default"
+    # The agent session is constructed with this mode at boot and it cannot be changed once the sandbox
+    # is warm, so an explicit request wins and reuse matches on it. Callers that omit it (the Code app)
+    # keep the runtime-derived default they have always had.
+    resolved_permission_mode = initial_permission_mode or (
+        "auto" if runtime_adapter == RuntimeAdapter.CODEX.value else "default"
+    )
     extra_state: dict = {
         "branch": branch,
-        "initial_permission_mode": initial_permission_mode,
+        "initial_permission_mode": resolved_permission_mode,
     }
     if sandbox_environment is not None:
         extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
@@ -6216,6 +6532,168 @@ def warm_task_sandbox(
         task.soft_delete()
         return None
 
+    return contracts.WarmTaskDTO(task_id=task.id, run_id=result.run.id)
+
+
+def warm_task_resume_sandbox(
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    *,
+    resume_from_run_id: str | UUID,
+    runtime_adapter: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    initial_permission_mode: str | None = None,
+) -> contracts.WarmTaskDTO | None:
+    """Warm a successor for the task's current terminal run while its next message is composed."""
+    from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
+        PermissionDenied,
+        Throttled,
+    )
+
+    from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
+
+    from products.tasks.backend.logic.services.warm import (  # noqa: PLC0415 — keep warming deps off the api import path
+        SandboxWarmer,
+        WarmSourceChanged,
+    )
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        get_pr_authorship_mode,
+        get_provider_for_runtime_adapter,
+        get_reasoning_effort_error,
+        parse_run_state,
+    )
+
+    task = _visible_task_qs(team_id, user_id, for_control=True).select_related("team").filter(id=task_id).first()
+    if task is None:
+        return None
+
+    previous_run = task.runs.filter(id=resume_from_run_id).first()
+    if previous_run is None or not previous_run.is_terminal:
+        return None
+    if not previous_run.matches_task_ownership(task):
+        # A handed-off task keeps its old runs stamped with the previous owner, so create_run would
+        # reject this resume source with TaskOwnershipChangedError. Skip warming; the cold resume path
+        # reports the friendly error when the person submits.
+        return None
+    latest_run = task.latest_run
+    latest_state = (latest_run.state or {}) if latest_run is not None else {}
+    latest_is_expected_source = latest_run is not None and latest_run.id == previous_run.id
+    latest_is_expected_warm = (
+        latest_run is not None
+        and not latest_run.is_terminal
+        and latest_state.get("await_user_message") is True
+        and latest_state.get("resume_from_run_id") == str(previous_run.id)
+    )
+    # A successor the composer handed back (or the reaper took) is terminal and sits in front of its
+    # own source, so neither test above sees it. Without this the first release would leave the task
+    # unable to warm again until it was submitted — and releases are routine: an emptied draft, a
+    # changed model or mode, or leaving the composer. The source fence still holds, because the
+    # released successor has to have been warmed for this same run.
+    latest_is_released_warm = (
+        latest_run is not None
+        and latest_run.is_terminal
+        and latest_state.get("prewarmed") is True
+        and latest_state.get("await_user_message") is True
+        and latest_state.get("resume_from_run_id") == str(previous_run.id)
+    )
+    if not latest_is_expected_source and not latest_is_expected_warm and not latest_is_released_warm:
+        return None
+
+    previous_state = parse_run_state(previous_run.state)
+    resolved_runtime_adapter = runtime_adapter or previous_state.runtime_adapter
+    resolved_model = model or previous_state.model
+    resolved_reasoning_effort = reasoning_effort or previous_state.reasoning_effort
+    resolved_permission_mode = initial_permission_mode or previous_state.initial_permission_mode or "default"
+    reasoning_effort_error = get_reasoning_effort_error(
+        runtime_adapter=resolved_runtime_adapter,
+        model=resolved_model,
+        reasoning_effort=resolved_reasoning_effort,
+    )
+    if reasoning_effort_error is not None:
+        return None
+
+    user = User.objects.get(pk=user_id)
+    model_access_error = get_model_access_error(resolved_model, distinct_id=user.distinct_id)
+    if model_access_error is not None:
+        return None
+
+    resolved_pr_authorship_mode, validation_error = _resolve_cloud_pr_authorship_mode(
+        task,
+        pr_authorship_mode=get_pr_authorship_mode(task, previous_run.state),
+        request_user_id=user_id,
+        github_user_token=None,
+    )
+    if validation_error is not None:
+        return None
+
+    branch = previous_state.pr_base_branch
+    sandbox_environment_id = previous_state.sandbox_environment_id
+    custom_image_id = (previous_run.state or {}).get("custom_image_id")
+    if not _warm_sandbox_selection_is_accessible(
+        team_id=team_id,
+        task_created_by_id=task.created_by_id,
+        sandbox_environment_id=sandbox_environment_id,
+        custom_image_id=custom_image_id,
+    ):
+        return None
+
+    def state_value(value: object | None) -> object | None:
+        return value.value if hasattr(value, "value") else value
+
+    extra_state: dict[str, Any] = {
+        "branch": branch,
+        "pr_base_branch": branch,
+        "pr_authorship_mode": state_value(resolved_pr_authorship_mode),
+        "auto_publish": previous_state.auto_publish,
+        "run_source": state_value(previous_state.run_source),
+        "signal_report_id": previous_state.signal_report_id,
+        "runtime_adapter": state_value(resolved_runtime_adapter),
+        "provider": state_value(get_provider_for_runtime_adapter(resolved_runtime_adapter)),
+        "model": resolved_model,
+        "reasoning_effort": state_value(resolved_reasoning_effort),
+        "context_window": previous_state.context_window,
+        "fast_mode": previous_state.fast_mode,
+        "initial_permission_mode": state_value(resolved_permission_mode),
+        "sandbox_environment_id": sandbox_environment_id,
+        "custom_image_id": custom_image_id,
+    }
+    extra_state.update(_github_credential_source_extra_state(resolved_pr_authorship_mode, None))
+    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "github_read_access"):
+        if protected_key in (previous_run.state or {}):
+            extra_state[protected_key] = (previous_run.state or {})[protected_key]
+    extra_state = {key: value for key, value in extra_state.items() if value is not None}
+    stable_selection = {
+        key: value
+        for key, value in extra_state.items()
+        if key
+        in {
+            "branch",
+            "runtime_adapter",
+            "model",
+            "context_window",
+            "fast_mode",
+            "initial_permission_mode",
+            "sandbox_environment_id",
+            "custom_image_id",
+            "pr_authorship_mode",
+            "github_credential_source",
+        }
+    }
+
+    try:
+        result = SandboxWarmer(task, user=user).warm(
+            mode="interactive",
+            extra_state=extra_state,
+            create_pr=True,
+            expected_resume_from_run_id=previous_run.id,
+            required_existing_state=stable_selection,
+        )
+    except (PermissionDenied, QuotaLimitExceeded, Throttled, WarmSourceChanged, TaskOwnershipChangedError):
+        # TaskOwnershipChangedError guards a handoff that lands after the check above but before the
+        # locked create_run, keeping this best-effort endpoint from returning a server error.
+        return None
     return contracts.WarmTaskDTO(task_id=task.id, run_id=result.run.id)
 
 
@@ -6267,6 +6745,22 @@ def run_task(
     pending_user_message = validated_data.get("pending_user_message")
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
     is_pi_task = task.runtime == Task.Runtime.PI
+    previous_run: TaskRun | None = None
+    previous_state = None
+    if resume_from_run_id:
+        previous_run = task.runs.filter(id=resume_from_run_id).first()
+        if previous_run is None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
+            )
+        if not previous_run.matches_task_ownership(task):
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail",
+                    detail="This run belongs to a previous task owner. Start a new run instead.",
+                )
+            )
+        previous_state = parse_run_state(previous_run.state)
 
     if branch is None and not resume_from_run_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
         # The inbox "Create PR" button sends no branch, so without this the run would target the
@@ -6281,10 +6775,38 @@ def run_task(
             team_id, task.repositories[0] if task.repositories else task.repository
         )
 
-    if not resume_from_run_id:
-        warm_run = _idling_warm_run_for_task(task)
-        if warm_run is not None and (branch or None) == (warm_run.branch or None):
-            warm_state = warm_run.state or {}
+    warm_run = _idling_warm_run_for_task(task)
+    if warm_run is not None:
+        warm_state = warm_run.state or {}
+        # Both directions. A request that states no resume source must not be handed a successor
+        # warmed to resume an earlier run — its filesystem was restored from that run's snapshot, so
+        # a run asked to start fresh would silently inherit it.
+        warm_resume_matches = (warm_state.get("resume_from_run_id") or None) == (
+            str(resume_from_run_id) if resume_from_run_id else None
+        )
+        effective_branch = branch
+        if effective_branch is None and previous_state is not None:
+            effective_branch = previous_state.pr_base_branch
+        if warm_resume_matches and (effective_branch or None) == (warm_run.branch or None):
+            desired_runtime_adapter = validated_data.get("runtime_adapter")
+            desired_model = validated_data.get("model")
+            desired_context_window = validated_data.get("context_window")
+            desired_fast_mode = validated_data.get("fast_mode")
+            desired_sandbox_environment_id = validated_data.get("sandbox_environment_id")
+            desired_custom_image_id = validated_data.get("custom_image_id")
+            if previous_state is not None:
+                assert previous_run is not None
+                desired_runtime_adapter = desired_runtime_adapter or previous_state.runtime_adapter
+                desired_model = desired_model or previous_state.model
+                desired_context_window = desired_context_window or previous_state.context_window
+                if desired_fast_mode is None:
+                    desired_fast_mode = previous_state.fast_mode
+                desired_sandbox_environment_id = desired_sandbox_environment_id or previous_state.sandbox_environment_id
+                desired_custom_image_id = desired_custom_image_id or (previous_run.state or {}).get("custom_image_id")
+
+            def state_value(value: object | None) -> object | None:
+                return value.value if hasattr(value, "value") else value
+
             warm_runtime_matches = (
                 warm_state.get("runtime_adapter") or None,
                 warm_state.get("model") or None,
@@ -6293,18 +6815,30 @@ def run_task(
                 warm_state.get("sandbox_environment_id") or None,
                 warm_state.get("custom_image_id") or None,
             ) == (
-                validated_data.get("runtime_adapter") or None,
-                validated_data.get("model") or None,
-                validated_data.get("context_window") or None,
-                validated_data.get("fast_mode") or None,
-                str(validated_data["sandbox_environment_id"]) if validated_data.get("sandbox_environment_id") else None,
-                str(validated_data["custom_image_id"]) if validated_data.get("custom_image_id") else None,
+                state_value(desired_runtime_adapter) or None,
+                desired_model or None,
+                desired_context_window or None,
+                desired_fast_mode or None,
+                str(desired_sandbox_environment_id) if desired_sandbox_environment_id else None,
+                str(desired_custom_image_id) if desired_custom_image_id else None,
             )
-            if warm_runtime_matches and _warm_sandbox_selection_is_accessible(
-                team_id=team_id,
-                task_created_by_id=task.created_by_id,
-                sandbox_environment_id=warm_state.get("sandbox_environment_id"),
-                custom_image_id=warm_state.get("custom_image_id"),
+            requested_permission_mode = validated_data.get("initial_permission_mode")
+            if previous_state is not None:
+                requested_permission_mode = (
+                    requested_permission_mode or previous_state.initial_permission_mode or "default"
+                )
+            warm_permission_matches = requested_permission_mode is None or warm_state.get(
+                "initial_permission_mode"
+            ) == state_value(requested_permission_mode)
+            if (
+                warm_runtime_matches
+                and warm_permission_matches
+                and _warm_sandbox_selection_is_accessible(
+                    team_id=team_id,
+                    task_created_by_id=task.created_by_id,
+                    sandbox_environment_id=warm_state.get("sandbox_environment_id"),
+                    custom_image_id=warm_state.get("custom_image_id"),
+                )
             ):
                 warm_staged_artifacts, warm_missing_artifact_ids = (
                     get_task_staged_artifacts(task, pending_user_artifact_ids)
@@ -6377,20 +6911,8 @@ def run_task(
         extra_state["rtk_enabled"] = rtk_enabled
 
     if resume_from_run_id:
-        previous_run = task.runs.filter(id=resume_from_run_id).first()
-        if not previous_run:
-            return contracts.TaskRunResult(
-                error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
-            )
-        if not previous_run.matches_task_ownership(task):
-            return contracts.TaskRunResult(
-                error=contracts.TaskValidationError(
-                    kind="detail",
-                    detail="This run belongs to a previous task owner. Start a new run instead.",
-                )
-            )
-
-        prev_state = parse_run_state(previous_run.state)
+        assert previous_run is not None and previous_state is not None
+        prev_state = previous_state
         extra_state = extra_state or {}
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
@@ -6577,9 +7099,16 @@ def run_task(
                 enforce_report_implementation_rerun_cap(
                     team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
                 )
+    except InvalidTaskOriginError as error:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
     if is_pi_task and resume_from_run_id:
+        assert previous_run is not None
         task_run.active_task_session = previous_run.active_task_session
         task_run.save(update_fields=["active_task_session", "updated_at"])
 
@@ -6949,13 +7478,20 @@ def _ensure_system_channel(
     return channel, created
 
 
+PERSONAL_LEGACY_SHAPE: dict[str, Any] = {"channel_type": Channel.ChannelType.PERSONAL}
+GENERAL_LEGACY_SHAPE: dict[str, Any] = {
+    "channel_type": Channel.ChannelType.PUBLIC,
+    "name": Channel.GENERAL_CHANNEL_NAME,
+}
+
+
 def _ensure_personal_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
     return _ensure_system_channel(
         team_id,
         user_id,
         role=Channel.SystemRole.PERSONAL,
         owner_lookup={"created_by_id": user_id},
-        legacy_lookup={"created_by_id": user_id, "channel_type": Channel.ChannelType.PERSONAL, "deleted": False},
+        legacy_lookup={"created_by_id": user_id, **PERSONAL_LEGACY_SHAPE, "deleted": False},
         create_defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
     )
 
@@ -6974,12 +7510,42 @@ def _ensure_general_channel(team_id: int, user_id: int | None) -> tuple[Channel,
         user_id,
         role=Channel.SystemRole.GENERAL,
         owner_lookup={},
-        legacy_lookup={
-            "name": Channel.GENERAL_CHANNEL_NAME,
-            "channel_type": Channel.ChannelType.PUBLIC,
-            "deleted": False,
-        },
+        legacy_lookup={**GENERAL_LEGACY_SHAPE, "deleted": False},
         create_defaults={"created_by_id": user_id},
+    )
+
+
+def _matches_legacy_shape(channel: Channel, legacy: dict[str, Any]) -> bool:
+    return all(getattr(channel, key) == value for key, value in legacy.items())
+
+
+def general_channel_q(prefix: str = "") -> Q:
+    if prefix == "channel":
+        return Q(channel__system_role=Channel.SystemRole.GENERAL) | Q(
+            channel__system_role__isnull=True,
+            channel__channel_type=Channel.ChannelType.PUBLIC,
+            channel__name=Channel.GENERAL_CHANNEL_NAME,
+        )
+    if prefix:
+        raise ValueError(f"Unsupported channel relation: {prefix}")
+    return Q(system_role=Channel.SystemRole.GENERAL) | Q(
+        system_role__isnull=True,
+        channel_type=Channel.ChannelType.PUBLIC,
+        name=Channel.GENERAL_CHANNEL_NAME,
+    )
+
+
+def personal_channel_q(prefix: str = "") -> Q:
+    if prefix == "channel":
+        return Q(channel__system_role=Channel.SystemRole.PERSONAL) | Q(
+            channel__system_role__isnull=True,
+            channel__channel_type=Channel.ChannelType.PERSONAL,
+        )
+    if prefix:
+        raise ValueError(f"Unsupported channel relation: {prefix}")
+    return Q(system_role=Channel.SystemRole.PERSONAL) | Q(
+        system_role__isnull=True,
+        channel_type=Channel.ChannelType.PERSONAL,
     )
 
 
@@ -6987,14 +7553,13 @@ def find_general_channel_id(team_id: int) -> UUID | None:
     """The team's general space, or ``None`` when nobody has provisioned one. Read-only, so
     a product filing work into that space can gate on its existence instead of bringing the
     team's default spaces into being as a side effect."""
-    channels = _team_channels(team_id).filter(deleted=False)
-    channel = channels.filter(system_role=Channel.SystemRole.GENERAL).first()
-    if channel is None:
-        channel = channels.filter(
-            system_role__isnull=True,
-            channel_type=Channel.ChannelType.PUBLIC,
-            name=Channel.GENERAL_CHANNEL_NAME,
-        ).first()
+    channel = (
+        _team_channels(team_id)
+        .filter(general_channel_q(), deleted=False)
+        # A stamped row wins over an unstamped one, in the vanishingly rare case a team has both.
+        .order_by(F("system_role").asc(nulls_last=True))
+        .first()
+    )
     return channel.id if channel is not None else None
 
 
@@ -7003,7 +7568,7 @@ def _is_general_channel(channel: Channel) -> bool:
     general name is still the team's general space."""
     if channel.system_role is not None:
         return channel.system_role == Channel.SystemRole.GENERAL
-    return channel.channel_type == Channel.ChannelType.PUBLIC and channel.name == Channel.GENERAL_CHANNEL_NAME
+    return _matches_legacy_shape(channel, GENERAL_LEGACY_SHAPE)
 
 
 def provision_default_channels(team_id: int, user_id: int) -> contracts.ProvisionedChannelsDTO:
@@ -7134,7 +7699,7 @@ def update_channel(
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
-    """Soft-delete an empty public channel."""
+    """Soft-delete an empty public channel. Archived tasks do not count as content."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
@@ -7142,10 +7707,24 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
         return "personal" if channel.created_by_id == user_id else "not_found"
     if _is_general_channel(channel):
         return "general"
-    if channel.tasks.filter(deleted=False).exists() or channel.canvases.filter(deleted=False).exists():
-        return "not_empty"
-    channel.deleted = True
-    channel.save(update_fields=["deleted", "updated_at"])
+    with transaction.atomic():
+        # Emptiness is checked under a row lock because filing a task takes FOR KEY SHARE on
+        # its channel: unlocked, a task can land after the check and be orphaned in a channel
+        # this call goes on to delete.
+        channel = Channel.objects.select_for_update().filter(id=channel_id, team_id=team_id, deleted=False).first()
+        if channel is None:
+            return "not_found"
+        if (
+            channel.tasks.filter(deleted=False, archived=False).exists()
+            or channel.canvases.filter(deleted=False).exists()
+        ):
+            return "not_empty"
+        # Not filtered on `archived`: flipping that flag leaves the FK untouched, so it takes
+        # no lock on the channel and can happen after the check above. Task visibility joins
+        # through the channel, so a task left pointing at a deleted one leaves every list.
+        channel.tasks.filter(deleted=False).update(channel=None)
+        channel.deleted = True
+        channel.save(update_fields=["deleted", "updated_at"])
     return "ok"
 
 
@@ -7312,6 +7891,42 @@ def get_channel_instructions(
     return _instructions_to_dto(latest) if latest is not None else _blank_instructions_dto(channel)
 
 
+def desktop_users_in_team(team: Team, exclude_user_id: int) -> list[str]:
+    channels = (
+        Channel.objects.for_team(team.id)
+        .filter(
+            personal_channel_q(),
+            deleted=False,
+            created_by__in=team.all_users_with_access(),
+        )
+        .exclude(created_by_id=exclude_user_id)
+        .select_related("created_by")
+        .order_by("created_at")[:4]
+    )
+    return [
+        channel.created_by.first_name or channel.created_by.email.split("@")[0]
+        for channel in channels
+        if channel.created_by
+    ]
+
+
+def organization_has_context(organization_id: UUID | str) -> bool:
+    contents = (
+        ChannelInstructions.objects.unscoped()
+        .filter(
+            general_channel_q("channel"),
+            team__organization_id=organization_id,
+            channel__deleted=False,
+            deleted=False,
+            is_latest=True,
+            version__gt=0,
+        )
+        .exclude(content="")
+        .values_list("content", flat=True)[:20]
+    )
+    return any(content.strip() for content in contents)
+
+
 def list_channel_instruction_versions(
     channel_id: str | UUID, team_id: int, user_id: int | None
 ) -> list[contracts.ChannelInstructionsDTO] | None:
@@ -7342,6 +7957,25 @@ def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int, cha
     context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
     outputs = context_target.get("outputs") or {}
     return bool(outputs.get("update_context")) and str(context_target.get("channel_id")) == str(channel_id)
+
+
+def loop_context_channel_id_for_task(task_id: str | UUID) -> str | None:
+    """The channel a loop run was configured to keep current, or None.
+
+    Scoped by task rather than by team, because the caller's authority here is a
+    run token minted for exactly this task. Returns None for anything that is
+    not a loop run configured to update its context, so callers fail closed.
+    """
+    task = Task.objects.filter(id=task_id).only("id", "origin_product").first()
+    if task is None or task.origin_product != Task.OriginProduct.LOOP:
+        return None
+
+    run_state = TaskRun.objects.filter(task_id=task.id).order_by("-created_at").values_list("state", flat=True).first()
+    context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
+    if not (context_target.get("outputs") or {}).get("update_context"):
+        return None
+    channel_id = context_target.get("channel_id")
+    return str(channel_id) if channel_id else None
 
 
 def publish_channel_instructions(
@@ -7750,18 +8384,33 @@ def project_completed_activity(task_run: "TaskRun") -> None:
     )
 
 
+# A scout runs headless on a schedule, under an acting user resolved from the scout skill's
+# author rather than from whoever asked for the run. Its task therefore carries a real person
+# as `created_by`, so every projected row lands in a feed that person never asked for. Scout
+# output belongs in the Signals inbox instead.
+ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS = (Task.OriginProduct.SIGNALS_SCOUT,)
+
+
+def _activity_visible_task_qs(team_id: int, user_id: int) -> QuerySet[Task]:
+    return (
+        _visible_task_qs(team_id, user_id)
+        .filter(internal=False, archived=False)
+        .exclude(origin_product__in=ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS)
+    )
+
+
 def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     """The requester's feed rows, gated to tasks they can still see.
 
     Rows outlive visibility changes (a task moving to a private channel, say), so the
     visibility gate belongs on read rather than being enforced when projecting.
     """
-    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
-    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     return TaskCommentActivity.objects.for_team(team_id).filter(
         user_id=user_id, task__in=visible_tasks, comment__deleted=False
     )
@@ -7775,22 +8424,6 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
         _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
         + _comment_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
     )
-
-
-@frozen
-class _ActivityTarget:
-    scope: str | None
-    id: str | None
-
-
-def _activity_target(task: Task) -> _ActivityTarget:
-    target = (task.state or {}).get("activity_target")
-    if not isinstance(target, dict) or target.get("scope") != "desktop_canvas":
-        return _ActivityTarget(scope=None, id=None)
-    target_id = target.get("id")
-    if not isinstance(target_id, str) or not target_id:
-        return _ActivityTarget(scope=None, id=None)
-    return _ActivityTarget(scope="desktop_canvas", id=target_id)
 
 
 def list_task_activity(
@@ -7852,8 +8485,6 @@ def list_task_activity(
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
-                target_scope=_activity_target(row.task).scope,
-                target_id=_activity_target(row.task).id,
                 is_unread=row.read_at is None,
             )
             for row in rows
@@ -8173,8 +8804,8 @@ def post_comment_thread_update(*, team_id: int, comment_id: UUID) -> None:
 def _announce_agent_artifact_uploads(run: TaskRun, new_entries: list[dict], manifest: list[dict]) -> None:
     """Announce files the agent delivered as task outputs.
 
-    The manifest also holds internal state such as git handoff checkpoints and skill
-    bundles. Those files support the run but are not deliverables for the timeline.
+    The manifest also holds internal state such as skill bundles. Those files support the
+    run but are not deliverables for the timeline.
     Manifest entries carry no version, so same-named output entries determine whether
     an upload created or revised a file. The artifact id deduplicates retried uploads.
     """

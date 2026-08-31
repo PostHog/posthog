@@ -1,11 +1,13 @@
 import { Lock } from "@phosphor-icons/react";
 import { DropdownMenuRadioItem } from "@posthog/quill";
 import { isRestrictedModel } from "@posthog/ui/features/billing/modelGate";
+import { ModelCostChip } from "@posthog/ui/features/sessions/components/ModelCostChip";
 
 /**
  * Model picker entry. Plan-restricted models render dimmed with a lock;
  * picking one is intercepted by the selector's change handler, which opens
- * the upgrade gate instead of selecting.
+ * the upgrade gate instead of selecting. Priced models carry a per-token
+ * cost multiplier chip.
  */
 export function ModelRadioItem({
   model,
@@ -26,8 +28,10 @@ export function ModelRadioItem({
       className={restricted ? "opacity-60" : undefined}
     >
       <span className="whitespace-nowrap">{model.name}</span>
-      {restricted && (
+      {restricted ? (
         <Lock size={11} className="ml-auto text-muted-foreground" />
+      ) : (
+        <ModelCostChip modelId={model.value} />
       )}
     </DropdownMenuRadioItem>
   );

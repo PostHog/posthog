@@ -26,7 +26,10 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.billing import (
+    BILLING_LIMIT_TODAYS_USAGE_FLAG,
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
     OWNER_ONLY_BILLING_FLAG,
     BillingUsageRequestSerializer,
@@ -38,7 +41,6 @@ from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, Customer
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
-from ee.models.rbac.access_control import AccessControl
 
 
 def create_usage_summary(**kwargs) -> dict[str, Any]:
@@ -898,6 +900,63 @@ class TestBillingAPI(APILicensedTest):
         ]
         assert len(billing_calls) == 1
         assert billing_calls[0].kwargs["params"] == {"include_forecasting": "true"}
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_patch_sends_todays_usage_when_enabled(self, mock_feature_enabled, mock_update_billing, mock_get_billing):
+        mock_feature_enabled.side_effect = lambda key, *_args, **_kwargs: key == BILLING_LIMIT_TODAYS_USAGE_FLAG
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self.organization.usage = create_usage_summary(
+            events={"usage": 100, "todays_usage": 20, "limit": None},
+            posthog_code_credits={"usage": 1200, "todays_usage": 3400, "limit": 5000},
+            posthog_code_token_credits={"usage": 999, "todays_usage": 1, "limit": None},
+        )
+        self.organization.save()
+        mock_get_billing.return_value = create_billing_response(customer=create_billing_customer())
+
+        response = self.client.patch(
+            "/api/billing//",
+            data={"custom_limits_usd": {"posthog_code_usage": 50}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_update_billing.assert_called_once()
+        assert mock_update_billing.call_args.args[1] == {
+            "custom_limits_usd": {"posthog_code_usage": 50},
+            "todays_usage_by_usage_key": {"posthog_code_credits": 3400},
+        }
+        mock_feature_enabled.assert_any_call(
+            BILLING_LIMIT_TODAYS_USAGE_FLAG,
+            str(self.user.distinct_id),
+            organization_id=self.organization.id,
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=False)
+    def test_patch_does_not_send_todays_usage_when_disabled(
+        self, _mock_feature_enabled, mock_update_billing, mock_get_billing
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self.organization.usage = create_usage_summary(
+            posthog_code_credits={"usage": 1200, "todays_usage": 3400, "limit": 5000}
+        )
+        self.organization.save()
+        mock_get_billing.return_value = create_billing_response(customer=create_billing_customer())
+
+        response = self.client.patch(
+            "/api/billing//",
+            data={"custom_limits_usd": {"posthog_code_usage": 50}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_update_billing.assert_called_once()
+        assert mock_update_billing.call_args.args[1] == {"custom_limits_usd": {"posthog_code_usage": 50}}
 
 
 class TestPortalBillingAPI(APILicensedTest):

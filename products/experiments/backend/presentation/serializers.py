@@ -29,8 +29,8 @@ from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.team.team import Team
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
@@ -39,7 +39,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import reso
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
-from products.experiments.backend.metric_utils import refresh_action_names_in_metric
+from products.experiments.backend.metric_utils import apply_metric_date_range, refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -551,10 +551,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                     metrics_list[i] = refreshed_metric
                     metric = refreshed_metric
 
-                if metric.get("count_query", {}).get("dateRange"):
-                    metric["count_query"]["dateRange"] = new_date_range
-                if metric.get("funnels_query", {}).get("dateRange"):
-                    metric["funnels_query"]["dateRange"] = new_date_range
+                apply_metric_date_range(metric, new_date_range)
 
         # Update date ranges in saved metrics
         # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
@@ -563,10 +560,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             span.set_attribute("saved_metric_count", len(saved_metrics))
             for saved_metric in saved_metrics:
                 if saved_metric.get("query"):
-                    if saved_metric["query"].get("count_query", {}).get("dateRange"):
-                        saved_metric["query"]["count_query"]["dateRange"] = new_date_range
-                    if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
-                        saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+                    apply_metric_date_range(saved_metric["query"], new_date_range)
 
                     # Add fingerprint to saved metric returned from API
                     # so that frontend knows what timeseries records to query

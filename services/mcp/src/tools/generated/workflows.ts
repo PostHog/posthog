@@ -62,6 +62,9 @@ const workflowsCreate = (): ToolBase<typeof WorkflowsCreateSchema, WithPostHogUr
             if (params.exit_condition !== undefined) {
                 body['exit_condition'] = params.exit_condition
             }
+            if (params.email_sending_rate_limit !== undefined) {
+                body['email_sending_rate_limit'] = params.email_sending_rate_limit
+            }
             if (params.edges !== undefined) {
                 body['edges'] = params.edges
             }
@@ -186,6 +189,8 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
                     offset: params.offset,
                     search: params.search,
                     status: params.status,
+                    trigger: params.trigger,
+                    type: params.type,
                     updated_at: params.updated_at,
                 },
             })
@@ -456,6 +461,9 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             }
             if (params.exit_condition !== undefined) {
                 body['exit_condition'] = params.exit_condition
+            }
+            if (params.email_sending_rate_limit !== undefined) {
+                body['email_sending_rate_limit'] = params.email_sending_rate_limit
             }
             if (params.variables !== undefined) {
                 body['variables'] = params.variables

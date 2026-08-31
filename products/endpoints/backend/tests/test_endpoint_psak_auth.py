@@ -12,8 +12,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 SAMPLE_QUERY = {"kind": "HogQLQuery", "query": "SELECT 1"}

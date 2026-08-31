@@ -125,8 +125,9 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         id: 'new',
         enabled: true,
         tags: [] as string[],
-        sampling_rate: 1,
-        sampling_mode: 'comprehensive' as const,
+        // Starts narrow: a wizard that opens on every recording at full rate quotes a scary first number.
+        sampling_rate: 0.2,
+        sampling_mode: 'balanced' as const,
         query: { kind: NodeKind.RecordingsQuery },
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,

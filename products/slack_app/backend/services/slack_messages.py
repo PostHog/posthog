@@ -193,6 +193,11 @@ def extract_message_text(msg: dict) -> str:
         pieces.append(text)
 
     blocks = msg.get("blocks") or []
+    if text:
+        # A `rich_text` block is Slack's structured mirror of `text`. Flattening it drops
+        # mentions and emoji, yielding a near-duplicate the exact-match dedup below can't
+        # catch — skip it and let `text` (which keeps both) speak for that content.
+        blocks = [b for b in blocks if not (isinstance(b, dict) and b.get("type") == "rich_text")]
     attachments = msg.get("attachments") or []
     try:
         pieces.extend(flatten_block_text(blocks))
@@ -639,6 +644,11 @@ def personal_integrations_url(team_id: int) -> str:
     return _public_url(f"/project/{team_id}/settings/user-personal-integrations")
 
 
+def project_web_url(team_id: int) -> str:
+    """Absolute ``/project/<id>`` base for links into this project's PostHog app."""
+    return _public_url(f"/project/{team_id}")
+
+
 def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
     # says what the card would, right next to the link.
@@ -660,16 +670,6 @@ def _public_url(path: str) -> str:
     return absolute_uri(path)
 
 
-def workspace_org_ids(slack_team_id: str) -> set:
-    """Organizations connected to this Slack workspace — the scope a Slack identity may
-    resolve a PostHog user within."""
-    return set(
-        Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list(
-            "team__organization_id", flat=True
-        )
-    )
-
-
 def viewer_has_code_access(integration: Integration, slack_user_id: str | None) -> bool:
     """Whether the Slack identity reading this can open a PostHog Code link.
 
@@ -678,7 +678,7 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
     flag-service error means no link rather than one that dead-ends.
     """
     from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user  # noqa: PLC0415
-    from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
+    from products.tasks.backend.facade.access import get_desktop_access_decision  # noqa: PLC0415
 
     if not slack_user_id:
         return False
@@ -686,9 +686,11 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
         user = find_linked_posthog_user(
             slack_user_id=slack_user_id,
             slack_team_id=integration.integration_id,
-            candidate_org_ids=workspace_org_ids(integration.integration_id),
+            candidate_org_ids={integration.team.organization_id},
         )
-        return user is not None and has_tasks_access(user)
+        if user is None:
+            return False
+        return get_desktop_access_decision(user, integration.team.organization).allowed
     except Exception:
         logger.exception("slack_app_viewer_code_access_check_failed", integration_id=integration.id)
         return False

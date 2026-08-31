@@ -24,7 +24,7 @@ export interface ObjectKindMeta {
   webPath?: (encodedId: string, rawId: string) => string | null;
 }
 
-export const OBJECT_KINDS: Record<string, ObjectKindMeta> = {
+const OBJECT_KINDS: Record<string, ObjectKindMeta> = {
   insight: {
     kindLabel: "Insight",
     source: "Product analytics",
@@ -117,7 +117,7 @@ const OBJECT_KIND_ALIASES: Record<string, string> = {
   sql: "hogql",
 };
 
-export const GENERIC_OBJECT_KIND: ObjectKindMeta = {
+const GENERIC_OBJECT_KIND: ObjectKindMeta = {
   kindLabel: "Evidence",
   source: "PostHog",
 };

@@ -643,7 +643,12 @@ def _analytics_api(
     return _FakeAnalyticsApi(bodies, segment_payloads=segment_payloads)
 
 
-def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: Any) -> list[dict[str, Any]]:
+def _collect_analytics(
+    api: _FakeAnalyticsApi,
+    manager: _FakeManager,
+    endpoint: str = "analytics_app_sessions",
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
     session = MagicMock()
     session.get.side_effect = api.get
     session.post.side_effect = api.post
@@ -657,7 +662,7 @@ def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: 
             key_id="KEY123",
             private_key=PRIVATE_KEY_PEM,
             vendor_number=None,
-            endpoint="analytics_app_sessions",
+            endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=manager,
             **kwargs,
@@ -919,6 +924,26 @@ class TestAnalyticsReportStreams:
         )
         assert row["app_name"] == "Example"
 
+    def test_detailed_stream_syncs_rows_with_the_attribution_columns(self) -> None:
+        payload = _gzip_csv(
+            "Date,App Name,App Apple Identifier,Source Type,Source Info,Campaign,Page Type,Page Title,Sessions\n"
+            "2026-08-01,Example,123,App referrer,com.example.social,summer-launch,Product page,Alternate page,5\n"
+        )
+        api = _analytics_api(
+            reports=[_resource("analyticsReports", "REP1", name="App Sessions Detailed", category="APP_USAGE")],
+            instances=[_instance("I1", "2026-08-01")],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/1": payload},
+        )
+
+        rows = _collect_analytics(api, _FakeManager(), endpoint="analytics_app_sessions_detailed")
+
+        # The attribution headers exist only in Detailed files and must land as the three
+        # documented snake_case columns. Metric columns are typed by name in every variant.
+        assert [(row["campaign"], row["page_title"], row["source_info"], row["sessions"]) for row in rows] == [
+            ("summer-launch", "Alternate page", "com.example.social", 5)
+        ]
+
     def test_analytics_source_response_checkpoints_ascending(self) -> None:
         response = app_store_connect_source(
             issuer_id="issuer",
@@ -936,11 +961,12 @@ class TestAnalyticsReportStreams:
 
 
 class TestFindAnalyticsReport:
-    def _resolve(self, endpoint: str, apple_name: str) -> str | None:
+    def _resolve(self, endpoint: str, *apple_names: str) -> str | None:
         config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
         page = _Page(
             resources=[
-                _resource("analyticsReports", "REP1", name=apple_name, category=config.analytics_report_category)
+                _resource("analyticsReports", f"REP{index + 1}", name=name, category=config.analytics_report_category)
+                for index, name in enumerate(apple_names)
             ],
             included=[],
             next_url=None,
@@ -965,6 +991,33 @@ class TestFindAnalyticsReport:
         # Apple's casing of "Pre-Orders" has drifted before; normalization must resolve it without a
         # config change so a cosmetic rename can't silently blank the stream again.
         assert self._resolve("analytics_app_store_preorders", "App Store Pre-orders Standard") == "REP1"
+
+    @parameterized.expand(
+        [
+            ("analytics_app_sessions", "analytics_app_sessions_detailed", "App Sessions"),
+            ("analytics_app_store_downloads", "analytics_app_store_downloads_detailed", "App Downloads"),
+            (
+                "analytics_installations_deletions",
+                "analytics_installations_deletions_detailed",
+                "App Store Installation and Deletion",
+            ),
+            (
+                "analytics_discovery_engagement",
+                "analytics_discovery_engagement_detailed",
+                "App Store Discovery and Engagement",
+            ),
+        ]
+    )
+    def test_standard_and_detailed_variants_resolve_their_own_reports(
+        self, standard_endpoint: str, detailed_endpoint: str, base_name: str
+    ) -> None:
+        # Apple lists both variants of a report under the same request and category, so each config
+        # picks from the same page. Resolving the sibling would silently fill one table with the
+        # other variant's rows — for the detailed table, rows missing the attribution columns.
+        variants = (f"{base_name} Standard", f"{base_name} Detailed")
+
+        assert self._resolve(standard_endpoint, *variants) == "REP1"
+        assert self._resolve(detailed_endpoint, *variants) == "REP2"
 
 
 def _failures() -> _ParseFailureCounter:

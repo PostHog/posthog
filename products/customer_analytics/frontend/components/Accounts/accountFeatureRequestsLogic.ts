@@ -9,7 +9,7 @@ import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types
 import { featureRequestsList, featureRequestsUpdate } from '../../generated/api'
 import type { FeatureRequestApi, PaginatedFeatureRequestListApi } from '../../generated/api.schemas'
 
-export const ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE = 20
+export const ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE = 5
 const AVAILABLE_REQUESTS_LIMIT = 50
 const EMPTY_REQUESTS_RESPONSE: PaginatedFeatureRequestListApi = {
     count: 0,

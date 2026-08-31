@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -24,6 +25,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
+from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -32,8 +34,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
-
-from ee.models.rbac.role import Role
+from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueAssignRequestSerializer
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 
@@ -41,6 +42,22 @@ TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 def get_path_to(fixture_file: str) -> str:
     file_dir = os.path.dirname(__file__)
     return os.path.join(file_dir, "fixtures", fixture_file)
+
+
+class TestErrorTrackingIssueAssignRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("user", "not-a-user-id"),
+            ("role", "not-a-role-id"),
+        ]
+    )
+    def test_rejects_invalid_assignee_id(self, assignee_type: str, assignee_id: str) -> None:
+        serializer = ErrorTrackingIssueAssignRequestSerializer(
+            data={"assignee": {"id": assignee_id, "type": assignee_type}}
+        )
+
+        assert not serializer.is_valid()
+        assert "id" in serializer.errors["assignee"]
 
 
 class TestErrorTracking(APIBaseTest):
@@ -135,6 +152,49 @@ class TestErrorTracking(APIBaseTest):
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
         }
+
+    def test_issue_list_paginates_without_aggregating_all_fingerprints(self) -> None:
+        issues = [ErrorTrackingIssue.objects.create(team=self.team) for _ in range(3)]
+        expected_issue = sorted(issues, key=lambda issue: issue.id, reverse=True)[1]
+        later_fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue=expected_issue, fingerprint="later"
+        )
+        earlier_fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue=expected_issue, fingerprint="earlier"
+        )
+        ErrorTrackingIssueFingerprintV2.objects.filter(id=later_fingerprint.id).update(
+            first_seen=datetime(2025, 1, 2, tzinfo=UTC)
+        )
+        ErrorTrackingIssueFingerprintV2.objects.filter(id=earlier_fingerprint.id).update(
+            first_seen=datetime(2025, 1, 1, tzinfo=UTC)
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/error_tracking/issues", data={"limit": 1, "offset": 1}
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 3
+        assert [issue["id"] for issue in body["results"]] == [str(expected_issue.id)]
+        assert body["results"][0]["first_seen"] == "2025-01-01T00:00:00Z"
+
+        issue_table = ErrorTrackingIssue._meta.db_table
+        fingerprint_table = ErrorTrackingIssueFingerprintV2._meta.db_table
+        count_query = next(
+            query["sql"]
+            for query in queries.captured_queries
+            if issue_table in query["sql"] and "COUNT(" in query["sql"].upper()
+        )
+        page_query = next(
+            query["sql"]
+            for query in queries.captured_queries
+            if issue_table in query["sql"] and "LIMIT 1" in query["sql"].upper()
+        )
+        assert fingerprint_table not in count_query
+        assert "GROUP BY" not in page_query.upper()
+        assert f'ORDER BY "{issue_table}"."id" DESC' in page_query
 
     @parameterized.expand(["user", "role"])
     def test_issue_fetch_assignee_id_preserves_type(self, assignee_type):
@@ -792,6 +852,17 @@ class TestErrorTracking(APIBaseTest):
         )
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_rejects_unknown_assignee_type(self) -> None:
+        issue = self.create_issue()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": self.user.id, "type": "team"}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ErrorTrackingIssueAssignment.objects.filter(issue=issue).exists()
 
     @patch("products.error_tracking.backend.logic.issue_mutations.sync_issues_to_clickhouse")
     @patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime")

@@ -47,9 +47,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
     ensure_precomputed,

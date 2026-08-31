@@ -24,6 +24,7 @@ from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.metrics import (
@@ -267,12 +268,6 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     )
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
-        # Fired regardless of whether this webhook was the first to record output.pr_url. The agent
-        # server usually records the URL first, so _record_run_pr_url takes its "already recorded"
-        # early return; a canvas the summary workflow built before the PR existed would otherwise
-        # keep implementation_pr_url null forever. The refresh is idempotent: an unchanged report
-        # fingerprint skips generation.
-        _enqueue_report_canvas_refresh(task_run)
 
     # After the backstop on purpose: a just-backfilled pr_url means the run now
     # claims this PR. Gated on the run's *primary* PR — output.pr_state describes
@@ -362,21 +357,6 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-def _enqueue_report_canvas_refresh(task_run: TaskRun) -> None:
-    """Rebuild the report canvas for this run's task after a PR webhook.
-
-    Best-effort: a Signals import or broker hiccup must never fail the webhook.
-    """
-    try:
-        from products.signals.backend.tasks import (  # noqa: PLC0415 — keeps Signals workers off webhook startup
-            refresh_report_canvases_for_task,
-        )
-
-        refresh_report_canvases_for_task.delay(str(task_run.task_id))
-    except Exception:
-        logger.warning("github_pr_webhook_report_canvas_refresh_failed", task_id=str(task_run.task_id), exc_info=True)
-
-
 def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     """Persist ``output.pr_url`` for a webhook-matched run when it isn't set yet.
 
@@ -401,10 +381,10 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     # log batches at exactly this moment — and append_log's read-modify-write would race it.
     # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.
     try:
-        for event in (
-            task_run.build_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url),
-            task_run.build_progress_event("ci", "in_progress", "Keeping CI green", "setup"),
-        ):
+        events = [task_run.build_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url)]
+        if (task_run.state or {}).get(PR_LOOP_ENABLED_STATE_KEY):
+            events.append(task_run.build_progress_event("ci", "in_progress", "Keeping CI green", "setup"))
+        for event in events:
             task_run.publish_stream_event(event)
         task_run.publish_stream_state_event()
     except Exception:

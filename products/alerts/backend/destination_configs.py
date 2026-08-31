@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, NotRequired, TypedDict
+from typing import Any, ClassVar, NotRequired, TypedDict
+from urllib.parse import urlsplit
 
 from django.db import models
 
@@ -14,21 +16,6 @@ class DestinationType(models.TextChoices):
     DISCORD = "discord", "Discord"
     WEBHOOK = "webhook", "Webhook"
     TEAMS = "teams", "Microsoft Teams"
-
-
-DESTINATION_TEMPLATE_IDS: dict[DestinationType, str] = {
-    DestinationType.SLACK: "template-slack",
-    DestinationType.DISCORD: "template-discord",
-    DestinationType.WEBHOOK: "template-webhook",
-    DestinationType.TEAMS: "template-microsoft-teams",
-}
-
-DESTINATION_REQUIRED_FIELDS: dict[DestinationType, tuple[str, ...]] = {
-    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
-    DestinationType.DISCORD: ("webhook_url",),
-    DestinationType.WEBHOOK: ("webhook_url",),
-    DestinationType.TEAMS: ("webhook_url",),
-}
 
 
 class AlertDestinationData(TypedDict):
@@ -152,6 +139,178 @@ def teams_text(spec: EventKindSpec) -> str:
     return "\n\n".join(parts)
 
 
+def _input_value(inputs: dict[str, Any], key: str) -> Any:
+    entry = inputs.get(key)
+    return entry.get("value") if isinstance(entry, dict) else None
+
+
+class DestinationSpec(ABC):
+    """Everything one destination type knows about itself: how it is stored as a
+    HogFunction, how it is read back, and how it is safe to show in a read response."""
+
+    type: ClassVar[DestinationType]
+    template_id: ClassVar[str]
+    required_fields: ClassVar[tuple[str, ...]]
+
+    @abstractmethod
+    def build_name(self, data: AlertDestinationData) -> str: ...
+
+    @abstractmethod
+    def build_inputs(
+        self,
+        event_kind_spec: EventKindSpec,
+        data: AlertDestinationData,
+        *,
+        slack_context_elements: tuple[str, ...],
+    ) -> dict[str, Any]: ...
+
+    @abstractmethod
+    def read(self, inputs: dict[str, Any]) -> AlertDestinationData: ...
+
+    def redact(self, data: AlertDestinationData) -> AlertDestinationData:
+        return data
+
+
+class SlackDestination(DestinationSpec):
+    type = DestinationType.SLACK
+    template_id = "template-slack"
+    required_fields = ("slack_workspace_id", "slack_channel_id")
+
+    def build_name(self, data: AlertDestinationData) -> str:
+        return f"Slack #{data.get('slack_channel_name') or 'channel'}"
+
+    def build_inputs(
+        self,
+        event_kind_spec: EventKindSpec,
+        data: AlertDestinationData,
+        *,
+        slack_context_elements: tuple[str, ...],
+    ) -> dict[str, Any]:
+        return {
+            "blocks": {"value": slack_blocks(event_kind_spec, slack_context_elements)},
+            "text": {"value": event_kind_spec.header},
+            "slack_workspace": {"value": data["slack_workspace_id"]},
+            "channel": {"value": data["slack_channel_id"]},
+        }
+
+    def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
+        data: AlertDestinationData = {"type": self.type}
+        slack_workspace_id = _input_value(inputs, "slack_workspace")
+        slack_channel_id = _input_value(inputs, "channel")
+        if isinstance(slack_workspace_id, int):
+            data["slack_workspace_id"] = slack_workspace_id
+        if isinstance(slack_channel_id, str):
+            data["slack_channel_id"] = slack_channel_id
+        return data
+
+
+class _WebhookUrlDestination(DestinationSpec):
+    """Base for the types whose whole configuration is one webhook URL."""
+
+    required_fields = ("webhook_url",)
+    url_input_key: ClassVar[str]
+
+    def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
+        data: AlertDestinationData = {"type": self.type}
+        webhook_url = _input_value(inputs, self.url_input_key)
+        if isinstance(webhook_url, str):
+            data["webhook_url"] = webhook_url
+        return data
+
+    def redact(self, data: AlertDestinationData) -> AlertDestinationData:
+        webhook_url = data.get("webhook_url")
+        if webhook_url is None:
+            return data
+        redacted = data.copy()
+        redacted["webhook_url"] = _redact_url(webhook_url)
+        return redacted
+
+
+class WebhookDestination(_WebhookUrlDestination):
+    type = DestinationType.WEBHOOK
+    template_id = "template-webhook"
+    url_input_key = "url"
+
+    def build_name(self, data: AlertDestinationData) -> str:
+        return f"Webhook {data['webhook_url']}"
+
+    def build_inputs(
+        self,
+        event_kind_spec: EventKindSpec,
+        data: AlertDestinationData,
+        *,
+        slack_context_elements: tuple[str, ...],
+    ) -> dict[str, Any]:
+        return {
+            "body": {"value": event_kind_spec.webhook_body},
+            "url": {"value": data["webhook_url"]},
+            "headers": {"value": WEBHOOK_HEADERS},
+        }
+
+
+class DiscordDestination(_WebhookUrlDestination):
+    type = DestinationType.DISCORD
+    template_id = "template-discord"
+    url_input_key = "webhookUrl"
+
+    def build_name(self, data: AlertDestinationData) -> str:
+        return "Discord"
+
+    def build_inputs(
+        self,
+        event_kind_spec: EventKindSpec,
+        data: AlertDestinationData,
+        *,
+        slack_context_elements: tuple[str, ...],
+    ) -> dict[str, Any]:
+        return {
+            "content": {"value": teams_text(event_kind_spec)},
+            "webhookUrl": {"value": data["webhook_url"]},
+        }
+
+
+class TeamsDestination(_WebhookUrlDestination):
+    type = DestinationType.TEAMS
+    template_id = "template-microsoft-teams"
+    url_input_key = "webhookUrl"
+
+    def build_name(self, data: AlertDestinationData) -> str:
+        return "Microsoft Teams"
+
+    def build_inputs(
+        self,
+        event_kind_spec: EventKindSpec,
+        data: AlertDestinationData,
+        *,
+        slack_context_elements: tuple[str, ...],
+    ) -> dict[str, Any]:
+        return {
+            "webhookUrl": {"value": data["webhook_url"]},
+            "text": {"value": teams_text(event_kind_spec)},
+        }
+
+
+DESTINATION_SPECS: dict[DestinationType, DestinationSpec] = {
+    spec.type: spec for spec in (SlackDestination(), DiscordDestination(), WebhookDestination(), TeamsDestination())
+}
+
+SPEC_BY_TEMPLATE_ID: dict[str, DestinationSpec] = {spec.template_id: spec for spec in DESTINATION_SPECS.values()}
+
+
+def _redact_url(value: str) -> str:
+    """Keep only the parts a person needs to tell two destinations apart. The path,
+    query and userinfo carry the channel secret for every webhook-style provider."""
+    try:
+        parsed = urlsplit(value)
+        scheme, hostname, port = parsed.scheme, parsed.hostname, parsed.port
+    except ValueError:
+        return "<redacted>"
+    if not scheme or not hostname:
+        return "<redacted>"
+    authority = f"{hostname}:{port}" if port is not None else hostname
+    return f"{scheme}://{authority}"
+
+
 def validate_destination_data(
     data: AlertDestinationData,
     *,
@@ -163,7 +322,9 @@ def validate_destination_data(
         choices = ", ".join(f"{choice.label} ({choice.value})" for choice in allowed_destination_types)
         raise AlertDestinationValidationError(f"Choose a supported destination type: {choices}.", field="type")
 
-    missing_fields = tuple(field for field in DESTINATION_REQUIRED_FIELDS[destination_type] if not data.get(field))
+    missing_fields = tuple(
+        field for field in DESTINATION_SPECS[destination_type].required_fields if not data.get(field)
+    )
     if len(missing_fields) == 1:
         missing_field = missing_fields[0]
         raise AlertDestinationValidationError(
@@ -183,37 +344,9 @@ def build_alert_destination_config(
     data: AlertDestinationData,
     slack_context_elements: tuple[str, ...],
 ) -> AlertDestinationConfig:
-    destination_type = data["type"]
+    destination_spec = DESTINATION_SPECS[data["type"]]
     product_name = spec.product_label.capitalize()
-
-    if destination_type == DestinationType.SLACK:
-        channel_display = data.get("slack_channel_name") or "channel"
-        destination_name = f"Slack #{channel_display}"
-        inputs = {
-            "blocks": {"value": slack_blocks(spec, slack_context_elements)},
-            "text": {"value": spec.header},
-            "slack_workspace": {"value": data["slack_workspace_id"]},
-            "channel": {"value": data["slack_channel_id"]},
-        }
-    elif destination_type == DestinationType.WEBHOOK:
-        destination_name = f"Webhook {data['webhook_url']}"
-        inputs = {
-            "body": {"value": spec.webhook_body},
-            "url": {"value": data["webhook_url"]},
-            "headers": {"value": WEBHOOK_HEADERS},
-        }
-    elif destination_type == DestinationType.DISCORD:
-        destination_name = "Discord"
-        inputs = {
-            "content": {"value": teams_text(spec)},
-            "webhookUrl": {"value": data["webhook_url"]},
-        }
-    else:
-        destination_name = "Microsoft Teams"
-        inputs = {
-            "webhookUrl": {"value": data["webhook_url"]},
-            "text": {"value": teams_text(spec)},
-        }
+    destination_name = destination_spec.build_name(data)
 
     return AlertDestinationConfig(
         team=team,
@@ -223,7 +356,7 @@ def build_alert_destination_config(
             "filters": destination_filter(alert_id, spec.event_id),
             "name": clip_hog_function_name(f"{product_name} — {alert_name} ({spec.display_kind}) → {destination_name}"),
             "description": spec.destination_description(alert_name),
-            "template_id": DESTINATION_TEMPLATE_IDS[destination_type],
-            "inputs": inputs,
+            "template_id": destination_spec.template_id,
+            "inputs": destination_spec.build_inputs(spec, data, slack_context_elements=slack_context_elements),
         },
     )

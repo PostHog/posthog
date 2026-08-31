@@ -19,18 +19,44 @@ describe('posthog create task template', () => {
         posthog_mcp_scopes: 'full',
         max_parallel_tasks: 3,
     }
+    // Mirrors the default event in createGlobals; the request must always carry the trigger event.
+    const defaultEventBody = {
+        uuid: 'event-id',
+        event: 'event-name',
+        distinct_id: 'distinct-id',
+        properties: { $current_url: 'https://example.com' },
+        timestamp: '2024-01-01T00:00:00Z',
+        elements_chain: '',
+        url: 'https://us.posthog.com/projects/1/events/1234',
+    }
+    const slackMessageGlobals = (properties: Record<string, any> = {}): Record<string, any> => ({
+        event: {
+            event: '$slack_message_received',
+            properties: {
+                integration_id: 42,
+                channel: 'C0ALERTS',
+                ts: '1700000000.000100',
+                thread_ts: null,
+                user: 'U123',
+                slack_team_id: 'T123',
+                text: 'Database latency alert fired',
+                ...properties,
+            },
+        },
+    })
 
     beforeEach(async () => {
         await tester.beforeEach()
     })
 
     const invokeAndGetFetch = async (
-        inputs: Record<string, any>
+        inputs: Record<string, any>,
+        globals?: Record<string, any>
     ): Promise<{
         invocation: Awaited<ReturnType<TemplateTester['invoke']>>['invocation']
         params: CyclotronInvocationQueueParametersFetchType
     }> => {
-        const response = await tester.invoke(inputs, undefined, workflowOptions)
+        const response = await tester.invoke(inputs, globals, workflowOptions)
         expect(response.error).toBeUndefined()
         expect(response.finished).toBe(false)
         return { invocation: response.invocation, params: response.invocation.queueParameters as any }
@@ -53,6 +79,7 @@ describe('posthog create task template', () => {
             connectors: ['0198c9f1-aaaa-0000-0000-000000000001'],
             posthog_mcp_scopes: 'full',
             max_parallel_tasks: 3,
+            event: defaultEventBody,
             idempotency_key: `${invocation.id}:action_1`,
         })
 
@@ -75,8 +102,57 @@ describe('posthog create task template', () => {
             prompt: 'Do the thing',
             posthog_mcp_scopes: 'read_only',
             max_parallel_tasks: 5,
+            event: defaultEventBody,
             idempotency_key: `${invocation.id}:action_1`,
         })
+    })
+
+    it.each([
+        ['a top-level post binds to its own ts', { thread_ts: null }, '1700000000.000100'],
+        ['a thread reply binds to the parent thread', { thread_ts: '1699999999.000001' }, '1699999999.000001'],
+    ])('sends slack context when triggered by a Slack message: %s', async (_name, properties, expectedThreadTs) => {
+        const { params } = await invokeAndGetFetch(fullInputs, slackMessageGlobals(properties))
+
+        // message_ts stays the triggering message's own ts even when thread_ts is the
+        // parent, so the acknowledgement reaction lands on the message that fired the run.
+        expect(parseJSON(params.body!).slack_context).toEqual({
+            integration_id: 42,
+            channel: 'C0ALERTS',
+            thread_ts: expectedThreadTs,
+            message_ts: '1700000000.000100',
+            slack_user_id: 'U123',
+            slack_team_id: 'T123',
+            is_ext_shared_channel: false,
+        })
+    })
+
+    it('forwards the externally shared channel flag so the backend can check approval', async () => {
+        const { params } = await invokeAndGetFetch(fullInputs, slackMessageGlobals({ is_ext_shared_channel: true }))
+
+        expect(parseJSON(params.body!).slack_context.is_ext_shared_channel).toEqual(true)
+    })
+
+    it('sends an empty slack user when a bot posted the triggering message', async () => {
+        const { params } = await invokeAndGetFetch(fullInputs, slackMessageGlobals({ user: null }))
+
+        expect(parseJSON(params.body!).slack_context.slack_user_id).toEqual('')
+    })
+
+    it('sends no slack context when the thread reply toggle is off', async () => {
+        const { params } = await invokeAndGetFetch(
+            { ...fullInputs, reply_in_slack_thread: false },
+            slackMessageGlobals()
+        )
+
+        const body = parseJSON(params.body!)
+        expect(body.slack_context).toBeUndefined()
+        expect(body.event.event).toEqual('$slack_message_received')
+    })
+
+    it('sends no slack context for a non-Slack trigger even with the toggle on', async () => {
+        const { params } = await invokeAndGetFetch({ ...fullInputs, reply_in_slack_thread: true })
+
+        expect(parseJSON(params.body!).slack_context).toBeUndefined()
     })
 
     it('fails without staging a request when the instructions are empty', async () => {

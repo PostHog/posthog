@@ -56,6 +56,10 @@ import {
   type ExternalAppsFocusCoordinator,
   type ExternalAppsWorkspaceClient,
 } from "@posthog/core/external-apps/identifiers";
+import {
+  FILE_READ_CLIENT,
+  type FileReadClient,
+} from "@posthog/core/files/identifiers";
 import { gitInteractionModule } from "@posthog/core/git-interaction/git-interaction.module";
 import type {
   GitInteractionEffects,
@@ -112,24 +116,12 @@ import {
 } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import type { CloudArtifactService } from "@posthog/core/sessions/cloudArtifactService";
 import {
-  LOCAL_HANDOFF_DIALOG,
-  LOCAL_HANDOFF_HOST,
-  LOCAL_HANDOFF_NOTIFIER,
-  LOCAL_HANDOFF_SERVICE,
-  type LocalHandoffDialog,
-  type LocalHandoffHost,
-  type LocalHandoffNotifier,
-  LocalHandoffService,
-} from "@posthog/core/sessions/localHandoffService";
-import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { sessionsModule } from "@posthog/core/sessions/sessions.module";
 import {
-  type FileReadClient,
   type GithubPrTitleClient,
-  TITLE_GENERATOR_FILE_READ_CLIENT,
   TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT,
   TITLE_GENERATOR_LOGGER,
   TITLE_GENERATOR_SERVICE,
@@ -260,10 +252,6 @@ import {
 } from "@posthog/ui/features/notifications/identifiers";
 import { notificationsUiModule } from "@posthog/ui/features/notifications/notifications.module";
 import { OnboardingGithubConnectClient } from "@posthog/ui/features/onboarding/githubConnectClientImpl";
-import {
-  localHandoffDialog,
-  localHandoffNotifier,
-} from "@posthog/ui/features/sessions/localHandoffService";
 import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import { setupUiModule } from "@posthog/ui/features/setup/setup.module";
 import { taskCreationEffects } from "@posthog/ui/features/task-detail/taskCreationEffectsImpl";
@@ -324,10 +312,10 @@ import { WebOAuthFlowService } from "./web-oauth-flow";
 import { webDiffWorkerFactory, webReviewHost } from "./web-review-host";
 import {
   webBundleLocalSkill,
+  webFileReadClient,
   webGithubPrTitleClient,
   webReadFileAsBase64,
   webResolveSkillBundleDependencies,
-  webTitleGeneratorFileReadClient,
   webTitleGeneratorLogger,
 } from "./web-sessions-clients";
 import { webSetupStore } from "./web-setup-store";
@@ -401,15 +389,11 @@ interface WebBindings {
   [CLOUD_ARTIFACT_BUNDLE_LOCAL_SKILL]: BundleLocalSkill;
   [CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES]: ResolveSkillBundleDependencies;
   [TITLE_GENERATOR_SERVICE]: TitleGeneratorService;
-  [TITLE_GENERATOR_FILE_READ_CLIENT]: FileReadClient;
+  [FILE_READ_CLIENT]: FileReadClient;
   [TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT]: GithubPrTitleClient;
   [TITLE_GENERATOR_LOGGER]: TitleGeneratorLogger;
   [LLM_GATEWAY_SERVICE]: LlmGatewayService;
   [LLM_GATEWAY_HOST]: LlmGatewayHost;
-  [LOCAL_HANDOFF_SERVICE]: LocalHandoffService;
-  [LOCAL_HANDOFF_HOST]: LocalHandoffHost;
-  [LOCAL_HANDOFF_DIALOG]: LocalHandoffDialog;
-  [LOCAL_HANDOFF_NOTIFIER]: LocalHandoffNotifier;
   [FILE_WATCHER_CLIENT]: FileWatcherClient;
   [GIT_INTERACTION_SERVICE]: GitInteractionService;
   [GIT_WRITE_CLIENT]: IGitWriteClient;
@@ -631,13 +615,21 @@ const webBrowserTabsClient: BrowserTabsClient = {
   getSnapshot: () => Promise.resolve(webBrowserTabsStore.getSnapshot()),
   getPrimaryWindowId: () =>
     Promise.resolve(webBrowserTabsStore.getPrimaryWindowId()),
-  openOrFocus: (input) =>
-    Promise.resolve(webBrowserTabsStore.openOrFocus(input)),
-  newBlankTab: (input) =>
-    Promise.resolve(webBrowserTabsStore.newBlankTab(input)),
+  reset: () => Promise.resolve(webBrowserTabsStore.reset()),
+  openTab: (input) => Promise.resolve(webBrowserTabsStore.openTab(input)),
   setTabTarget: (input) =>
     Promise.resolve(webBrowserTabsStore.setTabTarget(input)),
-  close: (tabId) => Promise.resolve(webBrowserTabsStore.close(tabId)),
+  close: (tabId, newTabId) =>
+    Promise.resolve(webBrowserTabsStore.close(tabId, newTabId)),
+  closeMany: (input) =>
+    Promise.resolve(
+      webBrowserTabsStore.closeMany(
+        input.tabIds,
+        input.newTabId,
+        input.focusTabId,
+      ),
+    ),
+  setOrder: (input) => Promise.resolve(webBrowserTabsStore.setOrder(input)),
   setActiveTab: (input) =>
     Promise.resolve(webBrowserTabsStore.setActiveTab(input)),
   onSnapshotChange: (sub) => {
@@ -741,9 +733,7 @@ container
 container
   .bind(CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES)
   .toConstantValue(webResolveSkillBundleDependencies);
-container
-  .bind(TITLE_GENERATOR_FILE_READ_CLIENT)
-  .toConstantValue(webTitleGeneratorFileReadClient);
+container.bind(FILE_READ_CLIENT).toConstantValue(webFileReadClient);
 container
   .bind(TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT)
   .toConstantValue(webGithubPrTitleClient);
@@ -771,28 +761,6 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });
-
-// ── Local handoff (cloud git header's "hand off to local" affordance) ──
-// LocalHandoffService is resolved eagerly by CloudGitInteractionHeader. The
-// dialog + notifier are host-agnostic UI (reused from @posthog/ui); the host is
-// local-fs (pick a folder, add it) which can't run on the browser, so it's
-// stubbed — a cloud-only host can't hand a task off to a local checkout.
-container.bind(LOCAL_HANDOFF_HOST).toConstantValue({
-  getRepositoryByRemoteUrl: () => Promise.resolve(null),
-  selectDirectory: () => Promise.resolve(null),
-  addFolder: () =>
-    Promise.reject(new Error("Local handoff is not available on the web")),
-  getWorktreeLocation: () => Promise.resolve(""),
-  cloneRepository: () =>
-    Promise.reject(new Error("Local handoff is not available on the web")),
-  addAdditionalDirectory: () => Promise.resolve(),
-});
-container.bind(LOCAL_HANDOFF_DIALOG).toConstantValue(localHandoffDialog);
-container.bind(LOCAL_HANDOFF_NOTIFIER).toConstantValue(localHandoffNotifier);
-container
-  .bind(LOCAL_HANDOFF_SERVICE)
-  .to(LocalHandoffService)
-  .inSingletonScope();
 
 // ── File watcher (TaskDetail's useRepoFileWatcher) ──
 // Watches a local repo for changes; there is none on web. The consumer gates

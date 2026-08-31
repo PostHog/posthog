@@ -64,7 +64,9 @@ class LLMModelsListResponseSerializer(serializers.Serializer):
 class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """List available models, for one provider or for every supported provider."""
 
-    scope_object = "evaluation"
+    # Shared by the evaluations, taggers, and playground model pickers, so it sits on the
+    # product-wide llm_analytics resource rather than any one of their resources.
+    scope_object = "llm_analytics"
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated, AccessControlPermission]
 

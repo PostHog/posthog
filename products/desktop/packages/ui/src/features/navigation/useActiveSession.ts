@@ -1,5 +1,6 @@
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
-import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
+import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
+import { useTaskFeedSelectionStore } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
 import { useParams } from "@tanstack/react-router";
 
 export interface ActiveSession {
@@ -13,14 +14,28 @@ export interface ActiveSession {
  */
 export function useActiveSession(): ActiveSession {
   const { showsActivityDetail } = useRailSurface();
-  const selected = useActivityDetailStore((s) => s.selected);
-  const params = useParams({ strict: false });
+  const selected = useActivitySelection();
+  const feedSelected = useTaskFeedSelectionStore((s) => s.selected);
+  // Select each param on its own. `useParams` without a selector subscribes to
+  // the whole param set the nearest match carries for the route chain, so an
+  // unrelated param (a settings category) changing would re-render every
+  // consumer of this hook.
+  const taskId = useParams({ strict: false, select: (p) => p.taskId });
+  const channelId = useParams({ strict: false, select: (p) => p.channelId });
+  const feedId = useParams({ strict: false, select: (p) => p.feedId });
 
   if (showsActivityDetail) {
+    const taskSelection = selected?.kind === "task" ? selected : null;
     return {
-      taskId: selected?.taskId,
-      channelId: selected?.channelId ?? undefined,
+      taskId: taskSelection?.taskId,
+      channelId: taskSelection?.channelId ?? undefined,
     };
   }
-  return { taskId: params.taskId, channelId: params.channelId };
+  if (feedId && feedSelected?.feedId === feedId) {
+    return {
+      taskId: feedSelected.taskId,
+      channelId: feedSelected.channelId ?? undefined,
+    };
+  }
+  return { taskId, channelId };
 }

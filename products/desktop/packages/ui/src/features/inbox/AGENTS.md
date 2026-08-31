@@ -19,14 +19,14 @@ Inbox has four tabs and one reviewer-scope control:
 
 | Tab | Route | Membership |
 | --- | --- | --- |
-| Pull requests | `/code/inbox/pulls` | Reports with `implementation_pr_url` set |
-| Reports | `/code/inbox/reports` | Reports without a PR and not currently running |
-| Runs | `/code/inbox/runs` | Reports that are still in progress or waiting on input |
-| Archive | `/code/inbox/dismissed` | Terminal reports: archived/suppressed (`status === "suppressed"`) and resolved-by-merged-PR (`status === "resolved"`) |
+| Pull requests | `/inbox/pulls` | Reports with `implementation_pr_url` set |
+| Reports | `/inbox/reports` | Reports without a PR and not currently running |
+| Runs | `/inbox/runs` | Reports that are still in progress or waiting on input |
+| Archive | `/inbox/dismissed` | Terminal reports: archived/suppressed (`status === "suppressed"`) and resolved-by-merged-PR (`status === "resolved"`) |
 
-Detail pages live under the same tab: `/code/inbox/<tab>/$reportId`.
+Detail pages live under the same tab: `/inbox/<tab>/$reportId`.
 
-The Archive tab (route `/code/inbox/dismissed`, user-facing label "Archive") is
+The Archive tab (route `/inbox/dismissed`, user-facing label "Archive") is
 the exception: it holds the two terminal, not-in-inbox states — `suppressed`
 (user-archived) and `resolved` (implementation PR merged) — both excluded from
 the main pipeline query, so the tab fetches them with a dedicated
@@ -53,7 +53,7 @@ same artefact-lift pattern as `priority`/`actionability`/`already_addressed` —
 so cards avoid an N+1 per-card artefact fetch. Unknown reason codes fall back to
 the raw value; cards with no dismissal artefact simply omit the chip.
 
-Responder configuration is **not** an Inbox tab. It is the top-level Responders sidebar item at `/code/agents`. The legacy `/code/inbox/agents` route redirects there.
+Responder configuration is **not** an Inbox tab. It is the top-level Responders sidebar item at `/agents`. The legacy `/inbox/agents` route redirects there.
 
 Reviewer scope is a UI preference stored in `inboxReviewerScopeStore`. It filters the list between reports suggested for the current user and reports for someone else. It does not change tab membership; the tab predicates are independent.
 
@@ -70,7 +70,7 @@ Do not add frontend-only controls that imply a backend capability. If the UI exp
 
 ## Routes and Shell
 
-`InboxView` is the layout shell for `/code/inbox/*`. It owns the page header, tab bar, reviewer scope control, and nested route outlet. Route files live in `apps/code/src/renderer/routes/code/inbox/`.
+`InboxView` is the layout shell for `/inbox/*`. It owns the page header, tab bar, reviewer scope control, and nested route outlet. Route files live in `apps/code/src/renderer/routes/inbox/`.
 
 The tab components are intentionally simple:
 
@@ -110,7 +110,7 @@ The shared renderer type for the report is `SignalReport` in `packages/shared/sr
 
 Report charts: `SignalReport.charts` carries scout-authored chart definitions (`chart_id`, `title`, `query`, `caption?`, `size?`). The desktop app renders them natively in the detail views: `packages/core/src/inbox/reportCharts.ts` classifies the stored query (runnable HogQL/trends vs saved-insight vs link-out fallback), `PostHogAPIClient.runQuery` executes runnable sources against `/api/projects/{teamId}/query/`, and `components/detail/ReportChartCard.tsx` draws the result with `@posthog/quill-charts`. Query kinds the app can't draw degrade to a card that links out to PostHog. Summary prose references charts as `[label](chart:<chart_id>)` links; `SignalReportSummaryMarkdown` turns those into in-page jumps to the chart card (plain text on list rows).
 
-PR refunds: `POST /api/projects/{teamId}/signals/reports/{id}/refund/` refunds a billed PR and archives the report (`PostHogAPIClient.refundSignalReport`). The action is gated behind the `signals-pr-refunds` flag (`SIGNALS_PR_REFUNDS_FLAG`) and `@posthog/core/inbox/refundEligibility`'s `computeRefundEligibility` (shared with the mobile host), which reads `implementation_pr_url`, `refund` (one `SignalReportRefund` per report, ever), `billing_exempt_reason`, and the backend-owned `refund_ineligibility_reason`. The server enforces the same rules, so the gate is display-only; `ReportRefundAction` shows nothing when the report is ineligible.
+PR refunds: `POST /api/projects/{teamId}/signals/reports/{id}/refund/` refunds a billed PR and archives the report (`PostHogAPIClient.refundSignalReport`). The action is gated behind the `signals-pr-refunds` flag (`SIGNALS_PR_REFUNDS_FLAG`) and `@posthog/core/inbox/refundEligibility`'s `computeRefundEligibility` (shared with the mobile host), which reads `implementation_pr_url`, `refund` (one `SignalReportRefund` per report, ever), `billing_exempt_reason`, and the backend-owned `refund_ineligibility_reason`. The server enforces the same rules, so the gate is display-only; `ReportDetailActions` shows no refund action when the report is ineligible.
 
 Card headlines are derived client-side from `summary` by `utils/reportPresentation.ts`; there is no backend headline field.
 
@@ -141,7 +141,7 @@ Components come from `@posthog/quill`; layout is `div`s with Tailwind. Radix is 
 - Do not add any `@radix-ui/*` import. Use `@posthog/quill` plus `div` + Tailwind.
 - Do not reuse the deleted legacy `ReportListRow`, `ReportDetailPane`, or old list/detail stores.
 - Do not put page-level Inbox title or navigation into the global app header; `InboxView` owns the Inbox page chrome.
-- Responder configuration stays at `/code/agents`. The Inbox header carries a "Configure agents" link to it, but do not embed configuration UI in the Inbox itself.
+- Responder configuration stays at `/agents`. The Inbox header carries a "Configure agents" link to it, but do not embed configuration UI in the Inbox itself.
 - Scout (`signals_scout`) is a real Cloud source product. Keep it covered wherever source products surface: `INBOX_SOURCE_OPTIONS`, `SOURCE_PRODUCT_META`, and the scout-name display in `SignalCard`.
 - Scout management UI (fleet configuration, run history) lives in `features/scouts/` and is backed by the PostHog Cloud scout endpoints (`/api/projects/{teamId}/signals/scout/`). Do not add scout controls that have no backing endpoint there.
 - Do not put preview shims or mock report data in `apps/code/index.html`; the app shell should stay minimal.

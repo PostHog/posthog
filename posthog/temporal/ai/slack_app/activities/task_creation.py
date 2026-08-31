@@ -1306,6 +1306,15 @@ def _resume_task_with_new_run(
     if previous_state.get("slack_thread_url"):
         extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
 
+    # Carry the PR authorship mode forward. Without it, get_pr_authorship_mode re-derives USER for a
+    # Slack-origin task, so a creator with no personal GitHub install dead-ends every follow-up at the
+    # token guard. The first run already resolved the mode (BOT when there is no install), and the
+    # successor must resume under the same identity, like the cloud resume path. A carried BOT is
+    # re-checked after create_run below, so a creator who connected GitHub in the meantime gets
+    # their identity back.
+    if previous_state.get("pr_authorship_mode"):
+        extra_state["pr_authorship_mode"] = previous_state["pr_authorship_mode"]
+
     # A successor launches its own agent server, so the whole triple is open again —
     # including the runtime a live run could never be moved onto. Resolved rather than
     # carried over, like the keys above: a preference changed since the previous run is
@@ -1355,6 +1364,21 @@ def _resume_task_with_new_run(
             text=_RESUME_ERROR_MSG,
         )
         return True
+
+    # The carried mode can pin BOT after the creator connected GitHub, because the live-sandbox
+    # promotion in _refresh_sandbox_github never sees a successor's first turn. Re-check here so
+    # the run that follows the connection is the one that carries their identity. Best-effort:
+    # a failure leaves the run bot-authored, which still works.
+    try:
+        tasks_facade.promote_run_to_user_authorship(new_run.id, run_actor.id)
+    except Exception:
+        logger.exception(
+            "posthog_code_resume_authorship_promotion_failed",
+            channel=channel,
+            thread_ts=thread_ts,
+            task_id=str(mapping.task_id),
+            run_id=str(new_run.id),
+        )
 
     uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
         tasks_facade,

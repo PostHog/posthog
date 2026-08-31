@@ -25,6 +25,7 @@ import type {
     LLMSkillMarketplaceIssueApi,
     LLMSkillPublishToCommunityApi,
     LLMSkillResolveResponseApi,
+    LlmSkillsBundleRetrieveParams,
     LlmSkillsListParams,
     LlmSkillsNameExportRetrieveParams,
     LlmSkillsNameFilesDestroyParams,
@@ -169,6 +170,36 @@ export const llmSkillsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMSkillCreateApi),
+    })
+}
+
+export const getLlmSkillsBundleRetrieveUrl = (projectId: string, params?: LlmSkillsBundleRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/bundle/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/bundle/`
+}
+
+/**
+ * One zip of the requesting user's store skills, for unpacking into a skills directory.
+ */
+export const llmSkillsBundleRetrieve = async (
+    projectId: string,
+    params?: LlmSkillsBundleRetrieveParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getLlmSkillsBundleRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

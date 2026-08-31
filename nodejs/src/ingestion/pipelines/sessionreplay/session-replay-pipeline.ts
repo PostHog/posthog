@@ -138,6 +138,9 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                         overflowMode,
                                         preservePartitionLocality: true, // Sessions must stay on the same partition
+                                        // Replay never reads or writes persons. The line above pins
+                                        // locality either way, so this only records the fact.
+                                        pipelineWritesPersons: false,
                                     })
                                 )
                                 // Validate the headers capture guarantees (DLQ if missing) and narrow the type
@@ -291,7 +294,7 @@ export async function runSessionReplayPipeline(
     const batch = createBatch(messages.map((message) => ({ message, sessionBatchRecorder })))
     // The consumer drains each batch fully before feeding the next and the hooks always succeed,
     // so a rejected feed can only be a framework invariant violation.
-    const feedResult = await pipeline.feed(batch)
+    const feedResult = await pipeline.feed(batch, {})
     if (!feedResult.ok) {
         throw new Error(`session replay pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)
     }
