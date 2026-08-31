@@ -1354,6 +1354,24 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIn("EXISTS", query_sql)
         self.assertNotIn("SELECT DISTINCT", query_sql)
 
+    def test_list_tasks_hog_flow_id_filter(self):
+        hog_flow_id = uuid.uuid4()
+        workflow_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Workflow task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.WORKFLOW,
+            hog_flow_id=hog_flow_id,
+        )
+        self.create_task("Unrelated task")
+
+        response = self.client.get(f"/api/projects/@current/tasks/?hog_flow_id={hog_flow_id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(workflow_task.id))
+
     def test_list_tasks_count_matches_queryset(self):
         for i in range(4):
             self.create_task(f"Task {i}")

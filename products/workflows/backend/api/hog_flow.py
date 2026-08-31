@@ -1910,6 +1910,20 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class HogFlowRunRequestSerializer(serializers.Serializer):
+    variables = serializers.DictField(
+        child=serializers.JSONField(help_text="Override value for one workflow variable."),
+        required=False,
+        default=dict,
+        help_text="Variable value overrides, merged with the workflow's own variable defaults for this run only.",
+    )
+
+
+class HogFlowRunResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="'queued' once the invocation has been queued for execution.")
+    invocation_id = serializers.CharField(help_text="ID of the queued hog flow invocation.")
+
+
 def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, float | int]:
     # Sends are counted at send time but bounces/complaints at webhook time, so feedback arriving
     # just inside the window for sends just outside it can push the ratio past 1 (worst case: a
@@ -3120,6 +3134,7 @@ class HogFlowViewSet(
         "destroy",
         "invocations",
         "schedule_detail",
+        "run",
         "bulk_delete",
         "rerun",
         "cancel_invocations",
@@ -4859,6 +4874,46 @@ class HogFlowViewSet(
         serializer.save()
         self._report_workflow_action("hog_flow_schedule_updated", hog_flow, {"schedule_id": str(schedule.id)})
         return Response(serializer.data)
+
+    @extend_schema(
+        request=HogFlowRunRequestSerializer,
+        responses={200: HogFlowRunResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"])
+    def run(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Fire a schedule-triggered workflow immediately, outside its regular schedule.
+
+        Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
+        dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
+        guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
+        the scheduler itself applies in `internal_process_due_schedules`.
+        """
+        hog_flow = self.get_object()
+
+        if hog_flow.status != HogFlow.State.ACTIVE:
+            raise exceptions.ValidationError("Workflow must be active to run. Enable it first.")
+
+        trigger_type = (hog_flow.trigger or {}).get("type")
+        if trigger_type != "schedule":
+            raise exceptions.ValidationError(
+                f"Only workflows with a 'schedule' trigger can be run this way (this one has '{trigger_type}')."
+            )
+
+        serializer = HogFlowRunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        variables = {var.get("key"): var.get("default") for var in hog_flow.variables or []}
+        variables.update(serializer.validated_data["variables"])
+
+        response = create_hog_flow_scheduled_invocation(
+            team_id=self.team_id, hog_flow_id=str(hog_flow.id), variables=variables
+        )
+        if response.status_code != 200:
+            return Response({"detail": response.text}, status=response.status_code)
+
+        self._report_workflow_action("hog_flow_run_now", hog_flow, {})
+        return Response(HogFlowRunResponseSerializer(response.json()).data)
 
 
 class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):

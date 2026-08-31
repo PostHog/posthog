@@ -515,3 +515,80 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
         assert response.status_code == 200
         assert str(schedule.id) in response.json()["failed"]
         assert len(response.json()["processed"]) == 0
+
+
+@unittest.mock.patch("products.workflows.backend.api.hog_flow.create_hog_flow_scheduled_invocation")
+class TestHogFlowRun(APIBaseTest):
+    def _create_workflow(self, workflow_status="active", trigger_type="schedule", variables=None):
+        return HogFlow.objects.create(
+            team=self.team,
+            name="Test Run Workflow",
+            status=workflow_status,
+            trigger={"type": trigger_type},
+            actions=[],
+            variables=variables or [],
+        )
+
+    def _run_url(self, workflow_id):
+        return f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/run/"
+
+    def _mock_success(self, mock_invocation, invocation_id="abc-123"):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "queued", "invocation_id": invocation_id}
+        mock_invocation.return_value = mock_response
+
+    def test_run_queues_invocation(self, mock_invocation):
+        self._mock_success(mock_invocation)
+        workflow = self._create_workflow()
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"status": "queued", "invocation_id": "abc-123"}
+        mock_invocation.assert_called_once_with(team_id=self.team.id, hog_flow_id=str(workflow.id), variables={})
+
+    def test_run_merges_variable_defaults_and_overrides(self, mock_invocation):
+        # Guards the same variable-resolution contract the scheduler applies in
+        # internal_process_due_schedules: run-now must not silently drop a workflow's default
+        # variables just because the caller only wants to override one of them.
+        self._mock_success(mock_invocation)
+        workflow = self._create_workflow(
+            variables=[{"key": "greeting", "default": "Hello"}, {"key": "name", "default": "World"}]
+        )
+
+        response = self.client.post(self._run_url(workflow.id), {"variables": {"name": "Overridden"}}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_invocation.assert_called_once_with(
+            team_id=self.team.id,
+            hog_flow_id=str(workflow.id),
+            variables={"greeting": "Hello", "name": "Overridden"},
+        )
+
+    def test_run_rejects_non_schedule_trigger(self, mock_invocation):
+        workflow = self._create_workflow(trigger_type="batch")
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_invocation.assert_not_called()
+
+    def test_run_rejects_inactive_workflow(self, mock_invocation):
+        workflow = self._create_workflow(workflow_status="draft")
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_invocation.assert_not_called()
+
+    def test_run_surfaces_cdp_error(self, mock_invocation):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.status_code = 502
+        mock_response.text = "bad gateway"
+        mock_invocation.return_value = mock_response
+        workflow = self._create_workflow()
+
+        response = self.client.post(self._run_url(workflow.id))
+
+        assert response.status_code == 502
