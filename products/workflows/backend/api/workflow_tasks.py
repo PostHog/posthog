@@ -113,7 +113,11 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
     skills = serializers.ListField(
         child=serializers.CharField(max_length=64),
         required=False,
-        help_text="Names of team skills, from the Skills store, to attach to the run's sandbox.",
+        max_length=20,
+        help_text=(
+            "Names of team skills, from the Skills store, to attach to the run's sandbox. "
+            "Up to 20 - each one costs prompt context on every turn of the run."
+        ),
     )
     max_parallel_tasks = serializers.IntegerField(
         min_value=1,

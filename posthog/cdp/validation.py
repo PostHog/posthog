@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
+# Matches WorkflowTaskCreateSerializer.skills' max_length in products/workflows/backend/api/
+# workflow_tasks.py - keep the two in sync.
+MAX_TASK_SKILLS = 20
 
 # The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
@@ -658,6 +661,11 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "task_skills":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of skill names."})
+            # Every entry is resolved and zipped on each fire, before the rate-limit checks that
+            # would reject an over-budget workflow - bounded here so that cost can't grow
+            # unbounded with how many names an author lists.
+            if len(value) > MAX_TASK_SKILLS:
+                raise serializers.ValidationError({"input": f"Value must have at most {MAX_TASK_SKILLS} skills."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})

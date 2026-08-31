@@ -851,6 +851,7 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
             ("unknown_mcp_scopes", {"prompt": "p", "posthog_mcp_scopes": "admin"}, "posthog_mcp_scopes"),
             ("connectors_not_a_list", {"prompt": "p", "connectors": "inst-1"}, "connectors"),
             ("skills_not_a_list", {"prompt": "p", "skills": "changelog-writer"}, "skills"),
+            ("too_many_skills", {"prompt": "p", "skills": [f"skill-{i}" for i in range(21)]}, "skills"),
             ("event_not_a_dict", {"prompt": "p", "event": "boom"}, "event"),
             (
                 "slack_context_missing_channel",

@@ -674,7 +674,6 @@ export interface LoopRunPageApi {
  * * `repo` - repo
  * * `marketplace` - marketplace
  * * `codex` - codex
- * * `workflow` - workflow
  */
 export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
 
@@ -683,7 +682,6 @@ export const SkillSourceEnumApi = {
     Repo: 'repo',
     Marketplace: 'marketplace',
     Codex: 'codex',
-    Workflow: 'workflow',
 } as const
 
 /**
@@ -714,8 +712,7 @@ export interface LoopSkillBundleUploadApi {
      * * `user` - user
      * * `repo` - repo
      * * `marketplace` - marketplace
-     * * `codex` - codex
-     * * `workflow` - workflow */
+     * * `codex` - codex */
     skill_source: SkillSourceEnumApi
     /**
      * SHA-256 hex digest of the bundle bytes.
@@ -1442,8 +1439,7 @@ export interface TaskRunSkillBundleMetadataApi {
      * * `user` - user
      * * `repo` - repo
      * * `marketplace` - marketplace
-     * * `codex` - codex
-     * * `workflow` - workflow */
+     * * `codex` - codex */
     skill_source: SkillSourceEnumApi
     /**
      * SHA-256 hex digest of the uploaded skill bundle bytes.

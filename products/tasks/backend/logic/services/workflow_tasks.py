@@ -163,10 +163,6 @@ def create_workflow_task(
         return replay
 
     validate_connectors(team.id, owner_id, mcp_installation_ids)
-    # Resolved and zipped up front, outside the transaction: a missing skill name must fail
-    # the whole create before any lock is taken or any row written, and packaging a skill is
-    # pure CPU/memory work with no reason to run it twice or defer it.
-    resolved_skills = _resolve_workflow_skills(team, skill_names)
 
     gate_owner = User.objects.filter(id=owner_id).first()
     if gate_owner is None:
@@ -191,6 +187,13 @@ def create_workflow_task(
     if daily_counts.team >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
         observe_workflow_task_create(reason="team_rate_capped")
         raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
+
+    # Resolved and zipped after the cheap pre-checks above, not before: a missing skill name
+    # must still fail the whole create before any lock is taken or any row written, but
+    # packaging is CPU/memory work with a cost that scales with the configured skill list, and
+    # an owner who's already ineligible or a workflow already at its daily cap must not pay for
+    # it on every trigger event, for the same reason those checks run before the gate call below.
+    resolved_skills = _resolve_workflow_skills(team, skill_names)
 
     # The gate stays outside the transaction: it calls the LLM gateway (short timeout,
     # fails open), and holding the advisory locks across an external call would stall
@@ -403,7 +406,7 @@ def validate_skills(team: Team, skill_names: list[str] | None) -> None:
     """
     if not skill_names:
         return
-    missing = [name for name in skill_names if get_skill_by_name_from_db(team, name) is None]
+    missing = [name for name in dict.fromkeys(skill_names) if get_skill_by_name_from_db(team, name) is None]
     if missing:
         raise WorkflowTaskSkillsInvalid(missing)
 
@@ -421,13 +424,13 @@ def _resolve_workflow_skills(team: Team, skill_names: list[str] | None) -> list[
 
     Raises `WorkflowTaskSkillsInvalid` naming every skill that didn't resolve, once every
     name has been checked, rather than failing on the first miss - so the caller reports the
-    complete list of typos in one round trip.
+    complete list of typos in one round trip. Duplicate names resolve and zip once.
     """
     if not skill_names:
         return []
     resolved: list[_ResolvedWorkflowSkill] = []
     missing: list[str] = []
-    for name in skill_names:
+    for name in dict.fromkeys(skill_names):
         skill = get_skill_by_name_from_db(team, name)
         if skill is None:
             missing.append(name)

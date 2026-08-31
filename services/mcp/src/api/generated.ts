@@ -48879,7 +48879,6 @@ export namespace Schemas {
      * * `repo` - repo
      * * `marketplace` - marketplace
      * * `codex` - codex
-     * * `workflow` - workflow
      */
     export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
 
@@ -48889,7 +48888,6 @@ export namespace Schemas {
       Repo: 'repo',
       Marketplace: 'marketplace',
       Codex: 'codex',
-      Workflow: 'workflow',
     } as const;
 
     /**
@@ -48911,8 +48909,7 @@ export namespace Schemas {
        * * `user` - user
        * * `repo` - repo
        * * `marketplace` - marketplace
-       * * `codex` - codex
-       * * `workflow` - workflow */
+       * * `codex` - codex */
       skill_source: SkillSourceEnum;
       /**
          * SHA-256 hex digest of the bundle bytes.
@@ -57408,8 +57405,7 @@ export namespace Schemas {
        * * `user` - user
        * * `repo` - repo
        * * `marketplace` - marketplace
-       * * `codex` - codex
-       * * `workflow` - workflow */
+       * * `codex` - codex */
       skill_source: SkillSourceEnum;
       /**
          * SHA-256 hex digest of the uploaded skill bundle bytes.

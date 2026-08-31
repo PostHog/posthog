@@ -165,7 +165,14 @@ TASK_RUN_ARTIFACT_TYPE_CHOICES = [
 ]
 TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES = ["utf-8", "base64"]
 TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES = ["zip"]
-TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex", "workflow"]
+# Client-writable: a client uploading its own artifact (or replacing a loop's skill bundles)
+# picks one of these to describe where *it* found the skill locally. "workflow" is deliberately
+# not here even though a stored skill_bundle's metadata.skill_source can hold that value: only
+# the workflow create-task path may write it (it builds the manifest entry directly, bypassing
+# this choice list), so a client can never claim workflow provenance for its own upload. Reading
+# an existing "workflow" value back is unaffected — DRF's ChoiceField.to_representation doesn't
+# validate against choices, only to_internal_value (writes) does.
+TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex"]
 POSTHOG_OBJECT_KIND_CHOICES = [
     "insight",
     "hogql",

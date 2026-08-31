@@ -1212,6 +1212,7 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("skills_string_list", "task_skills", ["changelog-writer", "code-reviewer"], True),
             ("skills_not_list", "task_skills", "changelog-writer", False),
             ("skills_not_strings", "task_skills", [1, 2], False),
+            ("skills_over_the_cap", "task_skills", [f"skill-{i}" for i in range(21)], False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):
