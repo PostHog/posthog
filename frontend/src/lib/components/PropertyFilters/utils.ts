@@ -293,10 +293,13 @@ function formatBehavioralPropertyLabel(
                   'time'
               )}`
             : ''
+    const whereClause = item.event_filters?.length
+        ? ` where ${item.event_filters.map((filter) => formatPropertyLabel(filter, {}).trim()).join(' and ')}`
+        : ''
     const windowClause = item.explicit_datetime
         ? ` since ${item.explicit_datetime}`
         : ` in the last ${pluralize(item.time_value ?? 30, item.time_interval ?? TimeUnitType.Day)}`
-    return `${item.negation ? 'Did not perform' : 'Performed'} ${eventLabel}${countClause}${windowClause}`
+    return `${item.negation ? 'Did not perform' : 'Performed'} ${eventLabel}${countClause}${whereClause}${windowClause}`
 }
 
 // Filter keys whose value we offer a read-only group-info card for on hover.

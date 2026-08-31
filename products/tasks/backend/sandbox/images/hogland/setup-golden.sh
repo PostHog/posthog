@@ -93,7 +93,11 @@ make -C /tmp/git prefix=/usr NO_GETTEXT=YesPlease NO_TCLTK=YesPlease -j"$(nproc)
 make -C /tmp/git prefix=/usr NO_GETTEXT=YesPlease NO_TCLTK=YesPlease install
 rm -rf /tmp/git /tmp/git.tar.xz
 git --version
-git help -a | grep -q '[[:space:]]backfill'
+# Materialise `git help -a` before matching. Piping it straight into `grep -q`
+# lets grep close the pipe on the first match, so git dies with SIGPIPE (141)
+# and pipefail aborts the whole setup. Capture first, then grep the string.
+git_help_all="$(git help -a)"
+grep -q '[[:space:]]backfill' <<<"$git_help_all"
 
 log "node 24"
 # The rootfs bakes node 22 into /usr/local/bin, which precedes /usr/bin (where
@@ -195,10 +199,13 @@ rm -rf "$skills_extract_dir"
 # Fail closed: an empty tarball or a broken install must not ship a golden that
 # silently lost its skills.
 for skills_target in /scripts/plugins/posthog/skills /root/.agents/skills /root/.claude/skills; do
-    find "$skills_target" -name 'SKILL.md' -type f 2>/dev/null | grep -q . || {
+    # Capture then test. `find ... | grep -q .` lets grep close the pipe on the
+    # first hit, so find dies with SIGPIPE (141) and pipefail flips this guard.
+    found_skill="$(find "$skills_target" -name 'SKILL.md' -type f 2>/dev/null)"
+    if [ -z "$found_skill" ]; then
         echo "no SKILL.md found under ${skills_target} after installing ${SKILLS_TARBALL}" >&2
         exit 1
-    }
+    fi
 done
 
 log "guards + cpu sampler (delivered over ssh by bake-golden.sh)"

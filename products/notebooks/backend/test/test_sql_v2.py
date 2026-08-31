@@ -2,6 +2,7 @@ import io
 import os
 import json
 import math
+import time
 import tarfile
 import datetime
 import tempfile
@@ -9,6 +10,7 @@ import threading
 import urllib.error
 import email.message
 import urllib.request
+from datetime import timedelta
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import Any
@@ -21,12 +23,14 @@ from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog import redis
 from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
@@ -35,6 +39,7 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDT
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.notebooks.backend import sql_v2_concurrency
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.sandbox.kernel import (
@@ -71,6 +76,7 @@ from products.notebooks.backend.sql_v2_direct import (
     notebook_direct_query_id,
     sync_direct_run,
 )
+from products.notebooks.backend.sql_v2_runs import finish_node_run, touch_run_progress
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
     dispatch_sql_v2_run_activity,
@@ -440,6 +446,185 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(str(mock_enqueue.call_args.args[2].id), run_id)
         mock_start.assert_not_called()
         self.assertFalse(KernelRuntime.objects.filter(team=self.team).exists())
+
+    def _age_slot(self, run_id: str) -> None:
+        """Backdate a held slot so it reads as old enough to have been abandoned.
+
+        The set's score is the member's expiry, so moving it earlier ages the member.
+        """
+        key = sql_v2_concurrency._notebook_key(self.team.id, self.notebook.short_id)
+        client = redis.get_client()
+        client.zadd(key, {run_id: time.time() + sql_v2_concurrency._NOTEBOOK_SLOT_TTL_SECONDS - 7200})
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_one_run_at_a_time_per_notebook(self, _mock_enabled, _mock_enqueue, _mock_start):
+        # The editor has always shown one run at a time per notebook, but that rule was kea
+        # state in one browser tab. An API caller — which is what the MCP cell tools are — could
+        # dispatch as many as it liked, and each SQL run is a real ClickHouse query.
+        first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(first.status_code, 200)
+
+        # 409, not 429: the MCP client retries every 429 with backoff and then replaces the
+        # body with its own rate-limit message, so a 429 would hide this detail from an agent.
+        second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
+        self.assertEqual(second.status_code, 409, second.content)
+        self.assertIn("already has a cell running", second.json()["detail"])
+        # A refused dispatch must write nothing: an agent retrying into a full ceiling would
+        # otherwise leave a row per attempt on the table that grows fastest.
+        self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(node_id="n2").count(), 0)
+
+        # Finishing the first run hands the slot back. Without this the notebook would stay
+        # blocked until the slot's TTL, which is far worse than the problem being fixed.
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=first.json()["run_id"])
+        finish_node_run(run, NotebookNodeRun.Status.DONE, error=None)
+
+        third = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
+        self.assertEqual(third.status_code, 200, third.content)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_slot_left_behind_by_an_abandoned_run_does_not_block_the_notebook(
+        self, _mock_enabled, _mock_enqueue, _mock_start
+    ):
+        # Both release sites need a client still watching, so an agent that dispatches a cell
+        # and walks away leaves the slot held. Without recovery the notebook would refuse every
+        # later cell until the slot's TTL, which is hours. The run rows are the truth.
+        first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(first.status_code, 200)
+        # The run ends without anything releasing the slot, exactly as a lost client leaves it.
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=first.json()["run_id"]).update(
+            status=NotebookNodeRun.Status.DONE
+        )
+        self._age_slot(first.json()["run_id"])
+
+        second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
+        self.assertEqual(second.status_code, 200, second.content)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_slot_taken_moments_ago_is_not_mistaken_for_a_leak(self, _mock_enabled, _mock_enqueue, _mock_start):
+        # The race three reviewers found: the run row is written after the slot is taken, so a
+        # dispatch arriving in that gap sees a held slot with no row behind it. Reading that as
+        # a leak would clear a live slot and admit a second run — losing the ceiling in exactly
+        # the parallel-dispatch case it exists for. A fresh slot is trusted on its age alone.
+        first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(first.status_code, 200)
+        # Stand in for the gap: the slot is held and no RUNNING row backs it.
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=first.json()["run_id"]).update(
+            status=NotebookNodeRun.Status.DONE
+        )
+
+        second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
+        self.assertEqual(second.status_code, 409, second.content)
+
+    def test_a_second_reclaimer_cannot_wipe_the_slot_the_first_just_took(self) -> None:
+        # The interleave that used to break the ceiling. Two callers both see the same stale
+        # member S and both decide it is dead. A retires S and takes the slot; B, still holding
+        # its own view of S, then tries to retire it too. Clearing the whole key at that point
+        # removed A's brand-new member and let B in as well, so a ceiling of one ran two cells.
+        limiter = sql_v2_concurrency._get_notebook_limiter()
+        key = sql_v2_concurrency._notebook_key(self.team.id, "racenb")
+        client = redis.get_client()
+        client.delete(key)
+        stale_score = time.time() + sql_v2_concurrency._NOTEBOOK_SLOT_TTL_SECONDS - 7200
+        client.zadd(key, {"stale-holder": stale_score})
+
+        # A retires the dead holder and claims the slot.
+        self.assertTrue(sql_v2_concurrency._evict_if_unchanged(limiter, key, "stale-holder", stale_score))
+        client.zadd(key, {"caller-a": time.time() + sql_v2_concurrency._NOTEBOOK_SLOT_TTL_SECONDS})
+
+        # B acts on the view it took before A moved. It must not disturb the live holder.
+        self.assertFalse(sql_v2_concurrency._evict_if_unchanged(limiter, key, "stale-holder", stale_score))
+        self.assertEqual(client.zrange(key, 0, -1), [b"caller-a"])
+
+    def test_a_reclaim_cannot_evict_a_member_that_changed_underneath_it(self) -> None:
+        # The same guarantee stated the other way: a score read before the holder renewed, or
+        # before a new dispatch replaced it, must not authorise removing what is there now.
+        limiter = sql_v2_concurrency._get_notebook_limiter()
+        key = sql_v2_concurrency._notebook_key(self.team.id, "renewnb")
+        client = redis.get_client()
+        client.delete(key)
+        observed_score = time.time() + 100
+        client.zadd(key, {"holder": observed_score})
+        # The holder renews, or another dispatch takes the slot, after the score was read.
+        client.zadd(key, {"holder": observed_score + 500})
+
+        self.assertFalse(sql_v2_concurrency._evict_if_unchanged(limiter, key, "holder", observed_score))
+        self.assertEqual(client.zrange(key, 0, -1), [b"holder"])
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_working_run_keeps_its_slot_from_expiring(self, _mock_enabled, _mock_enqueue, _mock_start):
+        # No fixed TTL outlasts a working run: a python cell materializes one input per upstream
+        # node, in sequence, each with its own deadline. If the slot lapses underneath it, the
+        # team ceiling stops being "ten at once" and becomes "ten every TTL", which a caller can
+        # ride to hold an unbounded number. Every data-plane fetch has to push the expiry out.
+        first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(first.status_code, 200)
+        run_id = first.json()["run_id"]
+        team_key = sql_v2_concurrency._team_key(self.team.id)
+        client = redis.get_client()
+        # Wind the slot to the edge of expiry, as a long-running cell would.
+        client.zadd(team_key, {run_id: time.time() + 5})
+
+        touch_run_progress(self.team.id, self.notebook.short_id, run_id)
+
+        renewed = dict(client.zrange(team_key, 0, -1, withscores=True))[run_id.encode()]
+        self.assertGreater(renewed, time.time() + sql_v2_concurrency._TEAM_SLOT_TTL_SECONDS - 60)
+
+    def test_progress_never_resurrects_a_released_slot(self) -> None:
+        # A fetch can land after the run finished and its slot was handed back. Re-adding the
+        # member there would hold team capacity until the TTL for a run that is already over.
+        team_key = sql_v2_concurrency._team_key(self.team.id)
+        client = redis.get_client()
+        client.delete(team_key)
+
+        touch_run_progress(self.team.id, self.notebook.short_id, "a-run-that-holds-nothing")
+
+        self.assertEqual(client.zrange(team_key, 0, -1), [])
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_run_abandoned_in_running_stops_blocking_its_notebook(self, _mock_enabled, _mock_enqueue, _mock_start):
+        # A direct (hogql) run only turns terminal when a client polls it, and nothing sweeps
+        # one server-side. Left RUNNING for good, it would block its notebook for good — a
+        # permanent outage rather than a wait — so a row past every watchdog budget must stop
+        # counting as in flight.
+        first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(first.status_code, 200)
+        run_id = first.json()["run_id"]
+        # Still RUNNING, but last touched long past every lane's budget.
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=run_id).update(
+            updated_at=timezone.now() - timedelta(hours=2)
+        )
+        self._age_slot(run_id)
+
+        second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
+        self.assertEqual(second.status_code, 200, second.content)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_busy_notebook_does_not_block_another_notebook(self, _mock_enabled, _mock_enqueue, _mock_start):
+        # The ceiling is keyed per notebook, so one busy notebook must not stop the rest. If the
+        # per-notebook limiter used the team key by mistake, the team ceiling would effectively
+        # be 1 and this would fail.
+        self.assertEqual(
+            self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json").status_code, 200
+        )
+        other = Notebook.objects.create(team=self.team, short_id="nbrun02")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{other.short_id}/sql_v2/run/",
+            data={"node_id": "n1", "code": "select 1"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
 
     @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)

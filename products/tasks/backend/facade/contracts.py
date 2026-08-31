@@ -199,6 +199,7 @@ class TaskDetailDTO:
     latest_run_id: UUID | None = None
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
+    origin_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -828,3 +829,10 @@ class TaskRunStateMetricsDTO:
     oldest_open_age_seconds: list[TaskRunGaugeRow] = Field(default_factory=list)
     created_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
     terminal_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
+
+
+class ComputeQuotaDenialReason(StrEnum):
+    """Why a compute request was refused. The value is the denial code the API returns."""
+
+    COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
+    ORGANIZATION_DEACTIVATED = "organization_deactivated"

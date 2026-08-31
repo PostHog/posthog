@@ -19,6 +19,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
 )
 
 from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 from products.mcp_analytics.backend.presentation.serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
@@ -208,6 +209,23 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["clusters"] == []
         assert data["last_computed_at"] is None
         assert data["computed_with"] is None
+
+    @parameterized.expand(
+        [
+            ("snapshot", "get", "intent_clusters/"),
+            ("recompute", "post", "intent_clusters/recompute/"),
+        ]
+    )
+    def test_intent_clusters_require_intent_routing_feature_flag(self, _name: str, method: str, path: str) -> None:
+        def only_product_flag_enabled(flag_key: str, *args: object, **kwargs: object) -> bool:
+            assert flag_key in {"mcp-analytics", MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG}
+            return flag_key == "mcp-analytics"
+
+        with patch("posthoganalytics.feature_enabled", side_effect=only_product_flag_enabled):
+            request = getattr(self.client, method)
+            response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", {}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_intent_clusters_returns_stored_snapshot(self) -> None:
         MCPIntentClusterSnapshot.objects.create(
