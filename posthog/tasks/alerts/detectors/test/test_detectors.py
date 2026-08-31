@@ -728,6 +728,21 @@ class TestDetectorDirection:
         assert EnsembleDetector(config).detect(DIRECTION_UP_SPIKE).is_anomaly is False
         assert EnsembleDetector(config).detect(DIRECTION_DOWN_DROP).is_anomaly is True
 
+    def test_zero_variance_deviation_keeps_score_when_direction_suppresses(self) -> None:
+        # Flat training window (std == 0) with an upside jump. "down" must
+        # suppress the trigger but still record the deviation's score, so the
+        # zero-variance branch agrees with the probability branch instead of
+        # zeroing a filtered deviation's score.
+        data = np.array([50.0] * 11 + [200.0])
+        result = ZScoreDetector({"threshold": 0.9, "window": 10, "direction": "down"}).detect(data)
+        assert result.is_anomaly is False
+        assert result.score == 1.0
+        assert result.all_scores == [1.0]
+
+        batch = ZScoreDetector({"threshold": 0.9, "window": 10, "direction": "down"}).detect_batch(data)
+        assert batch.triggered_indices == []
+        assert batch.all_scores[-1] == 1.0
+
     def test_invalid_direction_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid direction"):
             ZScoreDetector({"threshold": 0.9, "direction": "sideways"})
