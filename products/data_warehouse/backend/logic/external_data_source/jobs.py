@@ -112,14 +112,12 @@ def update_external_job_status(
         # source broke (or a non-retryable error paused extraction) must not repaint the schema
         # healthy while syncing is stopped. Which markers halt a schema is the model's business
         # (cdc_halted) — this generic layer only honors the state.
+
         # The billing gate stops a run before extraction, so it learns nothing about the source.
-        # Letting it repaint a failed schema erases the last real error and drops the schema out of
-        # the failure digest, hiding a broken connection behind a billing message for as long as the
-        # limit holds. A healthy schema is repainted as before.
-        billing_limit_masking_failure = (
-            schema_status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED
-            and schema.status == ExternalDataSchemaStatus.FAILED
-        )
+        # Clearing the error on its way through would erase the last real failure and hide a broken
+        # connection behind the billing status for as long as the limit holds. The status still
+        # moves: billing is what blocks this schema now.
+        billing_limited_run = schema_status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED
 
         if schema.cdc_halted:
             logger.info(
@@ -128,15 +126,10 @@ def update_external_job_status(
                 schema_id=str(schema.id),
                 requested_status=schema_status,
             )
-        elif billing_limit_masking_failure:
-            logger.info(
-                "dwh_schema_status_update_skipped_billing_limit_over_failure",
-                job_id=job_id,
-                schema_id=str(schema.id),
-            )
         else:
             schema.status = schema_status
-            schema.latest_error = error_to_persist
+            if not billing_limited_run:
+                schema.latest_error = error_to_persist
             schema.save(update_fields=["status", "latest_error", "updated_at"])
 
         # Every risky terminal write (any non-Completed terminal, plus the takeover-recovery

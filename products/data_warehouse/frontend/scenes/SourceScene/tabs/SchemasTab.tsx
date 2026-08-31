@@ -33,6 +33,7 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     DataWarehouseSyncInterval,
+    ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSource,
     ExternalDataSourceSchema,
@@ -441,7 +442,12 @@ function ManagedSchemaTable({
                                 {schema.status}
                             </LemonTag>
                         )
-                        return schema.latest_error && schema.status === 'Failed' ? (
+                        // A billing-limited schema keeps the error from the last sync that reached
+                        // the source, so the tooltip stays the way to read it.
+                        const carriesError =
+                            schema.status === ExternalDataSchemaStatus.Failed ||
+                            schema.status === ExternalDataJobStatus.BillingLimits
+                        return schema.latest_error && carriesError ? (
                             <Tooltip title={schema.latest_error} interactive>
                                 {tagContent}
                             </Tooltip>

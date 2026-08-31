@@ -83,6 +83,26 @@ class TestNotifyExternalDataSyncFailures:
         assert items[0]["source_type"] == "Stripe"
         assert f"managed-{source.id}/syncs?schema=Accounts" in items[0]["url"]
 
+    def test_lists_a_billing_limited_schema_that_still_carries_an_error(self):
+        # The billing gate stops the run before extraction and leaves the error in place, so a
+        # source broken behind a limit has to stay in the digest instead of going quiet.
+        team, source = _create_team_and_source()
+        ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
+            should_sync=True,
+            latest_error="connection failed: server closed the connection unexpectedly",
+        )
+
+        with patch(SENDER_PATH) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        _team_id, items = mock_sender.call_args.args
+        assert [(item["schema_name"], item["billing_limited"]) for item in items] == [("Charge", True)]
+        assert items[0]["error"] == "connection failed: server closed the connection unexpectedly"
+
     @pytest.mark.parametrize(
         "name,label,expected_display",
         [
@@ -111,16 +131,16 @@ class TestNotifyExternalDataSyncFailures:
         assert f"?schema={quote(name)}" in items[0]["url"]
 
     @pytest.mark.parametrize(
-        "status,should_sync,deleted",
+        "status,should_sync,deleted,latest_error",
         [
-            (ExternalDataSchema.Status.COMPLETED, True, False),
-            (ExternalDataSchema.Status.RUNNING, True, False),
-            (ExternalDataSchema.Status.BILLING_LIMIT_REACHED, True, False),
-            (ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW, True, False),
-            (ExternalDataSchema.Status.FAILED, True, True),
+            (ExternalDataSchema.Status.COMPLETED, True, False, "some error"),
+            (ExternalDataSchema.Status.RUNNING, True, False, "some error"),
+            (ExternalDataSchema.Status.BILLING_LIMIT_REACHED, True, False, None),
+            (ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW, True, False, "some error"),
+            (ExternalDataSchema.Status.FAILED, True, True, "some error"),
         ],
     )
-    def test_does_not_send_for_non_failing_or_deleted_schemas(self, status, should_sync, deleted):
+    def test_does_not_send_for_non_failing_or_deleted_schemas(self, status, should_sync, deleted, latest_error):
         team, source = _create_team_and_source()
         ExternalDataSchema.objects.create(
             name="Charge",
@@ -129,7 +149,7 @@ class TestNotifyExternalDataSyncFailures:
             status=status,
             should_sync=should_sync,
             deleted=deleted,
-            latest_error="some error",
+            latest_error=latest_error,
         )
 
         with patch(SENDER_PATH) as mock_sender:
@@ -331,6 +351,17 @@ class TestGetTeamIdsWithRecentSyncFailures:
         team = self._create_schema_with_job(
             schema_status=ExternalDataSchema.Status.FAILED,
             job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2),
+        )
+
+        assert get_team_ids_with_recent_sync_failures() == [team.pk]
+
+    def test_renotifies_a_billing_limited_schema_that_still_carries_an_error(self):
+        # Billing-limited runs never finish as Failed, so the catch-up sweep is the only path that
+        # reaches this schema. Without it the reminder stops for as long as the limit holds.
+        team = self._create_schema_with_job(
+            schema_status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
+            job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=30),
+            last_error_notified_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=8),
         )
 
         assert get_team_ids_with_recent_sync_failures() == [team.pk]

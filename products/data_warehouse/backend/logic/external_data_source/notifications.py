@@ -26,6 +26,14 @@ MAX_SCHEMAS_PER_DIGEST_EMAIL = 30
 # the first day past this age and stamps a fresh time, spacing reminders evenly.
 RENOTIFY_STILL_FAILING_AFTER = dt.timedelta(days=7)
 
+# A schema belongs in the digest when its last run failed, or when the billing gate stopped it
+# while a real failure was still on record. The gate returns before extraction, so it leaves the
+# error in place; a completed run clears it. An error under the billing status therefore always
+# means the last sync that reached the source failed.
+NEEDS_DIGEST = Q(status=ExternalDataSchemaStatus.FAILED) | Q(
+    status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED, latest_error__isnull=False
+)
+
 
 def get_team_ids_with_recent_sync_failures(
     lookback: dt.timedelta = dt.timedelta(hours=26),
@@ -61,7 +69,7 @@ def get_team_ids_with_recent_sync_failures(
     return list(
         ExternalDataSchema.objects.exclude(deleted=True)
         .exclude(source__deleted=True)
-        .filter(status=ExternalDataSchemaStatus.FAILED)
+        .filter(NEEDS_DIGEST)
         .filter(Exists(unnotified_failed_job) | Q(last_error_notified_at__lt=renotify_cutoff))
         .values_list("team_id", flat=True)
         .distinct()
@@ -92,7 +100,7 @@ def notify_external_data_sync_failures(
         failing_schemas = list(
             ExternalDataSchema.objects.exclude(deleted=True)
             .exclude(source__deleted=True)
-            .filter(team_id=team_id, status=ExternalDataSchemaStatus.FAILED)
+            .filter(NEEDS_DIGEST, team_id=team_id)
             .filter(
                 Q(last_error_notified_at__isnull=True)
                 | Q(last_error_notified_at__lt=renotify_cutoff)
@@ -140,6 +148,7 @@ def notify_external_data_sync_failures(
                     # HTML is what crosses the Celery boundary — no need to cap here.
                     "error": schema.latest_error or "Unknown error",
                     "paused": schema.sync_halted,
+                    "billing_limited": schema.status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
                     "url": f"{source_url}?schema={quote(schema.name)}",
                 }
             )
