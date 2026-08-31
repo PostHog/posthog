@@ -744,11 +744,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             sceneKey,
                             unmount: builtLogic.mount(),
                         }
-                    }
-                } catch (error) {
-                    // Scene logic builders can throw when a key() rejects malformed route params.
-                    // Capture so regressions surface, then route to Error404 so the user sees a
-                    // proper 404 instead of a blank crash.
+                }
+            } catch (error) {
                     posthog.captureException(error, { extra: { sceneId, sceneKey } })
                     newLogicErrored = true
                 }
