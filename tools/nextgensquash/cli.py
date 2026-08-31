@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import argparse
+import subprocess
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -126,6 +127,10 @@ def _run_emit(args: argparse.Namespace) -> None:
         f"{len(retire_manifest['leaves'])} apps) to {manifest_path}\n"
     )
 
+    # Format the output the way lint-staged will at commit time, so a re-emit
+    # over an installed tree diffs clean.
+    subprocess.run(["ruff", "format", "--quiet", str(args.output_dir)], check=False)
+    subprocess.run(["ruff", "check", "--fix", "--quiet", str(args.output_dir)], check=False)
     sys.stderr.write(f"\ntotal: {len(written)} files emitted to {args.output_dir}\n")
 
 
