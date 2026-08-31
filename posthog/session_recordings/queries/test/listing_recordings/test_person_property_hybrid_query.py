@@ -6,8 +6,11 @@ from django.test import override_settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
-from posthog.schema import PersonPropertyFilter, PropertyOperator, RecordingsQuery
+from posthog.schema import PersonPropertyFilter, PersonsOnEventsMode, PropertyOperator, RecordingsQuery
+
+from posthog.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
@@ -40,48 +43,59 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
     def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
-    def test_hybrid_query_disabled_by_default(self) -> None:
-        with freeze_time("2021-08-21T20:00:00.000Z"):
-            anonymous_id = "anonymous_user_123"
-            identified_id = "identified_user_123"
-            session_id_after = "session_after_identification"
+    def _subquery_for_mode(self, mode: PersonsOnEventsMode) -> ReplayFiltersEventsSubQuery:
+        self.team.modifiers = {"personsOnEventsMode": mode.value}
+        return ReplayFiltersEventsSubQuery(team=self.team, query=RecordingsQuery())
 
-            create_person(
-                team=self.team,
-                distinct_ids=[anonymous_id, identified_id],
-                properties={"email": "user@example.com"},
-            )
+    @parameterized.expand(
+        [
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, True),
+            (PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, False),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, False),
+            (PersonsOnEventsMode.DISABLED, False),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_hybrid_query_gate_follows_person_on_events_mode(
+        self, mode: PersonsOnEventsMode, expected: bool, mock_feature_enabled
+    ) -> None:
+        assert self._subquery_for_mode(mode)._is_hybrid_query_mode_enabled() is expected
 
-            produce_replay_summary(
-                distinct_id=identified_id,
-                session_id=session_id_after,
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-            )
-            create_event(
-                identified_id,
-                self.an_hour_ago,
-                team=self.team,
-                event_name="$pageview",
-                properties={"$session_id": session_id_after},
-            )
+    @parameterized.expand(
+        [
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, "person_id"),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, "person_id"),
+            (PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, "distinct_id"),
+            (PersonsOnEventsMode.DISABLED, "distinct_id"),
+        ]
+    )
+    def test_hybrid_query_matches_on_person_id_only_when_overrides_apply(
+        self, mode: PersonsOnEventsMode, expected_column: str
+    ) -> None:
+        subquery = self._subquery_for_mode(mode)
 
-            self._assert_query_matches_session_ids(
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "value": "user@example.com",
-                            "type": "person",
-                            "operator": "exact",
-                        }
-                    ]
-                },
-                [session_id_after],
-            )
+        query = subquery._get_person_id_based_sessions_query(
+            [
+                PersonPropertyFilter(
+                    key="email",
+                    value="user@example.com",
+                    operator=PropertyOperator.EXACT,
+                    type="person",
+                )
+            ]
+        )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_hybrid_query_enabled_finds_sessions(self, mock_feature_enabled) -> None:
+        assert isinstance(query.where, ast.And)
+        matched = {
+            expr.left.chain[-1]
+            for expr in query.where.exprs
+            if isinstance(expr, ast.CompareOperation) and isinstance(expr.left, ast.Field)
+        }
+        unusable_column = "distinct_id" if expected_column == "person_id" else "person_id"
+        assert expected_column in matched
+        assert unusable_column not in matched
+
+    def test_hybrid_query_finds_pre_identification_sessions_without_the_flag(self) -> None:
         with freeze_time("2021-08-21T20:00:00.000Z"):
             anonymous_id = "anonymous_user_456"
             identified_id = "identified_user_456"
