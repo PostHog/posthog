@@ -381,8 +381,8 @@ class TestReplyFooterGate(SimpleTestCase):
         mock_get_client,
         mock_get_integration,
     ) -> None:
-        # Whether this reader can open a task page changes which segments render, never
-        # whether the line appears: the model and the way to change it are theirs either way.
+        # Desktop access changes only the desktop segment: the web link works for anyone
+        # with a PostHog login, and the model and the way to change it are theirs either way.
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(config={"app_id": "A1"}, integration_id="T1")
@@ -398,7 +398,7 @@ class TestReplyFooterGate(SimpleTestCase):
         line = mock_client.chat_postMessage.call_args.kwargs["blocks"][-1]["elements"][0]["text"]
         assert "*Claude Opus 5*" in line
         assert "|Configure>" in line
-        assert ("View on web" in line) is code_access
+        assert "View on web" in line
         assert ("View on desktop" in line) is code_access
 
     @patch.object(SlackThreadHandler, "_get_integration")

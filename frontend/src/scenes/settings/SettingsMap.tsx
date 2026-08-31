@@ -898,7 +898,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
-                flag: LogsFeatureFlagKeys.metricRules,
+                flag: 'METRICS',
                 keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {
