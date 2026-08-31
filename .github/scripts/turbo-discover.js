@@ -107,13 +107,6 @@ const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
 // dedicated runner, so a product belongs here only while its wall runs close
 // enough to the job timeout that a hang is a realistic outcome.
 const DEDICATED_BUCKET_PRODUCTS = new Set()
-// Shard floor for a product whose recorded durations do not yet describe its
-// suite. A suite that moves in from core keeps its old keys until the timing
-// workflow refreshes, so the sum here reads near zero and the lane runs
-// unsharded for a refresh cycle. The floor only binds while the computed count
-// is lower, so it costs nothing once the map catches up, and it can be dropped
-// then.
-const PRODUCT_MIN_SHARDS = new Map([['product-analytics', 4]])
 
 // --- Staleness detection for .test_durations ---
 // When a product's test files on disk significantly outnumber what .test_durations
@@ -957,12 +950,11 @@ function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_M
 //
 // A product whose whole suite fits one shard is not split, and the bound does
 // not apply to it -- an unsplit chunk is the work itself, with nothing on top.
-function productSplitShards(shape, product) {
+function productSplitShards(shape) {
     const budget = productShardBudget()
     const { work = 0, heavyCount = 0, lightWork = 0, maxLight = 0, testCount = Infinity } = shape ?? {}
-    const floor = Math.min(PRODUCT_MIN_SHARDS.get(product) ?? 1, testCount)
     if (work <= budget) {
-        return Math.max(1, floor)
+        return 1
     }
     const lightShards = lightWork > 0 ? Math.ceil(lightWork / (budget - maxLight)) : 0
     const fragmentation = lightWork > 0 ? heavyCount : 0
@@ -970,7 +962,7 @@ function productSplitShards(shape, product) {
     // The two-shard floor cannot outrank the test count: a product holding one
     // test that overruns the budget still gets one job, because the second would
     // collect nothing and splitting cannot shorten the first.
-    return Math.max(Math.min(2, testCount), floor, Math.min(DJANGO_MAX_SHARDS, wanted))
+    return Math.max(Math.min(2, testCount), Math.min(DJANGO_MAX_SHARDS, wanted))
 }
 
 // Selector segment key -> Django matrix segment name.
@@ -1165,7 +1157,7 @@ function buildMatrix(products, durations, productsScaled = false) {
             )
         }
 
-        const shards = productSplitShards(sizing, product)
+        const shards = productSplitShards(sizing)
         if (shards > 1) {
             console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
@@ -1234,7 +1226,6 @@ module.exports = {
     PRODUCT_JOB_OVERHEAD_SECONDS,
     PRODUCT_BUCKET_SAFETY_FACTOR,
     productSplitShards,
-    PRODUCT_MIN_SHARDS,
     getProductShape,
     PRODUCTS_SCALED_MARKER,
     TARGET_WALL_SECONDS,

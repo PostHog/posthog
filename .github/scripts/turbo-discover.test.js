@@ -15,7 +15,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, PRODUCT_MIN_SHARDS, getIsolatedProducts, productSplitShards } = require('./turbo-discover')
+const { DJANGO_SEGMENTS, getIsolatedProducts } = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
@@ -158,22 +158,4 @@ test('isolation needs both the contract-check script and narrowed contract input
     }))
 
     assert.deepEqual([...getIsolatedProducts(tasks, repoRoot)].sort(), ['declared', 'multi-word'])
-})
-
-// A suite that moves into a product keeps its old duration keys until the timing
-// workflow refreshes, so the recorded sum reads near zero and the lane would run
-// unsharded. The floor covers that window without overriding a real measurement.
-test('a product shard floor binds only while the measured count is lower', () => {
-    const [product, floor] = [...PRODUCT_MIN_SHARDS][0]
-
-    assert.equal(productSplitShards({ work: 30, testCount: 40 }, product), floor)
-    assert.equal(productSplitShards({ work: 30, testCount: 40 }, 'unlisted'), 1)
-
-    // 40 min of evenly grained work needs more shards than the floor, and gets them.
-    const measured = { work: 2400, lightWork: 2400, maxLight: 60, testCount: 400 }
-    assert.ok(productSplitShards(measured, product) > floor)
-    assert.equal(productSplitShards(measured, product), productSplitShards(measured, 'unlisted'))
-
-    // A product with fewer tests than the floor gets one job per test, never more.
-    assert.equal(productSplitShards({ work: 30, testCount: 2 }, product), 2)
 })
