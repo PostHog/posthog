@@ -19,7 +19,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { SupportEditor } from '../../components/Editor'
+import { SupportEditor, serializeToPlainText } from '../../components/Editor'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 /** Wrap plain greeting text in a TipTap doc so the rich editor can seed from a team that has no rich greeting yet. */
@@ -28,6 +28,15 @@ function greetingTextToRichContent(text: string): JSONContent {
         type: 'doc',
         content: [{ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] }],
     }
+}
+
+/**
+ * A greeting is blank when it has no visible text. TipTap's own emptiness check counts a lone space
+ * or hard break as content, which would leave Save enabled for a greeting that publishes nothing, so
+ * match the saver and judge emptiness by the plain-text fallback instead.
+ */
+function isGreetingBlank(editor: RichContentEditorType | null): boolean {
+    return !editor || !serializeToPlainText(editor.getJSON())
 }
 
 export function WidgetSection(): JSX.Element {
@@ -177,9 +186,11 @@ export function WidgetSection(): JSX.Element {
                                             }
                                             onCreate={(editor) => {
                                                 greetingEditorRef.current = editor
-                                                setGreetingIsEmpty(editor.isEmpty())
+                                                setGreetingIsEmpty(isGreetingBlank(editor))
                                             }}
-                                            onUpdate={(isEmpty) => setGreetingIsEmpty(isEmpty)}
+                                            onUpdate={() =>
+                                                setGreetingIsEmpty(isGreetingBlank(greetingEditorRef.current))
+                                            }
                                         />
                                     )}
                                     <div className="flex justify-end">
