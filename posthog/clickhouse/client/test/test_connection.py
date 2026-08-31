@@ -9,6 +9,7 @@ from posthog.clickhouse.client.connection import (
     RefreshingChPool,
     Workload,
     get_http_client,
+    get_http_kwargs,
     get_pool,
     init_clickhouse_users,
     make_ch_pool,
@@ -127,6 +128,17 @@ def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeyp
     token.write_text("tok-1")  # rotate the projected token in place
     assert get_pool(Workload.ONLINE) is pool
     assert make_ch_pool.cache_info().currsize == 1
+
+
+def test_get_http_kwargs_reads_file_backed_credential_fresh(monkeypatch, tmp_path):
+    token = tmp_path / "token"
+    token.write_text("tok-0")
+    _file_backed_default(monkeypatch, token)
+
+    assert get_http_kwargs(Workload.ONLINE)["password"] == "tok-0"
+
+    token.write_text("tok-1")  # a rotation must reach the short-lived HTTP client, not a value cached at build
+    assert get_http_kwargs(Workload.ONLINE)["password"] == "tok-1"
 
 
 def test_refreshing_pool_stamps_current_credential(tmp_path):
