@@ -3,6 +3,7 @@ import hashlib
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -79,6 +80,52 @@ class TestPushedAuthorizationRequest(APIBaseTest):
         # Correct secret succeeds
         body["client_secret"] = "test_confidential_client_secret"
         self.assertEqual(self.push(body).status_code, status.HTTP_201_CREATED)
+
+    def test_confidential_client_authenticates_with_http_basic(self):
+        # A confidential client using client_secret_basic sends its credentials in
+        # the Authorization header, not the form body — same as /oauth/token/.
+        body = self.public_par_body()
+        body.pop("client_id")
+        credentials = base64.b64encode(b"test_confidential_client_id:test_confidential_client_secret").decode()
+
+        response = self.client.post(
+            "/oauth/par/",
+            data=urlencode(body),
+            content_type="application/x-www-form-urlencoded",
+            HTTP_AUTHORIZATION=f"Basic {credentials}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_first_use_cimd_client_is_provisioned(self):
+        # A CIMD (URL-form) client_id has no pre-registration: first use provisions
+        # it. The push must provision it like /oauth/authorize/ does, rather than
+        # 401 because no OAuthApplication row exists yet.
+        cimd_client_id = "https://example.com/.well-known/oauth-client"
+        # The provisioned row is deliberately NOT keyed on cimd_client_id, so the
+        # plain get_application_by_client_id lookup would miss it — only the
+        # provisioning path (mocked below) can resolve the client. That's what
+        # distinguishes the fixed behavior from the first-use 401 regression.
+        provisioned = OAuthApplication.objects.create(
+            name="CIMD App",
+            client_id="cimd_internal_client_id",
+            cimd_metadata_url="https://provisioned.example.com/.well-known/oauth-client",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+
+        body = self.public_par_body()
+        body["client_id"] = cimd_client_id
+
+        with patch("posthog.api.oauth.par.get_or_create_cimd_application", return_value=provisioned) as mock_provision:
+            response = self.push(body)
+
+        mock_provision.assert_called_once_with(cimd_client_id)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_unknown_client_is_rejected(self):
         body = self.public_par_body()
