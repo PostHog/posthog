@@ -52,6 +52,14 @@ export function getHeartbeatKey(streamKey: string): string {
     return `${streamKey}:ingest-heartbeat`
 }
 
+export function getFirstCommandKey(streamKey: string): string {
+    return `${streamKey}:ingest-first-agent-command`
+}
+
+export function getFirstActivityKey(streamKey: string): string {
+    return `${streamKey}:ingest-first-agent-activity`
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -375,6 +383,24 @@ export class TaskRunRedisStream {
         return result === 'OK'
     }
 
+    async claimFirstAgentCommand(): Promise<boolean> {
+        const result = await this.redis.set(getFirstCommandKey(this.streamKey), '1', 'EX', this.timeout, 'NX')
+        return result === 'OK'
+    }
+
+    async releaseFirstAgentCommand(): Promise<void> {
+        await this.redis.del(getFirstCommandKey(this.streamKey))
+    }
+
+    async claimFirstAgentActivity(): Promise<boolean> {
+        const result = await this.redis.set(getFirstActivityKey(this.streamKey), '1', 'EX', this.timeout, 'NX')
+        return result === 'OK'
+    }
+
+    async releaseFirstAgentActivity(): Promise<void> {
+        await this.redis.del(getFirstActivityKey(this.streamKey))
+    }
+
     // WATCH/MULTI optimistic retry loop (never the TEST shortcut).
     // Returns stream ID string on accept, null on duplicate.
     // Throws TaskRunStreamSequenceGap, TaskRunStreamAlreadyCompleted.
@@ -516,20 +542,22 @@ export class TaskRunRedisStream {
         await this.writeEvent({ type: 'STREAM_STATUS', status: 'error', error: error.slice(0, 500) })
     }
 
-    // DEL all five keys atomically. Returns true if at least one key was deleted.
-    // Catches all exceptions; returns false on failure.
     async deleteStream(): Promise<boolean> {
         try {
             const sequenceKey = getSequenceKey(this.streamKey)
             const completedKey = getCompletedKey(this.streamKey)
             const agentActiveKey = getAgentActiveKey(this.streamKey)
             const heartbeatKey = getHeartbeatKey(this.streamKey)
+            const firstCommandKey = getFirstCommandKey(this.streamKey)
+            const firstActivityKey = getFirstActivityKey(this.streamKey)
             const deleted = await this.redis.del(
                 this.streamKey,
                 sequenceKey,
                 completedKey,
                 agentActiveKey,
-                heartbeatKey
+                heartbeatKey,
+                firstCommandKey,
+                firstActivityKey
             )
             return deleted > 0
         } catch {
