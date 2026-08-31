@@ -17,7 +17,6 @@ import type {
 import {
     AccountColumnGroup,
     accountsColumnConfigLogic,
-    accountsJoinTableNames,
     applyColumnDisplayToSelect,
     buildAccountColumnGroups,
     customPropertyAlias,
@@ -243,22 +242,6 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
         ])
     })
 
-    it('accountsJoinTableNames resolves only the tags/notebooks join tables', () => {
-        const accountsTable = {
-            name: 'accounts',
-            fields: {
-                name: { name: 'name', type: 'string' },
-                tags: { name: 'tags', type: 'lazy_table', table: 'account_tags' },
-                notebooks: { name: 'notebooks', type: 'lazy_table', table: 'account_notebooks' },
-                custom_properties: { name: 'custom_properties', type: 'lazy_table', table: 'account_custom_props' },
-                enrichment: { name: 'enrichment', type: 'virtual_table', table: 'account_enrichment' },
-            },
-        } as unknown as DatabaseSchemaTable
-
-        expect(accountsJoinTableNames(accountsTable)).toEqual(['account_tags', 'account_notebooks'])
-        expect(accountsJoinTableNames(undefined)).toEqual([])
-    })
-
     describe('loadAccountsSchema', () => {
         beforeEach(() => {
             initKeaTests()
@@ -277,7 +260,9 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
             })
         })
 
-        it('requests only the accounts table, then its join tables, never the full schema', async () => {
+        it('requests only the accounts table schema, never the full warehouse schema', async () => {
+            // Mirrors the real response: join fields carry their column names inline, and the
+            // joins' backing names are resolver tags, not top-level tables.
             const accountsTable = {
                 name: 'accounts',
                 fields: {
@@ -286,25 +271,19 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
                     notebooks: { name: 'notebooks', type: 'lazy_table', table: 'account_notebooks', fields: ['count'] },
                 },
             } as unknown as DatabaseSchemaTable
-            jest.mocked(performQuery)
-                .mockResolvedValueOnce({ tables: { 'system.accounts': accountsTable } })
-                .mockResolvedValueOnce({
-                    tables: {
-                        account_tags: { name: 'account_tags', fields: {} },
-                        account_notebooks: { name: 'account_notebooks', fields: {} },
-                    },
-                })
+            jest.mocked(performQuery).mockResolvedValueOnce({ tables: { 'system.accounts': accountsTable } })
 
             const logic = accountsColumnConfigLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
             const requestedTables = jest.mocked(performQuery).mock.calls.map(([query]) => (query as any).tables)
-            expect(requestedTables).toEqual([['system.accounts'], ['account_tags', 'account_notebooks']])
-            expect(Object.keys(logic.values.columnSchemaTables).sort()).toEqual([
-                'account_notebooks',
-                'account_tags',
-                'system.accounts',
+            expect(requestedTables).toEqual([['system.accounts']])
+            expect(Object.keys(logic.values.columnSchemaTables)).toEqual(['system.accounts'])
+            const joinGroups = logic.values.accountsColumnGroups.filter((group) => group.key.startsWith('accounts.'))
+            expect(joinGroups.map((group) => group.options.map((option) => option.name))).toEqual([
+                ['names'],
+                ['count'],
             ])
         })
     })
