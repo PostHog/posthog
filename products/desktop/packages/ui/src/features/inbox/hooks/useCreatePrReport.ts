@@ -126,6 +126,8 @@ export function useCreatePrReport({
       signedOut: "Sign in to create a PR",
       missingModel:
         "Couldn't resolve a default model. Open the task page once and pick a model, then try again.",
+      existingImplementationTask:
+        "This report already has an implementation task. Open it from the activity section to continue.",
     },
     buildInput,
     analyticsExtras,

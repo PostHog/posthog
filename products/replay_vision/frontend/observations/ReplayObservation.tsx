@@ -62,8 +62,9 @@ import {
     parseFailureReason,
     parseIneligibleReason,
     OBSERVATION_TRIGGER_TAG,
-    type ScannerType,
+    SUCCEEDED_OUTPUT_LABEL,
 } from '../replay_scanners/types'
+import { scannerLabel } from '../utils/observation'
 import { ObservationLabelControl } from './ObservationLabelControl'
 import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -72,13 +73,6 @@ export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
-    classifier: 'Categories',
-    summarizer: 'Summary',
-    monitor: 'Verdict',
-    scorer: 'Score',
 }
 
 function AutoSeekToTime({
@@ -141,7 +135,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 <SceneTitleSection name="Observation not found" resourceType={{ type: 'replay_vision' }} />
                 <p className="text-muted">
                     This observation either doesn't exist or you don't have access to it.{' '}
-                    <Link to={urls.replayVision()}>Back to scanners</Link>.
+                    <Link to={urls.replayVision()}>Go to Replay vision</Link>.
                 </p>
             </SceneContent>
         )
@@ -152,7 +146,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const reasoning = result && typeof result.reasoning === 'string' ? result.reasoning : null
     const reasoningSegments = result?.reasoning_segments
     const scannerType = snapshot?.scanner_type
-    const scannerName = snapshot?.name || 'Scanner'
+    const scannerName = scannerLabel(observation)
     const triggerLabel = OBSERVATION_TRIGGER_TAG[observation.triggered_by].label
     const snapshotConfig = configFromSnapshot(snapshot)
     const prompt = snapshotConfig?.prompt ?? null

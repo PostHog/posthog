@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from typing import TYPE_CHECKING
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from markdown_to_mrkdwn import SlackMarkdownConverter
@@ -125,16 +128,25 @@ def truncate_slack_section(text: str) -> str:
 
 # A top-of-line ATX heading (`# `…`###### `). The scout writes its summary in Markdown, so its own
 # headings are the natural seams to split a long report on for threaded Slack delivery.
-_MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}[ \t]+\S")
+_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+\S")
 # Opens or closes a fenced code block (``` or ~~~, up to three leading spaces per CommonMark). A
 # `# ` line inside a fence is code, not a heading: splitting there would orphan the fence and hand
 # the snippet to the mrkdwn converter as prose.
 _MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 
-def _heading_line_offsets(text: str) -> list[int]:
-    """Character offsets of the ATX heading lines, skipping any inside a fenced code block."""
-    offsets: list[int] = []
+@frozen
+class _MarkdownHeading:
+    """Where an ATX heading starts in the text, and how deep it is. Both fields are plain ints, so a
+    tuple would let a call site read the level as an offset."""
+
+    offset: int
+    level: int
+
+
+def _markdown_headings(text: str) -> list[_MarkdownHeading]:
+    """Every ATX heading in the text, skipping any inside a fenced code block."""
+    headings: list[_MarkdownHeading] = []
     fence: str | None = None  # marker of the currently open fence, else None
     offset = 0
     for line in text.split("\n"):
@@ -145,24 +157,39 @@ def _heading_line_offsets(text: str) -> list[int]:
                 fence = None
         elif fence_match:
             fence = fence_match.group(1)
-        elif _MARKDOWN_HEADING_RE.match(line):
-            offsets.append(offset)
+        else:
+            heading_match = _MARKDOWN_HEADING_RE.match(line)
+            if heading_match:
+                headings.append(_MarkdownHeading(offset=offset, level=len(heading_match.group(1))))
         offset += len(line) + 1  # +1 for the "\n" that split dropped
-    return offsets
+    return headings
+
+
+def _split_heading_level(levels: list[int]) -> int:
+    """The shallowest heading level the text repeats at, else the shallowest level present.
+
+    A level that appears once is the summary's own title rather than a seam between sections, so
+    splitting there would return the whole summary as one segment."""
+    counts = Counter(levels)
+    repeated = sorted(level for level, count in counts.items() if count > 1)
+    return repeated[0] if repeated else min(levels)
 
 
 def split_markdown_by_headings(text: str) -> list[str]:
-    """Split a Markdown summary into the lead and one segment per heading.
+    """Split a Markdown summary into the lead and one segment per top-level heading.
 
-    The first element is the text before the first heading (empty when the summary opens with one).
-    Each later element is a heading and the body under it. Headings inside fenced code blocks are
-    left in place, so a snippet is never split mid-fence. No content is dropped."""
+    The first element is the text before the first split point (empty when the summary opens with a
+    heading of that level). Each later element is a heading and everything under it, including its
+    sub-headings, so a segment holds the same block a reader folds shut. Headings inside fenced code
+    blocks are left in place, so a snippet is never split mid-fence. No content is dropped."""
     text = text.strip()
     if not text:
         return []
-    starts = _heading_line_offsets(text)
-    if not starts:
+    headings = _markdown_headings(text)
+    if not headings:
         return [text]
+    split_level = _split_heading_level([heading.level for heading in headings])
+    starts = [heading.offset for heading in headings if heading.level == split_level]
     segments = [text[: starts[0]]]
     for index, start in enumerate(starts):
         end = starts[index + 1] if index + 1 < len(starts) else len(text)

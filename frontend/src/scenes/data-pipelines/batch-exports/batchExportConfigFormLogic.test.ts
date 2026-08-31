@@ -13,6 +13,7 @@ import { BatchExportConfiguration } from '~/types'
 
 import {
     BatchExportConfigFormLogicProps,
+    DEFAULT_EXCLUDE_EVENTS,
     batchExportConfigFormLogic,
     getDefaultConfiguration,
 } from './batchExportConfigFormLogic'
@@ -796,6 +797,7 @@ describe('batchExportConfigFormLogic', () => {
         ])('returns correct defaults for $service', ({ service, expected }) => {
             const config = getDefaultConfiguration(service)
             expect(config).toEqual(expect.objectContaining(expected))
+            expect(config.exclude_events).toEqual(['$feature_flag_called'])
         })
     })
 
@@ -1017,7 +1019,12 @@ describe('batchExportConfigFormLogic', () => {
                 .toFinishAllListeners()
 
             expect(lastPostBody).not.toBeNull()
-            expect(lastPostBody!.destination).toEqual(expectedDestination)
+            // exclude_events is a base config key shared by every destination, so it's merged in here
+            // rather than repeated in each case above.
+            expect(lastPostBody!.destination).toEqual({
+                ...expectedDestination,
+                config: { exclude_events: DEFAULT_EXCLUDE_EVENTS, ...expectedDestination.config },
+            })
             expect(router.values.location.pathname).toContain(urls.batchExport('new-export-id'))
         })
     })

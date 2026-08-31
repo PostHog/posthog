@@ -5,6 +5,8 @@ import {
   HouseSimple,
   type IconProps,
   Lightning,
+  ListMagnifyingGlassIcon,
+  ShapesIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
@@ -20,17 +22,14 @@ import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
-import {
-  type CustomizableNavItemId,
-  isNavItemVisible,
-  type NavItemOverrides,
-} from "@posthog/ui/features/sidebar/constants";
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   navigateToActivity,
+  navigateToCanvases,
   navigateToChannel,
   navigateToCommandCenter,
+  navigateToFeeds,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
@@ -60,16 +59,19 @@ export interface RailDestination {
    * from landing on its root. Defaults to `onPick`.
    */
   onReclick?: () => void;
-  customizableId?: CustomizableNavItemId;
+  placement?: "top" | "bottom";
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
-  enabled?: (flags: {
-    home: boolean;
-    inbox: boolean;
-    loops: boolean;
-    context: boolean;
-  }) => boolean;
+  enabled?: (flags: RailFlags) => boolean;
+}
+
+export interface RailFlags {
+  home: boolean;
+  inbox: boolean;
+  loops: boolean;
+  context: boolean;
+  savedSearches: boolean;
 }
 
 /**
@@ -77,7 +79,7 @@ export interface RailDestination {
  * is view state — but the destinations that own the whole screen have no column
  * to put it in, so leaving one is part of the pick.
  */
-export function showSpaces(): void {
+function showSpaces(): void {
   const channelId = useCurrentChannelStore.getState().currentChannelId;
   if (!channelId) {
     showChannelList();
@@ -140,7 +142,7 @@ export function pickRailDestination(
   else destination.onPick();
 }
 
-export const RAIL_DESTINATIONS: readonly RailDestination[] = [
+const RAIL_DESTINATIONS: readonly RailDestination[] = [
   {
     pane: "home",
     label: "Home",
@@ -163,7 +165,6 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
   {
     pane: "activity",
-    customizableId: "activity",
     label: "Activity",
     analyticsId: "activity",
     Icon: BellIcon,
@@ -172,8 +173,15 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     count: (counts) => counts.activity,
   },
   {
+    pane: "canvases",
+    label: "Canvases",
+    analyticsId: "canvases",
+    Icon: ShapesIcon,
+    href: "/canvases",
+    onPick: () => navigateToCanvases(),
+  },
+  {
     pane: "inbox",
-    customizableId: "inbox",
     label: "Self-driving",
     analyticsId: "inbox",
     Icon: EnvelopeSimple,
@@ -185,7 +193,6 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
   {
     pane: "command-center",
-    customizableId: "command-center",
     label: "Command Center",
     analyticsId: "command_center",
     Icon: Lightning,
@@ -196,7 +203,6 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
   {
     pane: "loops",
-    customizableId: "loops",
     label: "Loops",
     analyticsId: "loops",
     Icon: LoopIcon,
@@ -205,8 +211,17 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     enabled: (flags) => flags.loops,
   },
   {
+    pane: "feeds",
+    label: "Saved searches",
+    analyticsId: "search",
+    Icon: ListMagnifyingGlassIcon,
+    href: "/feeds",
+    onPick: navigateToFeeds,
+    placement: "bottom",
+    enabled: (flags) => flags.savedSearches,
+  },
+  {
     pane: "context",
-    customizableId: "contexts",
     label: "Context",
     analyticsId: "contexts",
     Icon: BookOpenTextIcon,
@@ -216,47 +231,8 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
 ];
 
-// Deliberately not the shared `orderedNavItems`: its adjacency rule pins
-// Activity below Inbox, and the rail puts Activity first.
-export function visibleRailDestinations({
-  overrides,
-  order,
-  home,
-  inbox,
-  loops,
-  context,
-}: {
-  overrides: NavItemOverrides;
-  order: readonly CustomizableNavItemId[];
-  home: boolean;
-  inbox: boolean;
-  loops: boolean;
-  context: boolean;
-}): readonly RailDestination[] {
-  const shown = RAIL_DESTINATIONS.filter(
-    ({ customizableId, enabled }) =>
-      (enabled?.({ home, inbox, loops, context }) ?? true) &&
-      (!customizableId || isNavItemVisible(overrides, customizableId)),
-  );
-  if (order.length === 0) return shown;
-
-  const rank = new Map(order.map((id, index) => [id, index]));
-  const positions = shown
-    .map((_, index) => index)
-    .filter((index) => {
-      const id = shown[index].customizableId;
-      return id !== undefined && rank.has(id);
-    });
-  const reordered = positions
-    .map((index) => shown[index])
-    .sort(
-      (a, b) =>
-        (rank.get(a.customizableId as CustomizableNavItemId) ?? 0) -
-        (rank.get(b.customizableId as CustomizableNavItemId) ?? 0),
-    );
-  const result = [...shown];
-  positions.forEach((position, i) => {
-    result[position] = reordered[i];
-  });
-  return result;
+export function visibleRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
+  return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
 }

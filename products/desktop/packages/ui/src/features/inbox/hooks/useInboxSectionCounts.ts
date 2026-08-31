@@ -12,16 +12,16 @@ import { useInboxReports } from "@posthog/ui/features/inbox/hooks/useInboxReport
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 
-/** The live statuses that aren't `ready`: what the Monitoring section holds. */
-const MONITORING_STATUS_FILTER = "pending_input,failed,in_progress,candidate";
+const ATTENTION_STATUS_FILTER = "pending_input,failed";
+const IN_PROGRESS_STATUS_FILTER = "in_progress,candidate";
 
 export interface InboxSectionCounts {
   /** Ready reports — the "Needs a decision" section's true total. */
   decision: number;
   /** The subset of ready reports carrying an implementation PR. */
   decisionPr: number;
-  /** Everything else live: running, queued, waiting on input, failed. */
-  monitoring: number;
+  attention: number;
+  inProgress: number;
   isLoading: boolean;
 }
 
@@ -31,9 +31,9 @@ export interface InboxSectionCounts {
  * At this dataset's real size (tens of thousands of live reports in a shared
  * project) any count derived from loaded pages is a count of a window, not of
  * reality — which is where every badge/section mismatch came from. So each
- * number here is a `limit: 1` count query on the dimensions the API can
- * actually filter server-side (status, PR presence, reviewer scope, source,
- * priority), and the sections are deliberately defined on those dimensions.
+ * number here is a count-only query on the dimensions the API can filter
+ * server-side (status, PR presence, reviewer scope, source, priority), and the
+ * sections are deliberately defined on those dimensions.
  *
  * Scope and the filter bar's source/priority choices are mirrored into every
  * query so the counts move with what the list shows. Search is not — it's a
@@ -71,7 +71,7 @@ export function useInboxSectionCounts(): InboxSectionCounts {
     suggested_reviewers: reviewerUuid
       ? buildSuggestedReviewerFilterParam([reviewerUuid])
       : undefined,
-    limit: 1,
+    count_only: true,
   };
   const options = {
     // "For you" must carry the user's reviewer filter; hold until it resolves.
@@ -88,18 +88,24 @@ export function useInboxSectionCounts(): InboxSectionCounts {
     { ...shared, status: "ready", has_implementation_pr: true },
     options,
   );
-  const monitoringQuery = useInboxReports(
-    { ...shared, status: MONITORING_STATUS_FILTER },
+  const attentionQuery = useInboxReports(
+    { ...shared, status: ATTENTION_STATUS_FILTER },
+    options,
+  );
+  const inProgressQuery = useInboxReports(
+    { ...shared, status: IN_PROGRESS_STATUS_FILTER },
     options,
   );
 
   return {
     decision: decisionQuery.data?.count ?? 0,
     decisionPr: decisionPrQuery.data?.count ?? 0,
-    monitoring: monitoringQuery.data?.count ?? 0,
+    attention: attentionQuery.data?.count ?? 0,
+    inProgress: inProgressQuery.data?.count ?? 0,
     isLoading:
       decisionQuery.isLoading ||
-      monitoringQuery.isLoading ||
+      attentionQuery.isLoading ||
+      inProgressQuery.isLoading ||
       (isForYou && reviewerUuid == null),
   };
 }

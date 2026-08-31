@@ -302,3 +302,33 @@ def get_feature_flag_request_usage(
     return query_feature_flag_request_usage(
         team_id=team_id, date_from=date_from, date_to=date_to, time_interval=time_interval
     )
+
+
+def add_group_to_flag_targeting(*, team: Team, key: str, group_key: str) -> bool:
+    """Add one group key to a flag's group-targeting condition, for a product rolling itself out.
+
+    A product that migrates its own data organization by organization needs to widen the flag as
+    each one lands, and it should not have to know how release conditions are stored to do it.
+    Returns False when no such flag exists on the team, or when its conditions carry no
+    `$group_key` filter to widen — both mean the caller's rollout assumption no longer holds, so
+    they are reported rather than silently repaired.
+    """
+    flag = FeatureFlag.objects.filter(team=team, key=key, deleted=False).first()
+    if flag is None:
+        return False
+    conditions = [
+        prop
+        for group in (flag.filters or {}).get("groups") or []
+        for prop in group.get("properties", [])
+        if prop.get("key") == "$group_key"
+    ]
+    if not conditions:
+        return False
+    condition = conditions[0]
+    values = condition.get("value")
+    if not isinstance(values, list):
+        return False
+    if group_key not in values:
+        values.append(group_key)
+        flag.save(update_fields=["filters"])
+    return True

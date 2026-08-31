@@ -42,6 +42,13 @@ export function navigateToActivity(): void {
   void getRouterOrNull()?.navigate({ to: "/activity" });
 }
 
+export function navigateToCanvases(canvasId?: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/canvases",
+    search: { canvas: canvasId },
+  });
+}
+
 export function navigateToHome(): void {
   void getRouterOrNull()?.navigate({ to: "/" });
 }
@@ -51,6 +58,10 @@ export function navigateToFeed(feedId: string): void {
     to: "/feeds/$feedId",
     params: { feedId },
   });
+}
+
+export function navigateToFeeds(): void {
+  void getRouterOrNull()?.navigate({ to: "/feeds" });
 }
 
 export function navigateToChannel(channelId: string): void {
@@ -216,14 +227,6 @@ export function navigateToContext(path?: string): void {
   });
 }
 
-export function navigateToSkills(): void {
-  void getRouterOrNull()?.navigate({ to: "/skills" });
-}
-
-export function navigateToMcpServers(): void {
-  void getRouterOrNull()?.navigate({ to: "/mcp-servers" });
-}
-
 // The spaces index, where the project's spaces are listed.
 export function navigateToSpaces(): void {
   void getRouterOrNull()?.navigate({ to: "/spaces" });
@@ -250,10 +253,17 @@ export function navigateToSettings(
   });
 }
 
+// Settings sits under the pathless `_shell` layout, so its route IDs read
+// `/_shell/settings/…` rather than `/settings/…`. Match on the substring so a
+// later move between layouts does not silently switch this off.
+export function isSettingsRouteId(routeId: string): boolean {
+  return routeId.includes("/settings/");
+}
+
 export function isOnSettingsRoute(): boolean {
   return (
     getRouterOrNull()?.state.matches.some((m) =>
-      m.routeId.startsWith("/settings"),
+      isSettingsRouteId(m.routeId),
     ) ?? false
   );
 }
@@ -278,10 +288,6 @@ export function goForwardInHistory(): void {
 // `useRouterState` hook from `@tanstack/react-router`.
 export function getCurrentMatches() {
   return getRouterOrNull()?.state.matches ?? [];
-}
-
-export function getCurrentLocation() {
-  return getRouterOrNull()?.state.location ?? null;
 }
 
 export function subscribeToRouterResolved(handler: () => void): () => void {
