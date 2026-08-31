@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
     inboxTriageOrigin?: { reportId: string };
   },
   navigate: vi.fn(),
+  allReportsOptions: null as { applySourceFilter?: boolean } | null,
+  filterBarProps: null as { showSourceFilter?: boolean } | null,
 }));
 
 vi.mock("@posthog/ui/features/feature-flags/useTriageFocusEnabled", () => ({
@@ -34,20 +36,24 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
-  useInboxAllReports: () => ({
-    scopedReports: mocks.activeReports,
-    allReports: mocks.activeReports,
-    isLoading: false,
-    hasNextPage: false,
-    isFetchingNextPage: false,
-    fetchNextPage: vi.fn(),
-    searchQuery: mocks.searchQuery,
-    totalCount: 0,
-    scope: "entire_project",
-    isSuccess: true,
-    sourceProductFilter: [],
-    priorityFilter: [],
-  }),
+  useInboxAllReports: (options: { applySourceFilter?: boolean }) => {
+    mocks.allReportsOptions = options;
+    return {
+      scopedReports: mocks.activeReports,
+      allReports: mocks.activeReports,
+      isLoading: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      searchQuery: mocks.searchQuery,
+      totalCount: 0,
+      scope: "entire_project",
+      isSuccess: true,
+      sourceProductFilter: [],
+      priorityFilter: [],
+      prFilter: "all",
+    };
+  },
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
@@ -98,13 +104,6 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToInboxReportDetail: mocks.navigateToInboxReportDetail,
 }));
 
-vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportDismissAction", () => ({
-  useInboxReportDismissAction: () => ({
-    actionButton: null,
-    dialog: null,
-  }),
-}));
-
 vi.mock(
   "@posthog/ui/features/inbox/components/SuggestedReviewerAvatarStack",
   () => ({ SuggestedReviewerAvatarStack: () => null }),
@@ -130,7 +129,10 @@ vi.mock("@posthog/ui/features/inbox/components/ReportTriageFocus", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/components/InboxSearchFilterBar", () => ({
-  InboxSearchFilterBar: () => null,
+  InboxSearchFilterBar: (props: { showSourceFilter?: boolean }) => {
+    mocks.filterBarProps = props;
+    return null;
+  },
 }));
 
 vi.mock("@posthog/ui/features/inbox/components/InboxScopeSelect", () => ({
@@ -174,11 +176,12 @@ describe("ReportsInboxView", () => {
     mocks.triageFocusEnabled = false;
     mocks.triageProps = null;
     mocks.locationState = {};
+    mocks.allReportsOptions = null;
+    mocks.filterBarProps = null;
     useInboxSignalsFilterStore.setState({
       searchQuery: "checkout",
       sourceProductFilter: [],
       priorityFilter: [],
-      prFilter: "all",
     });
   });
 
@@ -267,6 +270,10 @@ describe("ReportsInboxView", () => {
     expect(needsPrSection).not.toHaveTextContent("Pipeline report");
     expect(screen.queryByText("In progress")).toBeNull();
     expect(screen.queryByText(/need a decision/)).toBeNull();
+    expect(screen.queryByText("Review")).toBeNull();
+    expect(screen.queryByLabelText(/Archive this report/)).toBeNull();
+    expect(mocks.filterBarProps?.showSourceFilter).toBe(false);
+    expect(mocks.allReportsOptions?.applySourceFilter).toBe(false);
   });
 
   it("returns to the same report in triage mode", () => {

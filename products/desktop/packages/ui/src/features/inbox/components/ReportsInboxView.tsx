@@ -46,7 +46,6 @@ import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
-import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
 import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
@@ -111,7 +110,7 @@ export function ReportsInboxView() {
     priorityFilter,
   } = useInboxAllReports({
     statusFilter: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
-    applyPrFilter: true,
+    applySourceFilter: false,
   });
   const triageFocusEnabled = useTriageFocusEnabled();
   const triageOrigin = useInboxTriageOrigin();
@@ -140,7 +139,12 @@ export function ReportsInboxView() {
   // Search is the one exception: it's a client-side title match, so a
   // searching page counts its matching rows instead.
   const serverCounts = useInboxSectionCounts();
-  const hasActiveFilters = useInboxSignalsFilterStore(hasActiveInboxFilters);
+  const hasActiveFilters = useInboxSignalsFilterStore((state) =>
+    hasActiveInboxFilters(state, {
+      includePrFilter: false,
+      includeSourceFilter: false,
+    }),
+  );
   const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
   const searchActive = searchQuery.trim().length > 0;
   const reviewAndMergeCount = searchActive
@@ -278,7 +282,7 @@ export function ReportsInboxView() {
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-2.5 px-6 py-3">
           <InboxSearchFilterBar
             searchPlaceholder="Search reports…"
-            showPrFilter
+            showSourceFilter={false}
           />
         </div>
       </div>
@@ -430,10 +434,6 @@ function InboxSection({
   );
 }
 
-// A row carries what the old inbox's cards proved useful: the humanized
-// title, one line of the summary's tl;dr (deciding without opening), where it
-// came from, reviewers, the PR when there is one, and archive on hover — at
-// row density rather than card height.
 function InboxReportRow({ report }: { report: SignalReport }) {
   const products = (report.source_products ?? [])
     .map((product) => humanizeIdentifier(product).toLowerCase())
@@ -445,15 +445,13 @@ function InboxReportRow({ report }: { report: SignalReport }) {
   const pr = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)
     : null;
-  const { actionButton: archiveButton, dialog: archiveDialog } =
-    useInboxReportDismissAction(report, "list_row");
   const { pointerHandlers } = useInboxReportDetailPrefetch({
     to: "/inbox/reports/$reportId",
     params: { reportId: report.id },
   });
   return (
     <>
-      {/* biome-ignore lint/a11y/useSemanticElements: the row holds a real archive <button>, which a <button> row would illegally nest */}
+      {/* biome-ignore lint/a11y/useSemanticElements: A semantic button cannot contain the PR and restore buttons. */}
       <div
         role="button"
         tabIndex={0}
@@ -465,7 +463,7 @@ function InboxReportRow({ report }: { report: SignalReport }) {
             navigateToInboxReportDetail(report.id);
           }
         }}
-        className="group flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-3 py-2 text-left transition hover:border-(--gray-6) hover:bg-(--gray-2)"
+        className="flex w-full cursor-pointer items-center gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-3 py-2 text-left transition hover:border-(--gray-6) hover:bg-(--gray-2)"
       >
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-center gap-1.5">
@@ -551,27 +549,10 @@ function InboxReportRow({ report }: { report: SignalReport }) {
                 {report.implementation_pr_merged ? " merged" : ""}
               </button>
             )}
-            {report.implementation_pr_url &&
-              !report.implementation_pr_merged && (
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  onClick={() => navigateToInboxReportDetail(report.id)}
-                >
-                  Review
-                </Button>
-              )}
             <ReportRestoreButton report={report} />
-            {report.status !== "suppressed" && (
-              <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                {archiveButton}
-              </span>
-            )}
           </span>
         </span>
       </div>
-      {archiveDialog}
     </>
   );
 }

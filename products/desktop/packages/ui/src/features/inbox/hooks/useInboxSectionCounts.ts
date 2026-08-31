@@ -24,25 +24,16 @@ export interface InboxSectionCounts {
 /**
  * Server-side counts for the inbox's sections and badges.
  *
- * At this dataset's real size (tens of thousands of live reports in a shared
- * project) any count derived from loaded pages is a count of a window, not of
- * reality — which is where every badge/section mismatch came from. So each
- * number here is a count-only query on the dimensions the API can filter
- * server-side (status, actionability, PR presence, reviewer scope, source,
- * priority), and the sections are deliberately defined on those dimensions.
+ * Loaded pages only contain a window of the inbox, so each number uses a
+ * count-only query with the same server-side filters as its section.
  *
- * Scope and the filter bar's source/priority choices are mirrored into every
- * query so the counts move with what the list shows. Search is not — it's a
- * client-side title match, so surfaces showing searched rows must count those
- * rows instead.
+ * Scope and the priority filter are mirrored into every query so the counts
+ * move with what the list shows. Search is a client-side title match, so
+ * surfaces showing searched rows must count those rows instead.
  */
 export function useInboxSectionCounts(): InboxSectionCounts {
   const scope = useInboxReviewerScopeStore((s) => s.scope);
-  const sourceProductFilter = useInboxSignalsFilterStore(
-    (s) => s.sourceProductFilter,
-  );
   const priorityFilter = useInboxSignalsFilterStore((s) => s.priorityFilter);
-  const prFilter = useInboxSignalsFilterStore((s) => s.prFilter);
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
 
@@ -52,10 +43,6 @@ export function useInboxSectionCounts(): InboxSectionCounts {
     teammateUuid ?? (isForYou ? (currentUser?.uuid ?? null) : null);
 
   const shared = {
-    source_product:
-      sourceProductFilter.length > 0
-        ? sourceProductFilter.join(",")
-        : undefined,
     priority: buildPriorityFilterParam(priorityFilter),
     suggested_reviewers: reviewerUuid
       ? buildSuggestedReviewerFilterParam([reviewerUuid])
@@ -68,11 +55,9 @@ export function useInboxSectionCounts(): InboxSectionCounts {
     refetchIntervalInBackground: false,
   };
 
-  const reviewAndMergeEnabled = scopeReady && prFilter !== "without_pr";
-  const needsPrEnabled = scopeReady && prFilter !== "with_pr";
   const reviewAndMergeQuery = useInboxReports(
     { ...shared, status: "ready", has_implementation_pr: true },
-    { ...options, enabled: reviewAndMergeEnabled },
+    { ...options, enabled: scopeReady },
   );
   const needsPrQuery = useInboxReports(
     {
@@ -81,31 +66,23 @@ export function useInboxSectionCounts(): InboxSectionCounts {
       actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
       has_implementation_pr: false,
     },
-    { ...options, enabled: needsPrEnabled },
+    { ...options, enabled: scopeReady },
   );
   const resolvedQuery = useInboxReports(
     {
       ...shared,
       status: "suppressed,resolved",
-      has_implementation_pr:
-        prFilter === "with_pr"
-          ? true
-          : prFilter === "without_pr"
-            ? false
-            : undefined,
     },
     { ...options, enabled: scopeReady },
   );
 
   return {
-    reviewAndMerge: reviewAndMergeEnabled
-      ? (reviewAndMergeQuery.data?.count ?? 0)
-      : 0,
-    needsPr: needsPrEnabled ? (needsPrQuery.data?.count ?? 0) : 0,
+    reviewAndMerge: reviewAndMergeQuery.data?.count ?? 0,
+    needsPr: needsPrQuery.data?.count ?? 0,
     resolved: resolvedQuery.data?.count ?? 0,
     isLoading:
-      (reviewAndMergeEnabled && reviewAndMergeQuery.isLoading) ||
-      (needsPrEnabled && needsPrQuery.isLoading) ||
+      reviewAndMergeQuery.isLoading ||
+      needsPrQuery.isLoading ||
       resolvedQuery.isLoading ||
       (isForYou && reviewerUuid == null),
   };
