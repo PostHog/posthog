@@ -12,6 +12,7 @@ import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { setAutoFreeze } from "immer";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
+import { thinSupersededToolCallUpdates } from "./sessionEvents";
 
 // immer autofreeze deep-walks produced state on every commit. For the
 // append-only `events` array that re-walks the whole (growing) array on every
@@ -137,6 +138,11 @@ export const sessionStoreSetters = {
     events: AcpMessage[],
     newLineCount?: number,
   ) => {
+    // Thin against the committed state BEFORE entering the immer draft: a
+    // draft read copies the event on write, which swaps the stored wrapper
+    // and makes the appendOnlyTracker refold the whole transcript.
+    const committed = sessionStore.getState().sessions[taskRunId];
+    if (committed) thinSupersededToolCallUpdates(committed.events, events);
     sessionStore.setState((state) => {
       const session = state.sessions[taskRunId];
       if (session) {
