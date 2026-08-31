@@ -15,11 +15,11 @@ class TestContentAutopilotDelivery(BaseTest):
         profile = create_content_autopilot_profile(self.team)
         proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
 
-        filename, markdown, content_package = export_proposal(proposal=proposal)
+        exported_proposal = export_proposal(proposal=proposal)
 
-        self.assertEqual(filename, "example.md")
-        self.assertEqual(markdown, proposal.proposed_markdown)
-        self.assertEqual(content_package, proposal.content_package)
+        self.assertEqual(exported_proposal.filename, "example.md")
+        self.assertEqual(exported_proposal.markdown, proposal.proposed_markdown)
+        self.assertEqual(exported_proposal.content_package, proposal.content_package)
         proposal.refresh_from_db()
         self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.EXPORTED)
         self.assertEqual(proposal.delivery_state, ContentAutopilotProposal.DeliveryState.DELIVERED)

@@ -2,6 +2,8 @@ from pathlib import PurePosixPath
 
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
+
 from products.web_analytics.backend.models import ContentAutopilotProposal
 
 from .lifecycle import claim_proposal_for_delivery, mark_delivery_failed
@@ -11,7 +13,14 @@ class ContentAutopilotDeliveryError(Exception):
     pass
 
 
-def export_proposal(*, proposal: ContentAutopilotProposal) -> tuple[str, str, dict[str, object]]:
+@frozen
+class ExportedProposal:
+    filename: str
+    markdown: str
+    content_package: dict[str, object]
+
+
+def export_proposal(*, proposal: ContentAutopilotProposal) -> ExportedProposal:
     claimed = claim_proposal_for_delivery(team_id=proposal.team_id, proposal_id=str(proposal.id))
     content_package = claimed.content_package
     filename = PurePosixPath(str(content_package.get("file_path") or f"{claimed.id}.md")).name
@@ -26,4 +35,4 @@ def export_proposal(*, proposal: ContentAutopilotProposal) -> tuple[str, str, di
         delivery_reference=filename,
         updated_at=timezone.now(),
     )
-    return filename, markdown, content_package
+    return ExportedProposal(filename=filename, markdown=markdown, content_package=content_package)
