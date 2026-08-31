@@ -1283,6 +1283,9 @@ WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS = int(get_from_env("WORKFLOWS_EMAIL_
 # A team above the lowest tier that sends nothing for this long drops one tier per period. Mailbox
 # providers keep about 30 days of reputation history, so a long-dormant allowance is unearned and a
 # comeback blast from a stale list is exactly what the caps exist to prevent. 0 disables decay.
+# The sweep tests inactivity as zero sends over WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS, not over this
+# value, so keep the two equal. A larger value decays teams that still sent inside the rate window,
+# and a smaller one waits for the rate window to clear before it decays.
 WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS", 30))
 WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE = float(get_from_env("WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE", 0.001))
 WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE = float(get_from_env("WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE", 0.02))
