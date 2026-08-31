@@ -150,6 +150,9 @@ struct FakeWorker {
     /// When set, the next sub-batch is ingested in full but reports one
     /// message fewer than sent — a partial-acceptance contract violation.
     pub underreport_once: Arc<AtomicBool>,
+    /// When set, the next sub-batch is acked PARTIAL: the last message is not
+    /// processed and comes back in `timed_out`, modeling a soft-budget cut.
+    pub timeout_last_once: Arc<AtomicBool>,
     /// Number of sub-batches that have reached the handler. Counted before
     /// the gate, so a test can observe a batch is in-flight even while held.
     arrived: Arc<AtomicUsize>,
@@ -185,6 +188,7 @@ impl FakeWorker {
         let ack_lost_once = Arc::new(AtomicBool::new(false));
         let reject_4xx = Arc::new(AtomicBool::new(false));
         let underreport_once = Arc::new(AtomicBool::new(false));
+        let timeout_last_once = Arc::new(AtomicBool::new(false));
         let arrived = Arc::new(AtomicUsize::new(0));
         let gate = Arc::new(tokio::sync::Mutex::new(()));
 
@@ -230,6 +234,7 @@ impl FakeWorker {
             ack_lost_once: Arc::clone(&ack_lost_once),
             reject_4xx: Arc::clone(&reject_4xx),
             underreport_once: Arc::clone(&underreport_once),
+            timeout_last_once: Arc::clone(&timeout_last_once),
             arrived: Arc::clone(&arrived),
             gate: Arc::clone(&gate),
             delivery_log,
@@ -257,6 +262,7 @@ impl FakeWorker {
             ack_lost_once,
             reject_4xx,
             underreport_once,
+            timeout_last_once,
             arrived,
             gate,
             _task: task,
@@ -304,6 +310,7 @@ struct FakeWorkerGrpc {
     ack_lost_once: Arc<AtomicBool>,
     reject_4xx: Arc<AtomicBool>,
     underreport_once: Arc<AtomicBool>,
+    timeout_last_once: Arc<AtomicBool>,
     arrived: Arc<AtomicUsize>,
     gate: Arc<tokio::sync::Mutex<()>>,
     delivery_log: Option<DeliveryLog>,
@@ -328,6 +335,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
         let ack_lost_once = Arc::clone(&self.ack_lost_once);
         let reject_4xx = Arc::clone(&self.reject_4xx);
         let underreport_once = Arc::clone(&self.underreport_once);
+        let timeout_last_once = Arc::clone(&self.timeout_last_once);
         let arrived = Arc::clone(&self.arrived);
         let gate = Arc::clone(&self.gate);
         let delivery_log = self.delivery_log.clone();
@@ -368,7 +376,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
                     nack(&tx, sub_batch.seq, "poison batch");
                     return;
                 }
-                let entries: Vec<(String, usize)> = sub_batch
+                let mut entries: Vec<(String, usize)> = sub_batch
                     .messages
                     .iter()
                     .map(|msg| {
@@ -382,6 +390,26 @@ impl WorkerIngestService for FakeWorkerGrpc {
                         (did, seq)
                     })
                     .collect();
+                // A soft-budget cut: the last message is not processed (not
+                // recorded), and the ack is PARTIAL with its index timed out.
+                if timeout_last_once.swap(false, Ordering::SeqCst) && !entries.is_empty() {
+                    entries.pop();
+                    let cut = entries.len() as u32;
+                    received.lock().unwrap().extend(entries.iter().cloned());
+                    if let Some(log) = &delivery_log {
+                        log.lock().unwrap().extend(entries);
+                    }
+                    let _ = tx.send(Ok(IngestStreamResponse {
+                        msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                            seq: sub_batch.seq,
+                            status: SubBatchStatus::Partial as i32,
+                            accepted: cut,
+                            error: String::new(),
+                            timed_out: vec![cut],
+                        })),
+                    }));
+                    continue;
+                }
                 received.lock().unwrap().extend(entries.iter().cloned());
                 batch_sizes.lock().unwrap().push(sub_batch.messages.len());
                 if let Some(log) = &delivery_log {
@@ -561,6 +589,25 @@ impl Harness {
         .await
     }
 
+    /// Like `start`, but with a sub-batch soft budget stamped on the wire and
+    /// the machinery enforcement requires: per-key serialization and eager
+    /// deferred flushing. The budget value itself only needs to be non-zero —
+    /// the FakeWorker acks PARTIAL on demand, not on a clock.
+    async fn start_budgeted(topic: &str, partitions: i32, worker_count: usize) -> Self {
+        Self::start_full(
+            topic,
+            partitions,
+            worker_count,
+            1,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            30_000,
+        )
+        .await
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn start_inner(
         topic: &str,
@@ -571,6 +618,32 @@ impl Harness {
         registry_config: WorkerRegistryConfig,
         batch_size_bytes: usize,
         component_options: ComponentOptions,
+    ) -> Self {
+        Self::start_full(
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            deferred_flush_timeout,
+            registry_config,
+            batch_size_bytes,
+            component_options,
+            0,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn start_full(
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+        deferred_flush_timeout: Duration,
+        registry_config: WorkerRegistryConfig,
+        batch_size_bytes: usize,
+        component_options: ComponentOptions,
+        soft_budget_ms: u64,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -586,9 +659,14 @@ impl Harness {
         Arc::clone(&registry).start_probing(probe_token.clone());
 
         let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
+        if soft_budget_ms > 0 {
+            dispatcher.set_per_key_serialization(true);
+        }
         let registry_for_test = Arc::clone(&registry);
         let dispatcher_for_test = Arc::clone(&dispatcher);
-        let transport = Arc::new(test_transport());
+        let mut grpc_transport = test_transport();
+        grpc_transport.set_soft_budget_ms(soft_budget_ms);
+        let transport = Arc::new(grpc_transport);
         spawn_reaper(
             Arc::clone(&registry),
             Arc::clone(&transport),
@@ -620,7 +698,7 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
                 debug_recorder: None,
-                eager_deferred_flush: false,
+                eager_deferred_flush: soft_budget_ms > 0,
             },
             handle,
         );
@@ -842,6 +920,35 @@ async fn messages_per_distinct_id_arrive_in_order() {
 /// (the second crosses it). The count cap alone cannot express that, which is
 /// the regression: a lane whose events are large gets the memory of a full
 /// count batch no matter how the count is tuned.
+/// A worker cutting a sub-batch short (PARTIAL ack) triggers redelivery of
+/// only the unfinished remainder: everything arrives exactly once and the
+/// key's order is preserved. A duplicate of the acked prefix here would mean
+/// the consumer replayed the whole sub-batch instead of the remainder.
+#[tokio::test]
+async fn partial_ack_redelivers_only_the_remainder_in_order() {
+    let topic = format!("e2e-partial-{}", Uuid::new_v4());
+    let harness = Harness::start_budgeted(&topic, 1, 1).await;
+
+    // Arm before producing so the first sub-batch takes the cut.
+    harness.workers[0]
+        .timeout_last_once
+        .store(true, Ordering::SeqCst);
+
+    let producer = make_producer();
+    for seq in 0..4usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+
+    harness.wait_for(4, Duration::from_secs(15)).await;
+    let seqs = harness.workers[0].seqs_for("user-1");
+    assert_eq!(
+        seqs,
+        vec![0, 1, 2, 3],
+        "in order, nothing lost, nothing duplicated"
+    );
+    harness.stop().await;
+}
+
 #[tokio::test]
 async fn byte_bound_caps_batches_below_the_count_bound() {
     let topic = format!("e2e-bytecap-{}", Uuid::new_v4());
