@@ -23,6 +23,8 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use std::sync::atomic::AtomicU64;
+
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -441,6 +443,7 @@ fn make_kafka_consumer(
     topic: &str,
     group_id: &str,
     instance_id: Option<&str>,
+    assignment_epoch: Arc<AtomicU64>,
 ) -> StreamConsumer<SentinelContext> {
     let mut config = ClientConfig::new();
     config
@@ -454,9 +457,12 @@ fn make_kafka_consumer(
     if let Some(id) = instance_id {
         config.set("group.instance.id", id);
     }
-    let kafka_consumer: StreamConsumer<SentinelContext> = config
-        .create_with_context(SentinelContext::detached())
-        .expect("kafka consumer");
+    // Wire the epoch as production's constructor does, so rebalances advance
+    // the ledger observer's assignment epoch in these tests too.
+    let mut context = SentinelContext::detached();
+    context.set_assignment_epoch(assignment_epoch);
+    let kafka_consumer: StreamConsumer<SentinelContext> =
+        config.create_with_context(context).expect("kafka consumer");
     kafka_consumer.subscribe(&[topic]).expect("subscribe");
     kafka_consumer
 }
@@ -603,7 +609,8 @@ impl Harness {
         let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
-        let kafka_consumer = make_kafka_consumer(topic, &group_id, None);
+        let kafka_consumer =
+            make_kafka_consumer(topic, &group_id, None, transport.assignment_epoch());
 
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -675,7 +682,12 @@ impl Harness {
         let handle = manager.register("consumer", ComponentOptions::new());
         self.shutdown = handle.shutdown_token();
 
-        let kafka_consumer = make_kafka_consumer(&self.topic, &self.group_id, None);
+        let kafka_consumer = make_kafka_consumer(
+            &self.topic,
+            &self.group_id,
+            None,
+            transport.assignment_epoch(),
+        );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
             Arc::clone(&dispatcher),
@@ -2458,7 +2470,12 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
     let handle2 = manager2.register("consumer", ComponentOptions::new());
     let shutdown2 = handle2.shutdown_token();
     let consumer2 = IngestionConsumer::from_parts(
-        make_kafka_consumer(&topic, &harness.group_id, None),
+        make_kafka_consumer(
+            &topic,
+            &harness.group_id,
+            None,
+            transport2.assignment_epoch(),
+        ),
         dispatcher2,
         transport2,
         worker_urls,
@@ -2507,6 +2524,129 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
     harness.stop().await;
 }
 
+/// A partition leaves for a second consumer and returns when that consumer
+/// shuts down. The first consumer's in-flight batch settles across the epoch
+/// change: the lost partition's stale completion drops instead of panicking,
+/// the kept partition's completions still land, and the returned partition
+/// starts a fresh assignment. A ledger bug here kills the consumer loop, so
+/// continued delivery after both handovers is the health signal.
+#[tokio::test]
+async fn partition_lost_and_regained_keeps_the_consumer_alive() {
+    let topic = format!("e2e-regain-{}", Uuid::new_v4());
+    let harness = Harness::start(
+        &topic,
+        2,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+
+    // Hold the first batch in flight while the group changes underneath it.
+    let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
+    for w in &harness.workers {
+        guards.push(Some(w.block().await));
+    }
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "work to reach a worker", || {
+        harness.workers.iter().any(|w| w.arrived_count() > 0)
+    })
+    .await;
+
+    // A second consumer joins and takes a partition away.
+    let worker_urls: Vec<String> = harness.workers.iter().map(|w| w.url.clone()).collect();
+    let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
+    let probe2 = CancellationToken::new();
+    Arc::clone(&registry2).start_probing(probe2.clone());
+    let dispatcher2 = Arc::new(Dispatcher::new(Arc::clone(&registry2)));
+    let transport2 = Arc::new(test_transport());
+    let mut manager2 = Manager::builder("e2e-regain-c2")
+        .with_trap_signals(false)
+        .build();
+    let handle2 = manager2.register("consumer", ComponentOptions::new());
+    let shutdown2 = handle2.shutdown_token();
+    let consumer2 = IngestionConsumer::from_parts(
+        make_kafka_consumer(
+            &topic,
+            &harness.group_id,
+            None,
+            transport2.assignment_epoch(),
+        ),
+        dispatcher2,
+        transport2,
+        worker_urls,
+        IngestionConsumerOptions {
+            batch_size: 50,
+            batch_size_bytes: 0,
+            batch_timeout: Duration::from_millis(100),
+            max_in_flight_batches: 1,
+            group_id: "e2e-test".to_string(),
+            deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
+            eager_deferred_flush: false,
+        },
+        handle2,
+    );
+    let task2 = tokio::spawn(async move { consumer2.process().await });
+
+    // Release the held batch: it settles against ledgers whose partition set
+    // and epoch changed while it was in flight.
+    guards.clear();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    for seq in 5..10usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered across the join",
+        || {
+            ["user-1", "user-2"].iter().all(|user| {
+                let delivered: HashSet<usize> = harness
+                    .workers
+                    .iter()
+                    .flat_map(|w| w.seqs_for(user))
+                    .collect();
+                (0..10).all(|s| delivered.contains(&s))
+            })
+        },
+    )
+    .await;
+
+    // The second consumer leaves; its partition returns to the first under a
+    // new epoch and must consume as a fresh assignment.
+    shutdown2.cancel();
+    let _ = tokio::time::timeout(Duration::from_secs(5), task2).await;
+    probe2.cancel();
+
+    for seq in 10..15usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(30),
+        "the returned partition to consume under its new assignment",
+        || {
+            ["user-1", "user-2"].iter().all(|user| {
+                let delivered: HashSet<usize> = harness
+                    .workers
+                    .iter()
+                    .flat_map(|w| w.seqs_for(user))
+                    .collect();
+                (10..15).all(|s| delivered.contains(&s))
+            })
+        },
+    )
+    .await;
+
+    harness.stop().await;
+}
+
 /// A same-name pod restart racing its old instance: a second member joins with
 /// the same `group.instance.id`, so the broker fences the first. The fenced
 /// instance's client is permanently dead — the consumer must exit (so the pod
@@ -2529,7 +2669,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
     let handle = manager.register("consumer", ComponentOptions::new());
     let group = format!("e2e-{}", Uuid::new_v4());
     let consumer = IngestionConsumer::from_parts(
-        make_kafka_consumer(&topic, &group, Some("pod-1")),
+        make_kafka_consumer(&topic, &group, Some("pod-1"), transport.assignment_epoch()),
         dispatcher,
         transport,
         urls,
@@ -2556,7 +2696,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
     .await;
 
     // The usurper joins with the SAME instance id; polling drives the join.
-    let usurper = make_kafka_consumer(&topic, &group, Some("pod-1"));
+    let usurper = make_kafka_consumer(&topic, &group, Some("pod-1"), Arc::new(AtomicU64::new(1)));
     let usurper_task = tokio::spawn(async move {
         let mut stream = usurper.stream();
         let _ = tokio::time::timeout(Duration::from_secs(30), stream.next()).await;

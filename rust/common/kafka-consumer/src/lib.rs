@@ -2,10 +2,14 @@
 
 pub mod charge;
 pub mod config;
-pub mod ledger;
+pub mod partition_offset_ledger;
+pub mod topic_offset_ledger;
 pub mod types;
 
 pub use charge::Charge;
 pub use config::ConsumerConfigBuilder;
-pub use ledger::{OffsetLedger, TakenFrontier};
+pub use partition_offset_ledger::{PartitionOffsetLedger, TakenFrontier};
+pub use topic_offset_ledger::{
+    EpochOffsets, Settlement, StaleReason, TopicOffsetLedger, TopicPartition,
+};
 pub use types::Offset;

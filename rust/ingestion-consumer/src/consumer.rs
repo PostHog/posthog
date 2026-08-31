@@ -18,10 +18,14 @@ use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionO
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::{Dispatcher, EagerFlush, KeyOffset, SubBatch};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
+use crate::ledger_shadow::{count_stale_slice, set_depth_gauge, settle_ledger};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::transport::SendError;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
+use common_kafka_consumer::{
+    Charge, EpochOffsets, Offset as LedgerOffset, TopicOffsetLedger, TopicPartition,
+};
 
 /// Statistics gathered while collecting a batch, used to emit parity metrics.
 struct BatchStats {
@@ -50,11 +54,13 @@ impl BatchStats {
 struct CollectedBatch {
     messages: Vec<SerializedKafkaMessage>,
     offsets: HashMap<(String, i32), OffsetSpan>,
+    ledger_offsets: HashMap<TopicPartition, EpochOffsets>,
     stats: BatchStats,
 }
 
 struct ProcessedBatch {
     offsets: HashMap<(String, i32), OffsetSpan>,
+    ledger_offsets: HashMap<TopicPartition, EpochOffsets>,
     stats: BatchStats,
     /// Messages accepted so far. Deferred groups (keys whose worker was
     /// draining/dead) are flushed in `complete_oldest_batch`, which adds to this.
@@ -124,6 +130,7 @@ pub struct IngestionConsumer {
     debug_recorder: Option<Arc<DebugRecorder>>,
     /// Whether to enable eager deferred flushing on the dispatcher.
     eager_deferred_flush: bool,
+    topic_offset_ledger: Arc<TopicOffsetLedger>,
 }
 
 impl IngestionConsumer {
@@ -140,6 +147,10 @@ impl IngestionConsumer {
         // Share the context's commit sentinel so rebalance callbacks reset the
         // same baselines the commit path checks against.
         let commit_sentinel = consumer.context().commit_sentinel();
+        let topic_offset_ledger = Arc::new(TopicOffsetLedger::new(transport.assignment_epoch()));
+        consumer
+            .context()
+            .set_topic_offset_ledger(Arc::clone(&topic_offset_ledger));
         Self {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
@@ -155,6 +166,7 @@ impl IngestionConsumer {
             handle,
             group_id: options.group_id,
             eager_deferred_flush: options.eager_deferred_flush,
+            topic_offset_ledger,
         }
     }
 
@@ -185,10 +197,12 @@ impl IngestionConsumer {
             config.consumer_batch_size_kb,
         );
         let commit_sentinel = Arc::new(CommitSentinel::new());
+        let topic_offset_ledger = Arc::new(TopicOffsetLedger::new(transport.assignment_epoch()));
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = dispatcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let mut context = SentinelContext::new(Arc::clone(&commit_sentinel), key_sentinel);
+        context.set_topic_offset_ledger(Arc::clone(&topic_offset_ledger));
         context.set_assignment_epoch(transport.assignment_epoch());
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;
@@ -220,6 +234,7 @@ impl IngestionConsumer {
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
             eager_deferred_flush: config.dispatcher_eager_deferred_flush,
+            topic_offset_ledger,
         })
     }
 
@@ -412,7 +427,7 @@ impl IngestionConsumer {
         // Commit only the oldest completed batch. Later successful batches stay
         // uncommitted behind any earlier failed batch, preserving at-least-once
         // delivery across worker or pipeline failures.
-        self.commit_offsets(&processed.offsets)?;
+        self.commit_offsets(&processed.offsets, &processed.ledger_offsets)?;
         self.dispatcher.release_batch(&batch_id);
         emit_latest_processed_timestamp_metrics(&processed.stats, &self.group_id);
         record_if(&self.debug_recorder, || DebugEventKind::BatchCommitted {
@@ -718,6 +733,7 @@ impl IngestionConsumer {
 
         Ok(ProcessedBatch {
             offsets: collected.offsets,
+            ledger_offsets: collected.ledger_offsets,
             stats: collected.stats,
             total_accepted,
             batch_size: batch_size as u32,
@@ -820,6 +836,8 @@ impl IngestionConsumer {
     async fn collect_batch(&self) -> anyhow::Result<CollectedBatch> {
         let mut messages = Vec::with_capacity(self.batch_size);
         let mut offsets: HashMap<(String, i32), OffsetSpan> = HashMap::new();
+        let mut ledger_charges: HashMap<TopicPartition, (u64, Vec<(LedgerOffset, Charge)>)> =
+            HashMap::new();
         let mut stats = BatchStats::new();
         let deadline = Instant::now() + self.batch_timeout;
         let batch_start_ms = current_time_ms();
@@ -879,6 +897,16 @@ impl IngestionConsumer {
                         }
                     }
 
+                    // Stamped once at the slice's first delivery; the
+                    // observer decides staleness per partition, so a slice
+                    // spanning an unrelated epoch bump keeps charging.
+                    let slice = ledger_charges
+                        .entry((topic.clone(), partition))
+                        .or_insert_with(|| (self.topic_offset_ledger.epoch(), Vec::new()));
+                    slice
+                        .1
+                        .push((LedgerOffset(offset), message_charge(&borrowed_message)));
+
                     if let Some(capture_ms) = headers.get("now").and_then(|v| parse_now_ms(v)) {
                         let lag_ms = (batch_start_ms - capture_ms).max(0);
                         stats
@@ -934,16 +962,42 @@ impl IngestionConsumer {
             }
         }
 
+        // One ledger call per partition keeps the lock, the entry key,
+        // and the gauge labels off the per-message path.
+        for (topic_partition, (epoch, charges)) in &ledger_charges {
+            match self.topic_offset_ledger.charge(
+                &topic_partition.0,
+                topic_partition.1,
+                *epoch,
+                charges.iter().copied(),
+            ) {
+                Ok(depth) => set_depth_gauge(&topic_partition.0, topic_partition.1, depth),
+                Err(reason) => count_stale_slice("charge", reason),
+            }
+        }
+        let ledger_offsets = ledger_charges
+            .into_iter()
+            .map(|(topic_partition, (epoch, charges))| {
+                let offsets = charges.into_iter().map(|(offset, _)| offset).collect();
+                (topic_partition, EpochOffsets { epoch, offsets })
+            })
+            .collect();
+
         Ok(CollectedBatch {
             messages,
             offsets,
+            ledger_offsets,
             stats,
         })
     }
 
     /// Commit the max offset for each topic-partition.
-    fn commit_offsets(&self, offsets: &HashMap<(String, i32), OffsetSpan>) -> anyhow::Result<()> {
-        if offsets.is_empty() {
+    fn commit_offsets(
+        &self,
+        offset_spans: &HashMap<(String, i32), OffsetSpan>,
+        ledger_offsets: &HashMap<TopicPartition, EpochOffsets>,
+    ) -> anyhow::Result<()> {
+        if offset_spans.is_empty() {
             // Unreachable while batches require messages to be spawned; counted
             // so "no empty commits" is a measurable guarantee, not an assumption.
             counter!("ingestion_consumer_commit_violations_total", "kind" => "empty").increment(1);
@@ -953,18 +1007,33 @@ impl IngestionConsumer {
 
         // Validate contiguity/monotonicity per partition before committing, so
         // a violation is attributed to the batch that caused it.
-        self.commit_sentinel.check_commit(offsets);
+        self.commit_sentinel.check_commit(offset_spans);
 
         let mut tpl = TopicPartitionList::new();
-        for ((topic, partition), span) in offsets {
+        for ((topic, partition), span) in offset_spans {
             // Commit offset + 1 (Kafka convention: committed offset = next to read)
             tpl.add_partition_offset(topic, *partition, rdkafka::Offset::Offset(span.last + 1))?;
         }
 
         self.consumer.commit(&tpl, CommitMode::Async)?;
+        for (topic_partition, _) in
+            settle_ledger(&self.topic_offset_ledger, ledger_offsets, offset_spans)
+        {
+            self.drain_frontier(topic_partition);
+        }
         counter!("ingestion_consumer_offset_commits_total").increment(1);
 
         Ok(())
+    }
+
+    /// Drain a settled partition's frontier and refresh its depth gauge.
+    fn drain_frontier(&self, topic_partition: &TopicPartition) {
+        self.topic_offset_ledger.take_frontier(topic_partition);
+        set_depth_gauge(
+            &topic_partition.0,
+            topic_partition.1,
+            self.topic_offset_ledger.depth(topic_partition),
+        );
     }
 }
 
@@ -1055,6 +1124,26 @@ async fn run_commit_monitor(
     }
 }
 
+/// One delivered message's cost against the ledger: one event, and the bytes
+/// the process holds for the message. The byte count is a memory bound, so it
+/// is the payload plus the key plus every header key and value, not only the
+/// payload.
+fn message_charge(message: &impl Message) -> Charge {
+    let payload_bytes = message.payload().map(|v| v.len()).unwrap_or(0);
+    let key_bytes = message.key().map(|k| k.len()).unwrap_or(0);
+    let mut header_bytes = 0;
+    if let Some(headers) = message.headers() {
+        for i in 0..headers.count() {
+            let header = headers.get(i);
+            header_bytes += header.key.len() + header.value.map(|v| v.len()).unwrap_or(0);
+        }
+    }
+    Charge {
+        events: 1,
+        bytes: (payload_bytes + key_bytes + header_bytes) as u64,
+    }
+}
+
 fn make_batch_id() -> String {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1090,5 +1179,55 @@ fn emit_latest_processed_timestamp_metrics(stats: &BatchStats, group_id: &str) {
             "groupId" => group_id.to_string()
         )
         .set(*ts_ms as f64);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rdkafka::message::{Header, OwnedHeaders, OwnedMessage};
+    use rdkafka::Timestamp;
+
+    #[test]
+    fn message_charge_counts_payload_key_and_headers() {
+        let headers = OwnedHeaders::new()
+            .insert(Header {
+                key: "ab",
+                value: Some("xyz".as_bytes()),
+            })
+            .insert(Header {
+                key: "c",
+                value: None::<&[u8]>,
+            });
+        let message = OwnedMessage::new(
+            Some(vec![0; 10]),
+            Some(vec![0; 3]),
+            "events".to_string(),
+            Timestamp::NotAvailable,
+            0,
+            0,
+            Some(headers),
+        );
+
+        let charge = message_charge(&message);
+        assert_eq!(charge.events, 1);
+        assert_eq!(charge.bytes, 10 + 3 + (2 + 3) + 1);
+    }
+
+    #[test]
+    fn message_charge_of_an_empty_message_is_one_event() {
+        let message = OwnedMessage::new(
+            None,
+            None,
+            "events".to_string(),
+            Timestamp::NotAvailable,
+            0,
+            0,
+            None,
+        );
+
+        let charge = message_charge(&message);
+        assert_eq!(charge.events, 1);
+        assert_eq!(charge.bytes, 0);
     }
 }
