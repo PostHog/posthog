@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isTransientServerError } from 'lib/api-error'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 
@@ -64,8 +65,15 @@ export const variableDataLogic = kea<variableDataLogicType>([
                     try {
                         const insights = await api.insightVariables.list()
                         return insights.results
-                    } catch {
-                        return values.variables
+                    } catch (error) {
+                        // A transient gateway blip (502/503/504) usually clears on retry and carries no
+                        // actionable detail, so degrade to the current list rather than surfacing it. A
+                        // real defect (a 500, a network error, bad data) still fails the load and reaches
+                        // error tracking.
+                        if (isTransientServerError(error)) {
+                            return values.variables
+                        }
+                        throw error
                     }
                 },
                 deleteVariable: async (variableId: string) => {
