@@ -13,7 +13,7 @@ import { SlackChannelType, UserBasicType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
-import { serializeToMarkdown } from '../../components/Editor'
+import { serializeToPlainText } from '../../components/Editor'
 import { TicketChannel } from '../../types'
 
 const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
@@ -1240,7 +1240,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     widget_greeting_rich_content: richContent,
-                    widget_greeting_text: serializeToMarkdown(richContent),
+                    widget_greeting_text: serializeToPlainText(richContent),
                 },
             })
         },

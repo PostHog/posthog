@@ -467,6 +467,48 @@ function serializeListNode(node: JSONContent, ordered: boolean, indent: string):
     return lines.join('\n')
 }
 
+/**
+ * Serialize tiptap JSON to plain text for the widget's fallback greeting field.
+ *
+ * A widget that predates the rich-content key renders this field verbatim and has no markdown
+ * parser, so the text must carry no markdown syntax or backslash escapes. Formatting marks are
+ * dropped. A link keeps its visible label, and when the destination differs from the label the URL
+ * follows in parentheses so the destination stays reachable as readable text.
+ */
+export function serializeToPlainText(content: JSONContent): string {
+    return serializePlainTextNode(content)
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+}
+
+function serializePlainTextNode(node: JSONContent): string {
+    if (!node) {
+        return ''
+    }
+
+    if (node.type === 'text') {
+        const text = node.text || ''
+        const href = (node.marks || []).find((m) => m.type === 'link')?.attrs?.href
+        return href && href !== text ? `${text} (${href})` : text
+    }
+
+    switch (node.type) {
+        case 'paragraph':
+        case 'codeBlock':
+            return (node.content || []).map(serializePlainTextNode).join('') + '\n\n'
+        case 'listItem':
+            return (node.content || []).map(serializePlainTextNode).join('').trim() + '\n'
+        case 'hardBreak':
+            return '\n'
+        case 'image':
+            return node.attrs?.alt ? String(node.attrs.alt) : ''
+        case RichContentNodeType.Mention:
+            return `@member:${node.attrs?.id}`
+        default:
+            return (node.content || []).map(serializePlainTextNode).join('')
+    }
+}
+
 export function SupportEditor({
     initialContent,
     placeholder,

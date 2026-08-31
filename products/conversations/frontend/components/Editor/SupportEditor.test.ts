@@ -1,7 +1,7 @@
 import { JSONContent, getSchema } from '@tiptap/core'
 import { Node as ProseMirrorNode } from '@tiptap/pm/model'
 
-import { SUPPORT_PREVIEW_EXTENSIONS, serializeToMarkdown } from './SupportEditor'
+import { SUPPORT_PREVIEW_EXTENSIONS, serializeToMarkdown, serializeToPlainText } from './SupportEditor'
 
 // jest.setup.ts stubs this module out, which would make schema construction meaningless here
 jest.unmock('@tiptap/extension-code-block-lowlight')
@@ -66,6 +66,52 @@ describe('SupportEditor serialization and preview schema', () => {
         ],
     ])('serializeToMarkdown handles %s', (_name, doc, expected) => {
         expect(serializeToMarkdown(doc)).toBe(expected)
+    })
+
+    // The widget greeting keeps a plain-text fallback for widgets that predate the rich-content key.
+    // That field must stay free of markdown escapes and link syntax, or the widget shows them literally.
+    const link = (text: string, href: string): JSONContent => ({
+        type: 'text',
+        text,
+        marks: [{ type: 'link', attrs: { href } }],
+    })
+    test.each<[string, JSONContent, string]>([
+        [
+            'punctuation without markdown escapes',
+            { type: 'doc', content: [paragraph('Hi there! We can help.')] },
+            'Hi there! We can help.',
+        ],
+        [
+            'a link as label plus destination',
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [{ type: 'text', text: 'Check our ' }, link('FAQ', 'https://example.com/faq')],
+                    },
+                ],
+            },
+            'Check our FAQ (https://example.com/faq)',
+        ],
+        [
+            'a bare url link without duplication',
+            {
+                type: 'doc',
+                content: [{ type: 'paragraph', content: [link('https://example.com/faq', 'https://example.com/faq')] }],
+            },
+            'https://example.com/faq',
+        ],
+        [
+            'formatting marks dropped',
+            {
+                type: 'doc',
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'bold', marks: [{ type: 'bold' }] }] }],
+            },
+            'bold',
+        ],
+    ])('serializeToPlainText renders %s', (_name, doc, expected) => {
+        expect(serializeToPlainText(doc)).toBe(expected)
     })
 
     it('preview schema accepts docs authored with the full HogDesk node set', () => {
