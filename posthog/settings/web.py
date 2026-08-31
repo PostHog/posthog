@@ -688,6 +688,7 @@ SPECTACULAR_SETTINGS = {
         "ProductBriefTriggerEnum": "products.pulse.backend.models.ProductBrief.Trigger",
         "ProductBriefStatusEnum": "products.pulse.backend.models.ProductBrief.Status",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
+        "AutoresearchPipelineStatusEnum": "products.autoresearch.backend.models.AutoresearchPipeline.Status",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # Pin the subscriptions target enum to its existing name so adding customer_analytics'
