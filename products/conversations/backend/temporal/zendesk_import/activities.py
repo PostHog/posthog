@@ -199,6 +199,52 @@ def _process_attachments(
     return build_content_with_images(content, rich_content, images)
 
 
+@frozen
+class _TicketPartition:
+    """The requested ticket ids split into ones to import and ones a previous run already imported."""
+
+    existing_ids: set[int]
+    to_import: list[int]
+    skipped: int
+
+
+@frozen
+class _ZendeskThread:
+    """One raw Zendesk ticket payload with the comment payloads fetched for it."""
+
+    ticket: dict[str, Any]
+    comments: list[dict[str, Any]]
+
+
+@frozen
+class _FetchedThreads:
+    """Phase 1 outcome: the threads fetched, every comment author seen across them, and the fetch failures."""
+
+    threads: list[_ZendeskThread]
+    comment_author_ids: set[int]
+    failed: int
+
+
+@frozen
+class _CommentAuthor:
+    name: str
+    email: str
+
+
+@frozen(eq=False)
+class _BuiltComment:
+    comment: Comment
+    author_type: str
+    is_private: bool
+
+
+@frozen(eq=False)
+class _BuiltComments:
+    comments: list[Comment]
+    customer_message_count: int
+    agent_reply_count: int
+
+
 @frozen(eq=False)
 class _BuiltTicket:
     """One ticket built in Phase 2, ready for the Phase 3 transaction.
@@ -231,7 +277,7 @@ def _resolve_email_channels(
     return by_addr, default_channel
 
 
-def _partition_new_tickets(team_id: int, ticket_ids: list[int]) -> tuple[set[int], list[int], int]:
+def _partition_new_tickets(team_id: int, ticket_ids: list[int]) -> _TicketPartition:
     existing_ids = {
         tid
         for tid in Ticket.objects.filter(team_id=team_id)
@@ -240,8 +286,7 @@ def _partition_new_tickets(team_id: int, ticket_ids: list[int]) -> tuple[set[int
         if tid is not None
     }
     to_import = [tid for tid in ticket_ids if tid not in existing_ids]
-    skipped = len(ticket_ids) - len(to_import)
-    return existing_ids, to_import, skipped
+    return _TicketPartition(existing_ids=existing_ids, to_import=to_import, skipped=len(ticket_ids) - len(to_import))
 
 
 def _backfill_missing_email_channel(team_id: int, existing_ids: set[int], default_email_channel: EmailChannel) -> None:
@@ -267,9 +312,9 @@ def _fetch_tickets_and_users(client: ZendeskImportClient, to_import: list[int]) 
 
 def _fetch_ticket_comments(
     client: ZendeskImportClient, zendesk_tickets: list[dict[str, Any]], team: Team
-) -> tuple[list[tuple[dict[str, Any], list[dict[str, Any]]]], set[int], int]:
+) -> _FetchedThreads:
     """Phase 1: fetch each ticket's comments OUTSIDE the transaction (network I/O)."""
-    ticket_data: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+    threads: list[_ZendeskThread] = []
     comment_author_ids: set[int] = set()
     failed = 0
     for zendesk_ticket in zendesk_tickets:
@@ -280,7 +325,7 @@ def _fetch_ticket_comments(
                 author_id = zd_comment.get("author_id")
                 if author_id is not None:
                     comment_author_ids.add(int(author_id))
-            ticket_data.append((zendesk_ticket, comments))
+            threads.append(_ZendeskThread(ticket=zendesk_ticket, comments=comments))
         except Exception as exc:
             failed += 1
             logger.exception(
@@ -289,7 +334,7 @@ def _fetch_ticket_comments(
                 zendesk_ticket_id=zendesk_id,
                 error=str(exc),
             )
-    return ticket_data, comment_author_ids, failed
+    return _FetchedThreads(threads=threads, comment_author_ids=comment_author_ids, failed=failed)
 
 
 def _resolve_missing_authors(client: ZendeskImportClient, comment_author_ids: set[int], users_by_id: dict) -> None:
@@ -314,7 +359,7 @@ def _customer_side_ids(zendesk_ticket: dict[str, Any]) -> set[int]:
     return ids
 
 
-def _resolve_comment_author(zd_comment: dict[str, Any], author: dict, author_type: str) -> tuple[str, str]:
+def _resolve_comment_author(zd_comment: dict[str, Any], author: dict, author_type: str) -> _CommentAuthor:
     author_name = _strip_nul((author.get("name") or "").strip())
     author_email = _strip_nul((author.get("email") or "").strip())
     # A staff author whose Zendesk user no longer resolves (deleted ex-agent) has no name/email —
@@ -324,7 +369,7 @@ def _resolve_comment_author(zd_comment: dict[str, Any], author: dict, author_typ
         via_from = ((zd_comment.get("via") or {}).get("source") or {}).get("from") or {}
         author_name = _strip_nul((via_from.get("name") or "").strip())
         author_email = _strip_nul((via_from.get("address") or "").strip())
-    return author_name, author_email
+    return _CommentAuthor(name=author_name, email=author_email)
 
 
 def _build_comment(
@@ -333,11 +378,8 @@ def _build_comment(
     zd_comment: dict[str, Any],
     users_by_id: dict,
     customer_side_ids: set[int],
-) -> tuple[Comment | None, str, bool]:
-    """Build one Comment. Returns (comment | None, author_type, is_private).
-
-    A comment with no body and no rich content is dropped (comment is None).
-    """
+) -> _BuiltComment | None:
+    """Build one Comment. A comment with no body and no rich content is dropped (returns None)."""
     author_id = zd_comment.get("author_id")
     author = users_by_id.get(int(author_id), {}) if author_id is not None else {}
 
@@ -350,22 +392,22 @@ def _build_comment(
     rich_content: dict[str, Any] | None = None
     body, rich_content = _process_attachments(client, team, zd_comment, body, rich_content)
     if not body and not rich_content:
-        return None, author_type, is_private
+        return None
 
     # Persist each comment's own author identity so the thread shows the actual commenter (a
     # second requester, an agent, etc.) instead of every message inheriting the ticket-level
     # requester from anonymous_traits.
-    author_name, author_email = _resolve_comment_author(zd_comment, author, author_type)
+    comment_author = _resolve_comment_author(zd_comment, author, author_type)
     item_context: dict[str, Any] = {
         "author_type": author_type,
         "is_private": is_private,
         "from_zendesk": True,
         "zendesk_comment_id": zd_comment.get("id"),
     }
-    if author_name:
-        item_context["author_name"] = author_name
-    if author_email:
-        item_context["author_email"] = author_email
+    if comment_author.name:
+        item_context["author_name"] = comment_author.name
+    if comment_author.email:
+        item_context["author_email"] = comment_author.email
 
     comment_obj = Comment(
         team=team,
@@ -378,7 +420,7 @@ def _build_comment(
     # auto_now_add clobbers created_at during bulk_create, so stash the
     # historical value on a shadow attr and re-apply it via bulk_update.
     comment_obj._zendesk_created_at = _parse_zendesk_datetime(zd_comment.get("created_at"))  # type: ignore[attr-defined]
-    return comment_obj, author_type, is_private
+    return _BuiltComment(comment=comment_obj, author_type=author_type, is_private=is_private)
 
 
 def _build_comments(
@@ -387,37 +429,39 @@ def _build_comments(
     comments: list[dict[str, Any]],
     users_by_id: dict,
     customer_side_ids: set[int],
-) -> tuple[list[Comment], int, int]:
+) -> _BuiltComments:
     """Build a ticket's comments and count its public customer/agent messages."""
     built: list[Comment] = []
     customer_message_count = 0
     agent_reply_count = 0
     for zd_comment in comments:
-        comment_obj, author_type, is_private = _build_comment(client, team, zd_comment, users_by_id, customer_side_ids)
-        if comment_obj is None:
+        built_comment = _build_comment(client, team, zd_comment, users_by_id, customer_side_ids)
+        if built_comment is None:
             continue
         # Mirror signals.update_ticket_on_message: private/internal notes are dropped from every
         # denormalized widget stat (message_count, last_message_*, unread counts). Counting them
         # would leak note text into last_message_text and inflate the customer's unread badge.
-        if is_private:
+        if built_comment.is_private:
             pass
-        elif author_type == "customer":
+        elif built_comment.author_type == "customer":
             customer_message_count += 1
         else:
             agent_reply_count += 1
-        built.append(comment_obj)
-    return built, customer_message_count, agent_reply_count
+        built.append(built_comment.comment)
+    return _BuiltComments(
+        comments=built, customer_message_count=customer_message_count, agent_reply_count=agent_reply_count
+    )
 
 
 def _build_ticket(
     client: ZendeskImportClient,
     team: Team,
-    zendesk_ticket: dict[str, Any],
-    comments: list[dict[str, Any]],
+    thread: _ZendeskThread,
     users_by_id: dict,
     email_channels_by_addr: dict[str, EmailChannel],
     default_email_channel: EmailChannel | None,
 ) -> _BuiltTicket:
+    zendesk_ticket = thread.ticket
     zendesk_id = int(zendesk_ticket["id"])
     requester = users_by_id.get(int(zendesk_ticket.get("requester_id") or 0), {})
     requester_email = _strip_nul(
@@ -466,15 +510,13 @@ def _build_ticket(
     zendesk_tags = {tagify(_strip_nul(str(t)))[:255] for t in (zendesk_ticket.get("tags") or [])}
     tag_names = sorted(t for t in zendesk_tags if t)
 
-    comments_to_create, customer_message_count, agent_reply_count = _build_comments(
-        client, team, comments, users_by_id, _customer_side_ids(zendesk_ticket)
-    )
+    built_comments = _build_comments(client, team, thread.comments, users_by_id, _customer_side_ids(zendesk_ticket))
     return _BuiltTicket(
         ticket=ticket,
-        comments=comments_to_create,
+        comments=built_comments.comments,
         tag_names=tag_names,
-        customer_message_count=customer_message_count,
-        agent_reply_count=agent_reply_count,
+        customer_message_count=built_comments.customer_message_count,
+        agent_reply_count=built_comments.agent_reply_count,
         created_at=_parse_zendesk_datetime(zendesk_ticket.get("created_at")),
         updated_at=_parse_zendesk_datetime(zendesk_ticket.get("updated_at")),
     )
@@ -483,7 +525,7 @@ def _build_ticket(
 def _build_tickets(
     client: ZendeskImportClient,
     team: Team,
-    ticket_data: list[tuple[dict[str, Any], list[dict[str, Any]]]],
+    threads: list[_ZendeskThread],
     users_by_id: dict,
     email_channels_by_addr: dict[str, EmailChannel],
     default_email_channel: EmailChannel | None,
@@ -491,19 +533,17 @@ def _build_tickets(
     """Phase 2: build each ticket + its comments (attachments involve network I/O, so outside atomic)."""
     built: list[_BuiltTicket] = []
     failed = 0
-    for zendesk_ticket, comments in ticket_data:
+    for thread in threads:
         try:
             built.append(
-                _build_ticket(
-                    client, team, zendesk_ticket, comments, users_by_id, email_channels_by_addr, default_email_channel
-                )
+                _build_ticket(client, team, thread, users_by_id, email_channels_by_addr, default_email_channel)
             )
         except Exception as exc:
             failed += 1
             logger.exception(
                 "zendesk_import_ticket_failed",
                 team_id=team.id,
-                zendesk_ticket_id=int(zendesk_ticket["id"]),
+                zendesk_ticket_id=int(thread.ticket["id"]),
                 error=str(exc),
             )
     return built, failed
@@ -613,28 +653,31 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     client = ZendeskImportClient(_credentials_from_job(job))
     email_channels_by_addr, default_email_channel = _resolve_email_channels(team.id, input.default_email_channel_id)
 
-    existing_ids, to_import, skipped = _partition_new_tickets(input.team_id, input.ticket_ids)
+    partition = _partition_new_tickets(input.team_id, input.ticket_ids)
+    skipped = partition.skipped
 
-    if existing_ids and default_email_channel is not None and not input.dry_run:
-        _backfill_missing_email_channel(input.team_id, existing_ids, default_email_channel)
+    if partition.existing_ids and default_email_channel is not None and not input.dry_run:
+        _backfill_missing_email_channel(input.team_id, partition.existing_ids, default_email_channel)
 
-    if not to_import:
+    if not partition.to_import:
         return ImportBatchOutput(imported=0, skipped=skipped, failed=0)
 
+    would_import = len(partition.to_import)
     if input.dry_run:
-        logger.info("zendesk_import_dry_run_batch", team_id=team.id, would_import=len(to_import), skipped=skipped)
-        return ImportBatchOutput(imported=len(to_import), skipped=skipped, failed=0)
+        logger.info("zendesk_import_dry_run_batch", team_id=team.id, would_import=would_import, skipped=skipped)
+        return ImportBatchOutput(imported=would_import, skipped=skipped, failed=0)
 
-    zendesk_tickets, users_by_id = _fetch_tickets_and_users(client, to_import)
+    zendesk_tickets, users_by_id = _fetch_tickets_and_users(client, partition.to_import)
 
-    ticket_data, comment_author_ids, failed = _fetch_ticket_comments(client, zendesk_tickets, team)
-    if not ticket_data:
+    fetched = _fetch_ticket_comments(client, zendesk_tickets, team)
+    failed = fetched.failed
+    if not fetched.threads:
         return ImportBatchOutput(imported=0, skipped=skipped, failed=failed)
 
-    _resolve_missing_authors(client, comment_author_ids, users_by_id)
+    _resolve_missing_authors(client, fetched.comment_author_ids, users_by_id)
 
     built, build_failed = _build_tickets(
-        client, team, ticket_data, users_by_id, email_channels_by_addr, default_email_channel
+        client, team, fetched.threads, users_by_id, email_channels_by_addr, default_email_channel
     )
     failed += build_failed
     if not built:
