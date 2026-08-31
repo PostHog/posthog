@@ -49,8 +49,10 @@ BAKE_SANDBOX_MEMORY_GB = 32.0
 # costs only the snapshot, whereas failing the activity re-runs the whole 15-25 minute bake.
 PUBLISH_SNAPSHOT_MAX_ATTEMPTS = 3
 
-# Tail of bake output retained for error reporting.
-MAX_BAKE_LOG_CHARS = 20_000
+# Tail of bake output retained for the error message. Kept well under the ~10,000-char
+# error-tracking property limit so the failing step at the very end of the tail survives
+# ingestion instead of being truncated away.
+MAX_BAKE_LOG_CHARS = 8_000
 
 # VM base image reference the last successful bake layered on, so the refresh sweep can
 # tell whether the published image is stale (mirrors SandboxCustomImage.base_image_reference).
