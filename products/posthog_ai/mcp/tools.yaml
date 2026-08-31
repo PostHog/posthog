@@ -30,7 +30,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '?chat={id}'
+        enrich_url: ?chat={id}
         list: true
         title: List PostHog AI chat threads
         description: >
