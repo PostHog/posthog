@@ -72,13 +72,6 @@ export const CLIENT_NAMES = new Set(["posthog", "client", "ph"]);
 
 // ── All flag methods across languages (for stale flag scanning) ──
 
-export const ALL_FLAG_METHODS = new Set([
-  ...JS_FLAG_METHODS,
-  ...PY_FLAG_METHODS,
-  ...GO_FLAG_METHODS,
-  ...RB_FLAG_METHODS,
-]);
-
 // ── Tree-sitter queries ──
 
 const JS_QUERIES: QueryStrings = {

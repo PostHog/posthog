@@ -3,7 +3,7 @@ import type { PostHogEnricher } from "./enricher.js";
 import { EXT_TO_LANG_ID } from "./languages.js";
 import type { LocalWrapper, ParseContext } from "./types.js";
 
-export interface EnrichSourceApiConfig {
+interface EnrichSourceApiConfig {
   apiKey: string;
   host: string;
   projectId: number;
