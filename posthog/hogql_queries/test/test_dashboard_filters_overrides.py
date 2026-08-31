@@ -4,13 +4,13 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import DashboardFilter, DataWarehouseNode, EventsNode, EventsQuery, IntervalType, TrendsQuery
+from posthog.schema import DashboardFilter, DataWarehouseNode, EventsNode, IntervalType, TracesQuery, TrendsQuery
 
+from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     resolve_effective_dashboard_filters,
 )
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
@@ -27,11 +27,12 @@ INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
     ),
 ]
 
-# Runners whose query model has no `interval` field.
+# Runners whose query model has no `interval` field. Traces is the only core-owned query that
+# takes dashboard filters without one, so it holds this slot on behalf of the shape.
 NON_INTERVAL_QUERY_RUNNERS: list[tuple[str, Callable[[Team], QueryRunner]]] = [
     (
-        "events",
-        lambda team: EventsQueryRunner(query=EventsQuery(select=["*"]), team=team),
+        "traces",
+        lambda team: TracesQueryRunner(query=TracesQuery(), team=team),
     ),
 ]
 

@@ -1489,6 +1489,8 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         mock_process_query_model.return_value = {"results": [], "is_cached": False}
 
         url = f"/api/environments/{self.team.id}/query/"
+        # `_mark_explicit_date_boundaries` reads `dateRange` off any query, so the kind is incidental.
+        # It only has to be one core owns, or this test drags a product's runners back into core's inputs.
         payload = {
             "query": {
                 "kind": "TracesQuery",
