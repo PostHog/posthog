@@ -37,21 +37,29 @@ export function CollapsibleFrameContent({
                     {hasCodeVariables ? <FrameVariables variables={code_variables!} /> : <CodeVariablesInlineBanner />}
                 </div>
             ) : (
-                <FrameContextEmptyState frame={frame} loading={recordLoading} />
+                <FrameContextEmptyState frame={frame} loading={recordLoading} hasRecord={record !== undefined} />
             )}
         </Collapsible.Panel>
     )
 }
 
-function FrameContextEmptyState({ frame, loading }: { frame: ErrorTrackingStackFrame; loading: boolean }): JSX.Element {
+function FrameContextEmptyState({
+    frame,
+    loading,
+    hasRecord,
+}: {
+    frame: ErrorTrackingStackFrame
+    loading: boolean
+    hasRecord: boolean
+}): JSX.Element {
     return (
         <div className="bg-fill-expanded px-3 py-2 text-xs text-muted-foreground">
-            {getEmptyStateMessage(frame, loading)}
+            {getEmptyStateMessage(frame, loading, hasRecord)}
         </div>
     )
 }
 
-function getEmptyStateMessage(frame: ErrorTrackingStackFrame, loading: boolean): ReactNode {
+function getEmptyStateMessage(frame: ErrorTrackingStackFrame, loading: boolean, hasRecord: boolean): ReactNode {
     if (loading) {
         return 'Loading source code...'
     }
@@ -78,9 +86,12 @@ function getEmptyStateMessage(frame: ErrorTrackingStackFrame, loading: boolean):
             </>
         )
     }
-    // Source maps only apply to JavaScript and TypeScript. Other runtimes send source code in the
-    // event payload, so a missing source map is never the reason their frames have none.
-    if (usesSourceMaps(frame)) {
+    // Naming the source map as the cause is only truthful once a record loaded and confirmed the
+    // frame has no source. Without a record the batch request may have failed or never ran, so fall
+    // back to the neutral statement the frame header uses instead of sending the user to re-upload
+    // source maps that were never missing. Source maps also only apply to JavaScript and TypeScript;
+    // other runtimes send source code in the event payload.
+    if (hasRecord && usesSourceMaps(frame)) {
         return (
             <>
                 This frame is resolved, but its source code is not available. This usually means the source map was not

@@ -36,14 +36,20 @@ const noContextRecord: ErrorTrackingStackFrameRecord = {
     release: null,
 }
 
-function renderFrame(frame: ErrorTrackingStackFrame, initialExpanded = false): void {
+function renderFrame(
+    frame: ErrorTrackingStackFrame,
+    initialExpanded = false,
+    // Object default so an explicit { record: undefined } models a record that never loaded; a
+    // positional default would swallow the undefined and substitute noContextRecord.
+    { record }: { record?: ErrorTrackingStackFrameRecord } = { record: noContextRecord }
+): void {
     function Harness(): JSX.Element {
         const [expanded, setExpanded] = useState(initialExpanded)
         return (
             <BindLogic logic={errorPropertiesLogic} props={{ properties: {}, id: 'test' }}>
                 <CollapsibleFrame
                     frame={frame}
-                    record={noContextRecord}
+                    record={record}
                     recordLoading={false}
                     expanded={expanded}
                     onExpandedChange={setExpanded}
@@ -105,5 +111,12 @@ describe('CollapsibleFrame', () => {
 
         expect(screen.getByText(/nothing to identify it with/i)).toBeInTheDocument()
         expect(screen.queryByText(/symbol sets/i)).not.toBeInTheDocument()
+    })
+
+    it('does not blame a source map when the frame record never loaded', () => {
+        renderFrame(baseFrame, true, { record: undefined })
+
+        expect(screen.getByText('This frame is resolved, but its source code is not available.')).toBeInTheDocument()
+        expect(screen.queryByText(/source map/i)).not.toBeInTheDocument()
     })
 })
