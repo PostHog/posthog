@@ -56,16 +56,19 @@ def reverse_accessor_edges() -> list[str]:
                 continue
             if field.model is not model:
                 continue  # a concrete parent's field — only the parent installs the reverse descriptor
-            target = field.related_model
+            # A proxy target installs its reverse descriptor on the concrete model, so the
+            # boundary check must see the concrete model, not the proxy.
+            target = field.related_model._meta.concrete_model
             if not target.__module__.startswith(FIRST_PARTY):
                 continue
             if boundary(model) == boundary(target):
                 continue
-            if field.remote_field.hidden:
-                continue  # related_name="+" — no accessor, nothing to count
-            accessor = field.remote_field.get_accessor_name()
-            if accessor is None:
-                continue
+            rel = field.remote_field
+            if rel.hidden and not rel.related_query_name:
+                continue  # related_name="+" with no explicit query name — fully sealed
+            # An explicit related_query_name keeps filter() traversal alive even under
+            # related_name="+", so the edge stays in the ratchet under a query: marker.
+            accessor = rel.get_accessor_name() or f"query:{field.related_query_name()}"
             out.add(f"{label(target)}.{target.__name__} {label(model)}.{model.__name__}.{field.name} {accessor}")
     return sorted(out)
 
@@ -74,6 +77,9 @@ _SUBPROCESS_BOOTSTRAP = """
 import os
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+# settings.TEST gates the AppConfig.ready() side effects (Redis template sync, Celery
+# enqueues) — a model-graph read must not fire them.
+os.environ.setdefault("TEST", "1")
 import django
 
 django.setup()
