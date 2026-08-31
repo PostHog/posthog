@@ -1252,7 +1252,14 @@ def get_compare_period_dates(
     exclude_incomplete_periods: bool = False,
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
-    new_date_from = date_from - diff
+    try:
+        # The previous period sits one full span before date_from, so a date_from already
+        # near datetime's minimum (e.g. from a huge relative range like "-1500y") pushes it
+        # out of range. Surface a 400 that names the problem, not a bare OverflowError (a 500),
+        # matching the guard in relative_date_parse_with_delta_mapping.
+        new_date_from = date_from - diff
+    except OverflowError:
+        raise serializers.ValidationError("The comparison period for this date range is out of range")
     new_date_to = date_from
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day

@@ -892,6 +892,19 @@ class TestShouldRefresh(TestCase):
             interval="day",
         ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 21, 20, 41, 730028))
 
+    def test_compare_period_out_of_range_raises_validation_error(self) -> None:
+        # The previous period is a second span before date_from. From a huge relative range
+        # (here "-1500y"), subtracting the span again drops before year 1, so this must raise a
+        # 400 rather than the bare OverflowError datetime raises (a 500 on comparison queries).
+        with self.assertRaises(ValidationError):
+            get_compare_period_dates(
+                date_from=datetime(526, 8, 31),
+                date_to=datetime(2026, 8, 31),
+                date_from_delta_mapping={"years": 1500},
+                date_to_delta_mapping=None,
+                interval="day",
+            )
+
 
 class TestUtilities(TestCase):
     def test_base64_decode(self):
