@@ -96,12 +96,14 @@ class Emitter:
     # applied on live DBs resolve swappable deps (AUTH_USER_MODEL, swapped
     # OAuth models) to exactly that sentinel, and check_consistent_history
     # then demands the stub be applied — its squash exemption only fires for
-    # nodes with a non-empty `replaces`. Claim one ancient, empty,
-    # applied-everywhere migration so the exemption applies and
-    # check_replacements stamps the stub. Only swappable-target apps need
-    # this; today that is posthog alone.
+    # nodes with a non-empty `replaces`. Claim the app's ROOT migration so the
+    # exemption applies and check_replacements stamps the stub. The claim MUST
+    # be parentless: a mid-chain claim weaves stub and initial into a
+    # CircularDependencyError, because remove_replaced_nodes re-parents the
+    # claimed node's neighbours onto both replacement nodes. Only
+    # swappable-target apps need this; today that is posthog alone.
     STUB_CLAIMS_BY_APP: dict[str, tuple[tuple[str, str], ...]] = {
-        "posthog": (("posthog", "0034_pg_trgm_and_btree_20200318_1447"),),
+        "posthog": (("posthog", "0001_initial"),),
     }
 
     def __init__(
