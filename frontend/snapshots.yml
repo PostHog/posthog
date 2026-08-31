@@ -7012,6 +7012,14 @@ snapshots:
         hash: v1.k794b7964.2e91d744a4551aaee3420a915bb46220934b937bd1cacc963dc43d2ea4c4a862.fR04GF9ZhD3oJc6BenUt_e7DrqrNJXsMFnXNg2UlVKc
     scenes-app-inbox-scene--triage--light:
         hash: v1.k794b7964.1fcdda8455a45b636d29f42c681696c649b26a1339ba5b5890d166ec5bd98aaf.CejUDitmTV84DoeFjFwwFhrEP62iSRHVYAgYCu77zAM
+    scenes-app-inbox-scoutconfigform--custom-scout--dark:
+        hash: v1.k794b7964.3f82f961eda43afb29c40009add436e8419db3261d262e34a1c0125402721fb3.wSi_3eg-nbA1nskojnaDOvpR7i88wyvXLYP2CbWNyck
+    scenes-app-inbox-scoutconfigform--custom-scout--light:
+        hash: v1.k794b7964.18a4796a6a979b589b7cab2afcf9ad01394d79f93ebc3fc6df399d7bfed952ef.ciTqavHIEyuHkZio1XHhwfSq4LcNQGCCa1UOZ6lavKM
+    scenes-app-inbox-scoutconfigform--custom-scout-owned-by-someone-else--dark:
+        hash: v1.k794b7964.d59b755ef8ef677018b68a53208ddcc03f9e4364b2f582246e106d569d5123a3.Yh7dCxF5YuKjErDJoPiTPC0jcd4fFH-hkYS1x3f-EN4
+    scenes-app-inbox-scoutconfigform--custom-scout-owned-by-someone-else--light:
+        hash: v1.k794b7964.fd9b083df54c297e11ebe16e8a6ec9523e82761b82d9a01a33575fb95a7257cd.CYbGaaztJFeoaZ5KvjiEGZnUzqgqRmsHyi-QG9T_mu0
     scenes-app-inbox-scoutconfigform--disabled--dark:
         hash: v1.k794b7964.9b49aceb501b24b937fb242b5290a20812ba9d1a68f5819b4049220ce40b0074.67rDdrvt6-iadaCjuYvtCjoGbRHVFn6Td5fRII6fgjc
     scenes-app-inbox-scoutconfigform--disabled--light:
