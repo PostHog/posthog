@@ -1,7 +1,7 @@
 import {
   ArrowSquareOutIcon,
-  CopyIcon,
   DotsThreeIcon,
+  LinkIcon,
   ReceiptIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
@@ -126,7 +126,7 @@ export function ReportDetailActions({
       />
       <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
         <DropdownMenuItem onClick={() => copyInboxReportLink(report)}>
-          <CopyIcon size={13} />
+          <LinkIcon size={13} />
           Copy link
         </DropdownMenuItem>
         {refund.canRefund && !isResolved && (
@@ -185,7 +185,7 @@ export function ReportDetailActions({
               />
             }
           >
-            <CopyIcon size={13} />
+            <LinkIcon size={13} />
           </TooltipTrigger>
           <TooltipContent>Copy link</TooltipContent>
         </Tooltip>
