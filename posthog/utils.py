@@ -241,17 +241,19 @@ def relative_date_parse_with_delta_mapping(
 
     match_group_dict = match.groupdict()
 
-    if match_group_dict["kind"] == "w":
-        weekday_index = get_weekday_index(team_week_start_day, timezone_info, now)
-        if match_group_dict["position"] == "Start":
-            parsed_dt -= datetime.timedelta(days=weekday_index)
-        elif match_group_dict["position"] == "End":
-            days_to_add = 6 - weekday_index
-            parsed_dt += datetime.timedelta(days=days_to_add)
-
     try:
-        # Kept inside the guard: get_delta_mapping_for runs int() on the magnitude,
-        # which raises for a numeral longer than CPython's int-string digit limit.
+        # Kept inside the guard alongside the delta application: a wStart/wEnd shift
+        # against a now near year 1 or year 9999 overflows datetime's range too.
+        if match_group_dict["kind"] == "w":
+            weekday_index = get_weekday_index(team_week_start_day, timezone_info, now)
+            if match_group_dict["position"] == "Start":
+                parsed_dt -= datetime.timedelta(days=weekday_index)
+            elif match_group_dict["position"] == "End":
+                days_to_add = 6 - weekday_index
+                parsed_dt += datetime.timedelta(days=days_to_add)
+
+        # get_delta_mapping_for runs int() on the magnitude, which raises for a
+        # numeral longer than CPython's int-string digit limit.
         delta_mapping = get_delta_mapping_for(
             **match_group_dict,
             human_friendly_comparison_periods=human_friendly_comparison_periods,
@@ -261,8 +263,9 @@ def relative_date_parse_with_delta_mapping(
         else:
             parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
     except (ValueError, TypeError, OverflowError):
-        # A magnitude that overflows datetime's range (e.g. "7301y"), or a numeral
-        # too long to convert, becomes a 400 that names the bad input, not a 500.
+        # A magnitude that overflows datetime's range (e.g. "7301y"), a numeral
+        # too long to convert, or a week-boundary shift past datetime's range
+        # becomes a 400 that names the bad input, not a 500.
         # Keep quotes out of the message: on async query paths the frontend parses
         # the ErrorDetail repr, whose delimiter flips to double quotes when the
         # message itself contains a single quote.
