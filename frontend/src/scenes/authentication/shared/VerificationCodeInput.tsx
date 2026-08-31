@@ -40,7 +40,10 @@ export function VerificationCodeInput({
             onValueComplete={(completeValue) => onComplete?.(completeValue)}
             normalizeValue={normalizeVerificationCode}
             disabled={disabled}
-            className={clsx('VerificationCodeInput', status === 'danger' && 'VerificationCodeInput--danger')}
+            className={clsx(
+                'VerificationCodeInput flex w-full justify-center gap-2',
+                status === 'danger' && 'VerificationCodeInput--danger'
+            )}
             data-attr={dataAttr}
         >
             {!id && (
@@ -53,8 +56,14 @@ export function VerificationCodeInput({
             {Array.from({ length: VERIFICATION_CODE_LENGTH }, (_, index) => (
                 <OTPField.Input
                     key={index}
-                    // Slots are excluded from session replay and autocapture like the other auth inputs
-                    className="VerificationCodeInput__slot ph-ignore-input"
+                    // ph-ignore-input excludes the slots from session replay and autocapture like the other auth inputs
+                    className={clsx(
+                        // Border color and its states live in VerificationCodeInput.scss: the .Field--error
+                        // override could not beat Tailwind's !important border utilities from there
+                        'VerificationCodeInput__slot ph-ignore-input h-12 min-w-0 max-w-12 flex-1 rounded border bg-fill-input text-center font-mono text-2xl font-semibold leading-none text-primary caret-accent transition-colors',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-highlight-secondary',
+                        'disabled:cursor-not-allowed disabled:opacity-50'
+                    )}
                     autoFocus={index === 0}
                     aria-label={index > 0 ? `Verification code, digit ${index + 1}` : undefined}
                 />

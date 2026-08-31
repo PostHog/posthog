@@ -114,6 +114,9 @@ function VerificationCodeEntry(): JSX.Element {
     return (
         <form
             className="flex w-full flex-col gap-2.5"
+            // The code input renders a hidden \d{6} pattern input; without noValidate the browser
+            // silently blocks an Enter-key submit on a partial code
+            noValidate
             onSubmit={(e) => {
                 e.preventDefault()
                 if (!validatedEmailTokenLoading) {
