@@ -1675,6 +1675,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.ONBOARDING,),
             (Task.OriginProduct.SIGNALS_CHAT,),
             (Task.OriginProduct.TASK_ANALYSIS,),
+            (Task.OriginProduct.PULSE_SUBSCRIPTION,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):

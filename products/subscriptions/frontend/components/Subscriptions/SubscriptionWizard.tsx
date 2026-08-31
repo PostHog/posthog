@@ -1,59 +1,45 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
 
-import { IconChevronLeft, IconGraph } from '@posthog/icons'
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { IconChevronLeft } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
-import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
-import { NextScheduledRun, ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
-import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { WizardReview } from 'lib/components/WizardReview'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { cn } from 'lib/utils/css-classes'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
+import { DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
 
-import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
-import { InsightSelector } from './InsightSelector'
-import { SubscriptionDayPicker } from './SubscriptionDayPicker'
+import { ProactiveSubscriptionFields } from './ProactiveSubscriptionFields'
+import {
+    getSubscriptionWizardSteps,
+    normalizeSubscriptionWizardStep,
+    shouldShowSubscriptionActions,
+    shouldWaitForSubscriptionActions,
+} from './subscriptionFormNavigation'
+import type { SubscriptionWizardStep } from './subscriptionFormNavigation'
 import { subscriptionLogic } from './subscriptionLogic'
 import type { SubscriptionFormType, SubscriptionLogicProps } from './subscriptionLogic'
+import { SubscriptionNotifySection } from './SubscriptionNotifySection'
+import { SubscriptionReportSection } from './SubscriptionReportSection'
+import { SubscriptionScheduleSection } from './SubscriptionScheduleSection'
+import { SubscriptionSettingsSection } from './SubscriptionSettingsSection'
 import {
-    frequencyOptionsPlural,
-    frequencyOptionsSingular,
-    getAiSubscriptionGate,
-    intervalOptions,
-    bysetposOptions,
-    monthlyWeekdayOptions,
-    getSubscriptionAdvancedSettings,
-    getNextDeliveryDate,
     formatSubscriptionSchedule,
-    shouldShowDayPicker,
+    getAiSubscriptionGate,
+    getNextDeliveryDate,
+    getSubscriptionAdvancedSettings,
     requestSubscriptionWizardCancellation,
-    targetTypeOptions,
-    timeOptions,
-    WEEKDAYS,
-    weekdayOptions,
+    shouldShowDayPicker,
 } from './utils'
 import { SubscriptionCreationGate, SubscriptionFormSkeleton } from './views/EditSubscription'
 
@@ -64,57 +50,33 @@ interface SubscriptionWizardProps {
     onCancel: () => void
 }
 
-enum SubscriptionWizardStep {
-    Content = 'content',
-    Delivery = 'delivery',
-    Schedule = 'schedule',
-    Review = 'review',
-}
-
-const steps = [
-    { key: SubscriptionWizardStep.Content, label: 'What to send' },
-    { key: SubscriptionWizardStep.Delivery, label: 'Notify' },
-    { key: SubscriptionWizardStep.Schedule, label: 'Schedule' },
-    { key: SubscriptionWizardStep.Review, label: 'Review' },
-]
-
-function wizardStepDescription(step: SubscriptionWizardStep): string {
-    if (step === SubscriptionWizardStep.Content) {
-        return 'Choose the report content to include.'
-    }
-    if (step === SubscriptionWizardStep.Delivery) {
-        return 'Choose who to notify about this subscription.'
-    }
-    if (step === SubscriptionWizardStep.Schedule) {
-        return 'Choose when to send this subscription.'
-    }
-    return 'Check the delivery details before creating the subscription.'
-}
-
 export function SubscriptionWizard({
     insightShortId,
     insightName,
     dashboard,
     onCancel,
 }: SubscriptionWizardProps): JSX.Element {
-    const logicProps = {
-        id: 'new' as const,
+    const logicProps: SubscriptionLogicProps = {
+        id: 'new',
         insightShortId,
         dashboardId: dashboard?.id,
         dashboardName: dashboard?.name,
         insightName,
-        creationSource: 'wizard' as const,
+        creationSource: 'wizard',
     }
-    const subscriptionFormLogic = subscriptionLogic(logicProps)
-    const [currentStep, setStep] = useState<SubscriptionWizardStep>(SubscriptionWizardStep.Content)
+    const logic = subscriptionLogic(logicProps)
     const {
         subscription,
         subscriptionLoading,
         subscriptionInitialized,
         isSubscriptionSubmitting,
         subscriptionChanged,
-    } = useValues(subscriptionFormLogic)
-    const { generatePreview, resetSubscription } = useActions(subscriptionFormLogic)
+        subscriptionWizardStep,
+        proactiveConfigurationOptions,
+        proactiveConfigurationOptionsLoading,
+        proactiveConfigurationOptionsLoadFailed,
+    } = useValues(logic)
+    const { generatePreview, resetSubscription, setSubscriptionWizardStep } = useActions(logic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
@@ -137,20 +99,23 @@ export function SubscriptionWizard({
         isDebug: Boolean(preflight?.is_debug),
         aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
     })
+    const actionsVisibility = {
+        subscription,
+        proactiveConfigurationOptions,
+        proactiveConfigurationOptionsLoading,
+        proactiveConfigurationOptionsLoadFailed,
+    }
+    if (shouldWaitForSubscriptionActions(actionsVisibility)) {
+        return <SubscriptionFormSkeleton />
+    }
+
+    const showActions = shouldShowSubscriptionActions(actionsVisibility)
+    const steps = getSubscriptionWizardSteps(showActions)
+    const currentStep = normalizeSubscriptionWizardStep(subscriptionWizardStep, showActions)
+    const currentStepIndex = steps.findIndex(({ key }) => key === currentStep)
     const selectedInsightsReady = !dashboard || Boolean(subscription.dashboard_export_insights?.length)
     const contentDetailReady = isAiPrompt ? Boolean(subscription.prompt?.trim()) : selectedInsightsReady
-    const contentReady = Boolean(subscription.title?.trim()) && contentDetailReady
-    let contentDisabledReason: string | undefined
-
-    if (!subscription.title?.trim()) {
-        contentDisabledReason = 'Enter a subscription name'
-    } else if (isAiPrompt && !subscription.prompt?.trim()) {
-        contentDisabledReason = 'Enter a prompt'
-    } else if (aiGate.submitBlocked) {
-        contentDisabledReason = 'Enable AI data processing to create an AI prompt subscription'
-    } else if (!selectedInsightsReady) {
-        contentDisabledReason = 'Select at least one insight'
-    }
+    const contentReady = Boolean(subscription.title?.trim()) && contentDetailReady && !aiGate.submitBlocked
     const emailAvailable = subscription.target_type !== 'email' || Boolean(preflight?.email_service_available)
     const destinationReady = Boolean(
         emailAvailable &&
@@ -164,72 +129,97 @@ export function SubscriptionWizard({
         subscription.start_date &&
         (!requiresDeliveryDays || subscription.byweekday?.length)
     )
-    let destinationDisabledReason: string | undefined
-    if (!destinationReady) {
-        destinationDisabledReason = emailAvailable
-            ? 'Choose a destination and recipient'
-            : 'Email delivery is not configured for this PostHog instance'
-    }
-    const currentStepIndex = steps.findIndex((step) => step.key === currentStep)
+
     const goToStep = (step: SubscriptionWizardStep): void => {
-        if (step === SubscriptionWizardStep.Review && insightShortId && !isAiPrompt) {
+        if (step === 'review' && insightShortId && !isAiPrompt) {
             generatePreview()
         }
-        setStep(step)
+        setSubscriptionWizardStep(step)
     }
     const requestCancel = (): void =>
         requestSubscriptionWizardCancellation({ onCancel, resetSubscription, subscriptionChanged })
+
+    let continueDisabledReason: string | undefined
+    if (currentStep === 'report') {
+        if (!subscription.title?.trim()) {
+            continueDisabledReason = 'Enter a subscription name'
+        } else if (isAiPrompt && !subscription.prompt?.trim()) {
+            continueDisabledReason = 'Enter a prompt'
+        } else if (aiGate.submitBlocked) {
+            continueDisabledReason = 'Enable AI data processing to create an AI report'
+        } else if (!selectedInsightsReady) {
+            continueDisabledReason = 'Select at least one insight'
+        }
+    } else if (currentStep === 'actions') {
+        if (
+            subscription.proactive_config?.enabled &&
+            subscription.proactive_config.create_draft_pr &&
+            (!subscription.proactive_config.repository || !subscription.proactive_config.repository_integration_id)
+        ) {
+            continueDisabledReason = 'Select a repository for draft pull requests'
+        }
+    } else if (currentStep === 'notify' && !destinationReady) {
+        continueDisabledReason = emailAvailable
+            ? 'Choose a destination and recipient'
+            : 'Email delivery is not configured for this PostHog instance'
+    } else if (currentStep === 'schedule' && !scheduleReady) {
+        continueDisabledReason = 'Choose a delivery time and at least one delivery day'
+    }
+
     let stepContent: JSX.Element
-    switch (currentStep) {
-        case SubscriptionWizardStep.Content:
-            stepContent = (
-                <SubscriptionContentStep
-                    logicProps={logicProps}
-                    dashboard={dashboard}
-                    insightName={insightName}
-                    subscription={subscription}
-                    aiSubscriptionBlocked={aiGate.submitBlocked}
-                    aiContextsEnabled={Boolean(aiContextsEnabled)}
-                />
-            )
-            break
-        case SubscriptionWizardStep.Delivery:
-            stepContent = <SubscriptionDeliveryStep subscription={subscription} logicProps={logicProps} />
-            break
-        case SubscriptionWizardStep.Schedule:
-            stepContent = <SubscriptionScheduleStep logicProps={logicProps} />
-            break
-        case SubscriptionWizardStep.Review:
-            stepContent = (
+    if (currentStep === 'report') {
+        stepContent = (
+            <SubscriptionReportSection
+                logicProps={logicProps}
+                dashboard={dashboard}
+                insightName={insightName}
+                subscription={subscription}
+                aiContextsEnabled={Boolean(aiContextsEnabled)}
+                compactAnalysisWindow
+                aiConsentMessage={
+                    aiGate.submitBlocked ? (
+                        <>
+                            Enable AI data processing to create an AI report.{' '}
+                            <Link to={urls.settings('organization-details', 'organization-ai-consent')}>
+                                Manage AI data processing
+                            </Link>
+                        </>
+                    ) : undefined
+                }
+            />
+        )
+    } else if (currentStep === 'actions') {
+        stepContent = <ProactiveSubscriptionFields logicProps={logicProps} subscription={subscription} />
+    } else if (currentStep === 'notify') {
+        stepContent = <SubscriptionNotifySection logicProps={logicProps} subscription={subscription} />
+    } else if (currentStep === 'schedule') {
+        stepContent = <SubscriptionScheduleSection logicProps={logicProps} />
+    } else {
+        stepContent = (
+            <div className="flex flex-col gap-5">
                 <SubscriptionReviewStep
                     logicProps={logicProps}
                     subscription={subscription}
                     dashboard={dashboard}
                     insightShortId={insightShortId}
                 />
-            )
-            break
-        default:
-            stepContent = <></>
+                <SubscriptionSettingsSection logicProps={logicProps} subscription={subscription} />
+            </div>
+        )
     }
+
     const nextStep = steps[currentStepIndex + 1]?.key
-    let continueDisabledReason: string | undefined
-    if (currentStep === SubscriptionWizardStep.Content) {
-        continueDisabledReason = contentReady ? undefined : contentDisabledReason
-    } else if (currentStep === SubscriptionWizardStep.Delivery) {
-        continueDisabledReason = destinationDisabledReason
-    } else if (currentStep === SubscriptionWizardStep.Schedule) {
-        continueDisabledReason = scheduleReady ? undefined : 'Choose a delivery time and at least one delivery day'
-    }
-    let primaryAction: JSX.Element | null = null
-    if (currentStep === SubscriptionWizardStep.Review) {
-        primaryAction = (
-            <LemonButton type="primary" htmlType="submit" loading={isSubscriptionSubmitting}>
+    const primaryAction =
+        currentStep === 'review' ? (
+            <LemonButton
+                type="primary"
+                htmlType="submit"
+                loading={isSubscriptionSubmitting}
+                disabled={isSubscriptionSubmitting || !contentReady || !destinationReady || !scheduleReady}
+            >
                 Create subscription
             </LemonButton>
-        )
-    } else if (nextStep) {
-        primaryAction = (
+        ) : nextStep ? (
             <LemonButton
                 type="primary"
                 htmlType="button"
@@ -238,11 +228,11 @@ export function SubscriptionWizard({
                     goToStep(nextStep)
                 }}
                 disabledReason={continueDisabledReason}
+                disabled={isSubscriptionSubmitting}
             >
                 Continue
             </LemonButton>
-        )
-    }
+        ) : null
 
     return (
         <SubscriptionCreationGate onCancel={requestCancel}>
@@ -251,9 +241,9 @@ export function SubscriptionWizard({
                 props={logicProps}
                 formKey="subscription"
                 enableFormOnSubmit
-                className="flex flex-1 flex-col min-h-0"
+                className="flex min-h-0 flex-1 flex-col"
             >
-                <div className="flex min-h-[36rem] flex-1 flex-col overflow-hidden">
+                <div className="flex min-h-[36rem] min-w-0 flex-1 flex-col overflow-hidden">
                     <header className="border-b p-4">
                         <div className="flex items-center gap-2">
                             <LemonButton
@@ -262,80 +252,49 @@ export function SubscriptionWizard({
                                 icon={<IconChevronLeft />}
                                 onClick={requestCancel}
                             />
-                            <h2 className="text-lg font-semibold m-0">New subscription</h2>
+                            <h2 className="m-0 text-lg font-semibold">New subscription</h2>
                         </div>
-                        <nav aria-label="Subscription setup progress" className="mt-3">
-                            <ol className="flex flex-wrap items-center gap-x-1 gap-y-2">
-                                {steps.map((step, index) => {
-                                    const isCurrent = index === currentStepIndex
-                                    const isComplete = index < currentStepIndex
-                                    const canAccess = index <= currentStepIndex
-                                    return (
-                                        <li key={step.key} className="flex shrink-0 items-center gap-1">
-                                            <button
-                                                type="button"
-                                                disabled={!canAccess}
-                                                onClick={() => canAccess && goToStep(step.key)}
-                                                className={cn(
-                                                    'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-                                                    canAccess && 'cursor-pointer',
-                                                    !canAccess && 'opacity-40 cursor-not-allowed',
-                                                    isCurrent
-                                                        ? 'bg-accent text-white font-semibold'
-                                                        : isComplete
-                                                          ? 'bg-success-highlight text-success'
-                                                          : 'text-muted hover:bg-border'
-                                                )}
-                                                aria-current={isCurrent ? 'step' : undefined}
-                                            >
-                                                <span
-                                                    className={cn(
-                                                        'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold',
-                                                        isCurrent
-                                                            ? 'bg-white text-accent'
-                                                            : isComplete
-                                                              ? 'bg-success text-white'
-                                                              : 'border border-border'
-                                                    )}
-                                                >
-                                                    {index + 1}
-                                                </span>
-                                                <span>{step.label}</span>
-                                            </button>
-                                            {index < steps.length - 1 ? <span className="text-border">→</span> : null}
-                                        </li>
-                                    )
-                                })}
-                            </ol>
-                        </nav>
+                        <LemonTabs
+                            activeKey={currentStep}
+                            onChange={goToStep}
+                            size="small"
+                            className="mt-3 min-w-0"
+                            data-attr="subscription-wizard-steps"
+                            tabs={steps.map((step, index) => ({
+                                key: step.key,
+                                label: `${index + 1}. ${step.label}`,
+                                completed: index < currentStepIndex,
+                                disabledReason:
+                                    index > currentStepIndex
+                                        ? 'Complete the current step before continuing'
+                                        : undefined,
+                            }))}
+                        />
                     </header>
-                    <section className="p-4 min-h-0 flex-1 overflow-y-auto">
-                        <div className="space-y-1 mb-3">
-                            <h3 className="text-base font-semibold m-0">{steps[currentStepIndex].label}</h3>
-                            <p className="text-xs text-secondary m-0">{wizardStepDescription(currentStep)}</p>
+                    <section className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
+                        <div className="mb-3 space-y-1">
+                            <h3 className="m-0 text-base font-semibold">{steps[currentStepIndex].label}</h3>
+                            <p className="m-0 text-xs text-secondary">{steps[currentStepIndex].description}</p>
                         </div>
                         {stepContent}
                     </section>
-                    <footer className="flex flex-wrap items-center justify-between gap-2 border-t p-4">
-                        <div />
-                        <div className="flex items-center gap-2">
-                            {currentStep === SubscriptionWizardStep.Content ? (
-                                <LemonButton type="secondary" htmlType="button" onClick={requestCancel}>
-                                    Close
-                                </LemonButton>
-                            ) : (
-                                <LemonButton
-                                    type="secondary"
-                                    htmlType="button"
-                                    icon={<IconChevronLeft className="size-4" />}
-                                    onClick={() => setStep(steps[currentStepIndex - 1].key)}
-                                    disabled={isSubscriptionSubmitting}
-                                >
-                                    Back
-                                </LemonButton>
-                            )}
-                            {primaryAction}
-                        </div>
+                    <footer className="flex flex-wrap items-center justify-end gap-2 border-t p-4">
+                        {currentStep === 'report' ? (
+                            <LemonButton type="secondary" htmlType="button" onClick={requestCancel}>
+                                Close
+                            </LemonButton>
+                        ) : (
+                            <LemonButton
+                                type="secondary"
+                                htmlType="button"
+                                icon={<IconChevronLeft className="size-4" />}
+                                onClick={() => setSubscriptionWizardStep(steps[currentStepIndex - 1].key)}
+                                disabled={isSubscriptionSubmitting}
+                            >
+                                Back
+                            </LemonButton>
+                        )}
+                        {primaryAction}
                     </footer>
                 </div>
             </Form>
@@ -343,341 +302,8 @@ export function SubscriptionWizard({
     )
 }
 
-function SubscriptionDeliveryStep({
-    subscription,
-    logicProps,
-}: {
-    subscription: SubscriptionFormType
-    logicProps: SubscriptionLogicProps
-}): JSX.Element {
-    const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const { integrations, slackIntegrations } = useValues(integrationsLogic)
-    const { preflight } = useValues(preflightLogic)
-    const { setSubscriptionValue } = useActions(subscriptionLogic(logicProps))
-
-    return (
-        <div className="flex flex-col gap-4">
-            <LemonField name="target_type" label="Send to">
-                <LemonSelect options={targetTypeOptions} />
-            </LemonField>
-            {subscription.target_type === 'email' && !preflight?.email_service_available ? (
-                <LemonBanner type="error">
-                    Email subscriptions are not available because this PostHog instance is not configured to send email.{' '}
-                    <Link to="https://posthog.com/docs/self-host/configure/email" target="_blank" targetBlankIcon>
-                        Configure email delivery
-                    </Link>
-                </LemonBanner>
-            ) : null}
-            {subscription.target_type === 'email' ? (
-                <>
-                    <LemonField name="target_value" label="Recipients">
-                        {({ value, onChange }) => (
-                            <LemonInputSelect
-                                value={value?.split(',').filter(Boolean)}
-                                onChange={(recipients) => onChange(recipients.join(','))}
-                                mode="multiple"
-                                allowCustomValues
-                                options={usersLemonSelectOptions(meFirstMembers.map((member) => member.user))}
-                                loading={membersLoading}
-                                placeholder="Enter an email address"
-                            />
-                        )}
-                    </LemonField>
-                    <LemonField name="invite_message" label="Message" showOptional>
-                        <LemonTextArea placeholder="Message for recipients" />
-                    </LemonField>
-                </>
-            ) : null}
-            {subscription.target_type === 'slack' ? (
-                !slackIntegrations?.length ? (
-                    <SlackNotConfiguredBanner />
-                ) : (
-                    <>
-                        <LemonField name="integration_id" label="Slack connection">
-                            {({ value, onChange }) => (
-                                <IntegrationChoice
-                                    integration="slack"
-                                    value={value}
-                                    onChange={(integrationId) => {
-                                        onChange(integrationId)
-                                        if (value !== null && integrationId !== value) {
-                                            setSubscriptionValue('target_value', '')
-                                        }
-                                    }}
-                                />
-                            )}
-                        </LemonField>
-                        {subscription.integration_id ? (
-                            <LemonField name="target_value" label="Slack channel">
-                                {({ value, onChange }) => {
-                                    const integration = integrations?.find(
-                                        (item) => item.id === subscription.integration_id
-                                    )
-                                    return integration ? (
-                                        <SlackChannelPicker
-                                            value={value}
-                                            onChange={onChange}
-                                            integration={integration}
-                                        />
-                                    ) : (
-                                        <></>
-                                    )
-                                }}
-                            </LemonField>
-                        ) : null}
-                    </>
-                )
-            ) : null}
-        </div>
-    )
-}
-
-function SubscriptionContentStep({
-    logicProps,
-    dashboard,
-    insightName,
-    subscription,
-    aiSubscriptionBlocked,
-    aiContextsEnabled,
-}: {
-    logicProps: SubscriptionLogicProps
-    dashboard?: DashboardType<any> | null
-    insightName?: string
-    subscription: SubscriptionFormType
-    aiSubscriptionBlocked: boolean
-    aiContextsEnabled: boolean
-}): JSX.Element {
-    const { addContext, applyDefaultSelectedInsights, removeContext, selectAiAnalysisWindow, selectAiExamplePrompt } =
-        useActions(subscriptionLogic(logicProps))
-    const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
-
-    return (
-        <div className="flex flex-col gap-4">
-            {isAiPrompt ? <AiPromptSubscriptionIntroduction /> : null}
-            {isAiPrompt && aiSubscriptionBlocked ? (
-                <LemonBanner type="info">
-                    Enable AI data processing in your Organization settings to create an AI prompt subscription.{' '}
-                    <Link to={urls.settings('organization-details', 'organization-ai-consent')}>
-                        Manage AI data processing
-                    </Link>
-                </LemonBanner>
-            ) : null}
-            {insightName && !isAiPrompt ? (
-                <div className="flex items-center gap-2 font-semibold">
-                    <IconGraph className="size-5 shrink-0 text-accent" />
-                    {insightName}
-                </div>
-            ) : null}
-            <LemonField name="title" label="Name">
-                <LemonInput />
-            </LemonField>
-            {isAiPrompt ? (
-                <AiPromptFields
-                    compactAnalysisWindow
-                    contexts={subscription.contexts}
-                    contextsEnabled={aiContextsEnabled}
-                    prompt={subscription.prompt}
-                    windowMode={subscription.ai_prompt_config?.window?.mode}
-                    onAddContext={addContext}
-                    onRemoveContext={removeContext}
-                    onSelectAnalysisWindow={selectAiAnalysisWindow}
-                    onSelectExample={selectAiExamplePrompt}
-                />
-            ) : null}
-            {dashboard?.tiles && !isAiPrompt ? (
-                <LemonField name="dashboard_export_insights" label="Insights to include">
-                    {({ value, onChange }) => (
-                        <InsightSelector
-                            tiles={dashboard.tiles}
-                            selectedInsightIds={value ?? []}
-                            onChange={onChange}
-                            onDefaultsApplied={applyDefaultSelectedInsights}
-                        />
-                    )}
-                </LemonField>
-            ) : null}
-            <SubscriptionSettingsStep subscription={subscription} logicProps={logicProps} />
-        </div>
-    )
-}
-
-function SubscriptionScheduleStep({ logicProps }: { logicProps: SubscriptionLogicProps }): JSX.Element {
-    const { subscription } = useValues(subscriptionLogic(logicProps))
-    const { currentTeam } = useValues(teamLogic)
-    const availableFrequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
-    const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription) : null
-
-    return (
-        <div className="flex flex-col gap-4">
-            <LemonLabel>When should we send it?</LemonLabel>
-            <div className="flex flex-wrap items-center gap-2">
-                <span>Every</span>
-                <LemonField name="interval">
-                    <LemonSelect options={intervalOptions} />
-                </LemonField>
-                <LemonField name="frequency">
-                    <LemonSelect options={availableFrequencyOptions} />
-                </LemonField>
-                {subscription && shouldShowDayPicker(subscription.frequency, subscription.interval) ? (
-                    <>
-                        <span>on</span>
-                        <LemonField name="byweekday">
-                            {({ value, onChange }) => <SubscriptionDayPicker value={value ?? []} onChange={onChange} />}
-                        </LemonField>
-                    </>
-                ) : null}
-                {subscription?.frequency === 'monthly' ? (
-                    <>
-                        <span>on the</span>
-                        <LemonField name="bysetpos">
-                            {({ value, onChange }) => (
-                                <LemonSelect
-                                    options={bysetposOptions}
-                                    value={value ? String(value) : null}
-                                    onChange={(value) => onChange(value === null ? null : Number(value))}
-                                />
-                            )}
-                        </LemonField>
-                        <LemonField name="byweekday">
-                            {({ value, onChange }) => {
-                                const isWeekday = value?.length === 5 && value.every((day: string) => WEEKDAYS.has(day))
-                                let displayValue = 'day'
-                                if (isWeekday) {
-                                    displayValue = 'weekday'
-                                } else if (value?.length === 1) {
-                                    displayValue = value[0]
-                                }
-
-                                return (
-                                    <LemonSelect
-                                        dropdownMatchSelectWidth={false}
-                                        options={monthlyWeekdayOptions}
-                                        value={displayValue}
-                                        onChange={(value) => {
-                                            if (value === 'day') {
-                                                onChange(weekdayOptions.map(({ value }) => value))
-                                                return
-                                            }
-                                            if (value === 'weekday') {
-                                                onChange([...WEEKDAYS])
-                                                return
-                                            }
-                                            onChange([value])
-                                        }}
-                                    />
-                                )
-                            }}
-                        </LemonField>
-                    </>
-                ) : null}
-                <span>at</span>
-                <LemonField name="start_date">
-                    {({ value, onChange }) => (
-                        <LemonSelect
-                            options={timeOptions}
-                            value={dayjs(value).hour().toString()}
-                            onChange={(hour) =>
-                                onChange(
-                                    dayjs()
-                                        .hour(Number(hour ?? 0))
-                                        .minute(0)
-                                        .second(0)
-                                        .toISOString()
-                                )
-                            }
-                        />
-                    )}
-                </LemonField>
-            </div>
-            {nextDeliveryDate ? (
-                <div className="flex flex-col gap-3">
-                    <NextScheduledRun label="Next planned delivery:">
-                        <span>
-                            Approximately <TZLabel time={dayjs(nextDeliveryDate)} />
-                        </span>
-                    </NextScheduledRun>
-                    <ProjectTimezoneNotice
-                        timezone={currentTeam?.timezone ?? 'UTC'}
-                        settingsUrl={urls.settings('environment-customization', 'date-and-time')}
-                    />
-                </div>
-            ) : null}
-        </div>
-    )
-}
-
-function SubscriptionSettingsStep({
-    subscription,
-    logicProps,
-}: {
-    subscription: SubscriptionType
-    logicProps: SubscriptionLogicProps
-}): JSX.Element {
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { summaryQuota } = useValues(subscriptionLogic(logicProps))
-
-    return (
-        <div className="mt-6 flex flex-col gap-2">
-            <LemonLabel>Advanced settings</LemonLabel>
-            {dataProcessingAccepted && subscription.resource_type !== SubscriptionResourceTypes.AiPrompt ? (
-                <LemonField name="summary_enabled">
-                    {({ value, onChange }) => (
-                        <LemonSwitch
-                            checked={value}
-                            onChange={onChange}
-                            disabledReason={
-                                summaryQuota?.at_limit && !value
-                                    ? `Plan limit reached (${summaryQuota.limit} active AI summaries)`
-                                    : undefined
-                            }
-                            bordered
-                            fullWidth
-                            label={
-                                <div className="flex flex-col gap-1 py-1">
-                                    <div className="leading-tight">Include an automatic AI summary</div>
-                                    <div className="text-xs text-secondary font-normal leading-tight">
-                                        Add an AI-written overview of the report to each delivery.
-                                    </div>
-                                </div>
-                            }
-                        />
-                    )}
-                </LemonField>
-            ) : null}
-            {summaryQuota?.at_limit && !subscription.summary_enabled && summaryQuota.limit !== null ? (
-                <UsageLimitPaywall
-                    title="AI summary limit reached"
-                    description="Disable an existing AI summary or upgrade your plan to add more."
-                    limit={summaryQuota.limit}
-                    currentUsage={summaryQuota.active_count}
-                    unit="active AI summaries on your plan"
-                />
-            ) : null}
-            <LemonField name="send_test_now">
-                {({ value, onChange }) => (
-                    <LemonSwitch
-                        checked={value}
-                        onChange={onChange}
-                        bordered
-                        fullWidth
-                        label={
-                            <div className="flex flex-col gap-1 py-1">
-                                <div className="leading-tight">Send a test run now</div>
-                                <div className="text-xs text-secondary font-normal leading-tight">
-                                    Send this report once now so you can confirm the delivery.
-                                </div>
-                            </div>
-                        }
-                    />
-                )}
-            </LemonField>
-        </div>
-    )
-}
-
-function formatAiAnalysisWindow(subscription: SubscriptionType): string {
+function formatAiAnalysisWindow(subscription: SubscriptionFormType): string {
     const window = subscription.ai_prompt_config?.window
-
     if (window?.mode === 'last_n_days') {
         return `Last ${window.start_days_ago} days`
     }
@@ -687,6 +313,15 @@ function formatAiAnalysisWindow(subscription: SubscriptionType): string {
     return 'Since last report'
 }
 
+function formatProactiveActions(subscription: SubscriptionFormType): string {
+    if (!subscription.proactive_config?.enabled) {
+        return 'None'
+    }
+    return subscription.proactive_config.create_draft_pr
+        ? 'Recommendations, draft pull request, and experiment draft'
+        : 'Recommendations and experiment draft'
+}
+
 function SubscriptionReviewStep({
     logicProps,
     subscription,
@@ -694,42 +329,23 @@ function SubscriptionReviewStep({
     insightShortId,
 }: {
     logicProps: SubscriptionLogicProps
-    subscription: SubscriptionType
+    subscription: SubscriptionFormType
     dashboard?: DashboardType<any> | null
     insightShortId?: InsightShortId
 }): JSX.Element {
     const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
     const { generatePreview } = useActions(subscriptionLogic(logicProps))
     const selectedInsightsCount = subscription.dashboard_export_insights?.length ?? 0
-    const advancedSettings = getSubscriptionAdvancedSettings(subscription)
+    const advancedSettings = getSubscriptionAdvancedSettings(subscription, logicProps.id === 'new')
     const nextDeliveryDate = getNextDeliveryDate(subscription)
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
-    let reviewNotice: JSX.Element
-
-    if (subscription.send_test_now) {
-        reviewNotice = <>We will send a test report now so you can confirm the delivery.</>
-    } else if (nextDeliveryDate) {
-        reviewNotice = (
-            <>
-                No test report will be sent. The first scheduled report will arrive{' '}
-                <TZLabel
-                    time={dayjs(nextDeliveryDate)}
-                    formatDate="ddd, MMM D"
-                    formatTime="h:mm A"
-                    timestampStyle="absolute"
-                />
-                .
-            </>
-        )
-    } else {
-        reviewNotice = <>No test report will be sent. The subscription will start on its normal schedule.</>
-    }
     const reviewItems = [
         { label: 'Name', value: subscription.title },
         ...(isAiPrompt
             ? [
-                  { label: 'Prompt', value: subscription.prompt ?? '' },
+                  { label: 'Goal', value: subscription.prompt ?? '' },
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
+                  { label: 'Actions', value: formatProactiveActions(subscription) },
               ]
             : []),
         { label: 'Sends to', value: subscription.target_value },
@@ -742,21 +358,36 @@ function SubscriptionReviewStep({
                   },
               ]
             : []),
-        ...(advancedSettings.length ? [{ label: 'Advanced settings', value: advancedSettings.join(' · ') }] : []),
+        ...(advancedSettings.length ? [{ label: 'Options', value: advancedSettings.join(' · ') }] : []),
     ]
 
     return (
         <div className="flex flex-col gap-4">
-            <WizardReview items={reviewItems} footer={<div className="text-secondary text-sm">{reviewNotice}</div>} />
+            <WizardReview
+                items={reviewItems}
+                footer={
+                    <div className="text-sm text-secondary">
+                        {nextDeliveryDate ? (
+                            <>
+                                First scheduled report:{' '}
+                                <TZLabel
+                                    time={dayjs(nextDeliveryDate)}
+                                    formatDate="ddd, MMM D"
+                                    formatTime="h:mm A"
+                                    timestampStyle="absolute"
+                                />
+                            </>
+                        ) : (
+                            <>The subscription starts on its normal schedule.</>
+                        )}
+                    </div>
+                }
+            />
             {insightShortId && !isAiPrompt ? (
                 <div>
                     <LemonLabel className="mb-2">Preview</LemonLabel>
-                    <div className="border rounded p-2">
-                        {previewLoading ? (
-                            <div className="overflow-hidden rounded border">
-                                <LemonSkeleton className="aspect-video w-full" />
-                            </div>
-                        ) : null}
+                    <div className="rounded border p-2">
+                        {previewLoading ? <LemonSkeleton className="aspect-video w-full" /> : null}
                         {previewError ? (
                             <div className="flex flex-col items-start gap-2">
                                 <LemonBanner type="error">{previewError}</LemonBanner>
@@ -765,17 +396,19 @@ function SubscriptionReviewStep({
                                     htmlType="button"
                                     onClick={generatePreview}
                                     disabled={previewLoading}
+                                    loading={previewLoading}
                                     size="small"
-                                    data-attr="subscription-wizard-generate-preview"
                                 >
                                     Try again
                                 </LemonButton>
                             </div>
                         ) : null}
                         {previewImageUrl ? (
-                            <div className="mt-2 border rounded">
-                                <img src={previewImageUrl} alt="Subscription export preview" className="w-full" />
-                            </div>
+                            <img
+                                src={previewImageUrl}
+                                alt="Subscription export preview"
+                                className="mt-2 w-full rounded border"
+                            />
                         ) : null}
                     </div>
                 </div>

@@ -215,7 +215,6 @@
             "type": "product_tour",
             "intents": ["product_tours"]
         },
-        { "path": "Pulse", "category": "Unreleased", "iconType": "activity", "type": null, "intents": ["pulse"] },
         {
             "path": "Session replay",
             "category": "Behavior",

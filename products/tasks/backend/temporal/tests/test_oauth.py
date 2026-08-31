@@ -72,17 +72,22 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
     )
 
 
+@pytest.mark.parametrize(
+    "origin_product",
+    [Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.PULSE_SUBSCRIPTION],
+)
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
+def test_ai_credit_task_uses_posthog_ai_oauth_application(
     mock_create: MagicMock,
     mock_enforcement: MagicMock,
+    origin_product: str,
 ) -> None:
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
         team_id=123,
-        origin_product=Task.OriginProduct.POSTHOG_AI,
+        origin_product=origin_product,
     )
 
     assert create_oauth_access_token(task) == "token"

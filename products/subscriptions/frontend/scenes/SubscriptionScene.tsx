@@ -92,9 +92,19 @@ export function SubscriptionScene(): JSX.Element {
         deliveryStatusFilter,
         deliveryFeedback,
         recentlyThankedDeliveries,
+        pulseDecisionLoadingIds,
+        pulseHistoryLoadFailed,
+        pulseHistoryLoading,
+        pulseRunsByDelivery,
     } = useValues(subscriptionSceneLogic)
-    const { loadDeliveriesPage, deliverSubscription, setDeliveryStatusFilter, submitDeliveryFeedback } =
-        useActions(subscriptionSceneLogic)
+    const {
+        loadDeliveriesPage,
+        loadPulseHistory,
+        deliverSubscription,
+        setDeliveryStatusFilter,
+        decidePulseAction,
+        submitDeliveryFeedback,
+    } = useActions(subscriptionSceneLogic)
 
     const showNotFound = !subscriptionLoading && !subscription && !subscriptionAccessDenied
 
@@ -137,6 +147,14 @@ export function SubscriptionScene(): JSX.Element {
                         }
                         deliveryFeedback={deliveryFeedback}
                         recentlyThankedDeliveries={recentlyThankedDeliveries}
+                        pulseRunsByDelivery={pulseRunsByDelivery}
+                        pulseDecisionLoadingIds={pulseDecisionLoadingIds}
+                        pulseHistoryLoadFailed={pulseHistoryLoadFailed}
+                        pulseHistoryLoading={pulseHistoryLoading}
+                        onPulseActionDecision={decidePulseAction}
+                        onRetryPulseHistory={
+                            subscription?.resource_type === ResourceTypeEnumApi.AiPrompt ? loadPulseHistory : undefined
+                        }
                     />
                 </div>
             )}

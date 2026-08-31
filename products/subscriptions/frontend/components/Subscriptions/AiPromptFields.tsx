@@ -19,31 +19,37 @@ import { SubscriptionContextPicker } from './SubscriptionContextPicker'
 export function AiPromptSubscriptionIntroduction(): JSX.Element {
     return (
         <LemonBanner type="info" className="text-sm">
-            Tell us what you want to know. We'll surface the relevant information from your project data in each report.
+            Tell us what your team wants to achieve. Each report will surface relevant information from your project
+            data.
         </LemonBanner>
     )
 }
 
 const AI_PROMPT_EXAMPLES: { icon: ReactElement; label: string; prompt: string }[] = [
     {
+        icon: <IconTrending />,
+        label: 'Improve activation',
+        prompt: 'Help us improve activation by finding meaningful changes, likely causes, and the highest-leverage next steps.',
+    },
+    {
         icon: <IconLineGraph />,
-        label: 'Top events',
-        prompt: 'Top 5 events by volume, with counts and unique users for each.',
+        label: 'Grow feature adoption',
+        prompt: 'Help us grow feature adoption by finding underused features, user friction, and opportunities to increase repeat use.',
     },
     {
         icon: <IconTrending />,
-        label: 'Period-over-period growth',
-        prompt: 'For the top 10 events by volume, compare the current period vs the previous one and rank by growth rate. Flag any event that more than doubled or halved.',
+        label: 'Increase conversion',
+        prompt: 'Help us increase conversion by finding where users drop off, explaining likely causes, and recommending what to test next.',
     },
     {
         icon: <IconPulse />,
-        label: 'Health check',
-        prompt: 'Health check: total event volume and unique active users, and how each compares to the previous period.',
+        label: 'Improve retention',
+        prompt: 'Help us improve retention by identifying behaviors linked to returning users and opportunities to reduce churn.',
     },
     {
         icon: <IconWarning />,
-        label: 'Tracking gaps',
-        prompt: 'Which events we normally track received no data? List them so I can catch broken instrumentation.',
+        label: 'Catch regressions',
+        prompt: 'Help us catch product regressions early by detecting unusual changes, investigating likely causes, and recommending next steps.',
     },
 ]
 
@@ -131,18 +137,18 @@ export function AiPromptFields({
             ) : null}
             <LemonField
                 name="prompt"
-                label="What do you want to know?"
-                help="We'll use this question to surface the right information in each report."
+                label="What goal should this report help your team achieve?"
+                help="We'll use this goal to surface the right information in each report."
             >
                 <LemonTextArea
-                    placeholder="e.g. Which events grew the most week-over-week? Highlight any unusual spikes."
+                    placeholder="e.g. Help us improve activation by finding unusual changes and the events behind them."
                     minRows={4}
                     maxLength={SubscriptionAIPromptMaxLength.CHARACTERS}
                 />
             </LemonField>
             {showExamples ? (
                 <div className="flex flex-col gap-1">
-                    <span className="text-xs text-secondary">Try one of these questions:</span>
+                    <span className="text-xs text-secondary">Start with a goal:</span>
                     <div className="flex flex-wrap gap-1">
                         {AI_PROMPT_EXAMPLES.map((example) => (
                             <LemonButton

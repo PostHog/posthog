@@ -316,6 +316,7 @@ class Task(DeletedMetaFields, models.Model):
         # through the generally-available Inbox rather than PostHog Desktop.
         SIGNALS_CHAT = "signals_chat", "Signals Chat"
         TASK_ANALYSIS = "task_analysis", "Task Analysis"
+        PULSE_SUBSCRIPTION = "pulse_subscription", "Pulse Subscription"
         # A workflow's "Create AI task" action. Unattended like LOOP; the run executes as
         # the workflow's creator.
         WORKFLOW = "workflow", "Workflow"

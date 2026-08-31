@@ -7,9 +7,12 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type {
     AIReportQueryDiagnosticApi,
+    PulseRunHistoryDTOApi,
     SubscriptionDeliveryApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
+import { SubscriptionPulseDelivery } from './SubscriptionPulseDelivery'
 
 /** A completed AI delivery whose report couldn't compute some queries still shipped — but with missing
  * metrics — so it reads as "Partial", not a clean "Completed". Derived from the (query:viewer-gated)
@@ -313,7 +316,13 @@ function DeliveryInsightItems({ items }: { items: readonly DeliveryInsightItem[]
  * diagnostics) or per-item delivery detail (recipients / exported insights). Single source of truth for the
  * table's `rowExpandable` and `ExpandedDeliveryRow`'s early return, so the two can't disagree on which rows
  * are expandable. */
-export function deliveryRowHasExpandableContent(row: SubscriptionDeliveryApi): boolean {
+export function deliveryRowHasExpandableContent(
+    row: SubscriptionDeliveryApi,
+    pulseRun?: PulseRunHistoryDTOApi
+): boolean {
+    if (pulseRun) {
+        return true
+    }
     if (row.change_summary || row.ai_report || row.ai_report_prompt || (row.ai_report_diagnostics ?? []).length > 0) {
         return true
     }
@@ -378,14 +387,24 @@ function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQuery
 
 /** Expanded detail for a delivery row: AI summary, prompt at generation time, delivered report, per-query
  * accordion, plus per-recipient and per-insight delivery outcomes. Returns null when there's nothing to show. */
-export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element | null {
+export function ExpandedDeliveryRow({
+    row,
+    pulseRun,
+    pulseDecisionLoadingIds = {},
+    onPulseActionDecision,
+}: {
+    row: SubscriptionDeliveryApi
+    pulseRun?: PulseRunHistoryDTOApi
+    pulseDecisionLoadingIds?: Readonly<Record<string, true>>
+    onPulseActionDecision?: (actionId: string, decision: 'adopted' | 'dismissed') => void
+}): JSX.Element | null {
     const diagnostics = row.ai_report_diagnostics ?? []
     const report = row.ai_report
     const prompt = row.ai_report_prompt
     // Memoized: payloads can be large for dashboard exports and this row re-renders with the table.
     const recipients = useMemo(() => parseRecipientResults(row.recipient_results), [row.recipient_results])
     const insights = useMemo(() => parseContentSnapshotInsights(row.content_snapshot), [row.content_snapshot])
-    if (!deliveryRowHasExpandableContent(row)) {
+    if (!deliveryRowHasExpandableContent(row, pulseRun)) {
         return null
     }
     return (
@@ -433,6 +452,13 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
                     </div>
                     <GeneratedQueries diagnostics={diagnostics} />
                 </div>
+            ) : null}
+            {pulseRun ? (
+                <SubscriptionPulseDelivery
+                    run={pulseRun}
+                    decisionLoadingIds={pulseDecisionLoadingIds}
+                    onDecision={onPulseActionDecision}
+                />
             ) : null}
         </div>
     )

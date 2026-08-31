@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -13,7 +15,7 @@ import {
     SubscriptionsDeliveriesListStatus,
     TargetTypeEnumApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
-import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { PulseRunHistoryDTOApi, SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { NEGATIVE_FEEDBACK_SURVEY_ID, subscriptionSceneLogic } from './subscriptionSceneLogic'
 
@@ -89,9 +91,11 @@ const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
 
 describe('subscriptionSceneLogic', () => {
     let deliveriesRequestUrls: string[]
+    let pulseHistoryRequestUrls: string[]
 
     beforeEach(() => {
         deliveriesRequestUrls = []
+        pulseHistoryRequestUrls = []
         // deliveryFeedback persists to localStorage; clear it so recorded feedback can't leak between tests.
         localStorage.clear()
     })
@@ -227,6 +231,170 @@ describe('subscriptionSceneLogic', () => {
         expect(logic.values.subscription?.resource_type).toEqual(ResourceTypeEnumApi.AiPrompt)
         expect(logic.values.subscription?.prompt).toBeTruthy()
         expect(deliveriesRequestUrls).toHaveLength(1)
+        logic.unmount()
+    })
+
+    it('loads bounded Pulse history for an AI prompt subscription', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/pulse/history/`]: ({ request }) => {
+                    pulseHistoryRequestUrls.push(request.url)
+                    return [200, []]
+                },
+            },
+        })
+        initKeaTests()
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(pulseHistoryRequestUrls).toHaveLength(1)
+        expect(pulseHistoryRequestUrls[0]).toContain('subscription_id=2')
+        logic.unmount()
+    })
+
+    it('marks Pulse history unavailable when its request fails', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/pulse/history/`]: () => [500, { detail: 'Unavailable' }],
+            },
+        })
+        initKeaTests()
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.pulseHistoryLoadFailed).toBe(true)
+        logic.unmount()
+    })
+
+    it('persists a Pulse decision once, updates every history copy, and refreshes the server-owned result', async () => {
+        const actionId = '00000000-0000-4000-8000-000000000003'
+        const feedbackBodies: unknown[] = []
+        const pulseHistory = (): PulseRunHistoryDTOApi[] =>
+            [
+                {
+                    id: '00000000-0000-4000-8000-000000000004',
+                    subscription_id: 2,
+                    delivery_id: '00000000-0000-4000-8000-000000000005',
+                    status: 'completed',
+                    started_at: '2026-08-30T10:00:00Z',
+                    finished_at: '2026-08-30T10:01:00Z',
+                    task_id: null,
+                    analysis_task_run_id: null,
+                    execution_task_run_id: null,
+                    failure_code: null,
+                    skip_reason: null,
+                    deliveries: [],
+                    actions: [
+                        {
+                            id: actionId,
+                            action_key: 'recommendation-1',
+                            kind: 'recommendation',
+                            title: 'Review a conversion trend',
+                            rationale: 'A conversion rate changed.',
+                            expected_impact: 'Identify a regression.',
+                            rank: 1,
+                            implementation_selected: true,
+                            status: 'completed',
+                            evidence: [],
+                            citations: [],
+                            build_test_gate: null,
+                            artifacts: [],
+                        },
+                    ],
+                },
+            ] as unknown as PulseRunHistoryDTOApi[]
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/pulse/history/`]: ({ request }) => {
+                    pulseHistoryRequestUrls.push(request.url)
+                    return [200, pulseHistory()]
+                },
+            },
+            post: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/pulse/actions/${actionId}/decision/`]: async ({
+                    request,
+                }) => {
+                    feedbackBodies.push(await request.json())
+                    return [
+                        200,
+                        {
+                            plan_id: '00000000-0000-4000-8000-000000000006',
+                            action_id: actionId,
+                            adoption_status: 'adopted',
+                            readout_status: 'scheduled',
+                            adopted_at: '2026-08-30T10:02:00Z',
+                            decision_at: '2026-08-30T10:02:00Z',
+                            decided_by_id: 1,
+                            next_readout_at: '2026-09-06T10:02:00Z',
+                        },
+                    ]
+                },
+            },
+        })
+        initKeaTests()
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.decidePulseAction(actionId, 'adopted')
+            logic.actions.decidePulseAction(actionId, 'adopted')
+        }).toFinishAllListeners()
+
+        expect(feedbackBodies).toEqual([{ decision: 'adopted' }])
+        expect(pulseHistoryRequestUrls).toHaveLength(2)
+        expect(logic.values.pulseDecisionLoadingIds).toEqual({})
+        logic.unmount()
+    })
+
+    it('clears a failed Pulse decision and tells the person how to retry', async () => {
+        const actionId = '00000000-0000-4000-8000-000000000003'
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/pulse/history/`]: () => [200, []],
+            },
+            post: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/pulse/actions/${actionId}/decision/`]: () => [500, {}],
+            },
+        })
+        initKeaTests()
+        const toastSpy = jest.spyOn(lemonToast, 'error')
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.decidePulseAction(actionId, 'dismissed')
+        }).toFinishAllListeners()
+
+        expect(logic.values.pulseDecisionLoadingIds).toEqual({})
+        expect(toastSpy).toHaveBeenCalledWith('Could not update this recommendation. Try again.')
+        toastSpy.mockRestore()
         logic.unmount()
     })
 

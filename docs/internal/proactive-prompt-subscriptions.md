@@ -18,6 +18,10 @@ Enabling proactive follow-up also permits an eligible run to prepare an inert ex
 
 The `subscription-creation-wizard` experiment splits creation into Report, Actions, Notify, Schedule, and Review. Actions appears only for AI reports when proactive follow-up is available. Review shows the standing action consent before creation.
 
+Report suggestions describe outcomes such as activation, adoption, conversion, retention, and regressions. They remain editable and use the existing prompt field. When enabled, the first report can run immediately after the subscription is created.
+
+Actions shows unavailable capabilities with their current setup requirement. Public research remains limited to reviewed subjects supplied by the server, and draft pull requests remain limited to authorized repositories.
+
 Editing uses Content, Actions, Delivery, and Settings tabs under the same experiment. A saved Actions configuration remains visible when the server capability becomes unavailable so the owner can turn it off. All sections share one form and one persistent Save action; hidden validation errors move the user to the affected section.
 
 ## Delivery timing
@@ -25,6 +29,10 @@ Editing uses Content, Actions, Delivery, and Settings tabs under the same experi
 The scheduled report, proactive analysis, recommendations, and artifacts produce one immutable delivery bundle. The destination renderer reads that bundle once at the delivery cutoff. Artifact reconciliation may update subscription history later, but it does not send a second message.
 
 Each delivery may create at most one proactive run, one task, one analysis task run, one execution task run, three recommendations, one draft pull request, and one experiment draft. Overlapping deliveries do not start a second active run for the same subscription.
+
+## Billing
+
+Pulse sandbox runs use the reserved `pulse_subscription` task origin and the PostHog AI gateway product. Their model usage consumes the organization's AI credits under the existing AI spend limit. Generic `task_analysis` runs remain PostHog-funded and excluded from customer usage.
 
 ## Safety boundaries
 

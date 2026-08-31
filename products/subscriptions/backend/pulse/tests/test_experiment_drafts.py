@@ -15,7 +15,7 @@ from rest_framework.test import APIClient
 
 from posthog.dataclasses import frozen
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, PULSE_ANALYSIS_SCOPES
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, PULSE_ANALYSIS_SCOPES
 
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -83,7 +83,7 @@ def _create_pulse_experiment_draft_fixture(*, team: Team, user: User) -> _PulseE
         created_by=user,
         title="Pulse experiment execution",
         description="Create one inert experiment draft.",
-        origin_product=Task.OriginProduct.WORKFLOW,
+        origin_product=Task.OriginProduct.PULSE_SUBSCRIPTION,
         origin_key="pulse-experiment-execution",
         internal=True,
         state={
@@ -201,6 +201,14 @@ def _create_pulse_experiment_draft_fixture(*, team: Team, user: User) -> _PulseE
 class TestPulseExperimentDrafts(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        OAuthApplication.objects.create(
+            name="PostHog AI Dev App",
+            client_id=POSTHOG_AI_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/posthog-ai/callback",
+            algorithm="RS256",
+        )
         fixture = _create_pulse_experiment_draft_fixture(team=self.team, user=self.user)
         self.pulse_run = fixture.run
         self.task = fixture.task
@@ -257,6 +265,8 @@ class TestPulseExperimentDrafts(APIBaseTest):
         token = create_oauth_access_token_for_run_for_test(self.task, self.execution_run.state)
 
         access_token = OAuthAccessToken.objects.get(token=token)
+        assert access_token.application is not None
+        assert access_token.application.client_id == POSTHOG_AI_APP_CLIENT_ID_DEV
         assert access_token.sandbox_task_id == self.task.id
         assert access_token.user_id == self.user.id
         assert set(access_token.scope.split()) == {*PULSE_ANALYSIS_SCOPES, "pulse_experiment_draft:write"}
