@@ -5,7 +5,7 @@ import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/s
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
-    name: 'ReviewHog',
+    name: 'PostHog Review',
     scenes: {
         CodeReview: {
             name: 'Code review',

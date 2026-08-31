@@ -6,7 +6,7 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 from dateutil import parser
-from requests import Session
+from requests import Request, Response, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     PageNumberPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
@@ -89,12 +90,63 @@ def _client_config(username: str, password: str, api_version: str) -> ClientConf
     }
 
 
+class ProductTemplatePaginator(BasePaginator):
+    """Page Fourthwall's product-templates list.
+
+    That list carries a 1-based page number in the path (`/product-templates/page/{page}`) and
+    returns only `{results, total}` — no `totalPages` and no page-size parameter. So advance the
+    trailing path segment until a page comes back empty.
+    """
+
+    def __init__(self, page: int = 1) -> None:
+        super().__init__()
+        self.page = page
+        self._page_base: Optional[str] = None
+
+    def _apply_page(self, request: Request) -> None:
+        if self._page_base is None:
+            # The first URL ends in the page number; keep everything before it as the base.
+            self._page_base = (request.url or "").rsplit("/", 1)[0]
+        request.url = f"{self._page_base}/{self.page}"
+
+    def init_request(self, request: Request) -> None:
+        self._apply_page(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        self.page += 1
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._apply_page(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"page": self.page} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.page = int(page)
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"ProductTemplatePaginator(page={self.page})"
+
+
 def get_resource(endpoint: str, should_use_incremental_field: bool) -> EndpointResource:
     config = FOURTHWALL_ENDPOINTS[endpoint]
 
     endpoint_config: Endpoint = {"path": config.path}
 
-    if config.paginated:
+    if config.page_in_path:
+        # First page is 1; the paginator rewrites the trailing segment for later pages.
+        endpoint_config["path"] = f"{config.path}/1"
+        endpoint_config["data_selector"] = "results"
+        endpoint_config["data_selector_required"] = True
+        endpoint_config["paginator"] = ProductTemplatePaginator()
+    elif config.paginated:
         endpoint_config["params"] = {"size": PAGE_SIZE}
         endpoint_config["data_selector"] = "results"
         # `results` is a required field of Fourthwall's page envelope, so a response without it

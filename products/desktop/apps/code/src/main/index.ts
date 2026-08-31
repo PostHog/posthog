@@ -37,6 +37,7 @@ import type { UpdatesService } from "@posthog/core/updates/updates";
 import { CONNECTIVITY_CLIENT } from "@posthog/host-router/ports/connectivity-client";
 import { ENVIRONMENT_CLIENT } from "@posthog/host-router/ports/environment-client";
 import { FILE_WATCHER_CONTROL } from "@posthog/host-router/ports/file-watcher-control";
+import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type { ExternalAppsService } from "@posthog/workspace-server/services/external-apps/external-apps";
@@ -74,6 +75,7 @@ import {
 } from "./di/tokens";
 import { setupExternalLinkPermissionHandlers } from "./external-links";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
+import { registerDiskCacheProtocol } from "./protocols/disk-cache";
 import { registerMcpSandboxProtocol } from "./protocols/mcp-sandbox";
 import { destroyQuickAskWindow, setupQuickAsk } from "./quick-ask";
 import type { AppLifecycleService } from "./services/app-lifecycle/service";
@@ -171,6 +173,9 @@ const RECOVERABLE_RENDER_REASONS = new Set([
 const CRASH_LOOP_WINDOW_MS = 30_000;
 const CRASH_LOOP_THRESHOLD = 3;
 const recentCrashTimestamps: number[] = [];
+// Electron reports renderers torn down during quit as "killed", which is also
+// a recoverable reason, so recovery has to be gated on shutdown state instead.
+let shutdownStarted = false;
 
 function isCrashLoop(): boolean {
   const now = Date.now();
@@ -212,6 +217,13 @@ app.on("render-process-gone", (_event, webContents, details) => {
     },
   );
   posthogNodeAnalytics.flush().catch(() => {});
+
+  if (shutdownStarted) {
+    log.info("Skipping renderer recovery during shutdown", {
+      reason: details.reason,
+    });
+    return;
+  }
 
   if (RECOVERABLE_RENDER_REASONS.has(details.reason)) {
     if (isCrashLoop()) {
@@ -319,7 +331,7 @@ posthogNodeAnalytics.initialize();
 // native fetch and silently drops network.log capture.
 installMainFetchLogging();
 
-app.whenReady().then(async () => {
+async function boot(): Promise<void> {
   if (
     process.platform === "darwin" &&
     app.isPackaged &&
@@ -365,21 +377,18 @@ app.whenReady().then(async () => {
   ensureClaudeConfigDir();
   setupExternalLinkPermissionHandlers(session.fromPartition("persist:main"));
   registerMcpSandboxProtocol();
+  registerDiskCacheProtocol(container.get(DISK_CACHE_SERVICE));
   installRendererNetworkLogging(
     session.fromPartition("persist:main").webRequest,
     container.get<DevNetworkService>(DEV_NETWORK_SERVICE),
   );
   installYoutubeEmbedReferrer(session.fromPartition("persist:main").webRequest);
-  createWindow();
-  setupQuickAsk();
-  // The hidden quick-ask panel must not keep the app alive after the main
-  // window closes.
-  onMainWindowClosed(destroyQuickAskWindow);
-
   const wsServer = container.get<WorkspaceServerService>(
     WORKSPACE_SERVER_SERVICE,
   );
-  await wsServer.start();
+  await wsServer.start().catch((error: unknown) => {
+    log.error("workspace-server failed to start", error);
+  });
   // The workspace-server child respawns on a new port/secret after a crash;
   // a reconnecting client follows the current connection so main-process
   // callers don't keep hitting the dead port for the rest of the session.
@@ -437,6 +446,11 @@ app.whenReady().then(async () => {
   };
   container.bind(MAIN_FS_SERVICE).toConstantValue(fsCapability);
   container.bind(FS_SERVICE).toService(MAIN_FS_SERVICE);
+  createWindow();
+  setupQuickAsk();
+  // The hidden quick-ask panel must not keep the app alive after the main
+  // window closes.
+  onMainWindowClosed(destroyQuickAskWindow);
   await initializeServices();
   initializeDeepLinks();
 
@@ -453,7 +467,9 @@ app.whenReady().then(async () => {
     });
     log.info("E2E update hook installed on globalThis.__e2eUpdates");
   }
-});
+}
+
+app.whenReady().then(boot);
 
 app.on("window-all-closed", () => {
   app.quit();
@@ -468,6 +484,7 @@ const teardownContainer = async (): Promise<void> => {
 };
 
 app.on("before-quit", async (event) => {
+  shutdownStarted = true;
   try {
     container.get<WorkspaceServerService>(WORKSPACE_SERVER_SERVICE).stop();
   } catch {}
@@ -499,6 +516,7 @@ app.on("before-quit", async (event) => {
 
 const handleShutdownSignal = async (signal: string) => {
   log.info(`Received ${signal}, starting shutdown`);
+  shutdownStarted = true;
   try {
     const lifecycleService = container.get<AppLifecycleService>(
       APP_LIFECYCLE_SERVICE,

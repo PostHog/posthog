@@ -7,7 +7,9 @@ from products.tasks.backend.temporal.process_task.activities.read_sandbox_logs i
     read_sandbox_logs,
 )
 
-_SANDBOX_PATH = "products.tasks.backend.temporal.process_task.activities.read_sandbox_logs.Sandbox"
+_SANDBOX_PATH = (
+    "products.tasks.backend.temporal.process_task.activities.read_sandbox_logs.get_sandbox_class_for_sandbox_id"
+)
 
 
 def _run(sandbox_id: str, run_id: str | None = None) -> str:
@@ -19,7 +21,7 @@ def test_returns_terminated_message_when_sandbox_not_running():
     sandbox.is_running.return_value = False
 
     with patch(_SANDBOX_PATH) as mock_sandbox_cls:
-        mock_sandbox_cls.get_by_id.return_value = sandbox
+        mock_sandbox_cls.return_value.get_by_id.return_value = sandbox
         result = _run("sb-gone")
 
     assert result == SANDBOX_TERMINATED_MESSAGE
@@ -32,7 +34,7 @@ def test_returns_logs_when_running():
     sandbox.execute.return_value = MagicMock(stdout="agent server log line")
 
     with patch(_SANDBOX_PATH) as mock_sandbox_cls:
-        mock_sandbox_cls.get_by_id.return_value = sandbox
+        mock_sandbox_cls.return_value.get_by_id.return_value = sandbox
         result = _run("sb-running")
 
     assert "agent server log line" in result
@@ -44,7 +46,7 @@ def test_returns_terminated_message_on_mid_capture_termination():
     sandbox.execute.side_effect = SandboxNotRunningError("gone", {"sandbox_id": "sb-race"}, cause=RuntimeError("gone"))
 
     with patch(_SANDBOX_PATH) as mock_sandbox_cls:
-        mock_sandbox_cls.get_by_id.return_value = sandbox
+        mock_sandbox_cls.return_value.get_by_id.return_value = sandbox
         result = _run("sb-race")
 
     assert result == SANDBOX_TERMINATED_MESSAGE

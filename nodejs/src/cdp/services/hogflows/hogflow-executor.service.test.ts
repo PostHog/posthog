@@ -1,32 +1,34 @@
 // sort-imports-ignore
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { DateTime, Duration } from 'luxon'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
-import { compileHog } from '~/cdp/templates/compiler'
-import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-
-import { fetch } from '~/common/utils/request'
-import { logger } from '~/common/utils/logger'
-import { Hub } from '../../../types'
+import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
+import { compileHog } from '~/cdp/templates/compiler'
 import { createHub } from '~/common/utils/db/hub'
+import { logger } from '~/common/utils/logger'
+import { fetch } from '~/common/utils/request'
+import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
+
+import { Hub, Team } from '../../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
+import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
 import { HogExecutorAsyncService } from '../hog-executor-async.service'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
-import { EmailService } from '../messaging/email.service'
-import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
-import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
+import { EmailService } from '../messaging/email.service'
+import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
-import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
+import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
@@ -49,6 +51,8 @@ const cleanLogs = (logs: string[]): string[] => {
 describe('Hogflow Executor', () => {
     let executor: HogFlowExecutorService
     let hub: Hub
+    let team: Team
+    let integrationId: number
     const mockFetch = jest.mocked(fetch)
 
     beforeEach(async () => {
@@ -62,10 +66,11 @@ describe('Hogflow Executor', () => {
             }
         })
 
-        await resetTestDatabase()
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
+        team = (await createTestTeamFixture(hub.postgres)).team
+        integrationId = uniqueTestId()
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -80,10 +85,9 @@ describe('Hogflow Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres),
+            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
@@ -99,9 +103,14 @@ describe('Hogflow Executor', () => {
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
+                internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
             },
             {
                 teamManager: hub.teamManager,
+                conversationsTicketsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                    hub.CONVERSATIONS_TICKETS_JWT_SECRET
+                ),
                 hogInputsService,
                 emailService,
                 recipientTokensService,
@@ -2619,10 +2628,8 @@ describe('Hogflow Executor', () => {
         }
 
         it('should record billing metrics for both regular hog functions and email functions', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: integrationId,
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -2696,7 +2703,7 @@ describe('Hogflow Executor', () => {
                                             name: 'Recipient',
                                         },
                                         from: {
-                                            integrationId: 1,
+                                            integrationId,
                                         },
                                         subject: 'Test Email 1',
                                         text: 'Test Text 1',
@@ -2718,7 +2725,7 @@ describe('Hogflow Executor', () => {
                                             name: 'Recipient 2',
                                         },
                                         from: {
-                                            integrationId: 1,
+                                            integrationId,
                                         },
                                         subject: 'Test Email 2',
                                         text: 'Test Text 2',
@@ -2775,10 +2782,8 @@ describe('Hogflow Executor', () => {
 
     describe('email queue routing', () => {
         it('should route email actions to the email queue', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: integrationId,
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -2834,7 +2839,7 @@ describe('Hogflow Executor', () => {
                                     email: {
                                         value: {
                                             to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId: 1, email: 'test@posthog.com' },
+                                            from: { integrationId, email: 'test@posthog.com' },
                                             subject: 'Test Email',
                                             text: 'Test',
                                             html: '<p>Test</p>',
@@ -2869,10 +2874,8 @@ describe('Hogflow Executor', () => {
         })
 
         it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             await insertIntegration(hub.postgres, team.id, {
-                id: 1,
+                id: integrationId,
                 kind: 'email',
                 config: {
                     email: 'test@posthog.com',
@@ -2928,7 +2931,7 @@ describe('Hogflow Executor', () => {
                                     email: {
                                         value: {
                                             to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId: 1, email: 'test@posthog.com' },
+                                            from: { integrationId, email: 'test@posthog.com' },
                                             subject: 'Test Email',
                                             text: 'Test text',
                                             html: '<p>Test html</p>',

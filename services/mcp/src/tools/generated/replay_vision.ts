@@ -18,6 +18,7 @@ import {
     VisionObservationsListQueryParams,
     VisionObservationsRetrieveParams,
     VisionObservationsRetrieveQueryParams,
+    VisionObservationsSearchRetrieveQueryParams,
     VisionScannersAffectedCohortCreateBody,
     VisionScannersAffectedCohortCreateParams,
     VisionScannersCreateBody,
@@ -359,6 +360,33 @@ const visionObservationsRetrieve = (): ToolBase<
             await withPostHogUrl(context, result, `/replay/${result.session_id}`),
             "`_posthogUrl` opens the recording this observation analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
         )
+    },
+})
+
+const VisionObservationsSearchSchema = VisionObservationsSearchRetrieveQueryParams
+
+const visionObservationsSearch = (): ToolBase<
+    typeof VisionObservationsSearchSchema,
+    Schemas.ObservationSearchResponse
+> => ({
+    name: 'vision-observations-search',
+    schema: VisionObservationsSearchSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionObservationsSearchSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ObservationSearchResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/search/`,
+            query: {
+                limit: params.limit,
+                max_score: params.max_score,
+                min_score: params.min_score,
+                q: params.q,
+                scanner_id: params.scanner_id,
+                tags: params.tags,
+                verdict: params.verdict,
+            },
+        })
+        return result
     },
 })
 
@@ -936,6 +964,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-observations-label-destroy': visionObservationsLabelDestroy,
     'vision-observations-list': visionObservationsList,
     'vision-observations-retrieve': visionObservationsRetrieve,
+    'vision-observations-search': visionObservationsSearch,
     'vision-quota-retrieve': visionQuotaRetrieve,
     'vision-scanners-affected-cohort-create': visionScannersAffectedCohortCreate,
     'vision-scanners-create': visionScannersCreate,

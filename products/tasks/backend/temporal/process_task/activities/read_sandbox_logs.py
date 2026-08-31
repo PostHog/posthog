@@ -7,7 +7,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotRunningError
-from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
         sandbox_id=input.sandbox_id,
     ):
         try:
-            sandbox = Sandbox.get_by_id(input.sandbox_id)
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
             if not sandbox.is_running():
                 logger.info(f"Sandbox {input.sandbox_id} already terminated; skipping log capture")
                 return SANDBOX_TERMINATED_MESSAGE

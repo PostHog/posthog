@@ -27,6 +27,7 @@ import {
 } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
 import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { INSIGHT_GRAPH_DATA_ATTR } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -508,7 +509,7 @@ export function InsightVizDisplay({
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
                     !embedded && 'border rounded bg-surface-primary'
                 )}
-                data-attr="insights-graph"
+                data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
                 {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (

@@ -12,10 +12,12 @@ from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
+from posthog.temporal.oauth import grants_scratchpad_write
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -32,6 +34,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import (
+    RESEARCH_MCP_SCOPES,
     RunAgenticReportInput,
     _parse_artefact_content,
     _parse_stored_charts,
@@ -384,11 +387,17 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
 
         assert result.title == "Onboarding funnel completion tracking may be regressing"
 
-        # The findings cite no commits, so no reviewers artefact is written; the run must say why.
-        assert [call.kwargs["event"] for call in mock_capture.call_args_list] == [
-            "signals_suggested_reviewers_unresolved"
+        # Scoped to the reviewer events on purpose: patching `capture` on one module patches the
+        # shared `posthoganalytics` module, so every other event this activity fires lands in the
+        # same mock. This test owns the reviewer contract only.
+        reviewer_calls = [
+            call.kwargs
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"].startswith("signals_suggested_reviewers")
         ]
-        unresolved_props = mock_capture.call_args.kwargs["properties"]
+        # The findings cite no commits, so no reviewers artefact is written; the run must say why.
+        assert [call["event"] for call in reviewer_calls] == ["signals_suggested_reviewers_unresolved"]
+        unresolved_props = reviewer_calls[0]["properties"]
         assert unresolved_props["report_id"] == str(report.id)
         assert unresolved_props["outcome"] == "no_commit_hashes"
         assert unresolved_props["finding_count"] == 2
@@ -427,10 +436,75 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
             "task_id": None,
+            "autostart_eligible": True,
         }
 
         finding_contents = [json.loads(artefact.content) for artefact in artefacts[3:]]
         assert [finding["signal_id"] for finding in finding_contents] == ["sig-1", "sig-2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_hands_fleet_steering_to_the_research_session(monkeypatch, ateam):
+    # Resolving the team's steering and then not passing it to the session is the failure this
+    # whole path exists to prevent, and nothing downstream would report it: the run still produces
+    # a title, a summary, and both assessments, just without the feedback the team already gave.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+
+    def _leave_note() -> None:
+        with team_scope(ateam.id, canonical=True):
+            SignalScoutNote.objects.create(team=ateam, skill_name="", content="the checkout flow is frozen")
+
+    await database_sync_to_async(_leave_note)()
+
+    captured: dict = {}
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        captured.update(kwargs)
+        return _build_research_output()
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
+        lambda team_id: 1,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
+        fake_run_multi_turn_research,
+    )
+
+    with (
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.report.posthoganalytics.capture") as mock_capture,
+    ):
+        await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="test"),
+            )
+        )
+
+    assert "the checkout flow is frozen" in captured["steering_section"]
+    steering_events = [
+        call.kwargs
+        for call in mock_capture.call_args_list
+        if call.kwargs["event"] == "signals_research_steering_attached"
+    ]
+    assert len(steering_events) == 1
+    assert steering_events[0]["properties"]["notes_attached"] == 1
+    assert steering_events[0]["properties"]["dismissal_notes_attached"] == 0
+    # The memory protocol is rendered from the same posture the sandbox token is minted with, so a
+    # posture that stopped granting the scratchpad would silently drop the write half instead of
+    # telling the run to remember with a tool the MCP server has stripped.
+    assert grants_scratchpad_write(RESEARCH_MCP_SCOPES)
+    assert steering_events[0]["properties"]["memory_protocol"] is True
+    assert "scout-scratchpad-remember" in captured["steering_section"]
 
 
 @pytest.mark.asyncio
@@ -480,7 +554,13 @@ async def test_run_agentic_report_activity_keeps_quiet_when_reviewers_are_retain
             )
         )
 
-    assert mock_capture.call_args_list == []
+    # Reviewer events only: the shared `posthoganalytics` module means this mock also catches the
+    # other events the activity fires, and this test is about the reviewer contract.
+    assert [
+        call.kwargs["event"]
+        for call in mock_capture.call_args_list
+        if call.kwargs["event"].startswith("signals_suggested_reviewers")
+    ] == []
 
 
 @pytest.mark.asyncio

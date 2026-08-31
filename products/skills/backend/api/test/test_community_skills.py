@@ -11,6 +11,9 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
+
+from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ...models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
 from ...models.skills import LLMSkill
 from ..skill_template_services import (
@@ -26,11 +29,6 @@ from ..skill_template_services import (
     parse_template_variables,
     render_template_skill,
 )
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 def _create_community_skill(
@@ -206,6 +204,29 @@ class TestCommunitySkillAPI(APIBaseTest):
         CommunitySkill.objects.filter(pk=skill.pk).update(description="   ")
         response = self.client.post(self._url("web-analytics-triage/install/"), {})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
+
+    def test_install_accepts_description_at_spec_limit(self, _mock_flag) -> None:
+        skill = _create_community_skill(slug="web-analytics-triage")
+        CommunitySkill.objects.filter(pk=skill.pk).update(description="x" * SPEC_DESCRIPTION_MAX_LENGTH)
+
+        response = self.client.post(self._url("web-analytics-triage/install/"), {})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertTrue(LLMSkill.objects.filter(team=self.team).exists())
+
+    def test_install_rejects_description_over_spec_limit(self, _mock_flag) -> None:
+        skill = _create_community_skill(slug="web-analytics-triage")
+        CommunitySkill.objects.filter(pk=skill.pk).update(description="x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1))
+
+        response = self.client.post(self._url("web-analytics-triage/install/"), {})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["detail"],
+            f"This community skill has a description longer than {SPEC_DESCRIPTION_MAX_LENGTH} characters. "
+            "Ask its publisher to shorten it before installing.",
+        )
         self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
 
     def test_install_unknown_slug_returns_404(self, _mock_flag) -> None:

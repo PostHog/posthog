@@ -128,7 +128,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
               {/* Same key as the search box's hint: from inside a space it is
                   the way back to the list, which is what this row does. */}
               <Kbd className="mr-0! shrink-0 opacity-50">
-                {formatHotkey(SHORTCUTS.FOCUS_SPACE_SEARCH)}
+                {formatHotkey(SHORTCUTS.FOCUS_SIDEBAR_SEARCH)}
               </Kbd>
               {/* The star's well. Its height is unconditional — it is what
                   sets the row's height, and a row that changed height between a

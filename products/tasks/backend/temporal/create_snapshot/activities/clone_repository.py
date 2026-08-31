@@ -5,7 +5,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import GitHubAuthenticationError, RepositoryCloneError
-from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 from ..utils import get_github_token
@@ -37,7 +37,7 @@ def clone_repository(input: CloneRepositoryInput) -> str:
                 cause=e,
             )
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
         try:
             result = sandbox.clone_repository(ctx.repository, github_token)

@@ -650,6 +650,23 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         location = response.headers["Location"]
         self.assertIn("https://idp.hogflix.io/saml?SAMLRequest=", location)
 
+    def test_cannot_initiate_saml_flow_with_multiple_configurations(self):
+        config = self.organization_domain.saml_identity_provider_configs.first()
+        assert config is not None
+        duplicate_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            saml_entity_id=config.saml_entity_id,
+            saml_acs_url=config.saml_acs_url,
+            saml_x509_cert=config.saml_x509_cert,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.organization_domain, identity_provider_config=duplicate_config
+        )
+
+        response = self.client.get("/login/saml/?email=hellohello@posthog.com")
+
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
+
     def test_saml_flow_carries_next_url_in_relay_state(self):
         # The session cookie is SameSite=Lax, so it's dropped on the IdP's cross-site POST
         # back to /complete/saml/. The `next` redirect must therefore travel in RelayState

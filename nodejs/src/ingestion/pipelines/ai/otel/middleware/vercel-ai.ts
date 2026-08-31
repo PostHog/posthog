@@ -1,5 +1,5 @@
 import { parseJSON } from '~/common/utils/json-parse'
-import { COSTED_AI_EVENT_TYPES } from '~/ingestion/pipelines/ai/ai-event-types'
+import { COSTED_AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { finiteNumberOrUndefined } from '~/ingestion/pipelines/ai/costs/cost-utils'
 import { mustAddReasoningCost } from '~/ingestion/pipelines/ai/costs/output-costs'
 import { PluginEvent } from '~/plugin-scaffold'

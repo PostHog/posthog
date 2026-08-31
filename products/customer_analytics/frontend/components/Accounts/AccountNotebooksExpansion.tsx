@@ -5,6 +5,7 @@ import {
     IconCloud,
     IconCopy,
     IconDatabase,
+    IconGlobe,
     IconGraph,
     IconPencil,
     IconPeople,
@@ -68,6 +69,7 @@ function getPreview(notebook: AccountNotebookApi): string {
 }
 
 const LINK_ICONS: Record<string, JSX.Element> = {
+    website: <IconGlobe />,
     organization: <IconPeople />,
     revenue: <IconPiggyBank />,
     'usage-dashboard': <IconGraph />,

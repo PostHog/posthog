@@ -1,10 +1,15 @@
 """Unit tests for logic/toleration.py — Tolerated hashes."""
 
+from datetime import timedelta
+
 import pytest
 
+from django.utils import timezone
+
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import ActorType, RunType, SnapshotResult
 from products.visual_review.backend.logic import artifact_store, repos, runs, toleration
+from products.visual_review.backend.models import ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -41,12 +46,16 @@ class TestToleratedHashes:
         runs.finish_processing(run.id)
         return run
 
-    def test_mark_snapshot_as_tolerated(self, repo, user, mocker):
+    @pytest.mark.parametrize(
+        "actor,expected_reason",
+        [(ActorType.HUMAN, "human"), (ActorType.AGENT, "agent")],
+    )
+    def test_mark_snapshot_as_tolerated(self, repo, user, mocker, actor, expected_reason):
         run = self._create_completed_run(repo, mocker)
         snapshot = run.snapshots.first()
         assert snapshot.result == SnapshotResult.CHANGED
 
-        updated = toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, repo.team_id)
+        updated = toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, repo.team_id, actor=actor)
 
         assert updated.result == SnapshotResult.CHANGED  # result stays technical truth
         assert updated.review_state == "tolerated"
@@ -54,7 +63,31 @@ class TestToleratedHashes:
         assert updated.tolerated_hash_match is not None
         assert updated.tolerated_hash_match.alternate_hash == "new_hash"
         assert updated.tolerated_hash_match.baseline_hash == "old_hash"
+        assert updated.tolerated_hash_match.reason == expected_reason
+
+    def test_tolerating_revives_an_expired_hash(self, repo, user, mocker):
+        run = self._create_completed_run(repo, mocker)
+        snapshot = run.snapshots.first()
+        toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, repo.team_id)
+        tolerated = ToleratedHash.objects.get(repo_id=repo.id, identifier="Button")
+        created_at = tolerated.created_at
+        tolerated.expires_at = timezone.now() - timedelta(days=1)
+        tolerated.save(update_fields=["expires_at"])
+
+        updated = toleration.mark_snapshot_as_tolerated(
+            run.id, snapshot.id, user.id, repo.team_id, actor=ActorType.AGENT
+        )
+
+        # An expired row is invisible to the classifier, so leaving it expired would
+        # make the toleration look like it worked and change nothing.
+        assert updated.tolerated_hash_match is not None
+        assert updated.tolerated_hash_match.expires_at is None
+        # The row is shared with the snapshots that already matched it, and the
+        # flakiness and overview aggregates read reason and created_at to describe
+        # those runs, so a revive must not rewrite them.
         assert updated.tolerated_hash_match.reason == "human"
+        assert updated.tolerated_hash_match.created_at == created_at
+        assert ToleratedHash.objects.filter(repo_id=repo.id, identifier="Button").count() == 1
 
     def test_mark_unchanged_snapshot_rejected(self, repo, user, mocker):
         artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="same", storage_path="p/same")
