@@ -362,18 +362,18 @@ describe('pydantic-ai middleware', () => {
     describe('sets $ai_stop_reason', () => {
         it.each<[string, unknown[], string | undefined]>([
             [
-                'the last message that names one',
+                'the first choice that names one',
                 [
                     { role: 'assistant', content: 'first', finish_reason: 'stop' },
                     { role: 'assistant', content: 'second', finish_reason: 'length' },
                 ],
-                'length',
+                'stop',
             ],
             [
-                'past messages that name none',
+                'past choices that name none',
                 [
-                    { role: 'assistant', content: 'first', finish_reason: 'content_filter' },
-                    { role: 'assistant', content: 'second' },
+                    { role: 'assistant', content: 'first' },
+                    { role: 'assistant', content: 'second', finish_reason: 'content_filter' },
                 ],
                 'content_filter',
             ],

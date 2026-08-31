@@ -21,8 +21,11 @@ export function liftStopReasonFromOutputChoices(props: Record<string, unknown>):
     if (props['$ai_stop_reason'] !== undefined || !Array.isArray(props['$ai_output_choices'])) {
         return
     }
-    // The last entry that names a reason describes how the response ended.
-    const reason = props['$ai_output_choices'].map(finishReasonOf).findLast((r) => r !== undefined)
+    // Every carrier that lands here holds one entry per choice, never sequential parts of one
+    // response: the GenAI semconv defines output messages as choices, and pydantic-ai asserts a
+    // single one per span. Take the first named reason, the choice the trace view renders first,
+    // matching the flat `finish_reasons[0]` reads.
+    const reason = props['$ai_output_choices'].map(finishReasonOf).find((r) => r !== undefined)
     if (reason !== undefined) {
         props['$ai_stop_reason'] = reason
     }
