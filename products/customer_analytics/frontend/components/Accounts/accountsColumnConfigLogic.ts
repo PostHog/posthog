@@ -393,7 +393,7 @@ export interface accountsColumnConfigLogicActions {
     hideColumnConfigurator: () => {
         value: true
     }
-    loadAccountsSchema: (_: any) => any
+    loadAccountsSchema: () => any
     loadAccountsSchemaFailure: (
         error: string,
         errorObject?: any
@@ -695,7 +695,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         accountsSchema: [
             null as Record<string, DatabaseSchemaTable> | null,
             {
-                loadAccountsSchema: async (_, breakpoint): Promise<Record<string, DatabaseSchemaTable>> => {
+                loadAccountsSchema: async (): Promise<Record<string, DatabaseSchemaTable>> => {
                     const response = await performQuery(
                         setLatestVersionsOnQuery({
                             kind: NodeKind.DatabaseSchemaQuery,
@@ -703,7 +703,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                         }) as DatabaseSchemaQuery
                     )
-                    breakpoint()
                     return response.tables ?? {}
                 },
             },
