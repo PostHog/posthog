@@ -1,11 +1,21 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
-import { IconCheck, IconX } from '@posthog/icons'
-import { LemonButton, LemonColorGlyph, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
+import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonColorGlyph,
+    LemonInput,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTable,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 
 import type { DataColorToken } from 'lib/colors'
+import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Sparkline } from 'lib/components/Sparkline'
@@ -36,7 +46,7 @@ import { AccountNameCell } from './AccountNameCell'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
-import { accountsLogic, savingRoleKey } from './accountsLogic'
+import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { AccountsEvents } from './constants'
 
@@ -351,24 +361,61 @@ function CanonicalTimestampCell({
     )
 }
 
-function CustomPropertyCell({
-    record,
-    column,
-    definition,
-    display,
-}: {
-    record: unknown
-    column: string
-    definition: CustomPropertyDefinitionApi
-    display?: AccountColumnDisplayConfig
-}): JSX.Element {
-    const getCell = useGetCell()
-    const raw = getCell(record, column)
-    if (display) {
-        return <CustomPropertyHistoryCell raw={raw} definition={definition} display={display} />
-    }
-    const value = raw === null || raw === undefined ? '' : String(raw)
+export function isCustomPropertyEditable(definition: CustomPropertyDefinitionApi): boolean {
+    return !definition.is_canonical && !definition.source && definition.references.length === 0
+}
 
+type CustomPropertyDraft = boolean | string
+
+function customPropertyDraftValue(value: unknown, definition: CustomPropertyDefinitionApi): CustomPropertyDraft {
+    if (definition.display_type === 'boolean') {
+        return value === true || value === 'true' || value === '1'
+    }
+    if (value === null || value === undefined) {
+        return ''
+    }
+    if (definition.display_type === 'percent') {
+        const percentageValue = Number(value) * 100
+        return Number.isFinite(percentageValue) ? String(percentageValue) : ''
+    }
+    return String(value)
+}
+
+function customPropertyValueToSave(
+    draft: CustomPropertyDraft,
+    definition: CustomPropertyDefinitionApi
+): string | number | boolean {
+    if (definition.display_type === 'boolean') {
+        return draft === true
+    }
+    if (definition.display_type === 'number' || definition.display_type === 'currency') {
+        return Number(draft)
+    }
+    if (definition.display_type === 'percent') {
+        return Number(draft) / 100
+    }
+    return draft
+}
+
+function canSaveCustomPropertyValue(draft: CustomPropertyDraft, definition: CustomPropertyDefinitionApi): boolean {
+    if (definition.display_type === 'boolean') {
+        return true
+    }
+    if (
+        definition.display_type === 'number' ||
+        definition.display_type === 'currency' ||
+        definition.display_type === 'percent'
+    ) {
+        return draft !== '' && Number.isFinite(Number(draft))
+    }
+    return definition.display_type !== 'date' && definition.display_type !== 'datetime' ? true : draft !== ''
+}
+
+function renderCustomPropertyValue(
+    record: unknown,
+    value: string,
+    definition: CustomPropertyDefinitionApi
+): JSX.Element {
     if (!value) {
         return <span className="text-muted">—</span>
     }
@@ -399,6 +446,185 @@ function CustomPropertyCell({
         )
     }
     return <span>{formatCustomPropertyValue(value, definition)}</span>
+}
+
+function renderCustomPropertyEditor(
+    draft: CustomPropertyDraft,
+    definition: CustomPropertyDefinitionApi,
+    setDraft: (draft: CustomPropertyDraft) => void,
+    saveValue: () => void
+): JSX.Element {
+    if (definition.display_type === 'boolean') {
+        return (
+            <LemonSwitch
+                checked={draft === true}
+                onChange={setDraft}
+                size="small"
+                aria-label="Custom property value"
+                data-attr="accounts-custom-property-value-input"
+            />
+        )
+    }
+    if (definition.display_type === 'select') {
+        return (
+            <LemonSelect
+                value={typeof draft === 'string' ? draft : ''}
+                onChange={(value) => setDraft(value ?? '')}
+                options={(definition.options ?? []).map((option) => ({
+                    value: option.label,
+                    label: (
+                        <span className="inline-flex items-center gap-1.5">
+                            <LemonColorGlyph colorToken={option.color as DataColorToken} size="small" />
+                            {option.label}
+                        </span>
+                    ),
+                }))}
+                size="small"
+                data-attr="accounts-custom-property-value-input"
+            />
+        )
+    }
+    if (definition.display_type === 'date' || definition.display_type === 'datetime') {
+        return (
+            <DatePicker
+                value={typeof draft === 'string' && draft ? dayjs(draft) : null}
+                onChange={(value) =>
+                    setDraft(
+                        value
+                            ? definition.display_type === 'datetime'
+                                ? value.toISOString()
+                                : value.format('YYYY-MM-DD')
+                            : ''
+                    )
+                }
+                granularity={definition.display_type === 'datetime' ? 'minute' : 'day'}
+                format={definition.display_type === 'datetime' ? 'MMM D, YYYY HH:mm' : 'MMM D, YYYY'}
+                size="small"
+                data-attr="accounts-custom-property-value-input"
+            />
+        )
+    }
+    const isNumeric =
+        definition.display_type === 'number' ||
+        definition.display_type === 'currency' ||
+        definition.display_type === 'percent'
+    if (isNumeric) {
+        const numericValue = typeof draft === 'string' && draft ? Number(draft) : undefined
+        return (
+            <LemonInput
+                type="number"
+                value={numericValue}
+                onChange={(value) => setDraft(value === undefined ? '' : String(value))}
+                onPressEnter={saveValue}
+                size="small"
+                step="any"
+                suffix={definition.display_type === 'percent' ? <span>%</span> : undefined}
+                data-attr="accounts-custom-property-value-input"
+            />
+        )
+    }
+    return (
+        <LemonInput
+            type={definition.display_type === 'link' ? 'url' : 'text'}
+            value={typeof draft === 'string' ? draft : ''}
+            onChange={setDraft}
+            onPressEnter={saveValue}
+            size="small"
+            data-attr="accounts-custom-property-value-input"
+        />
+    )
+}
+
+function CustomPropertyCell({
+    record,
+    column,
+    definition,
+    display,
+    isEditable,
+}: {
+    record: unknown
+    column: string
+    definition: CustomPropertyDefinitionApi
+    display?: AccountColumnDisplayConfig
+    isEditable: boolean
+}): JSX.Element {
+    const { customPropertyOverrides, isCustomPropertySaving } = useValues(accountsLogic)
+    const { updateAccountCustomProperty } = useActions(accountsLogic)
+    const getCell = useGetCell()
+    const raw = getCell(record, column)
+    const accountId = getNameCell(record)?.id
+    const override = accountId ? customPropertyOverrides[customPropertySavingKey(accountId, definition.id)] : undefined
+    const currentValue = display
+        ? (buildHistoryDisplay(parseHistoryPoints(raw), display.window_days, dayjs().valueOf()).latest?.[1] ?? null)
+        : raw
+    const value = override ?? currentValue
+    const [isEditing, setIsEditing] = useState(false)
+    const [draft, setDraft] = useState<CustomPropertyDraft>(() => customPropertyDraftValue(value, definition))
+    const saving = accountId ? isCustomPropertySaving(accountId, definition.id) : false
+
+    const openEditor = (): void => {
+        setDraft(customPropertyDraftValue(value, definition))
+        setIsEditing(true)
+    }
+    const saveValue = (): void => {
+        if (!accountId || !canSaveCustomPropertyValue(draft, definition)) {
+            return
+        }
+        updateAccountCustomProperty(accountId, definition, customPropertyValueToSave(draft, definition))
+        setIsEditing(false)
+    }
+
+    if (isEditing && accountId) {
+        return (
+            <div className="flex min-w-52 items-center gap-1">
+                <div className="min-w-0 flex-1">
+                    {renderCustomPropertyEditor(draft, definition, setDraft, saveValue)}
+                </div>
+                <LemonButton
+                    type="primary"
+                    size="xsmall"
+                    icon={<IconCheck />}
+                    tooltip="Save"
+                    onClick={saveValue}
+                    disabledReason={canSaveCustomPropertyValue(draft, definition) ? undefined : 'Enter a value'}
+                    data-attr="accounts-custom-property-value-save"
+                />
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    icon={<IconX />}
+                    tooltip="Cancel"
+                    onClick={() => setIsEditing(false)}
+                    data-attr="accounts-custom-property-value-cancel"
+                />
+            </div>
+        )
+    }
+
+    const displayValue = value === null || value === undefined ? '' : String(value)
+    const renderedValue =
+        display && override === undefined ? (
+            <CustomPropertyHistoryCell raw={raw} definition={definition} display={display} />
+        ) : (
+            renderCustomPropertyValue(record, displayValue, definition)
+        )
+    return (
+        <div className="flex min-w-0 items-center gap-1">
+            <span className="min-w-0 truncate">{renderedValue}</span>
+            {isEditable && accountId && (
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    icon={<IconPencil />}
+                    tooltip="Edit"
+                    loading={saving}
+                    disabledReason={saving ? 'Saving…' : undefined}
+                    onClick={openEditor}
+                    data-attr="accounts-custom-property-value-edit"
+                />
+            )}
+        </div>
+    )
 }
 
 function SortableColumnHeader({ column, label }: { column: string; label: string }): JSX.Element {
@@ -474,7 +700,13 @@ function useContextColumns(): Record<string, QueryContextColumn> {
                 columns[key] = {
                     renderTitle: () => <SortableColumnHeader column={key} label={definition.name} />,
                     render: ({ record }) => (
-                        <CustomPropertyCell record={record} column={key} definition={definition} display={display} />
+                        <CustomPropertyCell
+                            record={record}
+                            column={key}
+                            definition={definition}
+                            display={display}
+                            isEditable={isCustomPropertyEditable(definition)}
+                        />
                     ),
                 }
                 continue

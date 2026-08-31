@@ -1,6 +1,6 @@
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { buildHistoryDisplay, getCanonicalPropertyTab } from './AccountsTable'
+import { buildHistoryDisplay, getCanonicalPropertyTab, isCustomPropertyEditable } from './AccountsTable'
 
 const DAY = 24 * 60 * 60
 const NOW_MS = 1_800_000_000_000
@@ -42,6 +42,26 @@ describe('buildHistoryDisplay', () => {
 
     it('returns empty state for no history', () => {
         expect(buildHistoryDisplay([], 7, NOW_MS)).toEqual({ latest: null, baseline: null, chartPoints: [] })
+    })
+})
+
+describe('isCustomPropertyEditable', () => {
+    const definition = (overrides: Partial<CustomPropertyDefinitionApi> = {}): CustomPropertyDefinitionApi =>
+        ({ is_canonical: false, source: null, references: [], ...overrides }) as CustomPropertyDefinitionApi
+
+    it.each([
+        ['manual', definition(), true],
+        ['canonical', definition({ is_canonical: true }), false],
+        ['data warehouse managed', definition({ source: {} as CustomPropertyDefinitionApi['source'] }), false],
+        [
+            'workflow managed',
+            definition({
+                references: [{ id: 'workflow-1', name: 'Update value', status: 'active', type: 'workflow' }],
+            }),
+            false,
+        ],
+    ])('marks %s definitions editable only when users can safely set their value', (_, value, expected) => {
+        expect(isCustomPropertyEditable(value)).toBe(expected)
     })
 })
 

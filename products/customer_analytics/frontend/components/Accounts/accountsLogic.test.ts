@@ -18,6 +18,7 @@ import { PropertyFilterType, PropertyOperator, type UserBasicType, type UserType
 
 import {
     accountRelationshipDefinitionsList,
+    accountsCustomPropertyValuesCreate,
     accountsPartialUpdate,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
@@ -39,7 +40,7 @@ import {
     relationshipAlias,
 } from './accountsColumnConfigLogic'
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
-import { accountsLogic, savingRoleKey } from './accountsLogic'
+import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsEvents } from './constants'
 
 const assignedToFilterOf = (query: AccountsTableQuery | null): number[] | undefined =>
@@ -51,6 +52,7 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountRelationshipDefinitionsList: jest.fn(),
     customPropertyDefinitionsList: jest.fn(),
+    accountsCustomPropertyValuesCreate: jest.fn(),
     accountsPartialUpdate: jest.fn(),
     accountsRelationshipsCreate: jest.fn(),
     accountsRelationshipsEndCreate: jest.fn(),
@@ -68,6 +70,9 @@ const mockRelationshipsEnd = accountsRelationshipsEndCreate as jest.MockedFuncti
     typeof accountsRelationshipsEndCreate
 >
 const mockRelationshipsList = accountsRelationshipsList as jest.MockedFunction<typeof accountsRelationshipsList>
+const mockCustomPropertyValuesCreate = accountsCustomPropertyValuesCreate as jest.MockedFunction<
+    typeof accountsCustomPropertyValuesCreate
+>
 const mockPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
 
 const CSM_DEFINITION_ID = '11111111-2222-3333-4444-555555555555'
@@ -119,6 +124,21 @@ const buildUser = (overrides: Partial<UserBasicType> = {}): UserBasicType =>
         email: 'alex@example.com',
         ...overrides,
     }) as UserBasicType
+
+const buildCustomPropertyDefinition = (
+    overrides: Partial<CustomPropertyDefinitionApi> = {}
+): CustomPropertyDefinitionApi => ({
+    id: 'custom-property-1',
+    name: 'Health score',
+    display_type: 'number',
+    is_canonical: false,
+    source: null,
+    references: [],
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    ...overrides,
+})
 
 describe('accountsLogic', () => {
     let logic: ReturnType<typeof accountsLogic.build>
@@ -724,6 +744,64 @@ describe('accountsLogic', () => {
             router.actions.push(urls.customerAnalyticsAccounts())
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.accountIdFilter).toBeNull()
+        })
+    })
+
+    describe('updateAccountCustomProperty', () => {
+        it('writes the value and masks stale query data with the saved value', async () => {
+            const definition = buildCustomPropertyDefinition()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            mockCustomPropertyValuesCreate.mockResolvedValue({
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: definition.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            })
+
+            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockCustomPropertyValuesCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                definition: definition.id,
+                value: 42,
+            })
+            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBe(42)
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, { display_type: 'number' })
+        })
+
+        it.each([
+            ['canonical', buildCustomPropertyDefinition({ is_canonical: true })],
+            [
+                'data warehouse managed',
+                buildCustomPropertyDefinition({ source: {} as CustomPropertyDefinitionApi['source'] }),
+            ],
+            [
+                'workflow managed',
+                buildCustomPropertyDefinition({
+                    references: [{ id: 'workflow-1', name: 'Update health score', status: 'active', type: 'workflow' }],
+                }),
+            ],
+        ])('does not write a %s property', async (_, definition) => {
+            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockCustomPropertyValuesCreate).not.toHaveBeenCalled()
+        })
+
+        it('reverts the optimistic override after a failed write', async () => {
+            const definition = buildCustomPropertyDefinition()
+            mockCustomPropertyValuesCreate.mockRejectedValueOnce(new Error('boom'))
+
+            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(
+                logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]
+            ).toBeUndefined()
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
         })
     })
 
