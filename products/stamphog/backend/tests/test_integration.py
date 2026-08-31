@@ -44,8 +44,13 @@ from products.stamphog.backend.temporal.activities import (
     list_in_flight_reviewer_bots,
     mark_review_failed,
     post_verdict,
+    run_review_in_sandbox,
 )
-from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_CONTEXT_PATH, STAMPHOG_SANDBOX_REPO_DIR
+from products.stamphog.backend.temporal.constants import (
+    STAMPHOG_SANDBOX_CONTEXT_PATH,
+    STAMPHOG_SANDBOX_REPO_DIR,
+    SandboxPhaseError,
+)
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogChain, _run_activity
 from products.tasks.backend.models import Task, TaskRun
@@ -228,6 +233,65 @@ def test_sandbox_destroy_failure_does_not_mask_a_completed_review(team, stamphog
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_failure_once_the_sandbox_exists_is_not_retried(team, stamphog_chain: StamphogChain) -> None:
+    # Provisioning the box is the first paid step, so a failure from there on must reach Temporal as
+    # SandboxPhaseError. Without the marker SANDBOX_RETRY_POLICY would run the reviewer agent again
+    # and bill a second time for one review.
+    _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha110a"
+    recorder.register_pr(REPO, 110, _pr_object(110, author, head_sha), _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+    stamphog_chain.sandbox_class.create_error = RuntimeError("modal refused the box")
+
+    status = stamphog_chain.post_webhook(_opened_event(110, author, head_sha), delivery_id=str(uuid.uuid4()))
+    assert status == 202
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.FAILED
+    # The record names the marker and the failing type, and carries nothing from the sandbox: run.error
+    # is readable with stamphog:read by people who need no access to the repository, and everything in
+    # this phase derives from an untrusted PR head.
+    assert run.error == "SandboxPhaseError: the sandbox phase failed with RuntimeError"
+    assert "modal refused the box" not in (run.error or "")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_second_attempt_never_provisions_a_second_sandbox(team, stamphog_chain: StamphogChain) -> None:
+    # Temporal enforces the start-to-close timeout itself and retries a lost worker, and neither path
+    # raises anything the SandboxPhaseError marker can catch. Only the run-level stamp stops such a
+    # retry from provisioning a second box and billing a second reviewer agent.
+    _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha111a"
+    recorder.register_pr(REPO, 111, _pr_object(111, author, head_sha), _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+    stamphog_chain.sandbox_class.create_error = RuntimeError("modal refused the box")
+
+    stamphog_chain.post_webhook(_opened_event(111, author, head_sha), delivery_id=str(uuid.uuid4()))
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert len(stamphog_chain.sandbox_class.created_configs) == 1
+
+    # Clearing the scripted failure is what makes this prove the stamp: a second attempt would
+    # otherwise provision successfully and run the reviewer again.
+    stamphog_chain.sandbox_class.create_error = None
+    with pytest.raises(SandboxPhaseError):
+        _run_activity(run_review_in_sandbox, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+    assert len(stamphog_chain.sandbox_class.created_configs) == 1
+
+
+def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
+    # PyYAML names the offending construct on its first line, and that line is what mark_review_failed
+    # persists into run.error, which is readable with stamphog:read by people who need no access to
+    # the repository. The default branch it comes from is private to that repository.
+    with pytest.raises(RuntimeError) as raised:
+        activities._overlay_policy_yaml("acme/widgets", "version: 1\n", "!a-private-internal-tag {}\n")
+
+    assert "a-private-internal-tag" not in str(raised.value)
+    assert ".stamphog/policy.yml" in str(raised.value)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_sandbox_gets_minted_short_lived_credential_and_closed_egress(
     team, user, stamphog_chain: StamphogChain
 ) -> None:
@@ -382,6 +446,9 @@ def test_hosted_review_fails_closed_without_gateway_instead_of_anthropic_fallbac
     assert run.status == ReviewRunStatus.FAILED
     assert "gateway" in (run.error or "").lower()
     assert not stamphog_chain.sandbox_class.created_configs  # no sandbox was ever provisioned
+    # Nothing was paid for, so this failure must stay retryable: SANDBOX_RETRY_POLICY gives another
+    # attempt to every type except SandboxPhaseError.
+    assert not (run.error or "").startswith("SandboxPhaseError")
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

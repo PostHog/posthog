@@ -69,6 +69,7 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_SANDBOX_OWNERS_DIR,
     STAMPHOG_SANDBOX_REPO_DIR,
     STAMPHOG_TRUSTED_REACTOR_BOTS,
+    SandboxPhaseError,
 )
 from products.tasks.backend.facade.sandbox import (
     SandboxBase,
@@ -483,37 +484,68 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         environment_variables=environment,
         outbound_domain_allowlist=_sandbox_egress_allowlist(),
     )
-    sandbox = sandbox_class.create(config)
-    try:
-        _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token)
-        _inject_policy_files(sandbox, policy_files)
-        _ship_engine(sandbox)
-        _write_context(sandbox, invocation)
-
-        command = f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
-        result = sandbox.execute(command, timeout_seconds=25 * 60)
-    finally:
-        # A destroy failure must not mask a completed review — the verdict below still has to be
-        # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
-        try:
-            sandbox.destroy()
-        except Exception:
-            activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
-
-    # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
-    # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
-    run.output = {
-        **(run.output or {}),
-        "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
-        "reviewer_exit_code": result.exit_code,
-    }
+    # The steps above cost nothing and keep their own exception type. From here the run makes a
+    # sandbox and can run the reviewer, so failures raise SandboxPhaseError, which the retry policy
+    # excludes. Both statements stay outside the try below, so the refusal keeps its own type and a
+    # failed write stays retryable.
+    #
+    # Temporal applies the start-to-close timeout and retries a lost worker. Neither path raises a
+    # type this code can mark, so the claim is what stops a second sandbox. Read it from the writer,
+    # because a stalled attempt holds a copy from before its replacement wrote. Read and then write
+    # is not atomic: two attempts in the same instant both pass. A column and a conditional update
+    # would close that.
+    latest_output = (
+        ReviewRun.objects.for_team(input.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=run.id)
+        .values_list("output", flat=True)
+        .first()
+    ) or {}
+    if latest_output.get("sandbox_started_at"):
+        raise SandboxPhaseError("an earlier attempt already provisioned a sandbox for this run")
+    run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
     run.save(update_fields=["output", "updated_at"])
 
-    if result.exit_code != 0:
-        raise RuntimeError(
-            f"Reviewer exited with code {result.exit_code}: "
-            f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
-        )
+    try:
+        sandbox = sandbox_class.create(config)
+        try:
+            _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token)
+            _inject_policy_files(sandbox, policy_files)
+            _ship_engine(sandbox)
+            _write_context(sandbox, invocation)
+
+            command = f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
+            result = sandbox.execute(command, timeout_seconds=25 * 60)
+        finally:
+            # A destroy failure must not mask a completed review — the verdict below still has to be
+            # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
+            try:
+                sandbox.destroy()
+            except Exception:
+                activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
+
+        # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
+        # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
+        run.output = {
+            **(run.output or {}),
+            "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
+            "reviewer_exit_code": result.exit_code,
+        }
+        run.save(update_fields=["output", "updated_at"])
+
+        if result.exit_code != 0:
+            # The reviewer reads an untrusted PR head, so its stderr can contain repository content.
+            # This message reaches run.error, so keep the stderr in the worker log only.
+            activity.logger.error(
+                f"Reviewer exited with code {result.exit_code} for run {run.id}: "
+                f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
+            )
+            raise RuntimeError(f"reviewer exited with code {result.exit_code}")
+    except Exception as exc:
+        # Give the type only. Every step in this phase touches the sandbox, and anyone with
+        # stamphog:read can read run.error without access to the repository. The setup phase above
+        # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
+        raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
 
     activity.logger.info(f"Reviewer completed for run {run.id}")
     return {"exit_code": result.exit_code}
@@ -1109,7 +1141,10 @@ def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) ->
     try:
         overlay = yaml.safe_load(repo_text)
     except yaml.YAMLError as exc:
-        raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml: {exc}") from exc
+        # PyYAML puts the bad tag on the first line, and run.error keeps that line. Anyone with
+        # stamphog:read can read it without access to the repository, so log the parser text instead.
+        activity.logger.error(f"Malformed YAML in .stamphog/policy.yml for {repo}: {exc}")
+        raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
     if not isinstance(overlay, dict):
         raise RuntimeError(f"repo {repo} .stamphog/policy.yml must be a YAML mapping to overlay the defaults")
     merged = {**yaml.safe_load(default_text), **overlay}
