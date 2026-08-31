@@ -172,8 +172,8 @@ def _cache_url_resolution() -> None:
         match = object.__new__(type(hit))
         match.__dict__.update(hit.__dict__)
         match.kwargs = dict(hit.kwargs)
-        match.captured_kwargs = dict(getattr(hit, "captured_kwargs", None) or {})
-        match.extra_kwargs = dict(getattr(hit, "extra_kwargs", None) or {})
+        match.captured_kwargs = dict(getattr(hit, "captured_kwargs", None) or {})  # ty: ignore[invalid-assignment]
+        match.extra_kwargs = dict(getattr(hit, "extra_kwargs", None) or {})  # ty: ignore[invalid-assignment]
         return match
 
     resolve.__wrapped__ = orig_resolve  # exposes the original for the canary tests
