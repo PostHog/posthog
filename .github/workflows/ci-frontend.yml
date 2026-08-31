@@ -91,8 +91,10 @@ jobs:
             - uses: ./.github/actions/paths-filter
               id: filter
               # Skipped on master push and on the hourly schedule: every output then
-              # defaults to true. On schedule the action would otherwise diff only the
-              # last commit and could turn the full jest run into a no-op.
+              # defaults to true. On a cron the action has nothing to diff against — it gets
+              # no `base` input, so base resolves to the default branch and equals head, and
+              # `before` is set only on push events — so it falls back to the last commit
+              # alone, and one docs-only commit would narrow the hourly run to nothing.
               if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
