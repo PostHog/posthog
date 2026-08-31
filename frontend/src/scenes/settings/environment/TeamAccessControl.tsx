@@ -4,6 +4,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -12,10 +13,11 @@ import { ResourcesAccessControlsV2 } from '~/layout/navigation-3000/sidepanel/pa
 export function TeamAccessControl(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { isAdminOrOwner } = useValues(organizationLogic)
 
     return (
         <div className="space-y-6">
-            {featureFlags[FEATURE_FLAGS.ACCESS_CONTROL_RESOLUTION_PREVIEW] && (
+            {featureFlags[FEATURE_FLAGS.ACCESS_CONTROL_RESOLUTION_PREVIEW] && isAdminOrOwner && (
                 <LemonBanner
                     type="warning"
                     action={{
