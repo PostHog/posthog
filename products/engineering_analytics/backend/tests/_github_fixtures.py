@@ -73,6 +73,23 @@ def create_trunk_source(
     )
 
 
+def _quarantined_row(*, file: str, name: str, classname: str, parent: str) -> dict[str, Any]:
+    return {
+        "file": file,
+        "name": name,
+        "labels": "[]",
+        "parent": parent,
+        "status": "FLAKY",
+        "variant": "",
+        "classname": classname,
+        "codeowners": "[]",
+        "test_case_id": f"case-{name}",
+        "quarantined_at": "2026-01-10T10:00:00.000Z",
+        "quarantine_setting": "AUTO_QUARANTINE",
+        "status_last_updated_at": "2026-01-10T10:00:00.000Z",
+    }
+
+
 def _trunk_queue_row(
     entry_id: str,
     state: str,

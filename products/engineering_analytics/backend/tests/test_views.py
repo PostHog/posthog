@@ -22,6 +22,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    _quarantined_row,
     _run_row,
     create_github_source,
     create_github_warehouse_table,
@@ -91,23 +92,6 @@ class TestListGithubSourcesAccessControl(BaseTest):
 
         AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
         assert resolve_trunk_merge_queue_table(self.team, UserAccessControl(user=self.user, team=self.team)) is None
-
-
-def _quarantined_row(*, file: str, name: str, classname: str, parent: str) -> dict[str, Any]:
-    return {
-        "file": file,
-        "name": name,
-        "labels": "[]",
-        "parent": parent,
-        "status": "FLAKY",
-        "variant": "",
-        "classname": classname,
-        "codeowners": "[]",
-        "test_case_id": f"case-{name}",
-        "quarantined_at": "2026-01-10T10:00:00.000Z",
-        "quarantine_setting": "AUTO_QUARANTINE",
-        "status_last_updated_at": "2026-01-10T10:00:00.000Z",
-    }
 
 
 class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
@@ -432,8 +416,8 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[0] == ("completed", None, None, "", "", 0, None)
 
     def test_trunk_quarantined_tests_view_labels_runners_and_reconstructs_paths(self) -> None:
-        # Trunk overloads `parent` per uploader, and ownership is resolved from what this view
-        # reconstructs, so a wrong runner label or a dropped `parent` unattributes the whole board.
+        # Trunk overloads `parent` per uploader, and ownership is resolved from the source_path and
+        # crate this view reads out of it, so getting either wrong unattributes the whole board.
         table_name = self._create_table(
             "trunkio_quarantinedtests",
             TRUNK_QUARANTINED_TESTS_COLUMNS,
@@ -454,21 +438,16 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             ],
         )
         rows = self._select(
-            f"SELECT runner, nodeid, file, parent FROM ({trunk_quarantined_tests.build_query(table_name)}) AS q "
+            f"SELECT runner, nodeid, source_path, crate FROM ({trunk_quarantined_tests.build_query(table_name)}) AS q "
             "ORDER BY runner"
         )
         assert rows == [
-            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", "src/cdp/cdp.test.ts"),
+            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", ""),
             (
                 "pytest",
                 "posthog/api/test/test_person.py::TestPerson::test_merge",
                 "posthog/api/test/test_person.py",
-                "pytest",
-            ),
-            (
-                "rust",
-                "personhog-coordination::k3s_integration",
                 "",
-                "personhog-coordination::k3s_integration",
             ),
+            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination"),
         ]

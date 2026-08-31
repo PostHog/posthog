@@ -22,6 +22,7 @@ const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', pref
 
 const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
     available: true,
+    owners_resolved: true,
     ttl_days: 15,
     repository: 'PostHog/posthog',
     trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',

@@ -144,13 +144,13 @@ def _git_repo_root() -> Path:
 
 
 class OwnershipSource(Protocol):
-    """An ownership file's text by repo-relative path, or None when absent.
-
-    A worktree is one source; a caller that can fetch the files but not clone the repo supplies
-    another. Only ``resolve`` reads through this; lint and format still walk a real worktree.
-    """
+    """An ownership file's text by repo-relative path, or None when absent. Only ``resolve`` reads
+    through this; lint and format still walk a real worktree."""
 
     def read(self, path: str) -> str | None: ...
+
+    def warm(self, paths: list[str]) -> None:
+        """Take every file ``map`` is about to ask for, so a source that fetches can batch."""
 
 
 @dataclass(frozen=True)
@@ -162,6 +162,9 @@ class DiskSource:
     def read(self, path: str) -> str | None:
         file = self.repo_root / path
         return file.read_text() if file.is_file() else None
+
+    def warm(self, paths: list[str]) -> None:
+        pass
 
 
 # Names a sourceless resolver's files, so a Resolution still reports the path that decided ownership.
@@ -268,9 +271,8 @@ class OwnersResolver:
             contrib.inherit = matched.inherit
         return contrib
 
-    def ownership_file_paths(self, path: str) -> list[str]:
-        """Every ownership file that could decide ``path``, outermost first. For a caller that fetches
-        files (rather than opening them) and wants them in hand before ``resolve`` asks."""
+    def _ownership_file_paths(self, path: str) -> list[str]:
+        """Every ownership file that could decide ``path``, outermost first."""
         return [
             f"{directory}/{name}" if directory else name
             for directory in self._ancestor_dirs(normalize_path(path))
@@ -343,6 +345,8 @@ class OwnersResolver:
         return path.relative_to(self.repo_root).as_posix()
 
     def map(self, paths: list[str]) -> dict[str, Resolution]:
+        """Resolve a batch, handing the source every file the batch needs before reading any."""
+        self.source.warm(sorted({f for p in paths for f in self._ownership_file_paths(p)}))
         return {p: self.resolve(p) for p in paths}
 
     def unowned(self, paths: list[str]) -> list[str]:

@@ -628,6 +628,9 @@ class FlakyTestList:
 # expires a quarantine, so this deadline is the product's own accountability bar.
 TRUNK_QUARANTINE_TTL_DAYS = 15
 
+# The first-class team every unattributed test aggregates under, on every surface here.
+UNOWNED_TEAM = "unowned"
+
 
 @dataclass(frozen=True)
 class TrunkQuarantinedTest:
@@ -675,6 +678,9 @@ class TrunkQuarantineDebt:
     no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error."""
 
     available: bool
+    # False when the repository's ownership files could not be read, which leaves every test
+    # 'unowned'. A board that says so beats one that reads as "nobody owns this debt".
+    owners_resolved: bool
     ttl_days: int
     # The 'owner/name' repository the debt was read for; test file paths are relative to it.
     repository: str

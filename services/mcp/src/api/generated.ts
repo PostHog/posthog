@@ -85312,6 +85312,8 @@ export namespace Schemas {
       tests: TrunkQuarantinedTest[];
       /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
       available: boolean;
+      /** False when the repository's ownership files could not be read, so every test reads as 'unowned' for that reason rather than because no team claims it. */
+      owners_resolved: boolean;
       /** Days a quarantine may stand before it counts as overdue. */
       ttl_days: number;
       /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */

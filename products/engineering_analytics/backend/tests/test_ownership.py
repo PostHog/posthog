@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 from unittest.mock import patch
@@ -7,10 +8,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.engineering_analytics.backend.logic.ownership import (
     UNPLACED,
     GitHubRepoFiles,
     OwnershipUnavailable,
+    PlacedTest,
     QuarantinedTestFile,
     RepoOwnership,
 )
@@ -24,7 +27,6 @@ _OWNERS = {
 }
 
 _TRACKED = {
-    *_OWNERS,
     "nodejs/src/cdp/cdp-e2e.serial.test.ts",
     "frontend/src/scenes/insights/SQLBoxPlot.stories.tsx",
     "products/product_analytics/backend/tests/test_insight.py",
@@ -33,12 +35,32 @@ _TRACKED = {
 }
 
 
+@dataclass
 class _FakeRepoFiles:
+    owners: dict[str, str] = field(default_factory=lambda: dict(_OWNERS))
+    tracked: set[str] = field(default_factory=lambda: set(_TRACKED))
+
     def read(self, path: str) -> str | None:
-        return _OWNERS.get(path)
+        return self.owners.get(path)
 
     def exists(self, path: str) -> bool:
-        return path in _TRACKED
+        return path in self.tracked
+
+    def warm(self, paths: list[str]) -> None:
+        pass
+
+
+def _placements(files: _FakeRepoFiles) -> list[PlacedTest]:
+    return (
+        RepoOwnership("PostHog/posthog", files=files)
+        .for_tests(
+            [
+                QuarantinedTestFile(source_path="src/cdp/cdp-e2e.serial.test.ts", crate=""),
+                QuarantinedTestFile(source_path="", crate="personhog-coordination"),
+            ]
+        )
+        .tests
+    )
 
 
 class TestRepoOwnership(SimpleTestCase):
@@ -46,34 +68,30 @@ class TestRepoOwnership(SimpleTestCase):
         [
             # nodejs and frontend suites both report 'src/...', so placing by the reported path
             # alone hands one team's test to the other.
-            ("jest", "src/cdp/cdp-e2e.serial.test.ts", "", "nodejs/src/cdp/cdp-e2e.serial.test.ts", "team-ingestion"),
+            ("src/cdp/cdp-e2e.serial.test.ts", "", "nodejs/src/cdp/cdp-e2e.serial.test.ts", "team-ingestion"),
             (
-                "storybook",
-                "",
                 "../../frontend/src/scenes/insights/SQLBoxPlot.stories.tsx",
+                "",
                 "frontend/src/scenes/insights/SQLBoxPlot.stories.tsx",
                 "team-product-analytics",
             ),
-            # A crate is placed by its manifest, which is not the test's file, so nothing to link to.
-            ("rust", "", "personhog-coordination::k3s_integration", None, "team-rust"),
-            # Cargo's crate name is not its directory, and '@handle' owners are people, not teams.
-            ("rust", "", "common-kafka::batch_consumer", None, "team-streams"),
             (
-                "pytest",
                 "products/product_analytics/backend/tests/test_insight.py",
-                "pytest",
+                "",
                 "products/product_analytics/backend/tests/test_insight.py",
                 "team-root",
             ),
-            ("jest", "", "feature-flags", None, None),
-            ("jest", "src/gone/deleted.test.ts", "", None, None),
+            # A crate is placed by its manifest, which is not the test's file, so nothing to link to.
+            ("", "personhog-coordination", "", "team-rust"),
+            # Cargo's crate name is not its directory, and '@handle' owners are people, not teams.
+            ("", "common-kafka", "", "team-streams"),
+            ("feature-flags", "", "", UNOWNED_TEAM),
+            ("src/gone/deleted.test.ts", "", "", UNOWNED_TEAM),
         ]
     )
-    def test_places_a_test_and_names_its_owner(
-        self, runner: str, file: str, parent: str, path: str | None, owner: str | None
-    ) -> None:
+    def test_places_a_test_and_names_its_owner(self, source_path: str, crate: str, path: str, owner: str) -> None:
         ownership = RepoOwnership("PostHog/posthog", files=_FakeRepoFiles())
-        [placed] = ownership.for_tests([QuarantinedTestFile(runner=runner, file=file, parent=parent)])
+        [placed] = ownership.for_tests([QuarantinedTestFile(source_path=source_path, crate=crate)]).tests
         assert placed.path == path
         assert placed.owner_team == owner
 
@@ -87,20 +105,11 @@ class TestRepoOwnership(SimpleTestCase):
     def test_a_repository_missing_its_root_file_attributes_nothing(self) -> None:
         # A private or renamed repo answers 404 to every path. Without the root-file guard the
         # nested files this fake still serves would attribute part of the board.
-        class _NoRoot(_FakeRepoFiles):
-            def read(self, path: str) -> str | None:
-                return None if path == "owners.yaml" else super().read(path)
+        no_root = _FakeRepoFiles(owners={k: v for k, v in _OWNERS.items() if k != "owners.yaml"})
+        assert _placements(no_root) == [UNPLACED, UNPLACED]
 
-        assert _placements(_NoRoot()) == [UNPLACED, UNPLACED]
-
-
-def _placements(files: _FakeRepoFiles) -> list:
-    return RepoOwnership("PostHog/posthog", files=files).for_tests(
-        [
-            QuarantinedTestFile(runner="jest", file="src/cdp/cdp-e2e.serial.test.ts", parent=""),
-            QuarantinedTestFile(runner="rust", file="", parent="personhog-coordination::k3s_integration"),
-        ]
-    )
+    def test_a_resolved_batch_says_so(self) -> None:
+        assert RepoOwnership("PostHog/posthog", files=_FakeRepoFiles()).for_tests([]).resolved
 
 
 class TestGitHubRepoFiles(SimpleTestCase):
@@ -117,7 +126,7 @@ class TestGitHubRepoFiles(SimpleTestCase):
             with self.assertRaises(OwnershipUnavailable):
                 GitHubRepoFiles(repository="PostHog/posthog").read("owners.yaml")
 
-    def test_a_missing_file_is_absent_and_cached(self) -> None:
+    def test_a_missing_file_is_absent_and_fetched_once(self) -> None:
         with patch(
             "products.engineering_analytics.backend.logic.ownership.github_request",
             return_value=_response(404),
@@ -125,8 +134,9 @@ class TestGitHubRepoFiles(SimpleTestCase):
             files = GitHubRepoFiles(repository="PostHog/posthog")
             assert files.read("nodejs/owners.yaml") is None
             assert files.read("nodejs/owners.yaml") is None
+            assert GitHubRepoFiles(repository="PostHog/posthog").read("nodejs/owners.yaml") is None
         assert request.call_count == 1
 
 
-def _response(status: int, text: str = "") -> SimpleNamespace:
-    return SimpleNamespace(status_code=status, text=text)
+def _response(status: int) -> SimpleNamespace:
+    return SimpleNamespace(status_code=status, text="")

@@ -780,48 +780,30 @@ def _selector(module_dir: str, test_class: str, test_name: str) -> str:
     return f"{module_dir}/{test_name}.py::{test_class}::{test_name}"
 
 
-# (file, name, classname, parent, age_days). `parent` is what the uploader reports: 'pytest', the
+# (file, test_class, name, parent, age_days). `parent` is what the uploader reports: 'pytest', the
 # test file for jest, the crate for Rust.
 _QUARANTINED_TESTS: list[tuple[str, str, str, str, int]] = [
-    (
-        "products/replay_vision/backend/tests/test_api.py",
-        "test_tag_listing_pagination",
-        "products.replay_vision.backend.tests.test_api.TestReplayVisionAPI",
-        "pytest",
-        41,
-    ),
+    ("products/replay_vision/backend/tests/test_api.py", "TestAPI", "test_tag_listing_pagination", "pytest", 41),
     (
         "products/batch_exports/backend/tests/test_service.py",
+        "TestService",
         "test_backfill_window_overlap",
-        "products.batch_exports.backend.tests.test_service.TestBatchExportService",
         "pytest",
         30,
     ),
-    (
-        "posthog/api/test/test_person.py",
-        "test_person_merge_ordering",
-        "posthog.api.test.test_person.TestPerson",
-        "pytest",
-        23,
-    ),
-    (
-        "posthog/hogql/test/test_query.py",
-        "test_property_type_coercion",
-        "posthog.hogql.test.test_query.TestQuery",
-        "pytest",
-        16,
-    ),
+    ("posthog/api/test/test_person.py", "TestPerson", "test_person_merge_ordering", "pytest", 23),
+    ("posthog/hogql/test/test_query.py", "TestQuery", "test_property_type_coercion", "pytest", 16),
     # Reported relative to the directory its suite ran from, which is how Trunk records them.
-    ("tests/utils.test.ts", "parses a malformed header", "", "tests/utils.test.ts", 9),
+    ("tests/utils.test.ts", "", "parses a malformed header", "tests/utils.test.ts", 9),
     (
         "src/scenes/experiments/utils.test.ts",
-        "rounds a bayesian interval",
         "",
+        "rounds a bayesian interval",
         "src/scenes/experiments/utils.test.ts",
         5,
     ),
-    ("", "remote_resolution_hardening", "", "cymbal::remote_resolution_hardening", 19),
-    ("", "flag evaluation stays stable", "", "feature-flags", 2),
+    ("", "", "remote_resolution_hardening", "cymbal::remote_resolution_hardening", 19),
+    ("", "", "flag evaluation stays stable", "feature-flags", 2),
 ]
 
 
@@ -834,9 +816,9 @@ def _trunk_quarantined_rows() -> list[dict[str, Any]]:
     """
     anchor = timezone.now().replace(microsecond=0)
     rows: list[dict[str, Any]] = []
-
-    def add(*, file: str, name: str, classname: str, parent: str, age_days: int) -> None:
-        quarantined_at = (anchor - timedelta(days=age_days, hours=len(rows))).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    for index, (file, test_class, name, parent, age_days) in enumerate(_QUARANTINED_TESTS):
+        quarantined_at = (anchor - timedelta(days=age_days, hours=index)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        module = file[:-3].replace("/", ".") if file.endswith(".py") else ""
         rows.append(
             {
                 "file": file,
@@ -845,17 +827,14 @@ def _trunk_quarantined_rows() -> list[dict[str, Any]]:
                 "parent": parent,
                 "status": "FLAKY",
                 "variant": "",
-                "classname": classname,
+                "classname": f"{module}.{test_class}" if test_class else "",
                 "codeowners": "[]",
-                "test_case_id": f"engseed-trunk-{len(rows):03d}",
+                "test_case_id": f"engseed-trunk-{index:03d}",
                 "quarantined_at": quarantined_at,
                 "quarantine_setting": "AUTO_QUARANTINE",
                 "status_last_updated_at": quarantined_at,
             }
         )
-
-    for file, name, classname, parent, age_days in _QUARANTINED_TESTS:
-        add(file=file, name=name, classname=classname, parent=parent, age_days=age_days)
     return rows
 
 

@@ -15,10 +15,9 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.ownership import QuarantinedTestFile, RepoOwnership
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-from products.engineering_analytics.backend.logic.queries._test_spans import UNOWNED_TEAM
 
 _QUARANTINED_SELECT = """
-    SELECT runner, nodeid, file, parent, status, quarantine_setting, test_case_id, quarantined_at
+    SELECT runner, nodeid, source_path, crate, status, quarantine_setting, test_case_id, quarantined_at
     FROM __TRUNK_SOURCE__
 """
 
@@ -42,14 +41,19 @@ def query_trunk_quarantine_debt(
     curated: CuratedGitHubSource,
     ttl_days: int,
     now: datetime,
-    ownership: RepoOwnership | None = None,
 ) -> TrunkQuarantineDebt:
     """Every currently quarantined test with its owning team and age, plus the per-team rollup;
     the unavailable shape when no TrunkIo QuarantinedTests table is synced."""
     source = curated.trunk_quarantined_tests_source()
     if source is None:
         return TrunkQuarantineDebt(
-            available=False, ttl_days=ttl_days, repository=curated.repository, trunk_url=None, teams=[], tests=[]
+            available=False,
+            owners_resolved=True,
+            ttl_days=ttl_days,
+            repository=curated.repository,
+            trunk_url=None,
+            teams=[],
+            tests=[],
         )
     org_url_slug = curated.trunk_org_url_slug()
     trunk_url = _trunk_url(org_url_slug, curated.repository)
@@ -62,15 +66,24 @@ def query_trunk_quarantine_debt(
     rows = quarantined.results or []
     if not rows:
         return TrunkQuarantineDebt(
-            available=True, ttl_days=ttl_days, repository=curated.repository, trunk_url=trunk_url, teams=[], tests=[]
+            available=True,
+            owners_resolved=True,
+            ttl_days=ttl_days,
+            repository=curated.repository,
+            trunk_url=trunk_url,
+            teams=[],
+            tests=[],
         )
 
-    placements = (ownership or RepoOwnership(curated.repository)).for_tests(
-        [QuarantinedTestFile(runner=runner, file=file, parent=parent) for runner, _nodeid, file, parent, *_rest in rows]
+    owned_by_test = RepoOwnership(curated.repository).for_tests(
+        [
+            QuarantinedTestFile(source_path=source_path, crate=crate)
+            for _runner, _nodeid, source_path, crate, *_rest in rows
+        ]
     )
     tests: list[TrunkQuarantinedTest] = []
-    for (runner, nodeid, _file, _parent, status, quarantine_setting, test_case_id, quarantined_at), owned in zip(
-        rows, placements
+    for (runner, nodeid, _path, _crate, status, quarantine_setting, test_case_id, quarantined_at), owned in zip(
+        rows, owned_by_test.tests
     ):
         if quarantined_at.tzinfo is None:
             quarantined_at = quarantined_at.replace(tzinfo=UTC)
@@ -79,8 +92,8 @@ def query_trunk_quarantine_debt(
             TrunkQuarantinedTest(
                 runner=runner,
                 nodeid=nodeid,
-                file=owned.path or "",
-                owner_team=owned.owner_team or UNOWNED_TEAM,
+                file=owned.path,
+                owner_team=owned.owner_team,
                 status=status,
                 quarantine_setting=quarantine_setting,
                 quarantined_at=quarantined_at,
@@ -106,5 +119,11 @@ def query_trunk_quarantine_debt(
     ]
     teams.sort(key=lambda team: (-team.overdue_count, -team.test_count, -team.oldest_age_days, team.owner_team))
     return TrunkQuarantineDebt(
-        available=True, ttl_days=ttl_days, repository=curated.repository, trunk_url=trunk_url, teams=teams, tests=tests
+        available=True,
+        owners_resolved=owned_by_test.resolved,
+        ttl_days=ttl_days,
+        repository=curated.repository,
+        trunk_url=trunk_url,
+        teams=teams,
+        tests=tests,
     )

@@ -29,6 +29,7 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.engineering_analytics.backend.logic.merge_queue import source_pr_string_expr
 
 # On a merge-queue gate run the emitter stamps ``ci.pr_number`` from the webhook payload, which names
@@ -50,9 +51,6 @@ SIGNAL_OUTCOMES = ["failed", "error", "rerun_passed", "xfailed"]
 PYTEST_CI_SERVICE_NAME = "ci-backend"
 JEST_CI_SERVICE_NAME = "ci-frontend"
 CI_SERVICE_NAMES = [PYTEST_CI_SERVICE_NAME, JEST_CI_SERVICE_NAME]
-
-# Spans emitted before the owner stamp existed (or from paths with no owner) group here.
-UNOWNED_TEAM = "unowned"
 
 
 _RUN_EVIDENCE = """
