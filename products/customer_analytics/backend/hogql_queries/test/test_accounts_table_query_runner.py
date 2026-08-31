@@ -1085,7 +1085,7 @@ class TestAccountsTableQueryAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_query_endpoint_requires_account_scope_and_dispatches(self) -> None:
+    def test_query_endpoint_requires_query_scope_and_dispatches(self) -> None:
         account = create_account(team_id=self.team.id, name="Acme")
         endpoint = f"/api/projects/{self.team.id}/query/"
         accounts_query = AccountsTableQuery(columns=[], filters=[]).model_dump()
@@ -1093,7 +1093,7 @@ class TestAccountsTableQueryAPI(APIBaseTest):
         for query in [accounts_query, {"kind": "DataTableNode", "source": accounts_query}]:
             with self.subTest(query_kind=query["kind"]):
                 payload = {"query": query, "refresh": "force_blocking"}
-                for incomplete_scopes in [["query:read"], ["account:read"]]:
+                for incomplete_scopes in [[], ["account:read"]]:
                     denied = self.client.post(
                         endpoint,
                         payload,
@@ -1106,7 +1106,7 @@ class TestAccountsTableQueryAPI(APIBaseTest):
                     endpoint,
                     payload,
                     format="json",
-                    headers={"authorization": f"Bearer {self._token(['query:read', 'account:read'])}"},
+                    headers={"authorization": f"Bearer {self._token(['query:read'])}"},
                 )
                 assert allowed.status_code == status.HTTP_200_OK, allowed.content
                 assert [row["id"] for row in allowed.json()["results"]] == [str(account.id)]

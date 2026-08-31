@@ -2077,23 +2077,14 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "system.dashboards" in str(response.json())
 
-    @parameterized.expand([("denied",), ("allowed",)])
-    def test_runner_level_resource_access_gates_publishing(self, case: str):
-        # AccountsQuery enforces access in validate_query_runner_access (resource level),
-        # not per-table - the compile check alone is blind to it.
+    def test_account_query_can_be_shared_without_customer_analytics_access(self):
         self.insight.query = {"kind": "AccountsQuery"}
         self.insight.save()
-        if case == "denied":
-            AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")
+        AccessControl.objects.create(team=self.team, resource="customer_analytics", access_level="none")
 
         response = self._enable_sharing("insight")
 
-        if case == "denied":
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-            assert "customer_analytics" in str(response.json())
-            assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
-        else:
-            assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.status_code == status.HTTP_200_OK, response.content
 
     def test_already_enabled_share_is_not_regated(self):
         config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)

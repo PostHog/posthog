@@ -561,23 +561,23 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         self.organization.available_product_features.append({"key": AvailableFeature.ACCESS_CONTROL})  # type: ignore[union-attr]
         self.organization.save()
 
-    async def test_search_entities_account_denied_resource_access(self):
-        await Account.objects.unscoped().acreate(team=self.team, name="Globex", external_id="globex-1")
+    async def test_search_entities_account_access_control_does_not_hide_accounts(self):
+        account = await Account.objects.unscoped().acreate(team=self.team, name="Globex", external_id="globex-1")
         await sync_to_async(self._deny_customer_analytics_access)()
 
         results, counts = await self.context.search_entities({"account"}, "globex")
 
-        assert results == []
-        assert counts["account"] == 0
+        assert [result["result_id"] for result in results] == [str(account.id)]
+        assert counts["account"] == 1
 
-    async def test_list_entities_account_denied_resource_access(self):
-        await Account.objects.unscoped().acreate(team=self.team, name="Globex", external_id="globex-1")
+    async def test_list_entities_account_access_control_does_not_hide_accounts(self):
+        account = await Account.objects.unscoped().acreate(team=self.team, name="Globex", external_id="globex-1")
         await sync_to_async(self._deny_customer_analytics_access)()
 
         entities, total = await self.context.list_entities("account", limit=10, offset=0)
 
-        assert entities == []
-        assert total == 0
+        assert [entity["result_id"] for entity in entities] == [str(account.id)]
+        assert total == 1
 
     async def test_search_entities_account_combined_with_fts_kinds(self):
         await Account.objects.unscoped().acreate(team=self.team, name="Globex", external_id="globex-1")

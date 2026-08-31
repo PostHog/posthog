@@ -13,8 +13,6 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
-
 NAME_COLUMN = "name"
 
 DEFAULT_COLUMNS = (NAME_COLUMN, "created_at")
@@ -98,9 +96,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             return False
 
     def validate_query_runner_access(self, user: User) -> bool:
-        return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource(
-            "customer_analytics", "viewer"
-        )
+        return True
 
     def _resolve_column(self, raw: str) -> tuple[str, ast.Expr]:
         if raw == NAME_COLUMN:

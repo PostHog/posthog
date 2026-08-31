@@ -49,19 +49,17 @@ class TestAccountContext(NonAtomicBaseTest):
     async def test_aget_account_invalid_id_returns_none(self):
         assert await AccountContext(team=self.team, user=self.user, account_id="not-a-uuid").aget_account() is None
 
-    async def test_aget_account_denied_by_access_control_is_not_found(self):
-        # An account the caller can't read object-level must be indistinguishable from a missing one.
+    async def test_aget_account_ignores_account_access_control(self):
         account = await self._create_account(name="Acme Corp", external_id="acme-1")
         context = AccountContext(team=self.team, user=self.user, account_id=str(account.id))
 
         with patch.object(AccountContext, "user_access_control", new_callable=PropertyMock) as mock_uac:
-            mock_uac.return_value.check_access_level_for_resource.return_value = True
             mock_uac.return_value.filter_queryset_by_access_level.side_effect = lambda qs: qs.none()
 
-            assert await context.aget_account() is None
-            result = await context.execute_and_format()
+            fetched = await context.aget_account()
 
-        assert "was not found" in result
+        assert fetched is not None
+        assert fetched.id == account.id
 
     async def test_execute_and_format_not_found(self):
         result = await AccountContext(team=self.team, user=self.user, account_id=str(uuid.uuid4())).execute_and_format()

@@ -148,8 +148,8 @@ class TestQueriedAccessControlledResources(BaseTest):
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
         assert queried_access_controlled_resources(query, self.team) == set()
 
-    def test_accounts_table_query_partitions_on_account_access(self):
-        assert queried_access_controlled_resources(AccountsTableQuery(columns=[], filters=[]), self.team) == {"account"}
+    def test_accounts_table_query_does_not_partition_on_account_access(self):
+        assert queried_access_controlled_resources(AccountsTableQuery(columns=[], filters=[]), self.team) == set()
 
     @parameterized.expand(
         [
@@ -160,7 +160,7 @@ class TestQueriedAccessControlledResources(BaseTest):
         ]
     )
     def test_accounts_query_communication_fields_require_ticket_access(self, _name, query_kwargs):
-        assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {"account", "ticket"}
+        assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {"ticket"}
 
     def test_structured_query_with_data_warehouse_series(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])

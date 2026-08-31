@@ -447,6 +447,7 @@ class TestToolAccessControlDeclarations(BaseTest):
         # Tools with dynamic/conditional access checks inside _arun_impl
         "read_data",
         "list_data",  # Lists entities with pagination, no protected resources modified
+        "open_account",  # Account reads are project-wide
         "create_notebook",  # No protected resources modified
         "finalize_plan",
         # TODO: Add access control to these tools

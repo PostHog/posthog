@@ -68,7 +68,7 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
-        return _with_fallback_parents({"account"})
+        return set()
 
     if getattr(query, "kind", None) == "AccountsQuery":
         expressions = [
@@ -85,10 +85,10 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             ]
         except BaseHogQLError:
             return None
-        account_scopes = {"account"}
+        scopes: set[str] = set()
         if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
-            account_scopes.add("ticket")
-        return _with_fallback_parents(account_scopes)
+            scopes.add("ticket")
+        return _with_fallback_parents(scopes)
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":
