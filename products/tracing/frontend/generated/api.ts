@@ -10,7 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedTracingViewListApi,
+    PatchedTeamTracingConfigApi,
     PatchedTracingViewApi,
+    TeamTracingConfigApi,
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
@@ -51,6 +53,92 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOrganizationsProjectsTracingConfigRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/tracing_config/`
+}
+
+/**
+ * Manage tracing product configuration for this project's canonical environment.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/tracing_config/
+ * resolves alongside the legacy /api/environments/:id/tracing_config/ alias.
+ */
+export const organizationsProjectsTracingConfigRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<TeamTracingConfigApi> => {
+    return apiMutator<TeamTracingConfigApi>(getOrganizationsProjectsTracingConfigRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationsProjectsTracingConfigPartialUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/tracing_config/`
+}
+
+/**
+ * Manage tracing product configuration for this project's canonical environment.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/tracing_config/
+ * resolves alongside the legacy /api/environments/:id/tracing_config/ alias.
+ */
+export const organizationsProjectsTracingConfigPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    patchedTeamTracingConfigApi?: PatchedTeamTracingConfigApi,
+    options?: RequestInit
+): Promise<TeamTracingConfigApi> => {
+    return apiMutator<TeamTracingConfigApi>(getOrganizationsProjectsTracingConfigPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTeamTracingConfigApi),
+    })
+}
+
+export const getEnvironmentsTracingConfigRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/environments/${id}/tracing_config/`
+}
+
+/**
+ * Manage tracing product configuration for this environment. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
+ */
+export const environmentsTracingConfigRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<TeamTracingConfigApi> => {
+    return apiMutator<TeamTracingConfigApi>(getEnvironmentsTracingConfigRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEnvironmentsTracingConfigPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/environments/${id}/tracing_config/`
+}
+
+/**
+ * Manage tracing product configuration for this environment. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
+ */
+export const environmentsTracingConfigPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedTeamTracingConfigApi?: PatchedTeamTracingConfigApi,
+    options?: RequestInit
+): Promise<TeamTracingConfigApi> => {
+    return apiMutator<TeamTracingConfigApi>(getEnvironmentsTracingConfigPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTeamTracingConfigApi),
+    })
+}
 
 export const getTracingSpansAggregateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/aggregate/`
