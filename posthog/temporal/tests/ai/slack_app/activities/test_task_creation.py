@@ -12,7 +12,6 @@ to wording in the wrapper text show up as a diff in
 """
 
 import pytest
-from unittest.mock import patch
 
 from posthog.models.integration import Integration
 from posthog.temporal.ai.slack_app.activities.task_creation import (
@@ -80,39 +79,24 @@ def test_build_description_keeps_the_prompt_bare_without_a_context_block(thread_
 
 
 @pytest.mark.parametrize(
-    "living_enabled,canvas_flag_enabled,granted_scopes,expected_mode,expected_charts",
+    "granted_scopes,expected_mode",
     [
-        (True, True, "chat:write,canvases:write,files:write", "canvas_file", True),
-        (True, True, "chat:write,canvases:write", "message", True),
-        (True, True, "chat:write", "message", True),
-        (True, False, "chat:write,canvases:write,files:write", "message", False),
-        (False, True, "chat:write,canvases:write,files:write", "none", False),
+        ("chat:write,canvases:write,files:write", "canvas_file"),
+        ("chat:write,canvases:write", "message"),
+        ("chat:write", "message"),
     ],
 )
-def test_artifact_delivery_mode_offers_only_what_delivery_accepts(
-    living_enabled, canvas_flag_enabled, granted_scopes, expected_mode, expected_charts
-):
+def test_artifact_delivery_mode_offers_only_what_delivery_accepts(granted_scopes, expected_mode):
     # The agent offers whatever this state says, so it must never claim more than the
-    # workspace has: canvas/file needs its flag AND both scopes AND the umbrella gate,
-    # or the agent promises an artifact the adapters then reject. Charts clear on the flag
-    # and the umbrella gate alone, which is why the two rows with the flag on but a scope
-    # missing still get charts while dropping to message mode.
+    # workspace has: canvas/file needs both adapter scopes, or the agent promises an
+    # artifact the adapters then reject. Charts need no scope, which is why a workspace
+    # missing one still gets charts while dropping to message mode.
     integration = Integration(kind="slack", config={"scope": granted_scopes})
 
-    with (
-        patch(
-            "products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled",
-            return_value=living_enabled,
-        ),
-        patch(
-            "products.slack_app.backend.feature_flags.is_slack_app_canvas_file_artifacts_enabled",
-            return_value=canvas_flag_enabled,
-        ),
-    ):
-        assert _artifact_delivery_state_updates(integration) == {
-            "slack_artifact_delivery": expected_mode,
-            "slack_chart_delivery": expected_charts,
-        }
+    assert _artifact_delivery_state_updates(integration) == {
+        "slack_artifact_delivery": expected_mode,
+        "slack_chart_delivery": True,
+    }
 
 
 def test_build_description_renders_labeled_mention_for_each_author():
