@@ -1562,28 +1562,18 @@ class TestAlertSimulate(APIBaseTest):
         assert isinstance(data["scores"], list)
         assert len(data["scores"]) == 34
 
-    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
-    def test_simulate_uses_default_detector_config(self, mock_calculate) -> None:
-        mock_calculate.return_value = mock.MagicMock(
-            result=[
-                {
-                    "data": [10.0] * 35,
-                    "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
-                    "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
-                    "label": "pageview",
-                    "action": {"name": "pageview"},
-                    "actions": [],
-                    "count": 35,
-                    "breakdown_value": "",
-                    "status": None,
-                    "compare_label": None,
-                    "compare": False,
-                    "persons_urls": [],
-                    "persons": {},
-                    "filter": {},
-                }
-            ]
-        )
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
@@ -1593,7 +1583,7 @@ class TestAlertSimulate(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_200_OK, response.content
-        detector_config = mock_calculate.call_args.kwargs["detector_config"]
+        detector_config = mock_simulate.call_args.kwargs["detector_config"]
         assert detector_config["type"] == "zscore"
         assert detector_config["threshold"] == 0.95
         assert detector_config["window"] == 90
@@ -1610,28 +1600,18 @@ class TestAlertSimulate(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
-    def test_simulate_accepts_insight_short_id(self, mock_calculate) -> None:
-        mock_calculate.return_value = mock.MagicMock(
-            result=[
-                {
-                    "data": [10.0] * 35,
-                    "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
-                    "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
-                    "label": "pageview",
-                    "action": {"name": "pageview"},
-                    "actions": [],
-                    "count": 35,
-                    "breakdown_value": "",
-                    "status": None,
-                    "compare_label": None,
-                    "compare": False,
-                    "persons_urls": [],
-                    "persons": {},
-                    "filter": {},
-                }
-            ]
-        )
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    def test_simulate_accepts_insight_short_id(self, mock_simulate) -> None:
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
@@ -1642,7 +1622,7 @@ class TestAlertSimulate(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert mock_calculate.call_args.kwargs["insight"].id == self.insight["id"]
+        assert mock_simulate.call_args.kwargs["insight"].id == self.insight["id"]
 
     def test_simulate_invalid_detector_config_returns_400(self) -> None:
         response = self.client.post(
