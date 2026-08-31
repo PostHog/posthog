@@ -2034,6 +2034,7 @@ class ChannelSerializer(DataclassSerializer):
             "channel_type",
             "github_integration",
             "repositories",
+            "auto_archive_after_days",
             "created_at",
             "created_by",
             "starred",
@@ -2157,6 +2158,13 @@ class ChannelUpdateSerializer(serializers.Serializer):
         required=False,
         max_length=10,
         help_text="GitHub repositories inherited by new tasks in this channel.",
+    )
+    auto_archive_after_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text="Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.",
     )
 
     def validate_name(self, value: str) -> str:
