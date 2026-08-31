@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import httpx
 import httpx_sse
@@ -535,6 +535,100 @@ class TestRelaySandboxEventsErrorHandling:
         assert sandbox_gone is False
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
+
+    async def test_relay_signals_command_and_generated_activity_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+            claim_first_agent_command=AsyncMock(side_effect=[True, False]),
+            release_first_agent_command=AsyncMock(),
+            claim_first_agent_activity=AsyncMock(side_effect=[True, False]),
+            release_first_agent_activity=AsyncMock(),
+        )
+        events = [
+            {
+                "type": "notification",
+                "notification": {"method": "_posthog/agent_command_dispatched", "params": {}},
+            },
+            {
+                "type": "notification",
+                "notification": {"method": "_posthog/agent_command_dispatched", "params": {}},
+            },
+            {
+                "type": "notification",
+                "notification": {
+                    "method": "session/update",
+                    "params": {"update": {"sessionUpdate": "user_message_chunk"}},
+                },
+            },
+            {
+                "type": "notification",
+                "notification": {
+                    "method": "session/update",
+                    "params": {"update": {"sessionUpdate": "plan"}},
+                },
+            },
+            {
+                "type": "notification",
+                "notification": {
+                    "method": "session/update",
+                    "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                },
+            },
+            {
+                "type": "notification",
+                "notification": {
+                    "method": "session/update",
+                    "params": {"update": {"sessionUpdate": "tool_call"}},
+                },
+            },
+            {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
+        ]
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                for event in events:
+                    yield SimpleNamespace(data=json.dumps(event))
+
+        handle = SimpleNamespace(signal=AsyncMock())
+        client = SimpleNamespace(get_workflow_handle=MagicMock(return_value=handle))
+
+        monkeypatch.setattr(
+            relay_sandbox_events_module.httpx_sse, "aconnect_sse", lambda *_args, **_kwargs: SuccessfulEventSource()
+        )
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", AsyncMock())
+        monkeypatch.setattr(
+            relay_sandbox_events_module.activity, "info", lambda: SimpleNamespace(workflow_id="workflow-1")
+        )
+        monkeypatch.setattr("posthog.temporal.common.client.async_connect", AsyncMock(return_value=client))
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+        )
+
+        assert handle.signal.await_args_list == [
+            call("agent_command_dispatched"),
+            call("agent_state_changed", arg=True),
+            call("heartbeat", arg=True),
+            call("agent_activity_observed"),
+        ]
+        redis_stream.release_first_agent_command.assert_not_awaited()
+        redis_stream.release_first_agent_activity.assert_not_awaited()
+        assert redis_stream.claim_first_agent_activity.await_count == 2
 
     async def test_permission_request_dispatches_to_broker(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(

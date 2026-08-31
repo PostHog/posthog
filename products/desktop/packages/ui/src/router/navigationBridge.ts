@@ -223,14 +223,6 @@ export function navigateToContext(path?: string): void {
   });
 }
 
-export function navigateToSkills(): void {
-  void getRouterOrNull()?.navigate({ to: "/skills" });
-}
-
-export function navigateToMcpServers(): void {
-  void getRouterOrNull()?.navigate({ to: "/mcp-servers" });
-}
-
 // The spaces index, where the project's spaces are listed.
 export function navigateToSpaces(): void {
   void getRouterOrNull()?.navigate({ to: "/spaces" });
@@ -292,10 +284,6 @@ export function goForwardInHistory(): void {
 // `useRouterState` hook from `@tanstack/react-router`.
 export function getCurrentMatches() {
   return getRouterOrNull()?.state.matches ?? [];
-}
-
-export function getCurrentLocation() {
-  return getRouterOrNull()?.state.location ?? null;
 }
 
 export function subscribeToRouterResolved(handler: () => void): () => void {

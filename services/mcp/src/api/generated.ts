@@ -31191,9 +31191,26 @@ export namespace Schemas {
       sessions?: number;
     }
 
+    export interface ErrorTrackingIssueAssignResponse {
+      /** Whether the assignment update completed successfully. */
+      success: boolean;
+    }
+
+    export type ErrorTrackingIssueAssigneeId = number | string;
+
     export interface ErrorTrackingIssueAssigneeRead {
       readonly id: number | string | null;
       type: string;
+    }
+
+    export interface ErrorTrackingIssueAssigneeWrite {
+      /** User ID or role UUID to assign the issue to. */
+      id: ErrorTrackingIssueAssigneeId;
+      /** Assignment target type: user or role.
+       *
+       * * `user` - user
+       * * `role` - role */
+      type: AssigneeTypeEnum;
     }
 
     export interface ErrorTrackingIssueCohortRead {
@@ -61257,23 +61274,9 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
     }
 
-    /**
-     * Read-only serializer for issue contract types returned by the facade.
-     */
-    export interface PatchedErrorTrackingIssueRead {
-      id?: string;
-      status?: string;
-      /** Issue severity, or null when no severity is assigned. */
-      severity?: ErrorTrackingIssueSeverity | null;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      description?: string | null;
-      /** @nullable */
-      first_seen?: string | null;
-      assignee?: ErrorTrackingIssueAssigneeRead | null;
-      external_issues?: ErrorTrackingExternalReferenceResult[];
-      cohort?: ErrorTrackingIssueCohortRead | null;
+    export interface PatchedErrorTrackingIssueAssignRequest {
+      /** Assignment target. Set to null or omit to remove the current assignment. */
+      assignee?: ErrorTrackingIssueAssigneeWrite | null;
     }
 
     export interface PatchedErrorTrackingIssueWrite {
@@ -97301,7 +97304,11 @@ export namespace Schemas {
      */
     channel_id?: string;
     /**
-     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     * Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.
+     */
+    count_only?: boolean;
+    /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean;
     /**

@@ -129,6 +129,88 @@ def test_research_steering_carries_the_report_derived_notes(organization, team):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("memory_writable", "scratchpad_seeded"),
+    [
+        # The write half has to render on an empty scratchpad, or no project ever gets a first entry.
+        (True, False),
+        (True, True),
+        (False, True),
+    ],
+)
+def test_implementation_memory_protocol_follows_the_write_posture(
+    organization, team, memory_writable, scratchpad_seeded
+):
+    # The protocol tracks the scope, not the stage. The autostart posture mints
+    # `signal_scratchpad_internal:write`; a person pressing Create PR on the same report gets
+    # `full`, which does not, so telling that run to record what it learned would spend prompt
+    # tokens on a tool the MCP server strips from its toolset.
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    if scratchpad_seeded:
+        with team_scope(team.id, canonical=True):
+            SignalScratchpad.objects.create(
+                team=team, key="pattern:impl:billing", content="the migration is generated, not hand-written"
+            )
+
+    steering = load_report_steering(team.id, str(report.id), memory_writable=memory_writable)
+
+    assert steering.memory_protocol is memory_writable
+    assert ("scout-scratchpad-remember" in steering.section) is memory_writable
+    # These three rules are the whole safety story of a run writing into memory every scout and
+    # every later run reads, so a rewrite that drops one has to fail here.
+    assert ("Describe, never quote" in steering.section) is memory_writable
+    assert ("Search the key first, then condense" in steering.section) is memory_writable
+    assert ("Always set `expires_at`" in steering.section) is memory_writable
+    # A sweep without `keys_only` returns 20 entries whose bodies run to 50,000 characters each, so
+    # dropping this spends the run's context before it has read the report.
+    assert ("`keys_only=true`" in steering.section) is memory_writable
+    # A rerun of an autostarted task reuses this description but is minted `full`, which strips the
+    # write tool, so the write half has to open with its own skip clause.
+    assert ("this run cannot write memory" in steering.section) is memory_writable
+    # Without the scope the run still reads the fleet's memory: the search-only pointer, and none
+    # of the write protocol. The two never render together, so the run gets one search instruction.
+    assert ("Entries keyed `noise:`" in steering.section) is not memory_writable
+    assert "scout-scratchpad-search" in steering.section
+
+    # A child environment renders neither half under either posture. Notes and memory live on the
+    # canonical project, while the task description is readable on the report's own team.
+    child = Team.objects.create(organization=organization, name="child-env", parent_team=team)
+    child_report = SignalReport.objects.create(
+        team=child, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    assert load_report_steering(child.id, str(child_report.id), memory_writable=memory_writable) == NO_STEERING
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("memory_writable", [True, False])
+def test_research_memory_protocol_follows_the_write_posture(team, memory_writable):
+    # Same gate as the implementation run, over a different section: this one keys its entries on
+    # the entities a report names, and it keeps the search pointer that the implementation protocol
+    # replaces. A rewrite that unified the two stages would break here rather than silently give
+    # the research run one search instruction addressed to a repository it never touches.
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+
+    steering = load_research_steering(team.id, str(report.id), memory_writable=memory_writable)
+
+    assert steering.memory_protocol is memory_writable
+    assert ("scout-scratchpad-remember" in steering.section) is memory_writable
+    assert ("Describe, never quote" in steering.section) is memory_writable
+    assert ("Search the key first, then condense" in steering.section) is memory_writable
+    assert ("Always set `expires_at`" in steering.section) is memory_writable
+    # The prompt names a report id only on a re-research, so an entry that has to cite its source
+    # report gets the id from here or invents one.
+    assert (str(report.id) in steering.section) is memory_writable
+    # The pointer carries the per-entity sweep this protocol depends on, so it ships next to the
+    # write half even though this team's scratchpad is still empty.
+    assert steering.scratchpad_available is False
+    assert ("scout-scratchpad-search" in steering.section) is memory_writable
+
+
+@pytest.mark.django_db
 def test_research_steering_read_failure_costs_steering_not_the_run(team, monkeypatch):
     # Steering is a best-effort enrichment on the path that researches every promoted report, so a
     # note read that raises has to degrade to no steering. Letting it propagate would turn any
