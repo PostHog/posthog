@@ -35,6 +35,18 @@ def has_configured_filters(alert: ErrorTrackingAlert) -> bool:
     return any(filters.get(key) for key in ("events", "actions", "properties", "filter_test_accounts"))
 
 
+def _coerce_numeric(value: str) -> object:
+    # Extras cross Temporal as strings; numeric filters need real numbers or
+    # HogVM compares lexicographically ("9" > "10").
+    try:
+        return int(value)
+    except ValueError:
+        try:
+            return float(value)
+        except ValueError:
+            return value
+
+
 def alert_filters_match(
     alert: ErrorTrackingAlert, inputs: AlertDeliveryWorkflowInputs, exception_properties: dict[str, object]
 ) -> bool:
@@ -50,7 +62,7 @@ def alert_filters_match(
     lifecycle_properties = {
         key: value
         for key, value in {
-            **(inputs.extra or {}),
+            **{key: _coerce_numeric(value) for key, value in (inputs.extra or {}).items()},
             "exception_timestamp": inputs.event_timestamp,
             "name": inputs.issue_name,
             "description": inputs.issue_description,
