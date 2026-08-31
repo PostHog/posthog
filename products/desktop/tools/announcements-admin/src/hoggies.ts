@@ -2,7 +2,7 @@ import { colors } from "@posthog/brand/colors";
 import { assets } from "@posthog/brand/hoggies/metadata";
 import { hoggiePngUrl } from "@posthog/shared/announcements";
 
-export interface Hoggie {
+interface Hoggie {
   /** PNG file stem — what goes into the payload and onto the CDN URL. */
   slug: string;
   name: string;

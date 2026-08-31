@@ -181,7 +181,7 @@ export function planFromEnvironment(
 }
 
 /** The environment name suggested for a repository, e.g. `posthog cloud runs`. */
-export function environmentNameFor(repository: string): string {
+function environmentNameFor(repository: string): string {
   const repoName = repository.split("/").pop() ?? repository;
   return `${repoName} cloud runs`;
 }
@@ -238,7 +238,7 @@ export function planTools(plan: EnvironmentSetupPlan): ImagePresetTool[] {
   );
 }
 
-export function planSetupCommands(plan: EnvironmentSetupPlan): string[] {
+function planSetupCommands(plan: EnvironmentSetupPlan): string[] {
   return plan.setupLines
     .map((line) => line.value)
     .filter((command) => command.trim() !== "");
@@ -350,7 +350,7 @@ const BLOCKED_ENV_VAR_KEYS: ReadonlySet<string> = new Set([
  * Whether the sandbox manages this key itself. It strips these from a user's set
  * before a session starts, and the API refuses a set that names one.
  */
-export function isManagedEnvVarKey(key: string): boolean {
+function isManagedEnvVarKey(key: string): boolean {
   const trimmed = key.trim();
   return (
     RESERVED_ENV_VAR_KEYS.has(trimmed) ||

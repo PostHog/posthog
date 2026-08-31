@@ -25,19 +25,27 @@ const ROSTER_COLUMN_CLASS = '@container mx-auto flex w-full max-w-4xl flex-col g
  * stays in the scene header, so it is reachable even when the filters narrow the roster to nothing.
  */
 export function ScoutsRoster(): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
-    const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, scoutFleetSynced, enabledCount, customScoutCount } =
+        useValues(scoutFleetLogic)
+    const { loadScoutConfigs, materializeScoutFleet, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
 
     useEffect(() => {
         startRunsPolling()
         return () => stopRunsPolling()
     }, [startRunsPolling, stopRunsPolling])
 
+    // Opening the roster is what materializes the fleet, so a project the coordinator never reached
+    // still gets its scouts. The logic decides whether a sync is actually owed.
+    useEffect(() => {
+        materializeScoutFleet()
+    }, [materializeScoutFleet])
+
     // Roster shape once per opening, the first time the fleet resolves. A failed load stays `null`
-    // and reports nothing — an unreachable scout API isn't an empty troop.
+    // and reports nothing — an unreachable scout API isn't an empty troop. An empty fleet waits for
+    // the materialization too, so a troop that is about to arrive is never counted as no troop.
     const fleetViewedFiredRef = useRef(false)
     useEffect(() => {
-        if (scoutConfigs === null || fleetViewedFiredRef.current) {
+        if (scoutConfigs === null || (scoutConfigs.length === 0 && !scoutFleetSynced) || fleetViewedFiredRef.current) {
             return
         }
         fleetViewedFiredRef.current = true
@@ -47,7 +55,7 @@ export function ScoutsRoster(): JSX.Element {
             customCount: customScoutCount,
             dryRunCount: scoutConfigs.filter((config) => !config.emit).length,
         })
-    }, [scoutConfigs, enabledCount, customScoutCount])
+    }, [scoutConfigs, scoutFleetSynced, enabledCount, customScoutCount])
 
     if (scoutConfigsLoading && scoutConfigs === null) {
         return (
@@ -75,10 +83,13 @@ export function ScoutsRoster(): JSX.Element {
         )
     }
 
+    // An empty fleet before the first sync settles is a troop still being assembled, not an empty
+    // one — showing the empty state here would tell people to create a scout moments before their
+    // canonical fleet lands.
     if (scoutConfigs.length === 0) {
         return (
             <div className={ROSTER_COLUMN_CLASS}>
-                <ScoutsEmptyState />
+                {scoutFleetSynced ? <ScoutsEmptyState /> : <CardSkeleton count={3} variant="cards" dashed={false} />}
             </div>
         )
     }

@@ -93,7 +93,7 @@ export function shouldEnableSpokenNarration(
  * few early sessions. Waiting for flags here would put a network round trip in
  * front of every session start and reconnect, which is a worse trade.
  */
-export function resolveBedrockGatewayVariant(
+function resolveBedrockGatewayVariant(
   rawVariant: string | undefined,
 ): BedrockGatewayVariant | undefined {
   return BEDROCK_GATEWAY_VARIANTS.find((variant) => variant === rawVariant);

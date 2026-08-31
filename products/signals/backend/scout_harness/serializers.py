@@ -22,6 +22,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.fields import empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
@@ -35,6 +36,7 @@ from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import (
@@ -633,12 +635,16 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     )
     created_by_run_id = serializers.CharField(
         allow_null=True,
-        help_text="Run that wrote this entry, or null if human-authored.",
+        help_text="Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.",
     )
     created_by_skill = serializers.CharField(
         allow_null=True,
         required=False,
-        help_text="Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.",
+        help_text=(
+            "Who created this entry: the canonical skill name of the scout that wrote it "
+            "(e.g. `signals-scout-apm`), or the report-pipeline stage that did "
+            "(`pipeline:report-research`, `pipeline:implementation`). Null if human-authored."
+        ),
     )
     created_by_run_url = serializers.CharField(
         allow_null=True,
@@ -707,6 +713,22 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     )
 
 
+class _BestEffortDateTimeField(serializers.DateTimeField):
+    """A `DateTimeField` that never fails the request on an unparseable value.
+
+    The agent computes `expires_at` itself, often from a clock it only guesses at, so a share of
+    writes carry a malformed or nonsense datetime. The expiry is optional metadata; the content is
+    the memory worth keeping. Coerce an unparseable value to `None` (durable) instead of rejecting
+    the whole write — the same best-effort stance `run_id` takes on this serializer.
+    """
+
+    def run_validation(self, data: Any = empty) -> datetime | None:
+        try:
+            return super().run_validation(data)
+        except serializers.ValidationError:
+            return None
+
+
 class RememberRequestSerializer(serializers.Serializer):
     """Request body for `remember`."""
 
@@ -732,20 +754,24 @@ class RememberRequestSerializer(serializers.Serializer):
             "null), not rejected, so the memory write is never lost."
         ),
     )
-    expires_at = serializers.DateTimeField(
+    expires_at = _BestEffortDateTimeField(
         required=False,
         allow_null=True,
         help_text=(
             "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a "
             "window you're watching). After this time the entry drops out of searches, so you "
             "don't have to come back and forget it. Omit for a durable memory — every write sets "
-            "the whole entry, so omitting it on a later write clears an expiry set earlier."
+            "the whole entry, so omitting it on a later write clears an expiry set earlier. "
+            "Best-effort — a value that can't be parsed or is already in the past is dropped "
+            "(the memory stays durable), not rejected, so the memory write is never lost."
         ),
     )
 
     def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        # A past expiry would make the row invisible the moment it lands. Drop it rather than
+        # rejecting the whole write — the content is the memory worth keeping, the expiry is not.
         if value is not None and value <= timezone.now():
-            raise serializers.ValidationError("expires_at must be in the future")
+            return None
         return value
 
 
@@ -761,6 +787,9 @@ class ForgetResponseSerializer(serializers.Serializer):
 
 # --- Scout notes -----------------------------------------------------------
 
+# Rendered into the create help_text so the documented audiences follow the allowlist itself.
+_PIPELINE_AUDIENCE_LIST = ", ".join(f"`{audience}`" for audience in sorted(PIPELINE_AUDIENCES))
+
 
 class ScoutNoteSerializer(serializers.Serializer):
     """`SignalScoutNote` projection used by `notes-list` and `notes-create`."""
@@ -769,10 +798,11 @@ class ScoutNoteSerializer(serializers.Serializer):
     skill_name = serializers.CharField(
         allow_blank=True,
         help_text=(
-            "Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet."
+            "Who the note is addressed to: a scout skill (`signals-scout-*`), a pipeline audience "
+            "(`pipeline:*`, e.g. `pipeline:report-research`), or blank for a general note every scout sees."
         ),
     )
-    content = serializers.CharField(help_text="The note's prose, read verbatim by scout runs.")
+    content = serializers.CharField(help_text="The note's prose, read verbatim by the run that picks it up.")
     created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
     expires_at = serializers.CharField(
         allow_null=True,
@@ -809,8 +839,9 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
     skill_name = serializers.CharField(
         required=False,
         help_text=(
-            "Return the notes addressed to this scout (`signals-scout-*`) plus the general "
-            "(blank-target) notes for the whole fleet. Omit to browse every note on the project."
+            "Return the notes addressed to this target plus the general (blank-target) notes for "
+            "the whole fleet. Pass a scout skill (`signals-scout-*`) or a pipeline audience "
+            "(`pipeline:report-research`). Omit to browse every note on the project."
         ),
     )
     include_general = serializers.BooleanField(
@@ -818,7 +849,7 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
         default=True,
         help_text=(
             "Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes "
-            "and return the skill's own notes only."
+            "and return the target's own notes only."
         ),
     )
     include_expired = serializers.BooleanField(
@@ -861,7 +892,7 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         help_text=(
             "The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their "
             "next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', "
-            "'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim."
+            "'stop flagging the staging traffic spike'). Write it in Markdown; the run reads it verbatim."
         ),
     )
     skill_name = serializers.CharField(
@@ -870,8 +901,11 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         max_length=200,
         help_text=(
             "Address the note to one scout by its skill name (`signals-scout-*`, exact match against "
-            "an existing scout skill on the project — check `scout-config-list` for the roster). "
-            "Omit or leave blank for a general note every scout sees."
+            "an existing scout skill on the project — check `scout-config-list` for the roster), or to "
+            "one stage of the report pipeline by its reserved audience "
+            f"({_PIPELINE_AUDIENCE_LIST}). Use a pipeline audience for guidance about how "
+            "reports get researched rather than about what the scouts watch, so it reaches that stage "
+            "and no scout. Omit or leave blank for a general note every scout sees."
         ),
     )
     expires_at = serializers.DateTimeField(

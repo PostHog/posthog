@@ -2745,6 +2745,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     */
+    export type ActiveDreamRunRunStatusEnum = typeof ActiveDreamRunRunStatusEnum[keyof typeof ActiveDreamRunRunStatusEnum];
+
+
+    export const ActiveDreamRunRunStatusEnum = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+    } as const;
+
+    /**
+     * A dreaming task that has not reached a terminal state yet.
+     */
+    export interface ActiveDreamRun {
+      /** The current task-run state for the active dream.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress */
+      run_status: ActiveDreamRunRunStatusEnum;
+      /** When the active dream task was created. */
+      started_at: string;
+    }
+
+    /**
      * * `true` - true
      * * `false` - false
      * * `STALE` - STALE
@@ -22863,6 +22891,7 @@ export namespace Schemas {
      * * `Gladly` - Gladly
      * * `Qualtrics` - Qualtrics
      * * `AzureDevOps` - AzureDevOps
+     * * `RoktAds` - RoktAds
      * * `Rollbar` - Rollbar
      * * `Opsgenie` - Opsgenie
      * * `IncidentIo` - IncidentIo
@@ -24191,6 +24220,7 @@ export namespace Schemas {
       Gladly: 'Gladly',
       Qualtrics: 'Qualtrics',
       AzureDevOps: 'AzureDevOps',
+      RoktAds: 'RoktAds',
       Rollbar: 'Rollbar',
       Opsgenie: 'Opsgenie',
       IncidentIo: 'IncidentIo',
@@ -25533,6 +25563,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -27570,6 +27601,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -28866,38 +28898,38 @@ export namespace Schemas {
       Selected: 'selected',
     } as const;
 
-    export interface MergeToDeployBucket {
+    export interface LeadTimeBucket {
       /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
       bucket_start: string;
-      /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). */
+      /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). The same population backs every lead-time series, so the stages compare bucket by bucket. */
       deployed_pr_count: number;
       /**
-         * Fastest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+         * Fastest duration for this stage in this bucket, in seconds. Null when nothing deployed.
          * @nullable
          */
       min_seconds: number | null;
       /**
-         * 25th percentile merge-to-deploy seconds. Null when nothing deployed.
+         * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p25_seconds: number | null;
       /**
-         * Median merge-to-deploy seconds. Null when nothing deployed.
+         * Median of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * Mean merge-to-deploy seconds. Null when nothing deployed.
+         * Mean of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       mean_seconds: number | null;
       /**
-         * 75th percentile merge-to-deploy seconds. Null when nothing deployed.
+         * 75th percentile of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p75_seconds: number | null;
       /**
-         * Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+         * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
          * @nullable
          */
       max_seconds: number | null;
@@ -28907,7 +28939,11 @@ export namespace Schemas {
       /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
       deployment_frequency_series: DeploymentFrequencyBucket[];
       /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
-      merge_to_deploy_series: MergeToDeployBucket[];
+      merge_to_deploy_series: LeadTimeBucket[];
+      /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
+      open_to_merge_series: LeadTimeBucket[];
+      /** Open-to-deploy distribution over the same deployed PRs and buckets: the full open to first-successful-deploy span the two stages above compose into. Empty in the same cases as merge_to_deploy_series. */
+      open_to_deploy_series: LeadTimeBucket[];
       /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
       deploy_data_available: boolean;
       /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
@@ -28982,7 +29018,7 @@ export namespace Schemas {
          * @nullable
          */
       latest_deploy_status_at: string | null;
-      /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
+      /** Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'. */
       series_granularity: string;
     }
 
@@ -29146,6 +29182,79 @@ export namespace Schemas {
     export interface DraftStatusResponse {
       updated_at: string;
       has_draft: boolean;
+    }
+
+    /**
+     * * `added` - added
+     * * `modified` - modified
+     * * `deleted` - deleted
+     */
+    export type DreamFileDiffStatusEnum = typeof DreamFileDiffStatusEnum[keyof typeof DreamFileDiffStatusEnum];
+
+
+    export const DreamFileDiffStatusEnum = {
+      Added: 'added',
+      Modified: 'modified',
+      Deleted: 'deleted',
+    } as const;
+
+    /**
+     * One file a dream run changed, with its unified patch.
+     */
+    export interface DreamFileDiff {
+      /** Repo-relative path of the changed page. */
+      path: string;
+      /** How the run changed the page.
+       *
+       * * `added` - added
+       * * `modified` - modified
+       * * `deleted` - deleted */
+      status: DreamFileDiffStatusEnum;
+      /** Unified git patch for this file. */
+      patch: string;
+      /** Whether the patch was cut off for size. */
+      truncated: boolean;
+    }
+
+    /**
+     * One dreaming run: the merge commit it landed as, plus what it changed.
+     */
+    export interface DreamRun {
+      /** Merge commit sha the run landed as; pass back as `sha` on the detail read. */
+      sha: string;
+      /** The run's date, `YYYY-MM-DD`. */
+      date: string;
+      /** When the run landed. */
+      committed_at: string;
+      /** The run summary the dreaming agent wrote. */
+      summary: string;
+      /** Pages the run created. */
+      pages_added: number;
+      /** Pages the run edited. */
+      pages_modified: number;
+      /** Pages the run removed. */
+      pages_deleted: number;
+    }
+
+    /**
+     * Response shape for one dream run: the run plus the diff it landed.
+     */
+    export interface DreamRunDetail {
+      run: DreamRun;
+      /** Per-file patches, in diff order. */
+      files: DreamFileDiff[];
+    }
+
+    /**
+     * Response shape for the wiki's dream run listing.
+     */
+    export interface DreamRunList {
+      /** Commit sha of the wiki's current head. */
+      head_sha: string;
+      /** The organization's active dreaming task, or null when no dream is running. */
+      active_run: ActiveDreamRun | null;
+      /** Every landed dream run, newest first. */
+      dreams: DreamRun[];
     }
 
     /**
@@ -31082,9 +31191,26 @@ export namespace Schemas {
       sessions?: number;
     }
 
+    export interface ErrorTrackingIssueAssignResponse {
+      /** Whether the assignment update completed successfully. */
+      success: boolean;
+    }
+
+    export type ErrorTrackingIssueAssigneeId = number | string;
+
     export interface ErrorTrackingIssueAssigneeRead {
       readonly id: number | string | null;
       type: string;
+    }
+
+    export interface ErrorTrackingIssueAssigneeWrite {
+      /** User ID or role UUID to assign the issue to. */
+      id: ErrorTrackingIssueAssigneeId;
+      /** Assignment target type: user or role.
+       *
+       * * `user` - user
+       * * `role` - role */
+      type: AssigneeTypeEnum;
     }
 
     export interface ErrorTrackingIssueCohortRead {
@@ -35936,6 +36062,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -37298,6 +37425,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -61092,23 +61220,9 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
     }
 
-    /**
-     * Read-only serializer for issue contract types returned by the facade.
-     */
-    export interface PatchedErrorTrackingIssueRead {
-      id?: string;
-      status?: string;
-      /** Issue severity, or null when no severity is assigned. */
-      severity?: ErrorTrackingIssueSeverity | null;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      description?: string | null;
-      /** @nullable */
-      first_seen?: string | null;
-      assignee?: ErrorTrackingIssueAssigneeRead | null;
-      external_issues?: ErrorTrackingExternalReferenceResult[];
-      cohort?: ErrorTrackingIssueCohortRead | null;
+    export interface PatchedErrorTrackingIssueAssignRequest {
+      /** Assignment target. Set to null or omit to remove the current assignment. */
+      assignee?: ErrorTrackingIssueAssigneeWrite | null;
     }
 
     export interface PatchedErrorTrackingIssueWrite {
@@ -73461,7 +73575,7 @@ export namespace Schemas {
          */
       run_id?: string | null;
       /**
-         * Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier.
+         * Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost.
          * @nullable
          */
       expires_at?: string | null;
@@ -75810,9 +75924,9 @@ export namespace Schemas {
     export interface ScoutNote {
       /** Note UUID. Pass to `scout-notes-delete` to retire the note. */
       id: string;
-      /** Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet. */
+      /** Who the note is addressed to: a scout skill (`signals-scout-*`), a pipeline audience (`pipeline:*`, e.g. `pipeline:report-research`), or blank for a general note every scout sees. */
       skill_name: string;
-      /** The note's prose, read verbatim by scout runs. */
+      /** The note's prose, read verbatim by the run that picks it up. */
       content: string;
       /**
          * ISO-8601 creation timestamp.
@@ -75838,12 +75952,12 @@ export namespace Schemas {
      */
     export interface ScoutNoteCreateRequest {
       /**
-         * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim.
+         * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; the run reads it verbatim.
          * @maxLength 10000
          */
       content: string;
       /**
-         * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.
+         * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.
          * @maxLength 200
          */
       skill_name?: string;
@@ -75910,12 +76024,12 @@ export namespace Schemas {
          */
       expires_at?: string | null;
       /**
-         * Run that wrote this entry, or null if human-authored.
+         * Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.
          * @nullable
          */
       created_by_run_id: string | null;
       /**
-         * Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.
+         * Who created this entry: the canonical skill name of the scout that wrote it (e.g. `signals-scout-apm`), or the report-pipeline stage that did (`pipeline:report-research`, `pipeline:implementation`). Null if human-authored.
          * @nullable
          */
       created_by_skill?: string | null;
@@ -77342,6 +77456,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -78712,6 +78827,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -80072,6 +80188,7 @@ export namespace Schemas {
        * * `Gladly` - Gladly
        * * `Qualtrics` - Qualtrics
        * * `AzureDevOps` - AzureDevOps
+       * * `RoktAds` - RoktAds
        * * `Rollbar` - Rollbar
        * * `Opsgenie` - Opsgenie
        * * `IncidentIo` - IncidentIo
@@ -85912,7 +86029,7 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Primary key of the team's GitHub integration to clone with when a repository is selected.
+         * Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it.
          * @nullable
          */
       github_integration?: number | null;
@@ -93646,6 +93763,14 @@ export namespace Schemas {
      * * `archived` - Archived
      */
     status?: HogFlowsListStatus;
+    /**
+     * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
+     */
+    trigger?: string;
+    /**
+     * Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.
+     */
+    type?: HogFlowsListType;
     updated_at?: string;
     };
 
@@ -93656,6 +93781,14 @@ export namespace Schemas {
       Active: 'active',
       Archived: 'archived',
       Draft: 'draft',
+    } as const;
+
+    export type HogFlowsListType = typeof HogFlowsListType[keyof typeof HogFlowsListType];
+
+
+    export const HogFlowsListType = {
+      Automation: 'automation',
+      Messaging: 'messaging',
     } as const;
 
     export type HogFlowsAssetsRetrieveParams = {
@@ -97109,7 +97242,11 @@ export namespace Schemas {
      */
     channel_id?: string;
     /**
-     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     * Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.
+     */
+    count_only?: boolean;
+    /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean;
     /**
@@ -97212,7 +97349,7 @@ export namespace Schemas {
      */
     include_expired?: boolean;
     /**
-     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.
+     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the target's own notes only.
      */
     include_general?: boolean;
     /**
@@ -97222,7 +97359,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.
+     * Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a scout skill (`signals-scout-*`) or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.
      * @minLength 1
      */
     skill_name?: string;
@@ -97555,6 +97692,10 @@ export namespace Schemas {
     export type SurveysListParams = {
     archived?: boolean;
     /**
+     * Filter surveys by the ID of the user who created them.
+     */
+    created_by?: number;
+    /**
      * Multiple values may be separated by commas.
      */
     ids?: string[];
@@ -97571,6 +97712,14 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * Filter surveys by their current status.
+     *
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `complete` - Complete
+     */
+    status?: SurveysListStatus;
+    /**
      * * `popover` - popover
      * * `widget` - widget
      * * `external_survey` - external survey
@@ -97578,6 +97727,15 @@ export namespace Schemas {
      */
     type?: SurveysListType;
     };
+
+    export type SurveysListStatus = typeof SurveysListStatus[keyof typeof SurveysListStatus];
+
+
+    export const SurveysListStatus = {
+      Complete: 'complete',
+      Draft: 'draft',
+      Running: 'running',
+    } as const;
 
     export type SurveysListType = typeof SurveysListType[keyof typeof SurveysListType];
 

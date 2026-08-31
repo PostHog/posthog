@@ -38,7 +38,7 @@ export function resolveActiveNotificationTarget(
 
 // Stable identity string for a target. A new kind is a compile error here (the
 // switch is exhaustive), so equality and key-based lookups stay in one place.
-export function targetKey(target: NotificationTarget): string {
+function targetKey(target: NotificationTarget): string {
   switch (target.kind) {
     case "task":
       return `task:${target.taskId}`;
