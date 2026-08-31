@@ -236,6 +236,13 @@ export interface metricsViewerLogicActions {
     setServices: (services: string[]) => {
         services: string[]
     } // metricNamePickerLogic
+    addAttributeFilter: (
+        key: string,
+        value: string
+    ) => {
+        key: string
+        value: string
+    }
     addToDashboard: () => {
         value: true
     }
@@ -338,13 +345,6 @@ export interface metricsViewerLogicActions {
     setDateTo: (dateTo: string | null) => {
         dateTo: string | null
     }
-    addAttributeFilter: (
-        key: string,
-        value: string
-    ) => {
-        key: string
-        value: string
-    }
     setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
         filterGroup: UniversalFiltersGroup
     }
@@ -393,8 +393,8 @@ export interface metricsViewerLogicMeta {
         attributeEndpointFilters: (dateFrom: string | null, dateTo: string | null) => Record<string, string>
         chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
         hasResults: (queryResults: _MetricSeriesApi[]) => boolean
-        anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
         anomalyTopMovers: (anomalyReport: _MetricAnomalyReportApi | null) => MetricTopMoverRow[]
+        anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
     }
 }
 
