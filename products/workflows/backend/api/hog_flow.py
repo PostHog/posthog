@@ -3092,6 +3092,17 @@ def mint_audience_confirm_token(
                 OpenApiTypes.UUID,
                 description="Filter to workflows created by the user with this uuid.",
             ),
+            OpenApiParameter(
+                "type",
+                OpenApiTypes.STR,
+                enum=["messaging", "automation"],
+                description="Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.",
+            ),
+            OpenApiParameter(
+                "trigger",
+                OpenApiTypes.STR,
+                description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
+            ),
         ]
     )
 )
