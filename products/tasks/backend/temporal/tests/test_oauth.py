@@ -1,13 +1,28 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import InternalError
+
+import psycopg
+
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import TaskInvalidStateError
+from products.tasks.backend.exceptions import OAuthTokenError, TaskInvalidStateError
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, MCPBuiltInAgentKey, Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_oauth_access_token_for_run
+from products.tasks.backend.temporal.oauth import (
+    _READ_ONLY_RETRY_ATTEMPTS,
+    create_oauth_access_token,
+    create_oauth_access_token_for_run,
+)
+
+
+def _read_only_error() -> InternalError:
+    """A read-only-transaction error shaped like the one Django raises over psycopg."""
+    error = InternalError("cannot execute SELECT FOR UPDATE in a read-only transaction")
+    error.__cause__ = psycopg.errors.ReadOnlySqlTransaction("read only")
+    return error
 
 
 @pytest.mark.parametrize(
@@ -476,3 +491,42 @@ def test_workflow_fired_run_excludes_loop_write_scope(mock_create: MagicMock) ->
     granted = mock_create.call_args.kwargs["scopes"]
     assert "loop:write" not in granted
     assert "loop:read" in granted
+
+
+@patch("products.tasks.backend.temporal.oauth.time.sleep")
+@patch("products.tasks.backend.temporal.oauth._mint_run_token")
+def test_run_token_retries_read_only_postgres_then_succeeds(mock_mint: MagicMock, mock_sleep: MagicMock) -> None:
+    task = MagicMock(id="task-id", team_id=123)
+    mock_mint.side_effect = [_read_only_error(), "token"]
+
+    assert create_oauth_access_token_for_run(task, {}) == "token"
+    assert mock_mint.call_count == 2
+
+
+@patch("products.tasks.backend.exceptions.capture_exception")
+@patch("products.tasks.backend.temporal.oauth.time.sleep")
+@patch("products.tasks.backend.temporal.oauth._mint_run_token")
+def test_run_token_read_only_postgres_stays_transient_without_capture(
+    mock_mint: MagicMock, mock_sleep: MagicMock, mock_capture: MagicMock
+) -> None:
+    task = MagicMock(id="task-id", team_id=123)
+    mock_mint.side_effect = _read_only_error()
+
+    with pytest.raises(OAuthTokenError) as exc_info:
+        create_oauth_access_token_for_run(task, {})
+
+    # A persistent read-only window recovers via Temporal retry, so the error stays retryable
+    # and skips error-tracking capture instead of minting a noisy issue.
+    assert exc_info.value.non_retryable is False
+    mock_capture.assert_not_called()
+    assert mock_mint.call_count == _READ_ONLY_RETRY_ATTEMPTS
+
+
+@patch("products.tasks.backend.temporal.oauth._mint_run_token")
+def test_run_token_does_not_retry_other_database_errors(mock_mint: MagicMock) -> None:
+    task = MagicMock(id="task-id", team_id=123)
+    mock_mint.side_effect = InternalError("unrelated failure")
+
+    with pytest.raises(InternalError):
+        create_oauth_access_token_for_run(task, {})
+    assert mock_mint.call_count == 1

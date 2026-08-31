@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any, cast, get_args
 from uuid import UUID
 
-from django.db import transaction
+from django.db import DatabaseError, transaction
+
+import psycopg
 
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
@@ -164,6 +167,24 @@ def create_oauth_access_token(
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
 
 
+# A brief writer failover leaves Postgres serving read-only transactions, so the ownership
+# row lock below raises ReadOnlySqlTransaction. Retry it in-process for the sub-second window,
+# then hand a non-capturing transient error to Temporal to ride out a longer one.
+_READ_ONLY_RETRY_ATTEMPTS = 3
+_READ_ONLY_RETRY_BACKOFF_SECONDS = 0.25
+_READ_ONLY_SQLSTATE = psycopg.errors.ReadOnlySqlTransaction.sqlstate
+
+
+def _is_read_only_sql_error(error: BaseException) -> bool:
+    """True when a Postgres error means the writer is serving read-only transactions."""
+    cause: BaseException | None = error
+    while cause is not None:
+        if getattr(cause, "sqlstate", None) == _READ_ONLY_SQLSTATE:
+            return True
+        cause = cause.__cause__
+    return False
+
+
 def create_oauth_access_token_for_run(
     task: Task,
     state: dict[str, Any] | None,
@@ -179,6 +200,27 @@ def create_oauth_access_token_for_run(
     to mint creator credentials for a Slack run by omitting one kwarg. Loop-fired runs
     (``loop_id`` in run state) get ``loop:write`` stripped from the granted scopes here.
     """
+    last_error: DatabaseError | None = None
+    for attempt in range(_READ_ONLY_RETRY_ATTEMPTS):
+        try:
+            return _mint_run_token(task, state, scopes)
+        except DatabaseError as error:
+            if not _is_read_only_sql_error(error):
+                raise
+            last_error = error
+            if attempt < _READ_ONLY_RETRY_ATTEMPTS - 1:
+                time.sleep(_READ_ONLY_RETRY_BACKOFF_SECONDS * (attempt + 1))
+
+    assert last_error is not None
+    raise OAuthTokenError(
+        f"Postgres served read-only transactions while minting the run token for task {task.id}",
+        {"task_id": task.id, "team_id": task.team_id},
+        cause=last_error,
+        capture=False,
+    )
+
+
+def _mint_run_token(task: Task, state: dict[str, Any] | None, scopes: PosthogMcpScopes) -> str:
     with transaction.atomic():
         locked_task = (
             Task.objects.select_for_update(of=("self",))

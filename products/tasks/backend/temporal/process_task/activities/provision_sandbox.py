@@ -642,6 +642,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
 
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)
+        except OAuthTokenError:
+            raise
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -1255,6 +1257,8 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)
+        except OAuthTokenError:
+            raise
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to refresh OAuth access token for task {ctx.task_id}",
