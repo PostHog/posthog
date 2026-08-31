@@ -626,8 +626,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             return null
                         }
                         return (
-                            // Spacing reads from variables so a denser container, such as the
-                            // compact nav sidebar, can tighten the header without a new prop.
                             <div
                                 key={item.id}
                                 className="not-first:mt-[var(--lemon-tree-category-gap,0.75rem)] py-[var(--lemon-tree-category-padding-y,0.25rem)] px-2 flex items-center"

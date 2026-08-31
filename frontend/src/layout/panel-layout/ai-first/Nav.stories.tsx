@@ -50,9 +50,25 @@ function NavSidebar({ density }: { density: SidebarDensity }): JSX.Element {
     )
 }
 
-const meta: Meta<typeof NavSidebar> = {
+/** Both densities together, so a spacing change to one is visible against the other. */
+function NavSidebarDensities(): JSX.Element {
+    return (
+        <div className="flex gap-4">
+            <div className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-secondary">Comfortable</span>
+                <NavSidebar density="comfortable" />
+            </div>
+            <div className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-secondary">Compact</span>
+                <NavSidebar density="compact" />
+            </div>
+        </div>
+    )
+}
+
+const meta: Meta<typeof NavSidebarDensities> = {
     title: 'Layout/Navigation sidebar',
-    component: NavSidebar,
+    component: NavSidebarDensities,
     parameters: {
         layout: 'padded',
         viewMode: 'story',
@@ -67,28 +83,4 @@ const meta: Meta<typeof NavSidebar> = {
 }
 export default meta
 
-type Story = StoryObj<typeof NavSidebar>
-
-export const Comfortable: Story = {
-    args: { density: 'comfortable' },
-}
-
-export const Compact: Story = {
-    args: { density: 'compact' },
-}
-
-/** Both densities together, so a spacing change to one is visible against the other. */
-export const DensityComparison: Story = {
-    render: () => (
-        <div className="flex gap-4">
-            <div className="flex flex-col gap-1">
-                <span className="text-xs font-semibold text-secondary">Comfortable</span>
-                <NavSidebar density="comfortable" />
-            </div>
-            <div className="flex flex-col gap-1">
-                <span className="text-xs font-semibold text-secondary">Compact</span>
-                <NavSidebar density="compact" />
-            </div>
-        </div>
-    ),
-}
+export const DensityComparison: StoryObj<typeof NavSidebarDensities> = {}
