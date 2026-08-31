@@ -63,16 +63,33 @@ const MAX_REPLAY_EVENTS: usize = 10;
 // milliseconds apart rather than at the exact same microsecond. We treat events within
 // this window as simultaneous so they take the order-independent permutation path, the
 // same path exact ties already take. Without it, the arrival race decides whether the
-// funnel counts the conversion.
+// funnel counts the conversion. The window is far below any real conversion window (the
+// smallest is an hour), so it cannot practically flip a conversion-window decision.
 const SIMULTANEITY_WINDOW_SECONDS: f64 = 0.05;
 
-// Group consecutive events that fall within SIMULTANEITY_WINDOW_SECONDS of the group's
-// first event. Events arrive sorted by timestamp ascending, so each group is bounded to
-// one window and a long run of closely-spaced events cannot collapse into one group.
-// Groups are yielded lazily: a caller that reaches its goal stops pulling, so the rest of
-// the events are never scanned or allocated, and only the current group is held at a time.
+// The permutation path drops exclusion steps and skips the strict-sequence reset. That is
+// safe for exact ties, which are genuinely simultaneous, but widening the window would pull
+// exclusion events and strict-funnel neighbors into that lossy path and silently over-count.
+// So strict funnels and funnels that use exclusions keep exact-tie grouping (window 0.0),
+// which matches the previous behavior exactly.
+fn simultaneity_window(args: &Args) -> f64 {
+    let has_exclusions = args.value.iter().any(|e| e.steps.iter().any(|&s| s < 0));
+    if args.funnel_order_type == "strict" || has_exclusions {
+        0.0
+    } else {
+        SIMULTANEITY_WINDOW_SECONDS
+    }
+}
+
+// Group consecutive events that fall within `window` of the group's first event. Events
+// arrive sorted by timestamp ascending, so each group is bounded to one window and a long
+// run of closely-spaced events cannot collapse into one group. With window 0.0 this groups
+// only exact ties. Groups are yielded lazily: a caller that reaches its goal stops pulling,
+// so the rest of the events are never scanned or allocated, and only the current group is
+// held at a time.
 fn group_simultaneous<'a>(
     events: impl Iterator<Item = &'a Event>,
+    window: f64,
 ) -> impl Iterator<Item = Vec<&'a Event>> {
     let mut events = events.peekable();
     std::iter::from_fn(move || {
@@ -80,7 +97,7 @@ fn group_simultaneous<'a>(
         let group_start = first.timestamp;
         let mut group = vec![first];
         while let Some(&next) = events.peek() {
-            if next.timestamp - group_start > SIMULTANEITY_WINDOW_SECONDS {
+            if next.timestamp - group_start > window {
                 break;
             }
             group.push(next);
@@ -139,28 +156,32 @@ impl AggregateFunnelRow {
             self.breakdown_step = args.breakdown_attribution_type[5..].parse::<usize>().ok()
         }
 
+        let window = simultaneity_window(args);
         args.prop_vals
             .iter()
-            .for_each(|prop_val| self.loop_prop_val(args, prop_val));
+            .for_each(|prop_val| self.loop_prop_val(args, prop_val, window));
 
         &self.results
     }
 
     #[inline(always)]
-    fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) {
+    fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal, window: f64) {
         let mut vars = Vars {
             max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
             event_uuids: repeat(Vec::new()).take(args.num_steps).collect(),
             entered_timestamp: vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1],
         };
 
-        let simultaneous_groups = group_simultaneous(args.value.iter().filter(|e| {
-            if args.breakdown_attribution_type == "all_events" {
-                e.breakdown == *prop_val
-            } else {
-                true
-            }
-        }));
+        let simultaneous_groups = group_simultaneous(
+            args.value.iter().filter(|e| {
+                if args.breakdown_attribution_type == "all_events" {
+                    e.breakdown == *prop_val
+                } else {
+                    true
+                }
+            }),
+            window,
+        );
 
         for simultaneous_events in simultaneous_groups {
             vars.entered_timestamp[0] = EnteredTimestamp {
@@ -363,8 +384,12 @@ mod tests {
     use super::*;
 
     fn run_events(events_json: &str) -> Vec<Result> {
+        run_events_with_order("ordered", events_json)
+    }
+
+    fn run_events_with_order(order: &str, events_json: &str) -> Vec<Result> {
         let input = format!(
-            r#"{{"num_steps":2,"conversion_window_limit":3600,"breakdown_attribution_type":"first_touch","funnel_order_type":"ordered","prop_vals":["en"],"optional_steps":[],"value":{events_json}}}"#
+            r#"{{"num_steps":2,"conversion_window_limit":3600,"breakdown_attribution_type":"first_touch","funnel_order_type":"{order}","prop_vals":["en"],"optional_steps":[],"value":{events_json}}}"#
         );
         let args = parse_args(&input).unwrap();
         run(&args)
@@ -414,9 +439,56 @@ mod tests {
             steps: vec![1],
         };
         let events = vec![e(0.0), e(0.04), e(0.08), e(0.12)];
-        let groups: Vec<_> = group_simultaneous(events.iter()).collect();
+        let groups: Vec<_> =
+            group_simultaneous(events.iter(), SIMULTANEITY_WINDOW_SECONDS).collect();
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].len(), 2); // 0.00 and 0.04
         assert_eq!(groups[1].len(), 2); // 0.08 and 0.12
+    }
+
+    // A window of 0.0 groups only exact ties, so the helper stays equivalent to the
+    // previous exact-timestamp grouping when tolerance is disabled.
+    #[test]
+    fn zero_window_groups_only_exact_ties() {
+        let e = |t: f64| Event {
+            timestamp: t,
+            uuid: Uuid::nil(),
+            breakdown: PropVal::Int(0),
+            steps: vec![1],
+        };
+        let events = vec![e(1.0), e(1.0), e(1.01)];
+        let groups: Vec<_> = group_simultaneous(events.iter(), 0.0).collect();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].len(), 2); // the two exact ties
+        assert_eq!(groups[1].len(), 1);
+    }
+
+    // A funnel with an exclusion must keep exact-tie grouping. An exclusion event that
+    // fires near a step must still exclude, not be dropped by the permutation path.
+    #[test]
+    fn near_simultaneous_exclusion_still_excludes() {
+        // steps [-2] is an exclusion on step 2. It fires 10 ms after step 1, before step 2.
+        let events = r#"[
+            {"timestamp":1.00,"uuid":"00000000-0000-0000-0000-000000000001","breakdown":"en","steps":[1]},
+            {"timestamp":1.01,"uuid":"00000000-0000-0000-0000-000000000009","breakdown":"en","steps":[-2]},
+            {"timestamp":1.02,"uuid":"00000000-0000-0000-0000-000000000002","breakdown":"en","steps":[2]}
+        ]"#;
+        // -1 marks the row as excluded; the conversion is correctly rejected.
+        assert_eq!(step_reached(events), -1);
+    }
+
+    // A strict funnel must keep exact-tie grouping. An unrelated event between two steps
+    // still breaks the strict sequence.
+    #[test]
+    fn strict_funnel_breaks_on_near_simultaneous_unrelated_event() {
+        // An event matching no step fires 10 ms after step 1, so strict step 2 cannot follow.
+        let events = r#"[
+            {"timestamp":1.00,"uuid":"00000000-0000-0000-0000-000000000001","breakdown":"en","steps":[1]},
+            {"timestamp":1.01,"uuid":"00000000-0000-0000-0000-000000000009","breakdown":"en","steps":[]},
+            {"timestamp":1.02,"uuid":"00000000-0000-0000-0000-000000000002","breakdown":"en","steps":[2]}
+        ]"#;
+        let results = run_events_with_order("strict", events);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, 0);
     }
 }
