@@ -126,7 +126,7 @@ class TestDockerSandboxUnit:
         assert "secret token" not in redacted
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted>" in redacted
 
-    def test_redact_sandbox_command_hides_mcp_credentials(self):
+    def test_redact_sandbox_command_hides_mcp_credentials(self) -> None:
         command = 'agent-server --mcpServers \'[{"headers":{"Authorization":"Bearer secret-token"}}]\' --port 8080'
 
         redacted = redact_sandbox_command(command)
@@ -140,6 +140,21 @@ class TestDockerSandboxUnit:
 
         assert "c2VjcmV0" not in redacted
         assert "<redacted>" in redacted
+
+    def test_redact_sandbox_command_hides_github_clone_token(self) -> None:
+        command = "git clone https://x-access-token:github-secret@github.com/PostHog/posthog.git"
+
+        redacted = redact_sandbox_command(command)
+
+        assert "github-secret" not in redacted
+        assert "https://x-access-token:<redacted>@github.com/PostHog/posthog.git" in redacted
+
+    @pytest.mark.parametrize("name", ("GITHUB_TOKEN", "POSTHOG_WIZARD_API_KEY"))
+    def test_redact_sandbox_command_hides_worker_credentials(self, name: str) -> None:
+        redacted = redact_sandbox_command(f"docker run -e {name}=worker-secret sandbox")
+
+        assert "worker-secret" not in redacted
+        assert f"{name}=<redacted>" in redacted
 
     @pytest.mark.parametrize(
         "input_url,expected_url",
