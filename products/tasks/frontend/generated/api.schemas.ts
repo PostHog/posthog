@@ -1206,7 +1206,9 @@ export interface PatchedChannelUpdateApi {
      */
     repositories?: string[]
     /**
-     * Days of inactivity before tasks in this channel are archived. Allowed values: 1, 3, 7, 14, or 30. Null disables automatic archiving.
+     * Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.
+     * @minimum 1
+     * @maximum 365
      * @nullable
      */
     auto_archive_after_days?: number | null

@@ -411,19 +411,22 @@ class ChannelsAPITestCase(TestCase):
         other_client.force_authenticate(self.other_user)
 
         configured = other_client.patch(
-            f"{self._channels_url()}{channel_id}/", {"auto_archive_after_days": 7}, format="json"
+            f"{self._channels_url()}{channel_id}/", {"auto_archive_after_days": 45}, format="json"
         )
 
         self.assertEqual(configured.status_code, status.HTTP_200_OK, configured.content)
-        self.assertEqual(configured.json()["auto_archive_after_days"], 7)
+        self.assertEqual(configured.json()["auto_archive_after_days"], 45)
         listed = self.client.get(self._channels_url())
-        self.assertEqual(listed.json()[0]["auto_archive_after_days"], 7)
+        self.assertEqual(listed.json()[0]["auto_archive_after_days"], 45)
 
-        invalid = self.client.patch(
-            f"{self._channels_url()}{channel_id}/", {"auto_archive_after_days": 2}, format="json"
-        )
-        self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST, invalid.content)
-        self.assertEqual(Channel.objects.unscoped().get(id=channel_id).auto_archive_after_days, 7)
+        for invalid_days in (0, 366):
+            invalid = self.client.patch(
+                f"{self._channels_url()}{channel_id}/",
+                {"auto_archive_after_days": invalid_days},
+                format="json",
+            )
+            self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST, invalid.content)
+        self.assertEqual(Channel.objects.unscoped().get(id=channel_id).auto_archive_after_days, 45)
 
         disabled = self.client.patch(
             f"{self._channels_url()}{channel_id}/", {"auto_archive_after_days": None}, format="json"

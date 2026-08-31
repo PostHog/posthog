@@ -10,7 +10,6 @@ class Migration(migrations.Migration):
             name="auto_archive_after_days",
             field=models.PositiveSmallIntegerField(
                 blank=True,
-                choices=[(1, "1 day"), (3, "3 days"), (7, "7 days"), (14, "14 days"), (30, "30 days")],
                 help_text=(
                     "Archive inactive tasks in this channel after this many days. Null disables automatic archiving."
                 ),

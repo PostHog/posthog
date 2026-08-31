@@ -178,13 +178,6 @@ class Channel(TeamScopedRootMixin):
     PERSONAL_CHANNEL_LABEL = "personal"
     GENERAL_CHANNEL_NAME = "general"
 
-    class AutoArchiveAfterDays(models.IntegerChoices):
-        ONE_DAY = 1, "1 day"
-        THREE_DAYS = 3, "3 days"
-        SEVEN_DAYS = 7, "7 days"
-        FOURTEEN_DAYS = 14, "14 days"
-        THIRTY_DAYS = 30, "30 days"
-
     @classmethod
     def visible_to_q(cls, user_id: int | None, *, relation: Literal["", "channel", "task__channel"] = "") -> models.Q:
         """The channel-visibility rule as a queryset filter: a personal channel is
@@ -234,7 +227,6 @@ class Channel(TeamScopedRootMixin):
         help_text="GitHub repositories inherited by new tasks in this channel",
     )
     auto_archive_after_days = models.PositiveSmallIntegerField(
-        choices=AutoArchiveAfterDays.choices,
         null=True,
         blank=True,
         help_text="Archive inactive tasks in this channel after this many days. Null disables automatic archiving.",
