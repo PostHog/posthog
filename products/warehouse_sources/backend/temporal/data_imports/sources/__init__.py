@@ -2,9 +2,12 @@ import importlib
 from pathlib import Path
 from typing import Any
 
+from django.conf import settings
+
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.run_mode import derive_run_mode
 
 from .common.registry import SourceRegistry
 
@@ -54,7 +57,23 @@ def _load_source(module_path: str) -> None:
         importlib.import_module(module_path)
     except Exception as e:
         logger.exception("load_all_sources: source module failed to import", module=module_path)
-        capture_exception(e)
+        if _should_capture_import_failure(e):
+            capture_exception(e)
+
+
+def _should_capture_import_failure(error: Exception) -> bool:
+    """Whether an import failure carries product signal worth an error-tracking issue.
+
+    A missing vendor SDK (``ModuleNotFoundError``/``ImportError``) means an unprovisioned
+    interpreter, not a broken source: every source SDK is a locked dependency, so a synced
+    deploy can't hit it. Capturing it files one issue per source from a single bad local
+    checkout. Log and skip those. Any other error is a real module-level breakage, so it is
+    always captured. A deployed environment has its dependencies synced, so an import failure
+    there is a genuine regression and stays captured too.
+    """
+    if isinstance(error, ImportError):  # ModuleNotFoundError is a subclass
+        return derive_run_mode(settings.CLOUD_DEPLOYMENT, settings.DEBUG).is_deployed_cloud
+    return True
 
 
 def __getattr__(name: str) -> Any:
