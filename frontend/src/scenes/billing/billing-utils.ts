@@ -97,6 +97,14 @@ export const summarizeUsage = (usage: number | null): string => {
     return compactNumber(usage)
 }
 
+export const isUsageAtOrOverLimit = (percentageUsage: number | null | undefined): boolean => {
+    return (percentageUsage ?? 0) >= 1
+}
+
+export const isUsageApproachingLimit = (percentageUsage: number | null | undefined, threshold: number): boolean => {
+    return (percentageUsage ?? 0) > threshold && !isUsageAtOrOverLimit(percentageUsage)
+}
+
 /**
  * Check if a product has display formatting configured.
  */

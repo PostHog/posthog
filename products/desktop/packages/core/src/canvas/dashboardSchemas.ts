@@ -145,6 +145,11 @@ export const renameDashboardInput = z.object({
   name: z.string().min(1),
 });
 
+export const fileDashboardInput = z.object({
+  id: z.string().min(1),
+  channelId: z.string().min(1),
+});
+
 // Set (or clear, when taskId is null) the canvas's generation-task association.
 export const setGenerationTaskInput = z.object({
   id: z.string().min(1),

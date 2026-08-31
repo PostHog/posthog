@@ -105,41 +105,40 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{GONG_BASE_URL}{path}?{urlencode(params)}"
 
 
-def _extensive_body(window_start: datetime, window_end: datetime, cursor: Optional[str]) -> dict[str, Any]:
+def _extensive_body(
+    config: GongEndpointConfig, window_start: datetime, window_end: datetime, cursor: Optional[str]
+) -> dict[str, Any]:
     """Request body for `POST /v2/calls/extensive`.
 
-    `contentSelector.context = "Extended"` asks Gong to return each call's CRM associations
-    (linked Salesforce/HubSpot objects and their fields); `exposedFields.parties = true` returns
-    the participants (name, email address, affiliation). Neither is available from the basic
-    `/v2/calls` list endpoint. The pagination cursor travels in the body, not the query string.
+    Gong returns only the enrichment blocks named in `contentSelector`, so each extensive table
+    supplies its own — CRM associations and participants for `calls_extensive`, Spotlight
+    summaries for `calls_content`. None of it is available from the basic `/v2/calls` list
+    endpoint. The pagination cursor travels in the body, not the query string.
     """
     body: dict[str, Any] = {
         "filter": {
             "fromDateTime": _format_datetime(window_start),
             "toDateTime": _format_datetime(window_end),
         },
-        "contentSelector": {
-            "context": "Extended",
-            "exposedFields": {"parties": True},
-        },
+        "contentSelector": config.extensive_content_selector,
     }
     if cursor:
         body["cursor"] = cursor
     return body
 
 
-def _flatten_extensive_call(call: dict[str, Any]) -> dict[str, Any]:
+def _flatten_extensive_call(call: dict[str, Any], row_keys: tuple[str, ...]) -> dict[str, Any]:
     """Lift the `metaData` block of an extensive call row to the top level.
 
-    `/v2/calls/extensive` nests the core call fields under `metaData` and returns `parties`
-    and CRM `context` as siblings. Flattening `metaData` up keeps `id` and `started` available
-    at the top level for primary-key merge and datetime partitioning, while preserving the
-    enrichment as nested `parties`/`context` columns.
+    `/v2/calls/extensive` nests the core call fields under `metaData` and returns the requested
+    enrichment blocks as siblings. Flattening `metaData` up keeps `id` and `started` available at
+    the top level for primary-key merge and datetime partitioning, while preserving each
+    enrichment block as a nested column.
     """
     meta = call.get("metaData") or {}
     flattened = dict(meta)
-    flattened["parties"] = call.get("parties")
-    flattened["context"] = call.get("context")
+    for key in row_keys:
+        flattened[key] = call.get(key)
     return flattened
 
 
@@ -265,9 +264,11 @@ def _iter_call_rows(
         if config.uses_extensive:
             data = fetch_page(
                 _build_url(config.path, {}),
-                json_body=_extensive_body(window_start, window_end, cursor),
+                json_body=_extensive_body(config, window_start, window_end, cursor),
             )
-            rows = [_flatten_extensive_call(row) for row in data.get(config.response_key, [])]
+            rows = [
+                _flatten_extensive_call(row, config.extensive_row_keys) for row in data.get(config.response_key, [])
+            ]
         else:
             params: dict[str, Any] = {
                 "fromDateTime": _format_datetime(window_start),

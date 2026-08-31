@@ -394,6 +394,9 @@ export interface TooltipConfig {
     totalFormatter?: (value: number) => string
     /** Sort series rows by value descending so the highest value appears at the top. */
     sortedByValue?: boolean
+    /** Bar charts only. `bar` (the default) tooltips only inside a painted bar. `band` tooltips
+     *  anywhere in the hovered band, so a one-pixel bar or a zero bucket still reports its value. */
+    hitArea?: 'bar' | 'band'
 }
 
 /** Value-axis domain control (y for vertical/line/area charts, x for horizontal bars). Omit for the

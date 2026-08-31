@@ -98,6 +98,21 @@ describe('aiOnboardingLogic', () => {
         })
     })
 
+    // `/api/users/` rejects writes from an impersonated session, so persisting the flag can only
+    // fail. The takeover still has to close, or every dismissal re-opens it over the composer.
+    it('closes without writing the seen flag while impersonating', async () => {
+        mountLogic()
+        userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_impersonated: true })
+
+        await expectLogic(logic, () => {
+            logic.actions.closeOnboarding()
+        }).toFinishAllListeners()
+
+        expect(userUpdates).toHaveLength(0)
+        expect(logic.values.hasSeenOnboarding).toBe(true)
+        expect(logic.values.isOpen).toBe(false)
+    })
+
     // Which step a user bails on is the segment signal the onboarding exists to collect. Stepping back and
     // forth must not inflate it, or the per-step funnel stops meaning anything.
     it('reports each step view only once per opening', async () => {

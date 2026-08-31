@@ -3,6 +3,7 @@ import dataclasses
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
+    BaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
@@ -14,7 +15,7 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
-from posthog.schema import CachedPathsQueryResponse
+from posthog.schema import CachedPathsQueryResponse, DashboardFilter, IntervalType, PathsFilter, PathsQuery
 
 from posthog.models import Team
 
@@ -1155,3 +1156,33 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert "/m/123/orders" in combined
         # The capture groups were substituted, not passed through literally.
         assert "\\1" not in combined
+
+
+class TestPathsDashboardFilters(BaseTest):
+    def _runner(self) -> PathsQueryRunner:
+        return PathsQueryRunner(query=PathsQuery(pathsFilter=PathsFilter()), team=self.team)
+
+    def test_interval_override_silently_skipped_for_non_interval_query(self) -> None:
+        runner = self._runner()
+
+        runner.apply_dashboard_filters(DashboardFilter(interval=IntervalType.WEEK))
+
+        assert not hasattr(runner.query, "interval")
+
+    @parameterized.expand(
+        [
+            ("override_forces_on", None, True, True),
+            ("override_forces_off", True, False, False),
+            ("absent_override_leaves_query_untouched", True, None, True),
+        ]
+    )
+    def test_dashboard_test_accounts_override(
+        self, _name: str, initial: bool | None, dashboard_filter: bool | None, expected: bool
+    ) -> None:
+        runner = self._runner()
+        if initial is not None:
+            runner.query.filterTestAccounts = initial
+
+        runner.apply_dashboard_filters(DashboardFilter(filterTestAccounts=dashboard_filter))
+
+        assert runner.query.filterTestAccounts is expected

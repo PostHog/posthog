@@ -55,18 +55,11 @@ const mockTrpcSkills = vi.hoisted(() => ({
   resolveDependencies: { query: vi.fn() },
 }));
 
-const mockTrpcHandoff = vi.hoisted(() => ({
-  preflightToCloud: { query: vi.fn() },
-  executeToCloud: { mutate: vi.fn() },
-}));
-
-const mockTrpcOs = vi.hoisted(() => ({
-  openExternal: { mutate: vi.fn() },
-}));
-
 const mockSessionStoreSetters = vi.hoisted(() => ({
   setSession: vi.fn(),
   removeSession: vi.fn(),
+  setTaskStarting: vi.fn(),
+  clearTaskStarting: vi.fn(),
   updateSession: vi.fn(),
   updateCloudStatus: vi.fn(),
   appendEvents: vi.fn(),
@@ -160,7 +153,7 @@ const mockAuth = vi.hoisted(() => ({
     },
     currentOrgId: "org-1",
     currentProjectId: 123,
-    hasCodeAccess: true,
+    desktopAccess: { projectId: 123, status: "allowed", reason: null },
     needsScopeReauth: false,
   })),
   getAuthenticatedClient: vi.fn<() => Promise<Record<string, unknown> | null>>(
@@ -278,6 +271,7 @@ const mockFeatureFlags = vi.hoisted(() => ({
 
 const mockSettingsState = vi.hoisted(() => ({
   customInstructions: "",
+  codexModelAccess: "posthog-gateway" as "posthog-gateway" | "own-subscription",
   spokenNotifications: false,
   syncCustomInstructionsFromFile: false,
   syncedCustomInstructions: null as {
@@ -339,8 +333,6 @@ vi.mock("@posthog/di/container", () => ({
         cloudTask: mockTrpcCloudTask,
         fs: mockTrpcFs,
         skills: mockTrpcSkills,
-        handoff: mockTrpcHandoff,
-        os: mockTrpcOs,
       };
     }
     if (token === Symbol.for("posthog.ui.ImperativeQueryClient")) {
@@ -433,16 +425,18 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     isAbsoluteFolderPath: actual.isAbsoluteFolderPath,
     isFatalSessionError: actual.isFatalSessionError,
     isRateLimitError: actual.isRateLimitError,
+    isSteerPromptParams: actual.isSteerPromptParams,
     isTurnCompleteEvent: actual.isTurnCompleteEvent,
     normalizePromptToBlocks: vi.fn((p) =>
       typeof p === "string" ? [{ type: "text", text: p }] : p,
     ),
     promptReferencesAbsoluteFolder: actual.promptReferencesAbsoluteFolder,
+    selectEchoedOptimisticItemIds: actual.selectEchoedOptimisticItemIds,
+    selectUnseededPendingFollowups: actual.selectUnseededPendingFollowups,
     shellExecutesToContextBlocks: vi.fn(() => []),
   };
 });
 
-import { toast } from "@posthog/ui/primitives/toast";
 import {
   getSessionService,
   resetSessionService,
@@ -492,6 +486,7 @@ describe("SessionService", () => {
     mockHasSessionPromptEventForTaskRun.mockReturnValue(false);
     resetSessionService();
     mockSettingsState.customInstructions = "";
+    mockSettingsState.codexModelAccess = "posthog-gateway";
     mockSettingsState.spokenNotifications = false;
     mockFeatureFlags.isEnabled.mockReturnValue(false);
     mockSettingsState.syncCustomInstructionsFromFile = false;
@@ -525,7 +520,7 @@ describe("SessionService", () => {
       },
       currentOrgId: "org-1",
       currentProjectId: 123,
-      hasCodeAccess: true,
+      desktopAccess: { projectId: 123, status: "allowed", reason: null },
       needsScopeReauth: false,
     });
     mockTrpcAgent.onSessionEvent.subscribe.mockReturnValue({
@@ -546,14 +541,6 @@ describe("SessionService", () => {
     mockTrpcSkills.resolveDependencies.query.mockImplementation(
       async (refs: unknown) => refs,
     );
-    mockTrpcHandoff.preflightToCloud.query.mockResolvedValue({
-      canHandoff: true,
-    });
-    mockTrpcHandoff.executeToCloud.mutate.mockResolvedValue({
-      success: true,
-      logEntryCount: 0,
-    });
-    mockTrpcOs.openExternal.mutate.mockResolvedValue(undefined);
     mockAuthenticatedClient.prepareTaskRunArtifactUploads.mockResolvedValue([]);
     mockAuthenticatedClient.finalizeTaskRunArtifactUploads.mockResolvedValue(
       [],
@@ -694,7 +681,7 @@ describe("SessionService", () => {
         orgProjectsMap: {},
         currentOrgId: "org-2",
         currentProjectId: 456,
-        hasCodeAccess: true,
+        desktopAccess: { projectId: 456, status: "allowed", reason: null },
         needsScopeReauth: false,
       });
       const second = service.getCloudAttachmentPreviewUrl(
@@ -885,6 +872,40 @@ describe("SessionService", () => {
       );
     });
 
+    it("starts Codex with the access selected for the task", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
+      mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
+        createTaskRun: vi.fn().mockResolvedValue({ id: "run-789" }),
+        appendTaskRunLog: vi.fn(),
+      });
+      mockTrpcAgent.start.mutate.mockResolvedValue({
+        channel: "test-channel",
+        configOptions: [],
+      });
+
+      await service.connectToTask({
+        task: createMockTask(),
+        repoPath: "/repo",
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
+      });
+
+      expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+        }),
+      );
+      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+        }),
+      );
+    });
+
     it("deduplicates concurrent connection attempts", async () => {
       const service = getSessionService();
 
@@ -905,7 +926,7 @@ describe("SessionService", () => {
         },
         currentOrgId: "org-1",
         currentProjectId: 123,
-        hasCodeAccess: true,
+        desktopAccess: { projectId: 123, status: "allowed", reason: null },
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue({
@@ -965,7 +986,7 @@ describe("SessionService", () => {
         orgProjectsMap: {},
         currentOrgId: null,
         currentProjectId: null,
-        hasCodeAccess: null,
+        desktopAccess: { projectId: null, status: "unchecked", reason: null },
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue(null);
@@ -1001,7 +1022,7 @@ describe("SessionService", () => {
           orgProjectsMap: {},
           currentOrgId: null,
           currentProjectId: 123,
-          hasCodeAccess: null,
+          desktopAccess: { projectId: null, status: "unchecked", reason: null },
           needsScopeReauth: false,
         });
 
@@ -1034,7 +1055,7 @@ describe("SessionService", () => {
           orgProjectsMap: {},
           currentOrgId: null,
           currentProjectId: 123,
-          hasCodeAccess: true,
+          desktopAccess: { projectId: 123, status: "allowed", reason: null },
           needsScopeReauth: false,
         });
 
@@ -6921,7 +6942,7 @@ describe("SessionService", () => {
         },
         currentOrgId: "org-1",
         currentProjectId: 123,
-        hasCodeAccess: true,
+        desktopAccess: { projectId: 123, status: "allowed", reason: null },
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue({
@@ -7196,7 +7217,7 @@ describe("SessionService", () => {
         orgProjectsMap: {},
         currentOrgId: null,
         currentProjectId: 123,
-        hasCodeAccess: null,
+        desktopAccess: { projectId: null, status: "unchecked", reason: null },
         needsScopeReauth: false,
       });
 
@@ -7295,7 +7316,7 @@ describe("SessionService", () => {
           orgProjectsMap: {},
           currentOrgId: null,
           currentProjectId: 123,
-          hasCodeAccess: null,
+          desktopAccess: { projectId: null, status: "unchecked", reason: null },
           needsScopeReauth: false,
         });
 
@@ -7596,6 +7617,79 @@ describe("SessionService", () => {
       );
     });
 
+    it("resumes when the active workflow has already ended", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({
+          isCloud: true,
+          cloudStatus: "in_progress",
+          status: "connected",
+          cloudBranch: "feature/cloud-run",
+        }),
+      );
+      mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
+        success: false,
+        status: 409,
+        error: "Task run workflow has ended",
+      });
+      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+        id: "run-123",
+        task: "task-123",
+        team: 123,
+        branch: "feature/cloud-run",
+        runtime_adapter: "claude",
+        model: "claude-sonnet-4-20250514",
+        reasoning_effort: null,
+        environment: "cloud",
+        status: "completed",
+        log_url: "https://example.com/logs/run-123",
+        error_message: null,
+        output: {},
+        state: {},
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        completed_at: "2026-04-14T00:05:00Z",
+      });
+      mockAuthenticatedClient.getTask.mockResolvedValue(createMockTask());
+      mockAuthenticatedClient.runTaskInCloud.mockResolvedValue(
+        createMockTask({
+          latest_run: {
+            id: "run-456",
+            task: "task-123",
+            team: 123,
+            branch: "feature/cloud-run",
+            runtime_adapter: "claude",
+            model: "claude-sonnet-4-20250514",
+            reasoning_effort: null,
+            environment: "cloud",
+            status: "queued",
+            log_url: "https://example.com/logs/run-456",
+            error_message: null,
+            output: {},
+            state: {},
+            created_at: "2026-04-14T00:06:00Z",
+            updated_at: "2026-04-14T00:06:00Z",
+            completed_at: null,
+          },
+        }),
+      );
+
+      const result = await service.sendPrompt("task-123", "Continue");
+
+      expect(result.stopReason).toBe("queued");
+      expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
+        "task-123",
+        "feature/cloud-run",
+        expect.objectContaining({
+          resumeFromRunId: "run-123",
+          pendingUserMessage: "Continue",
+        }),
+      );
+      expect(
+        mockSessionStoreSetters.clearTailOptimisticItems,
+      ).toHaveBeenCalledWith("run-123");
+    });
+
     it("preserves codex runtime selection when resuming a terminal cloud run", async () => {
       const service = getSessionService();
       mockSettingsState.spokenNotifications = true;
@@ -7680,6 +7774,9 @@ describe("SessionService", () => {
       );
 
       expect(result.stopReason).toBe("queued");
+      expect(mockSessionStoreSetters.setTaskStarting).toHaveBeenCalledWith(
+        "task-123",
+      );
       expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
         "task-123",
         "feature/codex-run",
@@ -9323,12 +9420,13 @@ describe("SessionService", () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
-      await service.setSessionConfigOption(
+      const result = await service.setSessionConfigOption(
         "task-123",
         "model",
         "claude-3-sonnet",
       );
 
+      expect(result).toBe(false);
       expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
     });
 
@@ -9375,12 +9473,13 @@ describe("SessionService", () => {
         }),
       );
 
-      await service.setSessionConfigOption(
+      const result = await service.setSessionConfigOption(
         "task-123",
         "model",
         "claude-3-sonnet",
       );
 
+      expect(result).toBe(true);
       // Optimistic update
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
         "run-123",
@@ -9438,8 +9537,13 @@ describe("SessionService", () => {
         new Error("Failed"),
       );
 
-      await service.setSessionConfigOption("task-123", "mode", "acceptEdits");
+      const result = await service.setSessionConfigOption(
+        "task-123",
+        "mode",
+        "acceptEdits",
+      );
 
+      expect(result).toBe(false);
       expect(currentSession.configOptions).toEqual([
         expect.objectContaining({
           id: "mode",
@@ -9551,8 +9655,13 @@ describe("SessionService", () => {
         }),
       );
 
-      await service.setSessionConfigOption("task-123", "mode", "acceptEdits");
+      const result = await service.setSessionConfigOption(
+        "task-123",
+        "mode",
+        "acceptEdits",
+      );
 
+      expect(result).toBe(false);
       expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledTimes(1);
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
@@ -9947,43 +10056,6 @@ describe("SessionService", () => {
       await expect(
         service.clearSessionError("task-123", "/repo"),
       ).resolves.not.toThrow();
-    });
-  });
-
-  describe("handoffToCloud", () => {
-    it("starts GitHub reauth when cloud handoff needs user authorization", async () => {
-      const service = getSessionService();
-      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
-        createMockSession(),
-      );
-      mockTrpcHandoff.executeToCloud.mutate.mockResolvedValue({
-        success: false,
-        code: "github_authorization_required",
-        error: "Connect GitHub in your browser, then retry Continue in cloud.",
-      });
-
-      await service.handoffToCloud("task-123", "/repo/path");
-
-      expect(
-        mockAuthenticatedClient.startGithubUserIntegrationConnect,
-      ).toHaveBeenCalledWith(123);
-      expect(mockTrpcOs.openExternal.mutate).toHaveBeenCalledWith({
-        url: "https://github.com/login/oauth/authorize",
-      });
-      expect(toast.info).toHaveBeenCalledWith(
-        "Connect GitHub to continue in cloud",
-        "Complete the authorization in your browser, then click Continue again.",
-      );
-      expect(toast.error).not.toHaveBeenCalledWith(
-        expect.stringContaining("github_authorization_required"),
-      );
-      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
-        "run-123",
-        {
-          handoffInProgress: false,
-          status: "disconnected",
-        },
-      );
     });
   });
 

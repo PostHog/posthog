@@ -31,6 +31,19 @@ function userPromptMsg(ts: number, id: number, text: string): AcpMessage {
   };
 }
 
+function steerPromptMsg(ts: number, id: number, text: string): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      id,
+      method: "session/prompt",
+      params: { _meta: { steer: true }, prompt: [{ type: "text", text }] },
+    },
+  };
+}
+
 function promptResponseMsg(
   ts: number,
   id: number,
@@ -288,6 +301,18 @@ const SCENARIOS: Record<string, AcpMessage[]> = {
     userPromptMsg(1, 1, "hello"),
     agentChunk(3, " — done"),
     promptResponseMsg(4, 1),
+  ],
+  "mid-turn steer folded into the running turn": [
+    userPromptMsg(1, 1, "do a thing"),
+    toolCallMsg(2, "t1"),
+    steerPromptMsg(3, 99, "actually do it differently"),
+    promptResponseMsg(4, 99, "steered"),
+    toolUpdateMsg(5, "t1", {
+      status: "completed",
+      content: [{ type: "content", content: { type: "text", text: "ok" } }],
+    }),
+    agentChunk(6, "adjusting"),
+    promptResponseMsg(7, 1),
   ],
 };
 

@@ -12,6 +12,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
     APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
     AppStoreConnectResumeConfig,
     app_store_connect_source,
@@ -155,6 +156,9 @@ The analytics tables need a key with the Admin role. Apple lets only an Admin ke
             APP_STORE_CONNECT_READ_FORBIDDEN_ERROR: APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
             # Any 403 that didn't come through the custom raises still fails fast with the read message.
             "403 Client Error: Forbidden for url: https://api.appstoreconnect.apple.com": APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
+            # A report sync selected without a vendor number can never read `/v1/salesReports`, so fail
+            # fast instead of retrying the activity's whole budget until the user adds the number.
+            APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR: APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:

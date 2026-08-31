@@ -183,6 +183,15 @@ export class DashboardsService {
     return rows.map(toRecord);
   }
 
+  async listAll(): Promise<DashboardRecord[]> {
+    const rows = await this.api.listPaginated<ApiCanvas>(
+      "canvases/",
+      "list all canvases",
+      { limit: 500 },
+    );
+    return rows.map(toRecord).filter((record) => record.kind !== "component");
+  }
+
   async create(input: {
     channelId: string;
     name: string;
@@ -329,6 +338,14 @@ export class DashboardsService {
   // Pin (or unpin) a canvas to its channel (shared across users).
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord> {
     return this.patch(input.id, { pinned: input.pinned }, "set pin");
+  }
+
+  file(input: { id: string; channelId: string }): Promise<DashboardRecord> {
+    return this.patch(
+      input.id,
+      { channel_id: input.channelId },
+      "file canvas to space",
+    );
   }
 
   // File a rendering error in the canvas's authoring-task thread (the server

@@ -260,6 +260,7 @@ class ErrorTrackingIssueBasics:
     name: str | None
     description: str | None
     status: str
+    severity: str | None
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { UniversalFiltersGroup } from '~/types'
 
 import { LogsGroupByResults } from 'products/logs/frontend/components/LogsGroupBy/LogsGroupByResults'
+import { LogsMetricRuleQuickCreateModal } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRuleQuickCreateModal'
 import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/LogsPatterns'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters, LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
@@ -25,6 +26,7 @@ import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import { LogsDisplayBar } from './LogsDisplayBar'
 import { logsViewerLogic } from './logsViewerLogic'
 import { LogsSparkline } from './LogsViewerSparkline'
+import type { LogsViewerSparklineProps } from './LogsViewerSparkline'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
@@ -79,6 +81,14 @@ export function LogsViewer({
     )
 }
 
+/** `visibleRowDateRange` changes on every scroll tick, so it is subscribed here rather than in
+ *  `LogsViewerContent`, where it would re-render the row list and facet rail on each one.
+ *  `LogsSparkline` stays prop-driven so it can render in a story without the keyed logic. */
+function ConnectedLogsSparkline(props: Omit<LogsViewerSparklineProps, 'visibleRowDateRange'>): JSX.Element | null {
+    const { visibleRowDateRange } = useValues(logsViewerLogic)
+    return <LogsSparkline {...props} visibleRowDateRange={visibleRowDateRange} />
+}
+
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
@@ -111,9 +121,8 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
-        useValues(logsViewerConfigLogic)
-    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
+    const { orderBy, sparklineCollapsed, facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
+    const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,
         parsedLogs,
@@ -124,7 +133,7 @@ function LogsViewerContent({
         hasMoreLogsToLoad,
         totalLogsMatchingFilters,
     } = useValues(logsViewerDataLogic)
-    const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
+    const { refreshQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
@@ -240,7 +249,7 @@ function LogsViewerContent({
                 action: () => {
                     if (!logsLoading) {
                         resetCursor()
-                        runQuery()
+                        refreshQuery()
                     }
                 },
                 disabled: !isFocused,
@@ -281,7 +290,7 @@ function LogsViewerContent({
             parsedLogs,
             openLogDetails,
             closeLogDetails,
-            runQuery,
+            refreshQuery,
             logsLoading,
             resetCursor,
             moveCursorDown,
@@ -295,13 +304,11 @@ function LogsViewerContent({
 
     const sparklineSection = (
         <>
-            <LogsSparkline
+            <ConnectedLogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={setDateRange}
                 displayTimezone={timezone}
-                breakdownBy={sparklineBreakdownBy}
-                onBreakdownByChange={setSparklineBreakdownBy}
                 collapsed={sparklineCollapsed}
                 onToggleCollapse={toggleSparklineCollapsed}
                 incompleteBarIndices={sparklineIncompleteBarIndices}
@@ -390,6 +397,7 @@ function LogsViewerContent({
                 </div>
             </div>
             <LogDetailsModal timezone={timezone} />
+            <LogsMetricRuleQuickCreateModal />
         </div>
     )
 }

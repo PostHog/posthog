@@ -841,39 +841,6 @@ class TestGitHubPRWebhook(TestCase):
             [existing, "https://github.com/posthog/posthog/pull/901"],
         )
 
-    @patch("products.signals.backend.tasks.refresh_report_canvases_for_task.delay")
-    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_pr_opened_refreshes_report_canvas_when_pr_url_already_recorded(
-        self, mock_capture, mock_get_secret, mock_refresh
-    ):
-        # The agent server usually records output.pr_url before the webhook lands, so the webhook
-        # takes the "already recorded" path. The canvas refresh must still fire, otherwise a canvas
-        # built before the PR existed keeps implementation_pr_url null.
-        mock_get_secret.return_value = self.webhook_secret
-        pr_url = "https://github.com/posthog/posthog/pull/822"
-        TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
-            status=TaskRun.Status.IN_PROGRESS,
-            branch="feature/canvas-refresh",
-            output={"pr_url": pr_url},
-        )
-        payload = {
-            "action": "opened",
-            "pull_request": {
-                "html_url": pr_url,
-                "merged": False,
-                "head": {"ref": "feature/canvas-refresh", "repo": {"full_name": "posthog/posthog"}},
-            },
-            "repository": {"full_name": "posthog/posthog"},
-        }
-
-        response = self._make_webhook_request(payload)
-
-        self.assertEqual(response.status_code, 200)
-        mock_refresh.assert_called_once_with(str(self.task.id))
-
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_invalid_signature_rejected(self, mock_get_secret):
         """Test that requests with invalid signatures are rejected."""

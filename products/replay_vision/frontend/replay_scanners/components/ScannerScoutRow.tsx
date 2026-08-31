@@ -4,8 +4,10 @@ import { IconChevronRight, IconEye, IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
@@ -28,8 +30,25 @@ export function ScannerScoutRow({
     config: SignalScoutConfigApi
 }): JSX.Element {
     const logic = scannerScoutLogic({ scannerId, scannerName })
-    const { updatingScoutIds, deletingScoutIds, expandedSkillNames, reportsBySkill } = useValues(logic)
-    const { openScoutSettings, updateScoutConfig, deleteScout, toggleScoutExpanded, openReport } = useActions(logic)
+    const {
+        updatingScoutIds,
+        deletingScoutIds,
+        manualRunScoutIds,
+        expandedSkillNames,
+        reportsBySkill,
+        scoutReportsLoading,
+        scoutReportsFailed,
+        rollups,
+    } = useValues(logic)
+    const {
+        openScoutSettings,
+        updateScoutConfig,
+        deleteScout,
+        toggleScoutExpanded,
+        openReport,
+        runScoutNow,
+        loadScoutReports,
+    } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     // Deleting a scout or switching it off changes what this scanner watches.
@@ -37,6 +56,11 @@ export function ScannerScoutRow({
     const updating = updatingScoutIds.includes(config.id)
     const expanded = expandedSkillNames.includes(config.skill_name)
     const reports = reportsBySkill.get(config.skill_name) ?? []
+    // The request returns as soon as the workflow is dispatched, so the button's own loading state
+    // clears in a second while the run takes minutes. Without this the button looks ready again and
+    // the next click is refused by the backend's in-flight check with a bare 409.
+    const runDisabledReason =
+        editDisabledReason ?? (rollups.get(config.skill_name)?.runningRun ? 'This scout is already running' : undefined)
 
     const timezone = currentTeam?.timezone ?? 'UTC'
     const now = new Date()
@@ -51,21 +75,25 @@ export function ScannerScoutRow({
     return (
         <div className={cn('flex flex-col rounded border bg-surface-primary', !config.enabled && 'opacity-65')}>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
-                <LemonButton
-                    size="small"
-                    icon={<IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />}
+                <button
+                    type="button"
+                    className="-mx-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-surface-secondary"
                     onClick={() => toggleScoutExpanded(config.skill_name)}
                     aria-label={`${expanded ? 'Hide' : 'Show'} reports from ${prettifyScoutSkillName(config.skill_name)}`}
                     aria-expanded={expanded}
                     data-attr="vision-scout-row-expand"
-                />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="text-sm font-medium">{prettifyScoutSkillName(config.skill_name)}</span>
-                    <span className="text-[11px] text-muted">
-                        {scoutCadenceLabel(config)}
-                        {nextRunText && ` · next run ${nextRunText}`}
+                >
+                    <IconChevronRight
+                        className={cn('shrink-0 text-base transition-transform', expanded && 'rotate-90')}
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="text-sm font-medium">{prettifyScoutSkillName(config.skill_name)}</span>
+                        <span className="text-[11px] text-muted">
+                            {capitalizeFirstLetter(scoutCadenceLabel(config))}
+                            {nextRunText && ` · next run ${nextRunText}`}
+                        </span>
                     </span>
-                </div>
+                </button>
                 <div className="flex shrink-0 items-center gap-1">
                     <Tooltip title="Scout settings">
                         <LemonButton
@@ -116,7 +144,45 @@ export function ScannerScoutRow({
                     </Tooltip>
                 </div>
             </div>
-            {expanded && (
+            {expanded && scoutReportsLoading && reports.length === 0 && (
+                <div className="border-t border-primary px-4 py-2 pl-12">
+                    <LemonSkeleton className="h-8 w-full" />
+                </div>
+            )}
+            {expanded && !scoutReportsLoading && scoutReportsFailed && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 pl-12">
+                    <span className="text-sm text-muted">Couldn't load this scout's reports.</span>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => loadScoutReports()}
+                        data-attr="vision-scout-row-reports-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
+            )}
+            {/* "No reports filed yet" is a verdict about reports that arrived, and Run now spends
+                credits, so neither belongs on a roster whose reports failed to load or have not
+                loaded: both leave the list empty, and neither means the scout filed nothing. */}
+            {expanded && !scoutReportsLoading && !scoutReportsFailed && reports.length === 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 pl-12">
+                    <span className="text-sm text-muted">
+                        No reports filed yet. The first arrives after the next scheduled run.
+                    </span>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        loading={manualRunScoutIds.includes(config.id)}
+                        disabledReason={runDisabledReason}
+                        onClick={() => runScoutNow(config.id)}
+                        data-attr="vision-scout-row-run-now"
+                    >
+                        Run now
+                    </LemonButton>
+                </div>
+            )}
+            {expanded && !scoutReportsLoading && !scoutReportsFailed && reports.length > 0 && (
                 <div className="border-t border-primary px-4 py-2 pl-12">
                     {/* Same shape as the scanner's observation history, so the two lists read alike. */}
                     <LemonTable
@@ -125,7 +191,6 @@ export function ScannerScoutRow({
                         size="small"
                         rowKey="report_id"
                         dataSource={reports}
-                        emptyState="No reports filed yet."
                         columns={[
                             {
                                 title: '',
@@ -135,8 +200,11 @@ export function ScannerScoutRow({
                             {
                                 title: '',
                                 key: 'touchedAt',
+                                // Baseline, not centre: `TZLabel` carries a dotted bottom border, so
+                                // centring the two boxes puts its text half a pixel off, and which way
+                                // that rounds shifts with the width of the digits.
                                 render: (_, report) => (
-                                    <span className="text-muted">
+                                    <span className="inline-flex items-baseline gap-1 text-muted">
                                         Filed <TZLabel time={report.filed_at} />
                                     </span>
                                 ),

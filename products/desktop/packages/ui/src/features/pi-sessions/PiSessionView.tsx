@@ -34,6 +34,10 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
+import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
@@ -48,7 +52,6 @@ import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { toast } from "@posthog/ui/primitives/toast";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 import { logger } from "@posthog/ui/shell/logger";
-import { Box, Flex } from "@radix-ui/themes";
 import {
   type ReactElement,
   useCallback,
@@ -59,7 +62,6 @@ import {
 import { useStore } from "zustand";
 import { PiExtensionDialog } from "./PiExtensionDialog";
 import { PiExtensionStatuses, PiExtensionWidgets } from "./PiExtensionSurfaces";
-import { PiProjectTrustBanner } from "./PiProjectTrustBanner";
 import { PiQueuedMessagesDock } from "./PiQueuedMessagesDock";
 import { PiMessagingModeSelector } from "./PiSessionControls";
 import { PiSessionModelControls } from "./PiSessionModelControls";
@@ -413,32 +415,6 @@ function usePiRestart(
   }, [controller, taskId]);
 }
 
-function usePiProjectTrustChange(
-  controller: PiSessionController,
-  taskId: string,
-) {
-  const [pending, setPending] = useState(false);
-  const change = useCallback(
-    async (trusted: boolean) => {
-      setPending(true);
-      try {
-        await controller.setProjectTrusted(taskId, trusted);
-        toast.success(
-          trusted
-            ? "Repository trusted and Pi restarted"
-            : "Repository trust revoked and Pi restarted",
-        );
-      } catch (error) {
-        handleControllerError(error, "Failed to change repository trust");
-      } finally {
-        setPending(false);
-      }
-    },
-    [controller, taskId],
-  );
-  return { change, pending };
-}
-
 function usePiEditQueue(
   controller: PiSessionController,
   taskId: string,
@@ -557,8 +533,6 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   const cancelPrompt = usePiCancel(piSessionController, taskId, isBashRunning);
   const retry = usePiRetry(piSessionController, taskId);
   const restart = usePiRestart(piSessionController, taskId);
-  const { change: changeProjectTrust, pending: projectTrustPending } =
-    usePiProjectTrustChange(piSessionController, taskId);
   const handleQueueForEditing = useCallback(
     (queue: PiQueueSnapshot) => applyQueueToDraft(queue, draftActions, taskId),
     [draftActions, taskId],
@@ -601,6 +575,8 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
     [mcpPermission, piSessionController, taskId],
   );
 
+  const spendStop = useSpendStop();
+
   if (!session) {
     return <TaskDetailSkeleton />;
   }
@@ -636,7 +612,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
     );
   }
 
-  if (!status && !hasTranscript && !isConnecting) {
+  if (!status && !hasTranscript && (!isConnecting || !isCloud)) {
     return <TaskDetailSkeleton />;
   }
 
@@ -663,7 +639,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   const extensionDialog = currentExtensionState.dialogs[0];
 
   return (
-    <Flex direction="column" height="100%">
+    <div className="flex h-full flex-col">
       {extensionDialog && (
         <PiExtensionDialog
           key={extensionDialog.id}
@@ -684,7 +660,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           onRestart={restart}
         />
       )}
-      <Box className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1">
         <ChatThread
           events={session.events}
           isPromptPending={isStreaming}
@@ -693,8 +669,8 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           promptRecallRef={promptRecallRef}
           hasPendingPermission={Boolean(mcpPermission)}
         />
-      </Box>
-      <Box
+      </div>
+      <div
         className="mx-auto w-full px-2 pb-3"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
       >
@@ -710,17 +686,6 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
               widgets={currentExtensionState.widgets}
               placement="aboveEditor"
             />
-            {session.projectTrust?.hasProjectResources && (
-              <PiProjectTrustBanner
-                trusted={session.projectTrust.trusted}
-                disabled={
-                  controlsPending || session.connectionState !== "connected"
-                }
-                pending={projectTrustPending}
-                onTrust={() => changeProjectTrust(true)}
-                onRevoke={() => changeProjectTrust(false)}
-              />
-            )}
           </>
         )}
         {mcpPermission ? (
@@ -754,7 +719,8 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
               !status ||
               !isOnline ||
               hasQueuedMessage ||
-              isAuthRestoring
+              isAuthRestoring ||
+              spendStop !== null
             }
             submitTooltipOverride={
               !isOnline
@@ -763,7 +729,9 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
                   ? "Restoring authentication"
                   : hasQueuedMessage
                     ? "A message is already queued"
-                    : undefined
+                    : spendStop
+                      ? spendStopMessage(spendStop)
+                      : undefined
             }
             enableBashMode
             enableCommands
@@ -792,7 +760,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
             placement="belowEditor"
           />
         )}
-      </Box>
-    </Flex>
+      </div>
+    </div>
   );
 }

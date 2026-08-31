@@ -25,6 +25,7 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric,
@@ -645,6 +646,14 @@ class ExperimentService:
         return rendered
 
     @classmethod
+    def strip_unknown_exposure_criteria_keys(cls, exposure_criteria: dict | None) -> dict | None:
+        """Drop unknown top-level keys from stored criteria (writes accepted them before
+        the unknown-key rejection below existed)."""
+        if not isinstance(exposure_criteria, dict):
+            return exposure_criteria
+        return {k: v for k, v in exposure_criteria.items() if k in ExperimentExposureCriteria.model_fields}
+
+    @classmethod
     def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
         """Validate experiment exposure criteria payloads.
 
@@ -658,6 +667,21 @@ class ExperimentService:
             raise ValidationError(
                 f"exposure_criteria must be an object, got {type(exposure_criteria).__name__}. "
                 "Expected shape: {'filterTestAccounts': <bool>, 'exposure_config': <object>}."
+            )
+
+        # Reject unknown top-level keys: they used to be silently saved, and the strict
+        # read-side parse then broke every results/exposure query for the experiment
+        # (reads now tolerate them, but new writes should fail fast with a pointer).
+        unknown_keys = set(exposure_criteria) - set(ExperimentExposureCriteria.model_fields)
+        if unknown_keys:
+            hint = (
+                " Property filters on the exposure event belong at exposure_criteria.exposure_config.properties."
+                if "properties" in unknown_keys
+                else ""
+            )
+            raise ValidationError(
+                f"exposure_criteria contains unknown key(s): {', '.join(sorted(unknown_keys))}.{hint} "
+                f"Allowed keys: {', '.join(sorted(ExperimentExposureCriteria.model_fields))}."
             )
 
         if "filterTestAccounts" in exposure_criteria:
@@ -2187,6 +2211,19 @@ class ExperimentService:
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
 
+        # The flag flip logs under the FeatureFlag scope only; without this entry the
+        # experiment's History tab shows nothing for the pause.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="paused",
+            detail=Detail(name=experiment.name),
+        )
+
         self._report_lifecycle_event(experiment, "experiment paused", request=request)
 
         return experiment
@@ -2212,6 +2249,17 @@ class ExperimentService:
 
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="resumed",
+            detail=Detail(name=experiment.name),
+        )
 
         self._report_lifecycle_event(experiment, "experiment resumed", request=request)
 
@@ -4142,7 +4190,10 @@ class ExperimentService:
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
         }
 
-        self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
+        # Stored criteria can carry unknown top-level keys accepted before writes rejected
+        # them — strip those instead of failing the clone on data the user didn't write.
+        cloned_exposure_criteria = self.strip_unknown_exposure_criteria_keys(source_experiment.exposure_criteria)
+        self.validate_experiment_exposure_criteria(cloned_exposure_criteria)
         self.validate_experiment_metrics(source_experiment.metrics)
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
 
@@ -4191,7 +4242,7 @@ class ExperimentService:
             metrics_secondary=cloned_metrics_secondary,
             stats_config=source_experiment.stats_config,
             scheduling_config=source_experiment.scheduling_config,
-            exposure_criteria=source_experiment.exposure_criteria,
+            exposure_criteria=cloned_exposure_criteria,
             saved_metrics_ids=saved_metrics_data,
             primary_metrics_ordered_uuids=cloned_primary_ordering,
             secondary_metrics_ordered_uuids=cloned_secondary_ordering,

@@ -13,10 +13,11 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { FeatureFlagType } from '~/types'
 
-import { NEW_EXPERIMENT } from '../constants'
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+
+import { experimentsLogic } from '../../../../../products/experiments/frontend/scenes/experimentsLogic'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
-import { experimentsLogic } from '../experimentsLogic'
 import { experimentWizardLogic, stepStorageKey } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'
 import { VariantsStep } from './steps/VariantsStep'

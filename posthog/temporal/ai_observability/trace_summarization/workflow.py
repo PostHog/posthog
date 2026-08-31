@@ -30,7 +30,6 @@ from posthog.temporal.ai_observability.trace_summarization.constants import (
     FETCH_AND_FORMAT_RETRY_POLICY,
     FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT,
     FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT,
-    MAX_TEXT_REPR_LENGTH,
     SAMPLE_HEARTBEAT_TIMEOUT,
     SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT,
     SAMPLE_TIMEOUT_SECONDS,
@@ -62,7 +61,8 @@ from posthog.temporal.ai_observability.trace_summarization.sampling import sampl
 from posthog.temporal.ai_observability.trace_summarization.summarize_and_save import summarize_and_save_activity
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.ai_observability.backend.summarization.models import SummarizationMode
+from products.ai_observability.backend.summarization.budget import text_repr_budget
+from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
 
 logger = structlog.get_logger(__name__)
 
@@ -87,11 +87,11 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             analysis_level="generation" if len(inputs) > 1 and inputs[1] == "generation" else "trace",
             max_items=int(inputs[2]) if len(inputs) > 2 else DEFAULT_MAX_ITEMS_PER_WINDOW,
             batch_size=int(inputs[3]) if len(inputs) > 3 else DEFAULT_BATCH_SIZE,
-            mode=SummarizationMode(inputs[4]) if len(inputs) > 4 else DEFAULT_MODE,
+            mode=SummarizationMode.parse(inputs[4]) if len(inputs) > 4 else DEFAULT_MODE,
             window_minutes=int(inputs[5]) if len(inputs) > 5 else DEFAULT_WINDOW_MINUTES,
             window_start=inputs[6] if len(inputs) > 6 else None,
             window_end=inputs[7] if len(inputs) > 7 else None,
-            model=inputs[8] if len(inputs) > 8 else DEFAULT_MODEL,
+            model=OpenAIModel.parse(inputs[8]) if len(inputs) > 8 else DEFAULT_MODEL,
         )
 
     @staticmethod
@@ -236,7 +236,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 mode=inputs.mode,
                 batch_run_id=batch_run_id,
                 model=inputs.model,
-                max_length=MAX_TEXT_REPR_LENGTH,
+                max_length=text_repr_budget(inputs.model),
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
             )

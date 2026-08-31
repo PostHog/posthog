@@ -20,7 +20,8 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
+from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
@@ -256,6 +257,65 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
 
 
+# The two statuses a reader still has something to do about, and the only two that stamp
+# `first_visible_at`. An allowlist rather than a denylist, so a status added later is not silently
+# offered to a first-time user.
+_OFFERABLE_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
+
+
+@frozen
+class InboxReportSummary:
+    """One report, named well enough for an agent to offer it by id."""
+
+    report_id: str
+    title: str
+
+
+@frozen
+class WaitingReports:
+    """What a team has waiting in its inbox: how many, and the newest few that can be named.
+
+    `offerable` is shorter than `count` whenever more are waiting than the caller asked for, or one
+    has no title yet. That is expected, not a mismatch — see `waiting_reports`.
+    """
+
+    count: int
+    offerable: tuple[InboxReportSummary, ...]
+
+
+_REPORT_TITLE_LIMIT = 120
+
+
+def waiting_reports(team_id: int, limit: int = 3) -> WaitingReports:
+    """What is waiting in the team's inbox, newest named first.
+
+    One eligibility rule for both halves, because they drifted apart when there were two:
+    `first_visible_at` is stamped once on the first transition into ready or pending_input and never
+    cleared, so the status filter is the only thing keeping a resolved, archived or re-running report
+    from reading as one that is waiting.
+
+    The two halves then differ on titles, deliberately. `count` is what the inbox will show them, and
+    the inbox renders a titleless report from its summary, so it counts. `offerable` has to name a
+    report in a sentence, so a titleless one is skipped rather than offered as a blank row.
+    """
+    waiting = SignalReport.objects.filter(
+        team_id=team_id, first_visible_at__isnull=False, status__in=_OFFERABLE_STATUSES
+    )
+    newest_named = (
+        waiting.exclude(title__isnull=True)
+        .exclude(title="")
+        .order_by("-first_visible_at")
+        .values_list("id", "title")[:limit]
+    )
+    return WaitingReports(
+        count=waiting.count(),
+        offerable=tuple(
+            InboxReportSummary(report_id=str(report_id), title=" ".join((title or "").split())[:_REPORT_TITLE_LIMIT])
+            for report_id, title in newest_named
+        ),
+    )
+
+
 def has_enabled_source(team_id: int) -> bool:
     """True once the team has at least one enabled signal source — i.e. there's something to respond to.
 
@@ -336,6 +396,72 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                 ).update(enabled=False)
 
 
+# Each source carries two names: the label, which is the product it comes from, and the watch, which
+# is the problem it catches. Onboarding copy needs the second one, because "error tracking" tells a
+# first-time reader nothing about what turning it on did for them.
+_ONBOARDING_NATIVE_SOURCES: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
+    (
+        SignalSourceProduct.ERROR_TRACKING,
+        ("issue_created", "issue_reopened", "issue_spiking"),
+        "error tracking",
+        "errors",
+    ),
+    (SignalSourceProduct.HEALTH_CHECKS, ("health_issue",), "health checks", "failing health checks"),
+    (SignalSourceProduct.CONVERSATIONS, ("ticket",), "support tickets", "support tickets"),
+    (SignalSourceProduct.LLM_ANALYTICS, ("evaluation_report",), "AI observability", "AI evals"),
+    (SignalSourceProduct.ANALYTICS, ("anomaly_investigation",), "product analytics", "metric swings"),
+)
+
+
+_ONBOARDING_LABELS: dict[str, str] = {product: label for product, _, label, _watch in _ONBOARDING_NATIVE_SOURCES}
+
+
+@dataclasses.dataclass(frozen=True)
+class OnboardingSources:
+    labels: tuple[str, ...]
+    watches: tuple[str, ...]
+    newly_enabled: bool
+
+
+def _active_source_labels(team_id: int) -> tuple[str, ...]:
+    products = (
+        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True)
+        .values_list("source_product", flat=True)
+        .distinct()
+    )
+    labels = {
+        _ONBOARDING_LABELS.get(product) or SIGNAL_SOURCE_PRODUCT_LABELS.get(SignalSourceProduct(product), product)
+        for product in products
+    }
+    return tuple(sorted(labels))
+
+
+def enable_onboarding_signal_sources(team_id: int, user_id: int) -> OnboardingSources:
+    known = set(SignalSourceConfig.objects.filter(team_id=team_id).values_list("source_product", "source_type"))
+    created: list[str] = []
+    watches: list[str] = []
+    for source_product, source_types, label, watch in _ONBOARDING_NATIVE_SOURCES:
+        missing = tuple(t for t in source_types if (source_product, t) not in known)
+        if not missing:
+            continue
+        try:
+            set_signal_source_types_enabled(
+                team_id=team_id,
+                source_product=source_product,
+                source_types=missing,
+                enabled=True,
+                created_by_id=user_id,
+            )
+        except Exception:
+            logger.exception("onboarding_signal_source_enable_failed", team_id=team_id, source_product=source_product)
+            continue
+        created.append(label)
+        watches.append(watch)
+    if created:
+        return OnboardingSources(labels=tuple(created), watches=tuple(watches), newly_enabled=True)
+    return OnboardingSources(labels=_active_source_labels(team_id), watches=(), newly_enabled=False)
+
+
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
 # each truncated — never nested lists/dicts. Source `extra` payloads nest *uncurated*
 # customer-derived content (pganalyze `references[].queryText` raw SQL, session-replay
@@ -384,6 +510,11 @@ async def emit_signal(
 
     Active path:
         emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
+
+    A source in `DIRECT_STEERABLE_SOURCES` is checked against the team's steering first and dropped
+    when the team's rules say to skip it (see `emission/direct_gate.py`). A team that wrote no
+    steering is unaffected. Sources that reach here through the batch pipeline already ran their own
+    steered gate, so they stay out of that set and are never judged twice.
 
     Args:
         team: The team object
@@ -463,8 +594,9 @@ async def emit_signal(
     )
 
     # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
-    # that don't go through the data-source pipeline still have a top-of-funnel event. The
-    # gap to `signal_emitted` surfaces Temporal/dispatch failures.
+    # that don't go through the data-source pipeline still have a top-of-funnel event. The gap to
+    # `signal_emitted` surfaces Temporal/dispatch failures, once the steering gate below is
+    # subtracted: started - signal_data_source_filtered - emitted = failures.
     try:
         posthoganalytics.capture(
             event="signal_emission_started",
@@ -485,6 +617,25 @@ async def emit_signal(
             source_type=source_type,
             source_id=source_id,
         )
+
+    # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
+    # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
+    if (source_product, source_type) in DIRECT_STEERABLE_SOURCES:
+        # Deferred: the emission package imports this facade back, and its __init__ registers every
+        # emitter, which must stay off the import path of Celery workers and management commands.
+        from products.signals.backend.emission.direct_gate import steering_filters_signal  # noqa: PLC0415
+
+        if await steering_filters_signal(
+            team=team,
+            organization=organization,
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+            description=description,
+            weight=weight,
+            extra=extra or {},
+        ):
+            return
 
     client = await async_connect()
 

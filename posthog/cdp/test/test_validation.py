@@ -17,6 +17,7 @@ from posthog.cdp.validation import (
     RecordAliasRewriter,
     compile_hog,
     generate_template_bytecode,
+    reserved_functions_used,
 )
 from posthog.models.integration import Integration
 
@@ -898,6 +899,36 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ],
         }
 
+    # Behavioral filters compile to a ClickHouse subquery over events history, which neither
+    # bytecode (per-event) nor transpiled JS (in-browser) filters can evaluate
+    @parameterized.expand(
+        [
+            ("destination_global_properties", "destination", "properties"),
+            ("site_destination_global_properties", "site_destination", "properties"),
+            ("destination_event_properties", "destination", "event_properties"),
+        ]
+    )
+    def test_validate_filters_rejects_behavioral_properties(self, _name, function_type, placement):
+        behavioral_property = {
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "$pageview",
+            "event_type": "events",
+            "time_value": 30,
+            "time_interval": "day",
+        }
+        event = {"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}
+        if placement == "properties":
+            filters = {"events": [event], "properties": [behavioral_property]}
+        else:
+            filters = {"events": [{**event, "properties": [behavioral_property]}]}
+
+        serializer = HogFunctionFiltersSerializer(
+            data=filters, context={**self.filters_context, "function_type": function_type}
+        )
+        assert not serializer.is_valid()
+        assert "behavioral" in str(serializer.errors).lower()
+
     def test_validate_filters_person_updates_only_allows_properties(self):
         filters = {
             "source": "person-updates",
@@ -1189,3 +1220,25 @@ class TestTaskInputTypeValidation(SimpleTestCase):
         else:
             with pytest.raises(ValidationError):
                 validate_inputs(schema, inputs)
+
+
+class TestReservedFunctionsUsed(SimpleTestCase):
+    # The worker's async function registry is global, so the save-time check is the only thing
+    # that stops user-authored hog from reaching a handler only PostHog's machinery should call.
+    @parameterized.expand(
+        [
+            ("direct_call", "let res := sendEmail(inputs.email)", {"sendEmail"}),
+            ("bare_reference", "let f := sendEmail", {"sendEmail"}),
+            ("inside_block", "if (true) { sendEmail(inputs.email) }", {"sendEmail"}),
+            ("inside_lambda", "let f := (to) -> sendEmail(to)", {"sendEmail"}),
+            ("as_argument", "print(sendEmail)", {"sendEmail"}),
+            ("two_names", "sendEmail(1)\nsendPushNotification(2)", {"sendEmail", "sendPushNotification"}),
+            ("supported_function", "let res := fetch('https://example.com', {})", set()),
+            ("similar_name", "let res := sendEmails(inputs.email)", set()),
+            ("property_of_same_name", "return inputs.sendEmail", set()),
+            ("string_only", "return f'sendEmail is not called here'", set()),
+            ("does_not_parse", "let res := sendEmail(", set()),
+        ]
+    )
+    def test_reserved_functions_used(self, _name: str, hog: str, expected: set[str]) -> None:
+        assert reserved_functions_used(hog) == expected

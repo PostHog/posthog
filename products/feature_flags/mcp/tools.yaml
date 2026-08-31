@@ -282,10 +282,12 @@ tools:
         list: true
         title: Get my evaluated feature flags
         description: >
-            List all feature flags in the current project along with their evaluated value for the authenticated user
-            (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple
-            flags, variant key string for multivariate flags, false if disabled). Optionally pass `groups` as a JSON
-            object to evaluate group-based flags.
+            List feature flags in the current project along with their evaluated value for the authenticated user (the
+            API key owner). Each item includes the flag definition and its current `value` (boolean for simple flags,
+            variant key string for multivariate flags, false if disabled). Pass `flag_keys` to scope the response to
+            specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry
+            for every flag and can produce a very large payload. Optionally pass `groups` as a JSON object to evaluate
+            group-based flags.
     feature-flags-remote-config-retrieve:
         operation: feature_flags_remote_config_retrieve
         enabled: false

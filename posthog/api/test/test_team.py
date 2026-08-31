@@ -24,6 +24,7 @@ from posthog.api.team import (
     _reset_default_data_color_theme_id_cache,
 )
 from posthog.constants import AvailableFeature
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
@@ -41,9 +42,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def team_api_test_factory():
@@ -236,6 +236,40 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{team.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
             self.assertEqual(response.json(), self.not_found_response())
+
+        def test_event_ingestion_restrictions_are_scoped_to_own_team(self):
+            other_org = Organization.objects.create(name="New Org")
+            other_team = Team.objects.create(organization=other_org, name="Default project")
+            EventIngestionRestrictionConfig.objects.create(
+                token=self.team.api_token,
+                restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+                distinct_ids=["own-user"],
+                note="internal note",
+            )
+            EventIngestionRestrictionConfig.objects.create(
+                token=other_team.api_token,
+                restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+                distinct_ids=["other-user"],
+            )
+
+            response = self.client.get(f"/api/environments/{self.team.pk}/event_ingestion_restrictions/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.json(),
+                [
+                    {
+                        "restriction_type": RestrictionType.SKIP_PERSON_PROCESSING,
+                        "distinct_ids": ["own-user"],
+                        "session_ids": [],
+                        "event_names": [],
+                        "event_uuids": [],
+                        "pipelines": ["analytics"],
+                    }
+                ],
+            )
+
+            response = self.client.get(f"/api/environments/{other_team.pk}/event_ingestion_restrictions/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         @freeze_time("2022-02-08")
         def test_update_team_timezone(self):
@@ -1317,7 +1351,7 @@ def team_api_test_factory():
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
-            from ee.models.rbac.access_control import AccessControl
+            from products.access_control.backend.models.access_control import AccessControl
 
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
