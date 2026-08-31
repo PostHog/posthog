@@ -113,6 +113,7 @@ pub fn read_pairs(
     selection: impl Iterator<Item = DirEntry>,
     prefix: &Option<String>,
 ) -> Vec<SourcePair> {
+    let mut seen_paths = std::collections::HashSet::new();
     let pairs = selection
         .filter_map(|entry| {
             let path = entry.path();
@@ -121,6 +122,11 @@ pub fn read_pairs(
                 .context("failed to canonicalize path")
                 .map_err(|e| warn!("skip: {e:?}"))
                 .ok()?;
+            // Overlapping selection roots yield the same file more than once; a second
+            // pass would stamp a fresh chunk id over the first and upload a stale copy.
+            if !seen_paths.insert(entry_path.clone()) {
+                return None;
+            }
             let source = MinifiedSourceFile::load(&entry_path)
                 .context("failed to read source")
                 .map_err(|e| warn!("skip: {e:?}"))
