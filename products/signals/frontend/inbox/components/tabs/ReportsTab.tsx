@@ -226,17 +226,20 @@ export function ReportsTab(): JSX.Element {
     const visibleSections: InboxReportSectionKey[] = INBOX_REPORT_SECTION_KEYS.filter(
         (key) => isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)
     )
-    // The state filter narrows which states' rows the list shows; an empty selection means all of
-    // them. Intersected with the staff gate, so a shared link can't surface the staff-only state.
-    const selectedSections =
-        stateFilter.length > 0 ? visibleSections.filter((key) => stateFilter.includes(key)) : visibleSections
+    // The state filter narrows which states' rows the list shows, but only over states this user can
+    // see: a shared link can carry the staff-only state, so intersect it with the staff gate first.
+    // An empty effective selection — no filter, or a filter naming only states the user can't see —
+    // means all visible states, so a non-staff user who opens a `state=not-actionable` link still
+    // sees the full list rather than an empty one with no checkbox left to clear it.
+    const effectiveStateFilter = visibleSections.filter((key) => stateFilter.includes(key))
+    const selectedSections = effectiveStateFilter.length > 0 ? effectiveStateFilter : visibleSections
 
     // "Nothing yet" is a claim about the whole project, so it only holds with no filters and the
     // project-wide scope; a narrowed view that matches nothing gets the filter-aware copy instead.
     // The verdict is over the states this user can see, so staff still reach Not actionable when it
     // is the only state with reports. Hold the list until every count has answered, so a slow first
     // load never flashes the "nothing yet" screen at a full inbox.
-    const narrowed = hasActiveFilters || stateFilter.length > 0
+    const narrowed = hasActiveFilters || effectiveStateFilter.length > 0
     const unfilteredView = !narrowed && scope === INBOX_SCOPE_ENTIRE_PROJECT
     const countsSettled = visibleSections.every((key) => sections[key].count !== null)
     const inboxIsEmpty = unfilteredView && countsSettled && visibleSections.every((key) => sections[key].count === 0)

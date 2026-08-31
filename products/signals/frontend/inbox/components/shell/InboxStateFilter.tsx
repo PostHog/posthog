@@ -27,12 +27,16 @@ export function InboxStateFilter(): JSX.Element {
     const options = INBOX_REPORT_SECTION_KEYS.filter(
         (key) => isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)
     )
+    // Count only states this user can see. A shared link can carry the staff-only state, and the
+    // trigger must not read "Not actionable" (or an inflated count) for a state whose checkbox the
+    // dropdown hides.
+    const shownStates = stateFilter.filter((key) => options.includes(key))
     const label =
-        stateFilter.length === 0
+        shownStates.length === 0
             ? 'All statuses'
-            : stateFilter.length === 1
-              ? INBOX_REPORT_SECTION_LABEL[stateFilter[0]]
-              : `${stateFilter.length} statuses`
+            : shownStates.length === 1
+              ? INBOX_REPORT_SECTION_LABEL[shownStates[0]]
+              : `${shownStates.length} statuses`
 
     return (
         <LemonDropdown

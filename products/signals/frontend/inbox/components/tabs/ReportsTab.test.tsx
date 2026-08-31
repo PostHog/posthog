@@ -198,4 +198,27 @@ describe('ReportsTab', () => {
             expect(document.querySelector('[data-attr="report-card-resolved"]')).toBeNull()
         })
     })
+
+    // A shared link can carry `state=not-actionable`, a staff-only state. A non-staff user must not
+    // land on an empty, uncleanable list: the hidden state has no checkbox to clear, so it collapses
+    // to "all visible states" and the full list still renders.
+    it('does not trap a non-staff user on a staff-only state filter', async () => {
+        mockReportRows()
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: false })
+        inboxFiltersLogic.mount()
+        // `stateFilter` persists, so clear any leaked selection first: this case needs the staff-only
+        // state to be the *only* one selected, standing in for a `state=not-actionable` shared link.
+        inboxFiltersLogic.actions.clearFilters()
+        inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+        inboxFiltersLogic.actions.toggleState('not-actionable')
+
+        render(<ReportsTab />)
+
+        await waitFor(() => {
+            expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
+            expect(document.querySelector('[data-attr="report-card-needs-pr"]')).not.toBeNull()
+            expect(document.querySelector('[data-attr="report-card-resolved"]')).not.toBeNull()
+        })
+        expect(screen.queryByText('No reports match the current filters.')).toBeNull()
+    })
 })
