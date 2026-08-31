@@ -1,7 +1,10 @@
+import type { _MetricAnomalyDimensionApi } from './generated/api.schemas'
 import { topMoverRows } from './metricsAnomaly'
 
 describe('topMoverRows', () => {
-    const mover = (overrides: Record<string, unknown> = {}): any => ({
+    // Typed against the generated contract, so a new required field on the API response
+    // breaks these fixtures rather than letting them drift into an incomplete shape.
+    const mover = (overrides: Partial<_MetricAnomalyDimensionApi> = {}): _MetricAnomalyDimensionApi => ({
         key: 'pod',
         label: 'api-7f9',
         baseline_value: 100,
