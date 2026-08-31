@@ -1175,6 +1175,8 @@ class TestTwilioIntegration(SimpleTestCase):
 
         # Keyed on a field the setup modal renders, not the hidden "account_info" key.
         assert "accountSid" in exc.value.detail
+        # Stable code lets the frontend keep this handled rejection out of error tracking.
+        assert exc.value.get_codes()["accountSid"] == "twilio_credentials_rejected"
 
     @patch("posthog.models.integration.twilio.TwilioProvider.get_phone_numbers")
     def test_rejected_keys_when_listing_phone_numbers_raise_field_error(self, mock_get_phone_numbers):
@@ -1184,6 +1186,8 @@ class TestTwilioIntegration(SimpleTestCase):
             TwilioIntegration(self._build_integration()).list_twilio_phone_numbers()
 
         assert "accountSid" in exc.value.detail
+        # Stable code lets the frontend keep this handled rejection out of error tracking.
+        assert exc.value.get_codes()["accountSid"] == "twilio_credentials_rejected"
 
 
 class TestIntegrationAPIKeyAccess:

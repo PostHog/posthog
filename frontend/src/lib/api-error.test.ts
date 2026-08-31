@@ -91,6 +91,7 @@ describe('api-error', () => {
             ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
             ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
+            ['a handled Twilio credential rejection', { status: 400, code: 'twilio_credentials_rejected' }, false],
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
