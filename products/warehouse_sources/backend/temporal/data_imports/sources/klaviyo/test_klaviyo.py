@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.co
     KLAVIYO_API_VERSION_2026_07_15,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.klaviyo import (
+    KlaviyoConversionMetricError,
     KlaviyoResumeConfig,
     _build_filter,
     _build_initial_params,
@@ -237,6 +238,26 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            # The conversion-metric messages KlaviyoConversionMetricError raises are deterministic, so
+            # they must classify as non-retryable. The message wording and the source-side substring
+            # live in two files; this locks them together so a reword can't silently make the failure
+            # retry into the same result.
+            (
+                "no_metric",
+                "Klaviyo needs a conversion metric to sync campaign_values_reports, but the account has none.",
+            ),
+            (
+                "ineligible_metric",
+                "Klaviyo rejected conversion metric M_X for flow_values_reports: it isn't eligible for values reporting.",
+            ),
+        ]
+    )
+    def test_conversion_metric_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
+        assert error_message_matches(observed_error, non_retryable_errors.keys())
 
     @parameterized.expand(
         [
@@ -967,10 +988,45 @@ class TestValuesReports:
 
         assert rows[0]["conversion_metric_id"] == "M_FIRST"
 
-    def test_ineligible_conversion_metric_skips_the_report_instead_of_failing_the_sync(self, monkeypatch: Any) -> None:
+    def test_prefers_a_value_tracking_metric_over_the_accounts_first_metric(self, monkeypatch: Any) -> None:
+        # Blindly taking the first metric picked an engagement metric that Klaviyo rejects for values
+        # reporting. Resolution must prefer a value-tracking metric by name even when it is not first.
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                return {
+                    "data": {
+                        "attributes": {"results": [{"groupings": {"campaign_id": "C1"}, "statistics": {"opens": 1}}]}
+                    },
+                    "links": {},
+                }
+            return {
+                "data": [
+                    {"id": "M_ENGAGEMENT", "attributes": {"name": "Viewed Product"}},
+                    {"id": "M_ORDERED", "attributes": {"name": "Ordered Product"}},
+                ],
+                "links": {},
+            }
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        rows = [
+            row
+            for table in get_rows(
+                api_key="pk_test",
+                endpoint="campaign_values_reports",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+            for row in table.to_pylist()
+        ]
+
+        assert rows[0]["conversion_metric_id"] == "M_ORDERED"
+
+    def test_ineligible_conversion_metric_fails_the_sync_instead_of_finishing_empty(self, monkeypatch: Any) -> None:
         # Klaviyo rejects some metrics (e.g. system metrics) as conversion metrics for values
-        # reports; the same metric would be re-resolved on every retry, so this can never self-heal
-        # and must not fail the whole sync.
+        # reports. Returning empty here finalized the run green with zero rows, so the broken table
+        # looked healthy forever; the run must fail visibly with an actionable message instead.
         response = _response_with_status(400)
         response._content = (
             b'{"errors":[{"status":400,"code":"invalid","title":"Invalid input.",'
@@ -986,7 +1042,7 @@ class TestValuesReports:
             return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
 
         monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        assert (
+        with pytest.raises(KlaviyoConversionMetricError, match="isn't eligible for values reporting"):
             list(
                 get_rows(
                     api_key="pk_test",
@@ -995,12 +1051,10 @@ class TestValuesReports:
                     resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
                 )
             )
-            == []
-        )
 
     def test_unrelated_http_error_still_propagates(self, monkeypatch: Any) -> None:
-        # Only the specific ineligible-conversion-metric 400 should be swallowed; any other HTTP
-        # failure (e.g. a transient 500) must still fail the sync loudly rather than go silent.
+        # Only the ineligible-conversion-metric 400 becomes a KlaviyoConversionMetricError; any other
+        # HTTP failure (e.g. a transient 500) must propagate unchanged so it keeps its own handling.
         response = _response_with_status(500)
         response._content = b'{"errors":[{"status":500,"title":"Internal Server Error"}]}'
 
@@ -1022,9 +1076,9 @@ class TestValuesReports:
                 )
             )
 
-    def test_account_with_no_metrics_yields_nothing_instead_of_posting_an_invalid_report(
-        self, monkeypatch: Any
-    ) -> None:
+    def test_account_with_no_metrics_fails_instead_of_posting_an_invalid_report(self, monkeypatch: Any) -> None:
+        # No conversion metric means no valid report to post. Failing loudly keeps the run from
+        # finalizing green with zero rows against a table the user believes is syncing.
         def fake_fetch(
             session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
         ) -> dict:
@@ -1032,7 +1086,7 @@ class TestValuesReports:
             return {"data": [], "links": {}}
 
         monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        assert (
+        with pytest.raises(KlaviyoConversionMetricError, match="needs a conversion metric"):
             list(
                 get_rows(
                     api_key="pk_test",
@@ -1041,8 +1095,6 @@ class TestValuesReports:
                     resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
                 )
             )
-            == []
-        )
 
 
 class TestReportVariants:

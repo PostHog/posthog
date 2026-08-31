@@ -89,7 +89,7 @@ Grant read permissions for the data you want to sync. Tables you have not grante
 - Web feeds
 - Webhooks (requires Klaviyo's Advanced KDP add-on)
 
-The campaign and flow performance tables need a conversion metric. Leave the conversion metric ID blank to use your Placed Order metric, or paste the ID of another metric from [your Klaviyo metrics](https://www.klaviyo.com/analytics/metrics).
+The campaign and flow performance tables (campaign_values_reports, flow_values_reports) need a value-tracking conversion metric, such as Placed Order. Leave the conversion metric ID blank to use your Placed Order metric, or paste the ID of another value-tracking metric from [your Klaviyo metrics](https://www.klaviyo.com/analytics/metrics). If your account has no eligible metric, these two tables pause with an error until you set one.
 """,
             iconPath="/static/services/klaviyo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/klaviyo",
@@ -127,6 +127,12 @@ The campaign and flow performance tables need a conversion metric. Leave the con
         # Ordered most-specific first: the first matching entry supplies the user-facing message
         # (see `update_external_data_job_model`), so plan gating must precede the blanket 403 entry.
         return {
+            # The campaign and flow values reports need a value-tracking conversion metric. When the
+            # account has none, or the resolved metric isn't eligible, the same result repeats on
+            # every retry (see KlaviyoConversionMetricError), so classify it non-retryable and hand
+            # the user the one action that fixes it rather than retrying into the same failure.
+            "needs a conversion metric to sync": "This Klaviyo table needs a conversion metric, but your account has none that works. Set a conversion metric ID on the source (the ID of a value-tracking metric such as Placed Order), then re-enable this table.",
+            "isn't eligible for values reporting": "The conversion metric used for this Klaviyo table isn't eligible for values reporting. Set the ID of a value-tracking metric (such as Placed Order) as the conversion metric ID on the source, then re-enable this table.",
             # Klaviyo gates some endpoints (webhooks today) behind its paid Advanced KDP add-on and
             # 403s with this body detail even when the key's read scope is granted. `_fetch_page`
             # appends the detail to the HTTPError message so it's matchable here; without this entry
