@@ -31,6 +31,7 @@ from posthog.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -86,6 +87,13 @@ MAX_CAPTURE_IMAGE_PIXELS = 50_000_000
 MAX_CAPTURE_TOTAL_BYTES = 60 * 1024 * 1024
 
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
+HEATMAPS_EVENT_FILTER_FLAG = "heatmaps-event-filter"
+
+# A heatmap interaction and the event that qualifies its session are separate rows, and a session can
+# straddle a day boundary — the click lands inside the requested window while the purchase that selects
+# it sits just outside. Session replay hit this and widened its events scan by a day at each end; do the
+# same here, or sessions on the boundary drop out of the heatmap.
+EVENT_FILTER_SESSION_BUFFER = timedelta(days=1)
 
 logger = structlog.get_logger(__name__)
 
@@ -99,6 +107,15 @@ HEATMAP_CONTENT_REQUESTS = Counter(
 def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
     return heatmaps_flag_enabled(
         HEATMAPS_COHORT_FILTER_FLAG,
+        str(getattr(user, "distinct_id", "") or ""),
+        team_id=team.id,
+        organization_id=str(team.organization_id),
+    )
+
+
+def _heatmaps_event_filter_enabled(user: User, team: Team) -> bool:
+    return heatmaps_flag_enabled(
+        HEATMAPS_EVENT_FILTER_FLAG,
         str(getattr(user, "distinct_id", "") or ""),
         team_id=team.id,
         organization_id=str(team.organization_id),
@@ -303,6 +320,16 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         help_text="JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. "
         "Feature-flagged; ignored when the cohort filter is not enabled for the caller.",
     )
+    events = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text='JSON array of event filters (e.g. \'[{"id": "purchase", "properties": []}]\') to restrict '
+        "results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and "
+        "may carry a 'properties' array of property filters applied to that event. Several entries are combined "
+        "with AND: the session must contain a matching event for every entry. "
+        "Feature-flagged; ignored when the event filter is not enabled for the caller.",
+    )
     limit = serializers.IntegerField(
         required=False,
         default=500,
@@ -343,6 +370,27 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         if missing:
             raise serializers.ValidationError(f"Cohort(s) not found or deleted: {missing}")
         return cohort_ids
+
+    def validate_events(self, value: str | None) -> list[dict[str, Any]]:
+        if value is None or value == "":
+            return []
+        try:
+            events = loads(value)
+        except JSONDecodeError:
+            raise serializers.ValidationError("events must be valid JSON")
+        if not isinstance(events, list) or not all(isinstance(entity, dict) for entity in events):
+            raise serializers.ValidationError("events must be a JSON array of event objects")
+        for entity in events:
+            if not isinstance(entity.get("id"), str):
+                raise serializers.ValidationError("each event must have a string 'id'")
+            properties = entity.get("properties")
+            # These reach property_to_expr when the query is built, where a wrong shape raises and
+            # surfaces as a 500. Reject it here so the caller gets a 400 instead.
+            if properties is not None and (
+                not isinstance(properties, list) or not all(isinstance(prop, dict) for prop in properties)
+            ):
+                raise serializers.ValidationError("event 'properties' must be a JSON array of property objects")
+        return events
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -582,6 +630,10 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             cast(User, request.user), self.team
         ):
             request_serializer.validated_data.pop("cohort_ids")
+        if request_serializer.validated_data.get("events") and not _heatmaps_event_filter_enabled(
+            cast(User, request.user), self.team
+        ):
+            request_serializer.validated_data.pop("events")
         placeholders = self._build_placeholders(request_serializer.validated_data)
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
 
@@ -593,10 +645,13 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if hide_zero_coordinates and not is_scrolldepth_query:
             exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
 
+        date_from: date = request_serializer.validated_data["date_from"]
+        date_to: date | None = request_serializer.validated_data.get("date_to", None)
         if request_serializer.validated_data.get("filter_test_accounts") is True:
-            date_from: date = request_serializer.validated_data["date_from"]
-            date_to: date | None = request_serializer.validated_data.get("date_to", None)
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
+        exprs.extend(
+            self._build_event_filters(date_from, date_to, request_serializer.validated_data.get("events") or [])
+        )
 
         unbounded = limit == 0
         query_placeholders: dict[str, Expr] = {
@@ -639,30 +694,82 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         aggregation_count = parse_expr(aggregation_value)
         return aggregation_count
 
+    def _sessions_seen_in_events(
+        self,
+        date_from: date,
+        date_to: date,
+        *,
+        filter_test_accounts: bool = False,
+        predicate: ast.Expr | None = None,
+    ) -> ast.SelectQuery:
+        """The session ids the events table saw in a window, as a subquery to match heatmap rows against."""
+        events_select = cast(
+            ast.SelectQuery,
+            replace_filters(
+                parse_select(
+                    "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}",
+                    placeholders={},
+                ),
+                HogQLFilters(
+                    filterTestAccounts=filter_test_accounts,
+                    dateRange=DateRange(
+                        date_from=date_from.strftime("%Y-%m-%d"),
+                        date_to=date_to.strftime("%Y-%m-%dT00:00:00"),
+                    ),
+                ),
+                self.team,
+            ),
+        )
+        if predicate is not None:
+            events_select.where = ast.And(exprs=[events_select.where, predicate]) if events_select.where else predicate
+        return events_select
+
+    @staticmethod
+    def _session_id_in(events_select: ast.SelectQuery) -> ast.CompareOperation:
+        # Stays a plain IN: the resolver rewrites an IN whose subquery reads events into a GLOBAL IN, so the
+        # set is built once on the initiator instead of on every heatmaps shard.
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["session_id"]),
+            right=events_select,
+        )
+
     def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
         # The heatmap predicate treats date_to as an inclusive day via `timestamp <= {date_to} + interval 1 day`.
         # Pass the same bound as an explicit next-day-midnight datetime, which HogQLFilters uses verbatim with a
         # strict `<`, so the events subquery covers the same inclusive days as the main heatmap query. A date-only
         # value would instead snap to the end of that next day and widen the window by a day.
         events_date_to = (date_to or date.today()) + timedelta(days=1)
-        events_select = replace_filters(
-            parse_select(
-                "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
-            ),
-            HogQLFilters(
-                filterTestAccounts=True,
-                dateRange=DateRange(
-                    date_from=date_from.strftime("%Y-%m-%d"),
-                    date_to=events_date_to.strftime("%Y-%m-%dT00:00:00"),
-                ),
-            ),
-            self.team,
-        )
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.In,
-            left=ast.Field(chain=["session_id"]),
-            right=events_select,
-        )
+        return self._session_id_in(self._sessions_seen_in_events(date_from, events_date_to, filter_test_accounts=True))
+
+    def _build_event_filters(
+        self,
+        date_from: date,
+        date_to: date | None,
+        events: List[dict[str, Any]],  # noqa: UP006
+    ) -> List[ast.Expr]:  # noqa: UP006
+        """One session subquery per selected event, so a heatmap row survives only when its session
+        contains a matching event for every entry.
+
+        Session replay compiled several event filters into one events query and moved back to one query
+        per filter, because the combined form kept producing bugs. The cost here is an extra subquery
+        per filter, and a heatmap carries a handful of filters at most.
+        """
+        events_date_from = date_from - EVENT_FILTER_SESSION_BUFFER
+        events_date_to = (date_to or date.today()) + timedelta(days=1) + EVENT_FILTER_SESSION_BUFFER
+
+        filters: list[ast.Expr] = []
+        for entity in events:
+            predicate: ast.Expr = parse_expr("event = {event}", {"event": Constant(value=entity["id"])})
+            entity_properties = entity.get("properties")
+            if entity_properties:
+                predicate = ast.And(exprs=[predicate, property_to_expr(entity_properties, self.team, scope="event")])
+            filters.append(
+                self._session_id_in(
+                    self._sessions_seen_in_events(events_date_from, events_date_to, predicate=predicate)
+                )
+            )
+        return filters
 
     @staticmethod
     def _build_placeholders(validated_data: dict[str, Any]) -> dict[str, Expr]:
@@ -671,6 +778,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if key == "cohort_ids":
                 if value:
                     placeholders[key] = ast.Array(exprs=[Constant(value=cid) for cid in value])
+                continue
+            if key == "events":
+                # Compiled into session subqueries by _build_event_filters, not a heatmaps-table predicate.
                 continue
             placeholders[key] = Constant(value=value)
         placeholders.setdefault("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
@@ -778,6 +888,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             cast(User, request.user), self.team
         ):
             validated_data.pop("cohort_ids")
+        if validated_data.get("events") and not _heatmaps_event_filter_enabled(cast(User, request.user), self.team):
+            validated_data.pop("events")
 
         placeholders = self._build_placeholders(validated_data)
 
@@ -805,10 +917,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         else:
             exprs.append(ast.Or(exprs=point_conditions))
 
+        date_from: date = validated_data["date_from"]
+        date_to: date | None = validated_data.get("date_to", None)
         if validated_data.get("filter_test_accounts") is True:
-            date_from: date = validated_data["date_from"]
-            date_to: date | None = validated_data.get("date_to", None)
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
+        exprs.extend(self._build_event_filters(date_from, date_to, validated_data.get("events") or []))
 
         # First get total count
         count_stmt = parse_select(

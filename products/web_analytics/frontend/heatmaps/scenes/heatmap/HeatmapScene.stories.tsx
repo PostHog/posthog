@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -108,6 +109,14 @@ export const IframeExample: Story = {
             },
         }),
     ],
+}
+
+export const IframeExampleWithEventFilter: Story = {
+    parameters: {
+        ...IframeExample.parameters,
+        featureFlags: [FEATURE_FLAGS.HEATMAPS_EVENT_FILTER],
+    },
+    decorators: IframeExample.decorators,
 }
 
 export const New: Story = {
