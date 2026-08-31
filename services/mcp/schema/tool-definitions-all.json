@@ -2278,7 +2278,7 @@
         }
     },
     "dashboard-delete": {
-        "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
+        "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists. The delete is reversible — use dashboard-restore with the same ID to bring it back.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Delete dashboard",
@@ -2339,6 +2339,20 @@
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",
         "title": "Reorder dashboard tiles",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-restore": {
+        "description": "Restore a soft-deleted dashboard by ID, reversing dashboard-delete. The dashboard and its tiles reappear in lists and can be used again. A deleted dashboard keeps its ID, so pass the same ID you deleted. This is a no-op on a dashboard that is not deleted.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Restore dashboard",
+        "title": "Restore dashboard",
         "required_scopes": ["dashboard:write"],
         "annotations": {
             "destructiveHint": false,

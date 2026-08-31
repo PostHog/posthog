@@ -160,6 +160,29 @@ describe('Dashboards', { concurrent: false }, () => {
         })
     })
 
+    describe('dashboard-restore tool', () => {
+        const createTool = getToolByName('dashboard-create')
+        const deleteTool = getToolByName('dashboard-delete')
+        const restoreTool = getToolByName('dashboard-restore')
+
+        it('should restore a soft-deleted dashboard', async () => {
+            const createResult = await createTool.handler(context, {
+                name: generateUniqueKey('Restore Test Dashboard'),
+                pinned: false,
+            })
+            const createdDashboard = parseToolResponse(createResult)
+            createdResources.dashboards.push(createdDashboard.id)
+
+            const deleteResult = await deleteTool.handler(context, { id: createdDashboard.id })
+            expect(parseToolResponse(deleteResult).deleted).toBe(true)
+
+            const restoreResult = await restoreTool.handler(context, { id: createdDashboard.id })
+            const restoredDashboard = parseToolResponse(restoreResult)
+            expect(restoredDashboard.id).toBe(createdDashboard.id)
+            expect(restoredDashboard.deleted).toBe(false)
+        })
+    })
+
     describe('Dashboard workflow', () => {
         it('should support full CRUD workflow', async () => {
             const createTool = getToolByName('dashboard-create')

@@ -360,6 +360,80 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
     },
 })
 
+const DashboardRestoreSchema = DashboardsPartialUpdateParams.omit({ project_id: true })
+    .extend(
+        DashboardsPartialUpdateBody.omit({
+            name: true,
+            description: true,
+            pinned: true,
+            filters: true,
+            breakdown_colors: true,
+            data_color_theme_id: true,
+            tags: true,
+            restriction_level: true,
+            quick_filter_ids: true,
+            grid_spacing: true,
+            layout_compaction: true,
+            tiles: true,
+            use_template: true,
+            use_dashboard: true,
+            delete_insights: true,
+        }).shape
+    )
+    .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
+
+const dashboardRestore = (): ToolBase<typeof DashboardRestoreSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
+    name: 'dashboard-restore',
+    schema: DashboardRestoreSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardRestoreSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        body['deleted'] = false
+        const result = await context.api.request<Schemas.Dashboard>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'effective_restriction_level',
+            'effective_privilege_level',
+            'user_access_level',
+            'access_control_version',
+            'restriction_level',
+            'creation_mode',
+            'breakdown_colors',
+            'data_color_theme_id',
+            'quick_filter_ids',
+            'tiles.*.color',
+            'tiles.*.transparent_background',
+            'tiles.*.show_description',
+            'tiles.*.button_tile',
+            'tiles.*.insight.result',
+            'tiles.*.insight.hasMore',
+            'tiles.*.insight.columns',
+            'tiles.*.insight.hogql',
+            'tiles.*.insight.types',
+            'tiles.*.insight.query_status',
+            'tiles.*.insight.cache_target_age',
+            'tiles.*.insight.next_allowed_client_refresh',
+            'tiles.*.insight.filters_hash',
+            'tiles.*.insight.dashboards',
+            'tiles.*.insight.dashboard_tiles',
+            'tiles.*.insight.effective_restriction_level',
+            'tiles.*.insight.effective_privilege_level',
+            'tiles.*.insight.user_access_level',
+            'tiles.*.insight.filters',
+            'tiles.*.insight.is_sample',
+            'tiles.*.insight.order',
+            'tiles.*.insight.deleted',
+            'tiles.*.insight.alerts',
+            'tiles.*.insight.timezone',
+            'tiles.*.insight.resolved_date_range',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
+    },
+})
+
 const DashboardTemplatesListSchema = DashboardTemplatesListQueryParams
 
 const dashboardTemplatesList = (): ToolBase<
@@ -752,6 +826,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-get': dashboardGet,
     'dashboard-insights-run': dashboardInsightsRun,
     'dashboard-reorder-tiles': dashboardReorderTiles,
+    'dashboard-restore': dashboardRestore,
     'dashboard-templates-list': dashboardTemplatesList,
     'dashboard-templates-retrieve': dashboardTemplatesRetrieve,
     'dashboard-tile-copy': dashboardTileCopy,
