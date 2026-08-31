@@ -22,6 +22,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.fields import empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
@@ -712,6 +713,22 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     )
 
 
+class _BestEffortDateTimeField(serializers.DateTimeField):
+    """A `DateTimeField` that never fails the request on an unparseable value.
+
+    The agent computes `expires_at` itself, often from a clock it only guesses at, so a share of
+    writes carry a malformed or nonsense datetime. The expiry is optional metadata; the content is
+    the memory worth keeping. Coerce an unparseable value to `None` (durable) instead of rejecting
+    the whole write — the same best-effort stance `run_id` takes on this serializer.
+    """
+
+    def run_validation(self, data: Any = empty) -> datetime | None:
+        try:
+            return super().run_validation(data)
+        except serializers.ValidationError:
+            return None
+
+
 class RememberRequestSerializer(serializers.Serializer):
     """Request body for `remember`."""
 
@@ -737,20 +754,24 @@ class RememberRequestSerializer(serializers.Serializer):
             "null), not rejected, so the memory write is never lost."
         ),
     )
-    expires_at = serializers.DateTimeField(
+    expires_at = _BestEffortDateTimeField(
         required=False,
         allow_null=True,
         help_text=(
             "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a "
             "window you're watching). After this time the entry drops out of searches, so you "
             "don't have to come back and forget it. Omit for a durable memory — every write sets "
-            "the whole entry, so omitting it on a later write clears an expiry set earlier."
+            "the whole entry, so omitting it on a later write clears an expiry set earlier. "
+            "Best-effort — a value that can't be parsed or is already in the past is dropped "
+            "(the memory stays durable), not rejected, so the memory write is never lost."
         ),
     )
 
     def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        # A past expiry would make the row invisible the moment it lands. Drop it rather than
+        # rejecting the whole write — the content is the memory worth keeping, the expiry is not.
         if value is not None and value <= timezone.now():
-            raise serializers.ValidationError("expires_at must be in the future")
+            return None
         return value
 
 

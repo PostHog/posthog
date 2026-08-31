@@ -73575,7 +73575,7 @@ export namespace Schemas {
          */
       run_id?: string | null;
       /**
-         * Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier.
+         * Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost.
          * @nullable
          */
       expires_at?: string | null;
@@ -93763,6 +93763,14 @@ export namespace Schemas {
      * * `archived` - Archived
      */
     status?: HogFlowsListStatus;
+    /**
+     * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
+     */
+    trigger?: string;
+    /**
+     * Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.
+     */
+    type?: HogFlowsListType;
     updated_at?: string;
     };
 
@@ -93773,6 +93781,14 @@ export namespace Schemas {
       Active: 'active',
       Archived: 'archived',
       Draft: 'draft',
+    } as const;
+
+    export type HogFlowsListType = typeof HogFlowsListType[keyof typeof HogFlowsListType];
+
+
+    export const HogFlowsListType = {
+      Automation: 'automation',
+      Messaging: 'messaging',
     } as const;
 
     export type HogFlowsAssetsRetrieveParams = {
