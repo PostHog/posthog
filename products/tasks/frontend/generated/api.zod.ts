@@ -2454,13 +2454,6 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.'
         ),
     error_message: zod.string().nullish().describe('Error message if execution failed'),
-    environment: zod
-        .enum(['local'])
-        .describe('\* `local` - local')
-        .optional()
-        .describe(
-            'Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.\n\n\* `local` - local'
-        ),
 })
 
 /**
@@ -3408,7 +3401,9 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
         github_integration: zod
             .number()
             .nullish()
-            .describe("Primary key of the team's GitHub integration to clone with when a repository is selected."),
+            .describe(
+                "Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it."
+            ),
         branch: zod
             .string()
             .max(tasksWarmCreateBodyBranchMax)

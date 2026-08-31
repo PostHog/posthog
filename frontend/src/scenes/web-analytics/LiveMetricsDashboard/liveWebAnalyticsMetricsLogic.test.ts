@@ -3,15 +3,23 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } fr
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
+import { HogQLQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, LiveEvent } from '~/types'
 
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 
 const CLASSES_RULE = { alias: '/classes/:id', regex: '/classes/[^/]+', order: 0 }
+
+const getLiveQueryNames = (): (string | undefined)[] =>
+    (api.query as jest.Mock).mock.calls.map(([query]: [HogQLQuery | TrendsQuery]) => query.tags?.name)
 
 const pageview = (pathname: string, distinctId: string): LiveEvent => ({
     uuid: `${distinctId}-${pathname}`,
@@ -25,6 +33,7 @@ const pageview = (pathname: string, distinctId: string): LiveEvent => ({
 
 describe('liveWebAnalyticsMetricsLogic', () => {
     let logic: ReturnType<typeof liveWebAnalyticsMetricsLogic.build>
+    let unmountFeatureFlagLogic: (() => void) | undefined
 
     beforeEach(() => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, path_cleaning_filters: [CLASSES_RULE] }, MOCK_DEFAULT_PROJECT, {
@@ -41,8 +50,16 @@ describe('liveWebAnalyticsMetricsLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        unmountFeatureFlagLogic?.()
         jest.restoreAllMocks()
     })
+
+    const enableBotAnalysis = (): void => {
+        unmountFeatureFlagLogic = featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        })
+    }
 
     it('collapses streamed pageviews that clean to the same path into one row', () => {
         logic.actions.addEvents(
@@ -85,5 +102,51 @@ describe('liveWebAnalyticsMetricsLogic', () => {
         openGate()
 
         await expectLogic(logic).toDispatchActions(['scheduleReload', 'loadInitialData'])
+    })
+
+    it('does not run the expensive bot query while bot analysis is disabled', async () => {
+        await expectLogic(logic).toDispatchActions(['setInitialData'])
+
+        expect(getLiveQueryNames()).not.toContain('live_bots')
+    })
+
+    it('runs the bot query after the core tiles when bot analysis is enabled', async () => {
+        logic.unmount()
+        enableBotAnalysis()
+        logic = liveWebAnalyticsMetricsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['setInitialData', 'setBotData'])
+
+        expect(getLiveQueryNames()).toContain('live_bots')
+        expect(logic.values).toMatchObject({ hasBotQueryError: false, isBotLoading: false })
+    })
+
+    it('surfaces a bot query failure without failing the core tiles', async () => {
+        logic.unmount()
+        enableBotAnalysis()
+        jest.spyOn(console, 'error').mockImplementation(() => undefined)
+        const warningToast = jest.spyOn(lemonToast, 'warning').mockReturnValue('toast-id')
+        ;(api.query as jest.Mock).mockImplementation(async (query: HogQLQuery | TrendsQuery) => {
+            if (query.tags?.name === 'live_bots') {
+                throw new Error('Bot query failed')
+            }
+            return { results: [] }
+        })
+        logic = liveWebAnalyticsMetricsLogic()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions([
+                'setInitialData',
+                (action) => action.type === logic.actionTypes.setBotQueryStatus && action.payload.status === 'error',
+            ])
+            .toMatchValues({ hasBotQueryError: true, isBotLoading: false })
+
+        expect(getLiveQueryNames()).toContain('live_bots')
+        expect(warningToast).toHaveBeenCalledWith(
+            'Some live metrics failed to load: bot traffic',
+            expect.objectContaining({ toastId: expect.any(String) })
+        )
     })
 })

@@ -18,6 +18,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_field,
     extend_schema_view,
@@ -45,7 +46,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, uuid7
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -63,6 +64,8 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
@@ -1176,10 +1179,26 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     @extend_schema(
         request=NotebookSQLV2RunRequestSerializer,
-        responses={200: NotebookSQLV2RunResponseSerializer},
+        responses={
+            200: NotebookSQLV2RunResponseSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "The notebook already has a cell running. Wait for it to finish, then run this one. "
+                    "A conflict with the notebook's state rather than a rate, so it is not worth retrying "
+                    "on a timer."
+                )
+            ),
+            429: OpenApiResponse(
+                description=(
+                    "The project has as many notebook cells in flight as it may. Unlike the 409, retrying "
+                    "shortly is the right response."
+                )
+            ),
+        },
         description=(
             "Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; "
-            "poll the run result endpoint until the status is terminal. Flag-gated (revamped-py-notebooks)."
+            "poll the run result endpoint until the status is terminal. One run at a time per notebook. "
+            "Flag-gated (revamped-py-notebooks)."
         ),
     )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
@@ -1294,19 +1313,43 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         except (SQLV2ReferenceError, NotebookVariableError, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
 
-        run = NotebookNodeRun.objects.create(
-            team_id=self.team_id,
-            notebook=notebook,
-            # The same user the run's kernel is resolved for, so the callback can scope the
-            # frame snapshot to that kernel. A token user has no kernel of its own, hence None.
-            user=user if isinstance(user, User) else None,
-            node_id=serializer.validated_data["node_id"],
-            code=plan.code,
-            node_type=plan.node_type,
-            connection_id=connection_id,
-            send_raw_query=send_raw_query,
-            status=NotebookNodeRun.Status.RUNNING,
-        )
+        # Taken before the row exists, so a refused dispatch writes nothing: an agent retrying
+        # into a full ceiling must not leave a trail of rows behind it. The id is minted here
+        # because the slot is keyed on it and has to be released by the run that took it.
+        # Not `run_id`: the ref-inlining loop above binds that name to each *upstream* run, and
+        # reusing it here would leave two different runs behind one variable.
+        new_run_id = uuid7()
+        try:
+            acquire_run_slots(self.team_id, notebook.short_id, str(new_run_id))
+        except NotebookRunBusy as e:
+            # 409, not 429: a conflict with the notebook's state rather than a rate. The MCP
+            # client retries every 429 with backoff and then replaces the body with its own
+            # rate-limit message, so a 429 here would cost an agent seconds of pointless waiting
+            # and hide the sentence telling it to wait for the running cell.
+            return Response({"detail": str(e)}, status=409)
+        except TeamRunCapacityFull as e:
+            return Response({"detail": str(e)}, status=429)
+
+        try:
+            run = NotebookNodeRun.objects.create(
+                id=new_run_id,
+                team_id=self.team_id,
+                notebook=notebook,
+                # The same user the run's kernel is resolved for, so the callback can scope the
+                # frame snapshot to that kernel. A token user has no kernel of its own, hence None.
+                user=user if isinstance(user, User) else None,
+                node_id=serializer.validated_data["node_id"],
+                code=plan.code,
+                node_type=plan.node_type,
+                connection_id=connection_id,
+                send_raw_query=send_raw_query,
+                status=NotebookNodeRun.Status.RUNNING,
+            )
+        except Exception:
+            # No row means no release site will ever learn this run id, so hand the slots back
+            # here or the notebook stays blocked with nothing running in it.
+            release_run_slots(self.team_id, notebook.short_id, str(new_run_id))
+            raise
 
         try:
             if plan.node_type == "hogql":

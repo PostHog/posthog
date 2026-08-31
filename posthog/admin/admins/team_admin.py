@@ -33,7 +33,6 @@ from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
-from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
@@ -188,7 +187,6 @@ class TeamAdmin(admin.ModelAdmin):
         OrganizationMemberForRelatedInline,
         TeamMarketingAnalyticsConfigInline,
         TeamExperimentsConfigInline,
-        UserProductListInline,
     ]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
