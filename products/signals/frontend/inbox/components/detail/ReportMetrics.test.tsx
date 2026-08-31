@@ -251,4 +251,25 @@ describe('ReportMetrics', () => {
         expect(screen.getByText('9 users')).toBeInTheDocument()
         expect(screen.getByText('Previous window: 5 users')).toBeInTheDocument()
     })
+
+    it('shows the saved primary value without a load error when the query is omitted', () => {
+        render(<ReportMetrics reportId="omitted-primary" metrics={[makeMetric({ role: 'primary', query: null })]} />)
+
+        expect(screen.getByText('9 users')).toBeInTheDocument()
+        expect(screen.queryByText(/Couldn't load this metric's trend/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/Refresh the page to try again/)).not.toBeInTheDocument()
+    })
+
+    it('marks a primary metric as not available when its query and snapshot are both absent', () => {
+        render(
+            <ReportMetrics
+                reportId="redacted-primary"
+                metrics={[makeMetric({ role: 'primary', query: null, value: null })]}
+            />
+        )
+
+        expect(screen.getByText('Not available')).toBeInTheDocument()
+        expect(screen.queryByText(/Couldn't load this metric's trend/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/Refresh the page to try again/)).not.toBeInTheDocument()
+    })
 })
