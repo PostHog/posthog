@@ -122,7 +122,7 @@ Apple does not generate an API key for you. You supply your own key pair, and on
 2. Generate an EC P-256 key pair. On macOS or Linux, run `openssl ecparam -genkey -name prime256v1 -noout -out private-key.pem` and then `openssl ec -in private-key.pem -pubout -out public-key.pem`.
 3. Signed in as that user, open **Account settings > API**, paste the contents of `public-key.pem` into the public key field and save. Saving the key creates the client.
 4. Apple then shows the client ID, team ID and key ID above the field. Enter those below, along with the contents of `private-key.pem`.
-5. Read your ad account ID from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`, under `adAccount.id`. This is not the same value as your organization ID. The endpoint needs an access token, so follow [Apple's OAuth guide](https://developer.apple.com/documentation/apple_ads/implementing-oauth-for-the-apple-search-ads-api) to exchange the credentials from step 4 for one.
+5. Leave **Ad account ID** blank and connect. The connection won't complete, but PostHog reads Apple's ACL for you and the message names the ad account IDs your credentials can read. Paste one in and connect again. To look it up yourself, read `adAccount.id` from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`. That call needs an access token, so follow [Apple's OAuth guide](https://developer.apple.com/documentation/apple_ads/implementing-oauth-for-the-apple-search-ads-api) to exchange the credentials from step 4 for one. The ad account ID is not the same value as your organization ID.
 
 PostHog stores the private key encrypted and uses it to sign a short-lived token on every sync. The token itself is never stored.
 
@@ -146,7 +146,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
                         # requires whichever one the source's API version uses.
                         required=False,
                         placeholder="123456789",
-                        caption="Read this from `adAccount.id` in the response from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`. That call needs an access token signed with the credentials above, not the credentials themselves.",
+                        caption="Leave this blank and connect, and PostHog lists the ad account IDs your credentials can read. To look it up yourself, read `adAccount.id` from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`. That call needs an access token signed with the credentials above, not the credentials themselves.",
                         secret=False,
                     ),
                     SourceFieldInputConfig(
