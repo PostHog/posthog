@@ -185,7 +185,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert "pending_user_message" not in run.state
 
     def test_accepts_an_mcp_server_shared_with_the_project(self) -> None:
-        from products.mcp_store.backend.agents import get_built_in_agent
+        from products.mcp_store.backend.facade.api import get_built_in_agent
         from products.mcp_store.backend.models import (
             MCPGatewayServer,
             MCPServerInstallation,
