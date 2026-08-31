@@ -211,7 +211,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
         timeseries: [
             null as ExperimentMetricTimeseries | null,
             {
-                loadTimeseries: async ({ metric }: { metric: ExperimentMetric }) => {
+                loadTimeseries: async ({ metric }: { metric: ExperimentMetric }, breakpoint) => {
                     if (!metric.uuid) {
                         throw new Error('Metric UUID is required')
                     }
@@ -222,6 +222,9 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
                     )
+                    // Drop the response if the modal reopened on another metric or unmounted mid-request,
+                    // so a stale load can't overwrite the current series or misreport its viewed outcome.
+                    breakpoint()
                     return response
                 },
                 clearTimeseries: () => null,
