@@ -162,8 +162,7 @@ Open [Slack apps](https://api.slack.com/apps?new_app=1), click **From a manifest
                 "channels:history",
                 "groups:history",
                 "users:read",
-                "users:read.email",
-                "reactions:read"
+                "users:read.email"
             ]
         }
     },
@@ -181,7 +180,9 @@ Click **Install App > Install to Workspace** and authorize. Copy the **Bot User 
 
 **3. Invite the bot**
 
-Invite the bot to any channel whose messages you want to sync (`/invite @PostHog data warehouse`). After the source is created, follow the webhook steps to start receiving messages.""",
+Invite the bot to any channel whose messages you want to sync (`/invite @PostHog data warehouse`). After the source is created, follow the webhook steps to start receiving messages.
+
+Each channel table starts empty and fills from new messages only, thread replies included. The connector does not backfill older messages, and it does not sync reactions.""",
             iconPath="/static/services/slack.png",
             docsUrl="https://posthog.com/docs/cdp/sources/slack",
             releaseStatus=ReleaseStatus.GA,
@@ -233,8 +234,7 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
                 "channels:history",
                 "groups:history",
                 "users:read",
-                "users:read.email",
-                "reactions:read"
+                "users:read.email"
             ]
         }
     },
