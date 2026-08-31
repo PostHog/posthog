@@ -279,6 +279,8 @@ def apply_account_filters(
         elif isinstance(filter_, contracts.AccountTableAssignedToFilter):
             if filter_.user_ids:
                 queryset = queryset.filter(Exists(active_relationships.filter(user_id__in=filter_.user_ids)))
+        elif isinstance(filter_, contracts.AccountTableAssignedFilter):
+            queryset = queryset.filter(Exists(active_relationships))
         elif isinstance(filter_, contracts.AccountTableUnassignedFilter):
             queryset = queryset.filter(~Exists(active_relationships))
         elif isinstance(filter_, contracts.AccountTableAccountIdFilter):
