@@ -16,7 +16,8 @@ export type NavRailPane =
   | "inbox"
   | "command-center"
   | "loops"
-  | "context";
+  | "context"
+  | "feeds";
 
 /**
  * The root path of each destination.
@@ -34,6 +35,7 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   "command-center": "/command-center",
   loops: "/loops",
   context: "/spaces/context",
+  feeds: "/feeds",
 };
 
 // Spaces is absent: it takes everything nothing else claims, so listing it
@@ -46,6 +48,7 @@ const CLAIMED: readonly NavRailPane[] = [
   "command-center",
   "loops",
   "context",
+  "feeds",
 ];
 
 export function railPaneForPath(fullPath: string): NavRailPane {
@@ -74,11 +77,12 @@ export function getRailPane(): NavRailPane {
 
 // Home, Inbox, Command Center and Loops are whole-screen destinations: no
 // route under them may put a second nav on the screen. Spaces owns the space
-// tree, Activity owns the feed.
+// tree, Activity owns the feed, a saved search owns its result list.
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
   "spaces",
   "activity",
   "canvases",
+  "feeds",
 ]);
 
 export function railPaneHasSidebar(pane: NavRailPane): boolean {

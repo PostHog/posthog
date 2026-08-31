@@ -39,3 +39,16 @@ export function useActiveSession(): ActiveSession {
   }
   return { taskId, channelId };
 }
+
+// A saved search names its own tab, so it reports no session.
+const NO_SESSION: ActiveSession = { taskId: undefined, channelId: undefined };
+
+/**
+ * Which session a browser tab is named after. Reading a result into the pane of
+ * a saved search must not rename that tab, so the search reports none.
+ */
+export function useTabSession(): ActiveSession {
+  const params = useParams({ strict: false });
+  const session = useActiveSession();
+  return params.feedId ? NO_SESSION : session;
+}

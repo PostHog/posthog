@@ -5,6 +5,7 @@ import {
   HouseSimple,
   type IconProps,
   Lightning,
+  ListMagnifyingGlassIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
@@ -28,6 +29,7 @@ import {
   navigateToCanvases,
   navigateToChannel,
   navigateToCommandCenter,
+  navigateToFeeds,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
@@ -57,15 +59,21 @@ export interface RailDestination {
    * from landing on its root. Defaults to `onPick`.
    */
   onReclick?: () => void;
+  /** Bottom cluster (beside Search and Settings) rather than the main stack. */
+  placement?: "top" | "bottom";
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
-  enabled?: (flags: {
-    home: boolean;
-    inbox: boolean;
-    loops: boolean;
-    context: boolean;
-  }) => boolean;
+  enabled?: (flags: RailFlags) => boolean;
+}
+
+export interface RailFlags {
+  home: boolean;
+  inbox: boolean;
+  loops: boolean;
+  context: boolean;
+  /** The project has at least one saved search to show. */
+  savedSearches: boolean;
 }
 
 /**
@@ -75,11 +83,7 @@ export interface RailDestination {
  */
 function showSpaces(): void {
   const channelId = useCurrentChannelStore.getState().currentChannelId;
-  // A saved search (/feeds/$feedId) is on the Spaces pane but is not a space:
-  // it has no channel to hold the list, so the only way back to Spaces is to
-  // navigate to the spaces index.
-  const href = currentHref() ?? "";
-  if (href.startsWith("/feeds") || !channelId) {
+  if (!channelId) {
     showChannelList();
     navigateToSpaces();
     return;
@@ -209,6 +213,18 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     enabled: (flags) => flags.loops,
   },
   {
+    pane: "feeds",
+    label: "Saved searches",
+    analyticsId: "search",
+    Icon: ListMagnifyingGlassIcon,
+    // The route opens the first saved search: the destination is the searches
+    // themselves, and there is no list page above them.
+    href: "/feeds",
+    onPick: navigateToFeeds,
+    placement: "bottom",
+    enabled: (flags) => flags.savedSearches,
+  },
+  {
     pane: "context",
     label: "Context",
     analyticsId: "contexts",
@@ -219,11 +235,8 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
 ];
 
-export function visibleRailDestinations(flags: {
-  home: boolean;
-  inbox: boolean;
-  loops: boolean;
-  context: boolean;
-}): readonly RailDestination[] {
+export function visibleRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
   return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
 }
