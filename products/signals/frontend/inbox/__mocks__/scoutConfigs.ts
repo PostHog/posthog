@@ -49,7 +49,10 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         mcp_gateway_server_ids: [],
         source_product: null,
         source_id: null,
-        created_at: '2026-06-11T09:00:00Z',
+        // Well past the cold-start window the stories' `mockDate` sits in, so a scout reads as
+        // established unless a story asks for a newer one.
+        created_at: '2026-02-14T09:00:00Z',
+        updated_at: '2026-02-14T09:00:00Z',
         ...overrides,
     }
 }
@@ -111,6 +114,8 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         description: 'new errors, regressions, and spikes in Error tracking',
         run_interval_minutes: 60,
         last_run_at: '2026-06-10T23:30:00Z',
+        created_at: '2026-01-15T09:00:00Z',
+        updated_at: '2026-06-05T14:00:00Z',
     }),
     makeMockScout({
         id: 'scout-checkout-health',
@@ -121,12 +126,16 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         run_interval_minutes: 30,
         last_run_at: '2026-06-10T23:50:00Z',
         tags: ['checkout', 'revenue'],
+        created_at: '2026-05-28T09:00:00Z',
+        updated_at: '2026-06-09T16:00:00Z',
     }),
     makeMockScout({
         id: 'scout-product-analytics',
         skill_name: 'signals-scout-product-analytics',
         description: 'unexpected changes in activation, retention, and conversion',
         run_cron_schedule: '0 9 * * *',
+        created_at: '2026-02-03T09:00:00Z',
+        updated_at: '2026-04-20T10:00:00Z',
     }),
     makeMockScout({
         id: 'scout-session-replay',
@@ -134,6 +143,8 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         description: 'session recordings for repeated usability problems',
         run_interval_minutes: 720,
         last_run_at: '2026-06-10T18:00:00Z',
+        created_at: '2026-01-15T09:00:00Z',
+        updated_at: '2026-03-11T11:00:00Z',
     }),
     makeMockScout({
         id: 'scout-enterprise-adoption',
@@ -143,6 +154,8 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         owners: MOCK_SCOUT_OWNERS,
         run_cron_schedule: '30 8 * * 1',
         tags: ['adoption'],
+        created_at: '2026-06-02T09:00:00Z',
+        updated_at: '2026-06-02T09:00:00Z',
     }),
     makeMockScout({
         id: 'scout-api-latency',
@@ -151,6 +164,8 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         scout_origin: 'custom',
         run_interval_minutes: 120,
         last_run_at: '2026-06-10T23:00:00Z',
+        created_at: '2026-03-19T09:00:00Z',
+        updated_at: '2026-06-10T08:00:00Z',
     }),
     makeMockScout({
         id: 'scout-paused',
@@ -158,12 +173,16 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         description: 'failed and delayed data warehouse syncs',
         enabled: false,
         status: 'paused_by_user',
+        created_at: '2026-01-15T09:00:00Z',
+        updated_at: '2026-05-01T09:00:00Z',
     }),
     makeMockScout({
         id: 'scout-dry-run',
         skill_name: 'signals-scout-experiments',
         description: 'experiments with unexpected or inconclusive results',
         emit: false,
+        created_at: '2026-04-08T09:00:00Z',
+        updated_at: '2026-04-08T09:00:00Z',
     }),
     makeMockScout({
         id: 'scout-broken',
@@ -174,6 +193,8 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         pause_reason: 'repeated_failures',
         consecutive_failure_count: 3,
         status_changed_at: '2026-06-10T08:00:00Z',
+        created_at: '2026-02-20T09:00:00Z',
+        updated_at: '2026-06-10T08:00:00Z',
     }),
     makeMockScout({
         id: 'scout-warned',
@@ -181,5 +202,7 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         description: 'survey responses that point at a product problem',
         status: 'pending_pause',
         pause_reason: 'ignored',
+        created_at: '2026-03-02T09:00:00Z',
+        updated_at: '2026-06-08T12:00:00Z',
     }),
 ]

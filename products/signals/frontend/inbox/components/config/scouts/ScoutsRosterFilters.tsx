@@ -15,6 +15,9 @@ const ENABLED_FILTER_OPTIONS: { value: ScoutEnabledFilter; label: string }[] = [
 const SORT_OPTIONS: { value: ScoutRosterSort; label: string }[] = [
     { value: 'name', label: 'Name' },
     { value: 'status', label: 'Status' },
+    { value: 'created', label: 'Recently created' },
+    { value: 'updated', label: 'Recently edited' },
+    { value: 'last_run', label: 'Recently run' },
 ]
 
 /**

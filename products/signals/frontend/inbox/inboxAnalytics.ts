@@ -137,7 +137,7 @@ export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'repl
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
- * scratchpad callout, and the roster's on/off filter, owner filter, and search).
+ * scratchpad callout, and the roster's on/off filter, owner filter, search, and sort).
  */
 export type ScoutActionType =
     | 'open_settings'
@@ -163,6 +163,7 @@ export type ScoutActionType =
     | 'filter_enabled'
     | 'filter_owner'
     | 'search_scouts'
+    | 'sort_roster'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
