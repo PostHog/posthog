@@ -44,6 +44,7 @@ from products.replay_vision.backend.queries.visited_paths import VisitedPath, fe
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.tag_suggestions import _product_taxonomy
 from products.replay_vision.backend.tags import slugify_tag
+from products.surveys.backend.models import Survey
 
 from ee.hogai.utils.feature_flags import is_core_memory_disabled
 from ee.hogai.utils.untrusted import as_untrusted_data
@@ -97,6 +98,15 @@ _MAX_GOAL_MATCHED_EVENTS = 30
 _MIN_GOAL_TERM_CHARS = 4
 # Only the first terms are looked up, so a long goal stays one bounded query.
 _MAX_GOAL_TERMS = 8
+# Surveys whose names match the goal, shown with their IDs so a filter can name one exactly.
+_MAX_MATCHED_SURVEYS = 10
+# The events that carry a survey's identity, and the property holding it. A filter on one survey is
+# an event filter plus this property, which is why the draft needs property filters at all.
+_SURVEY_EVENTS = ("survey sent", "survey shown", "survey dismissed")
+_SURVEY_ID_PROPERTY = "$survey_id"
+# Property filters the model may attach to its chosen events. Two is enough to name a thing and
+# qualify it; more usually means the filter is describing several flows at once.
+_MAX_FILTER_EVENT_PROPERTIES = 2
 # Words common to almost any goal. Matching them returns arbitrary events rather than the ones the
 # user means, and crowds out the terms that carry the intent.
 _GOAL_STOPWORDS = frozenset(
@@ -239,6 +249,14 @@ class ScannerDraft:
     # budget so a mis-estimate cannot overspend it. None on the legacy path.
     model: str | None = None
     credit_limit: int | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class _MatchedSurvey:
+    """One of the team's surveys whose name matches the goal, with the ID a filter needs."""
+
+    name: str
+    survey_id: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -618,6 +636,14 @@ def _finalize(
 # ---------------------------------------------------------------------------
 
 
+class _LlmEventPropertyFilter(BaseModel):
+    """One property condition narrowing an event the draft already filters on."""
+
+    event: str = Field(description="The event to narrow, copied from this draft's `filter_events`.")
+    property: str = Field(description="The property name, copied verbatim from the briefing (e.g. '$survey_id').")
+    value: str = Field(description="The value to match, copied verbatim from the briefing (e.g. a survey's id).")
+
+
 class _LlmDraftV2(BaseModel):
     """The model's structured output for the goal-based flow: one drafted scanner plus targeting."""
 
@@ -662,6 +688,12 @@ class _LlmDraftV2(BaseModel):
         "briefing's events list. Use when a specific action is the sharpest signal for the goal (e.g. an event "
         "fired when a flow starts). Each event ANDs, with the other events and with the pages, so a session must "
         "have all of them; keep to the one or two that define the flow, and leave empty when pages already capture it.",
+    )
+    filter_event_properties: list[_LlmEventPropertyFilter] = Field(
+        default_factory=list,
+        description="Narrows an event in `filter_events` to one thing, for goals that name a specific survey "
+        "rather than surveys in general. Only use a property and value the briefing showed; anything else is "
+        "dropped. Leave empty when the event alone is what the goal means.",
     )
     sampling_mode: Literal["comprehensive", "balanced", "focused"] = Field(
         default="comprehensive",
@@ -727,6 +759,12 @@ Pick the single type that best fits the goal, then draft the scanner:
     nothing. Anything not copied from the briefing's lists is discarded.
   - Leave both empty ONLY when the goal genuinely spans the whole product ("summarize what users do
     here").
+- filter_event_properties: use ONLY when the goal names one specific thing its event cannot identify
+  on its own. The case this exists for is surveys: every survey fires the same "survey sent" event,
+  so a goal about ONE survey needs that event AND the property filter the briefing lists beside the
+  matching survey. Copy the event, property, and value exactly as shown. An invented value matches
+  nothing and the scanner never runs, so anything not from the briefing is discarded. When the goal
+  is about surveys in general, filter on the event alone and leave this empty.
 - sampling_mode: who deserves the budget when it cannot cover every matching session. Each session
   carries a score of how eventful it looks; the mode drops the lowest-scoring sessions before random
   sampling. Choose by what the goal hunts:
@@ -770,6 +808,7 @@ def _build_user_content_v2(
     pages: Sequence[VisitedPath],
     *,
     scanners: list[_ExistingScanner] | None = None,
+    surveys: Sequence[_MatchedSurvey] = (),
     business_context: str = "",
     company: str = "",
 ) -> str:
@@ -808,6 +847,22 @@ def _build_user_content_v2(
                 "existing-scanners",
                 [_scanner_context_line(s) for s in scanners],
                 source="the scanners the team already has (the goal may reference these by name)",
+            )
+        )
+    if surveys:
+        lines.append(
+            "\n"
+            + as_untrusted_data(
+                "matching-surveys",
+                [
+                    f'"{s.name}" -> filter_event_properties {{"event": "survey sent", '
+                    f'"property": "{_SURVEY_ID_PROPERTY}", "value": "{s.survey_id}"}}'
+                    for s in surveys
+                ],
+                source=(
+                    "the team's surveys whose names match the goal. Every survey shares the same "
+                    "'survey sent' event, so targeting one needs the property filter shown beside it"
+                ),
             )
         )
     return "\n".join(lines)
@@ -865,6 +920,42 @@ def _events_for_goal(team: Team, goal: str) -> list[str]:
     return list(dict.fromkeys([*matched, *baseline]))
 
 
+def _surveys_for_goal(team: Team, goal: str, user_access_control: UserAccessControl) -> list[_MatchedSurvey]:
+    """Surveys the caller can read whose names match the goal's words.
+
+    A goal that names a survey ("people who answered the pricing survey") cannot be filtered from
+    events alone: every survey shares the same `survey sent` event, and the one the user means is
+    identified by `$survey_id`. Reading the survey by name gives that ID exactly, where sampling the
+    property's values would return a list of UUIDs with nothing to choose between them.
+
+    Surveys are access-controlled, so a survey the caller cannot read must not be named back to them.
+    """
+    terms = _goal_terms(goal)
+    if not terms:
+        return []
+    # A resource-level denial has to return nothing: `filter_queryset_by_access_level` passes the
+    # queryset through untouched when the caller has neither resource access nor object grants, and
+    # this helper has no viewset permission check behind it to catch that.
+    if not user_access_control.check_access_level_for_resource(
+        "survey", required_level="viewer"
+    ) and not user_access_control.has_any_specific_access_for_resource("survey", required_level="viewer"):
+        return []
+    try:
+        name_matches = Q()
+        for term in terms:
+            name_matches |= Q(name__icontains=term)
+        qs = Survey.objects.filter(team__project_id=team.project_id, archived=False).filter(name_matches)
+        qs = user_access_control.filter_queryset_by_access_level(qs, resource="survey")
+        return [
+            _MatchedSurvey(name=name, survey_id=str(survey_id))
+            for survey_id, name in qs.order_by("-created_at").values_list("id", "name")[:_MAX_MATCHED_SURVEYS]
+        ]
+    except Exception:
+        # Losing the survey match costs the precise filter, not the draft.
+        logger.warning("replay_vision.scanner_draft.surveys_failed", team_id=team.id, exc_info=True)
+        return []
+
+
 def _page_filter_regex(pathname: str) -> str | None:
     """A ClickHouse regex matching real URLs for a collapsed grounding path, or None when the path
     cannot narrow.
@@ -892,22 +983,41 @@ def _strip_page_count(page: str) -> str:
     return re.sub(r"\s*\(\d+\)\s*$", "", page).strip()
 
 
-def _v2_query(pathnames: Sequence[str], events: Sequence[str]) -> dict[str, Any] | None:
-    """The scanner's recording filter from the grounded pages and events.
+def _v2_query(
+    pathnames: Sequence[str],
+    events: Sequence[str],
+    event_properties: Sequence[_LlmEventPropertyFilter] = (),
+) -> dict[str, Any] | None:
+    """The scanner's recording filter from the grounded pages, events, and event properties.
 
     Pages become ONE multi-value `visited_page` property (its values OR). Each value is a regex that
     matches the collapsed page against real URLs, with ":id" runs wildcarded. Events go in the
-    `events` list, where each event ANDs, with the other events and with the page property. The
-    estimate the caller runs, and the review page's Save-at-zero gate, catch an over-constrained AND
-    before it ever becomes a scanner.
+    `events` list, where each event ANDs, with the other events and with the page property. A
+    property filter rides on its event's entry, so "survey sent where $survey_id is X" stays one
+    condition rather than matching every survey. The estimate the caller runs, and the review page's
+    Save-at-zero gate, catch an over-constrained AND before it ever becomes a scanner.
     """
     query: dict[str, Any] = {"kind": "RecordingsQuery"}
     values = list(dict.fromkeys(v for p in pathnames if (v := _page_filter_regex(p)) is not None))
     if values:
         query["properties"] = [{"type": "recording", "key": "visited_page", "value": values, "operator": "regex"}]
     if events:
+        by_event: dict[str, list[dict[str, Any]]] = {}
+        for prop in event_properties:
+            by_event.setdefault(prop.event, []).append(
+                {"key": prop.property, "value": [prop.value], "operator": "exact", "type": "event"}
+            )
         # The shape the replay filter UI produces for an event condition.
-        query["events"] = [{"id": event, "name": event, "type": "events", "order": 0} for event in events]
+        query["events"] = [
+            {
+                "id": event,
+                "name": event,
+                "type": "events",
+                "order": 0,
+                **({"properties": p} if (p := by_event.get(event)) else {}),
+            }
+            for event in events
+        ]
     if "properties" not in query and "events" not in query:
         return None
     return query
@@ -984,8 +1094,38 @@ def _solve_budget(
     )
 
 
+def _grounded_event_properties(
+    proposed: Sequence[_LlmEventPropertyFilter],
+    *,
+    kept_events: Sequence[str],
+    allowed_surveys: Sequence[_MatchedSurvey],
+) -> list[_LlmEventPropertyFilter]:
+    """Property filters whose event survived grounding and whose value the briefing actually showed.
+
+    A property filter narrows a scan, so an invented value is worse than a dropped one: it would
+    match nothing and the scanner would never run. Only values read back from the team's own data
+    are allowed through.
+    """
+    allowed_values = {s.survey_id for s in allowed_surveys}
+    kept = set(kept_events)
+    out: list[_LlmEventPropertyFilter] = []
+    for prop in proposed:
+        event, name, value = prop.event.strip(), prop.property.strip(), prop.value.strip()
+        if event not in kept or name != _SURVEY_ID_PROPERTY or value not in allowed_values:
+            continue
+        out.append(_LlmEventPropertyFilter(event=event, property=name, value=value))
+        if len(out) >= _MAX_FILTER_EVENT_PROPERTIES:
+            break
+    return out
+
+
 def _finalize_v2(
-    parsed: _LlmDraftV2, *, allowed_pages: Sequence[str], allowed_events: Sequence[str], team_id: int
+    parsed: _LlmDraftV2,
+    *,
+    allowed_pages: Sequence[str],
+    allowed_events: Sequence[str],
+    team_id: int,
+    allowed_surveys: Sequence[_MatchedSurvey] = (),
 ) -> ScannerDraft:
     """Normalize the v2 model output; costing is applied by the caller."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
@@ -1006,7 +1146,10 @@ def _finalize_v2(
     # creator says otherwise (the recordings step can toggle it back on). No-op for a team that has
     # not configured internal-user filters. The narrowing query is None when no page or event
     # survives, so the base still carries this default.
-    narrowing = _v2_query(pages, events)
+    event_properties = _grounded_event_properties(
+        parsed.filter_event_properties, kept_events=events, allowed_surveys=allowed_surveys
+    )
+    narrowing = _v2_query(pages, events, event_properties)
     query: dict[str, Any] = narrowing if narrowing is not None else {"kind": "RecordingsQuery"}
     query["filter_test_accounts"] = True
 
@@ -1071,11 +1214,18 @@ def draft_scanner_from_goal_v2(
         if include_business_context
         else ""
     )
+    surveys = _surveys_for_goal(team, goal, user_access_control)
+    if surveys:
+        # A goal can name a survey without using the word "survey" ("who answered XYZ Feedback"), so
+        # the survey events may not have matched on their own. A property filter is useless without
+        # the event it rides on, so offer those events whenever a survey matched.
+        events = list(dict.fromkeys([*_SURVEY_EVENTS, *events]))
     user_content = _build_user_content_v2(
         goal,
         events,
         pages,
         scanners=_existing_scanners(team, user_access_control),
+        surveys=surveys,
         business_context=_business_context(team, user) if include_business_context else "",
         company=company,
     )
@@ -1092,6 +1242,7 @@ def draft_scanner_from_goal_v2(
         allowed_pages=[p.pathname for p in pages],
         allowed_events=events,
         team_id=team.id,
+        allowed_surveys=surveys,
     )
     # The cap is the stated budget, so a mis-estimate stops the scanner at the credits the user
     # agreed to rather than overspending. Kept even when costing fails, so the guardrail survives.
