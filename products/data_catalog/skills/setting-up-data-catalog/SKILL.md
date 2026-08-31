@@ -34,7 +34,8 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    clearly relies on, `posthog:data-catalog-certification-propose` them (the tool's default
    `proposed_status` is `'certified'`); flag obvious stale or duplicate copies by proposing them with
    `proposed_status: 'deprecated'`. Either way the proposal lands unapproved and an approver settles
-   it later. Address targets by id when a name is ambiguous.
+   it later. Warehouse-source tables accept their queryable HogQL name (for example,
+   `stripe.subscriptions`); address targets by id when a name is ambiguous.
 
 2. **Discover joins with evidence.** For plausible table pairs, sample both sides with
    `posthog:execute-sql` to measure the match rate of a candidate key (e.g. `count(DISTINCT a.key)`

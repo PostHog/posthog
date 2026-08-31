@@ -153,7 +153,11 @@ export interface inboxTaskKickoffLogicActions {
     createPrFailure: () => {
         value: true
     }
-    createPrFromReport: (report: SignalReport) => {
+    createPrFromReport: (
+        report: SignalReport,
+        feedback?: string
+    ) => {
+        feedback: string | undefined
         report: SignalReport
     }
     createPrSuccess: () => {
@@ -202,7 +206,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
 
     actions({
         discussReport: (report: SignalReport, reportUrl: string, question: string) => ({ report, reportUrl, question }),
-        createPrFromReport: (report: SignalReport) => ({ report }),
+        createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
         discussReportSuccess: true,
         discussReportFailure: true,
         createPrSuccess: true,
@@ -266,7 +270,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.discussReportFailure()
             }
         },
-        createPrFromReport: async ({ report }) => {
+        createPrFromReport: async ({ report, feedback }) => {
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
                 captureInboxReportActionCompleted({
@@ -282,7 +286,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 await createReportTask(
                     report,
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
-                    buildCreatePrReportPrompt(report),
+                    buildCreatePrReportPrompt(report, feedback),
                     'Implement report fix',
                     CREATE_PR_RUNTIME
                 )

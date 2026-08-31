@@ -1,4 +1,6 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+{% extends "email/base.html" %}
+
+{% block section %}
 <h1 class="invite-header">
     <strong>{{ inviter_first_name }}</strong> has invited you to join
     <strong>{{ org_name }}</strong> on PostHog
@@ -31,4 +33,4 @@
 
 {% block footer %}
 {% endblock %}
-{% endblock %}{% load posthog_filters %}
+{% endblock %}

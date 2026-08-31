@@ -107,6 +107,11 @@ def valid_report_uuids(report_ids: set[str | None]) -> set[str]:
 # training row nor stamp a feedback label onto a real report.
 FEEDBACK_SENTIMENTS_SQL = "toString(properties.sentiment) IN ('positive', 'negative')"
 
+# `impressions` is read from the raw properties JSON rather than as `properties.impressions`. HogQL
+# casts a property with its project-wide property definition type, and other events in the dogfood
+# project send `impressions` as a number, which types the definition as Numeric and turns the array
+# into a Float64 cast that JSONExtractArrayRaw rejects. The raw read does not depend on that type.
+#
 # The feedback filter rides as a second predicate rather than its own UNION branch so the whole
 # select keeps one sort-key-aligned `event IN (...)` scan.
 LABELED_REPORT_IDS_SQL = f"""
@@ -114,7 +119,7 @@ SELECT DISTINCT report_id
 FROM (
     SELECT JSONExtractString(imp, 'report_id') AS report_id
     FROM events
-    ARRAY JOIN JSONExtractArrayRaw(coalesce(properties.impressions, '[]')) AS imp
+    ARRAY JOIN JSONExtractArrayRaw(properties, 'impressions') AS imp
     WHERE event = 'Inbox reports impressed'
       AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
     UNION ALL
@@ -263,7 +268,7 @@ SELECT
     min({_IMPRESSION_RANK}) AS best_impression_rank,
     argMax(JSONExtract(imp, 'source_products', 'Array(String)'), timestamp) AS source_products
 FROM events
-ARRAY JOIN JSONExtractArrayRaw(coalesce(properties.impressions, '[]')) AS imp
+ARRAY JOIN JSONExtractArrayRaw(properties, 'impressions') AS imp
 WHERE event = 'Inbox reports impressed'
   AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
 GROUP BY report_id

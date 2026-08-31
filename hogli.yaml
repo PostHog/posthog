@@ -969,10 +969,6 @@ tools:
         bin_script: clickhouse-logs-init
         description: Initialize ClickHouse logs schema (temporary, pre-migration)
         hidden: true
-    clickhouse:metrics:init:
-        bin_script: clickhouse-metrics-init
-        description: Initialize ClickHouse metrics schema (temporary, pre-migration)
-        hidden: true
     clickhouse:multinode:start:
         cmd: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse
         description: Boot the multinode ClickHouse smoke-test stack (one server per logical cluster) for local migration verification

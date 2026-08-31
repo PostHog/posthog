@@ -8844,6 +8844,7 @@ export interface ChartSettingsApi {
     rightYAxisSettings?: YAxisSettingsApi | null
     scatter?: ScatterChartSettingsApi | null
     seriesBreakdownColumn?: string | null
+    showAnnotations?: boolean | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null
     showPieTotal?: boolean | null

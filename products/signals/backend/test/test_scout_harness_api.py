@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -39,9 +39,15 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
+    _compute_row_hash,
+    discover_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
@@ -54,16 +60,22 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
 
-def _authenticate_as_scout(test: APIBaseTest, *, scopes: PosthogMcpScopes = "signals_scout") -> None:
+def _authenticate_as_scout(
+    test: APIBaseTest, *, scopes: PosthogMcpScopes = "signals_scout", sandbox_task_id: UUID | None = None
+) -> None:
     """Auth the test client with a scout-internal token, mirroring how the harness sandbox
-    reaches these endpoints in production. The emit / scratchpad write actions require
-    `signal_scout_internal:write`, which is server-mint-only and rejects session auth, so the
-    default `APIBaseTest` force-login isn't enough for the write surface — only reads pass on
-    a session. `logout()` first so the token is the sole credential on every request.
+    reaches these endpoints in production. The emit action requires `signal_scout_internal:write`
+    and the scratchpad writes `signal_scratchpad_internal:write` — both are server-mint-only and
+    reject session auth, so the default `APIBaseTest` force-login isn't enough for the write
+    surface — only reads pass on a session. `logout()` first so the token is the sole credential
+    on every request.
 
     `scopes` selects the posture: the default `signals_scout` covers emit-signal / scratchpad;
     pass `signals_scout_reports` (the report-channel posture, which adds `signal_scout_report:write`)
     to exercise the emit-report / edit-report surface.
+
+    `sandbox_task_id` binds the token to a task, which is how a report-pipeline run is minted and
+    the only way the scratchpad write path can resolve its writer identity.
     """
     # `create_oauth_access_token_for_user` resolves the Array app by `get_instance_region()`,
     # which isn't deterministic across test contexts — create the app for every region client
@@ -80,7 +92,9 @@ def _authenticate_as_scout(test: APIBaseTest, *, scopes: PosthogMcpScopes = "sig
                 "algorithm": "RS256",
             },
         )
-    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=scopes, include_internal_scopes=True)
+    token = create_oauth_access_token_for_user(
+        test.user, test.team.id, scopes=scopes, include_internal_scopes=True, sandbox_task_id=sandbox_task_id
+    )
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -1216,7 +1230,7 @@ class TestScoutHarnessConfigModelAPI(APIBaseTest):
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # remember (create) and forget require `signal_scout_internal:write` — session auth
+        # remember (create) and forget require `signal_scratchpad_internal:write` — session auth
         # is rejected, so authenticate with the scout-internal token like the harness does.
         _authenticate_as_scout(self)
 
@@ -1233,6 +1247,30 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         data = response.json()
         assert data["key"] == "k1"
         assert data["content"] == "checkout regression noise — already tracked"
+
+    def test_remember_stamps_the_pipeline_stage_behind_the_token(self) -> None:
+        # The wiring guard for writer identity: the stage is derived from the token's bound task,
+        # so a research run's memory has to come back attributed without the body saying anything.
+        # A scout's write is unaffected — `test_remember_creates_entry` covers that path.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team,
+            title="Research: checkout 500s",
+            description="research",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        TaskRun.objects.create(task=task, team=self.team, state={"ai_stage": AI_STAGE_RESEARCH})
+        _authenticate_as_scout(self, scopes="signals_research", sandbox_task_id=task.id)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "payments team owns checkout"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["created_by_skill"] == PIPELINE_AUDIENCE
 
     def test_remember_idempotent_upsert_on_team_key(self) -> None:
         first = self.client.post(self._list_url(), data={"key": "k1", "content": "v1"}, format="json")
@@ -1310,16 +1348,24 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScratchpad.objects.filter(team=self.team).exists()
 
-    def test_remember_rejects_expires_at_in_the_past(self) -> None:
-        # A memory that's already lapsed on write is invisible the moment it lands, so it's a
-        # mistake worth a 400 rather than a silently useless row.
+    @parameterized.expand(
+        [
+            ("past", "2020-01-01T00:00:00Z"),
+            ("malformed", "in thirty days"),
+        ]
+    )
+    def test_remember_drops_invalid_expires_at_without_losing_the_write(self, _name: str, expires_at: str) -> None:
+        # The agent computes `expires_at` itself and a share of writes carry a past or unparseable
+        # value. The content is the memory worth keeping, so an invalid expiry is dropped (the entry
+        # lands durable) rather than rejecting the whole write. Wiring guard for the best-effort field.
         response = self.client.post(
             self._list_url(),
-            data={"key": "k1", "content": "v", "expires_at": "2020-01-01T00:00:00Z"},
+            data={"key": "k1", "content": "v", "expires_at": expires_at},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+        assert response.status_code == status.HTTP_200_OK
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert row.expires_at is None
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -1423,23 +1469,38 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK
         assert [row["id"] for row in listed.json()] == [created["id"]]
 
+    def test_create_accepts_a_pipeline_audience_with_no_scout_skill(self) -> None:
+        # A pipeline audience names a stage of the report pipeline, which has no `LLMSkill` row,
+        # so it must clear the write path without one.
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "route billing-adjacent reports to the billing folks", "skill_name": PIPELINE_AUDIENCE},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["skill_name"] == PIPELINE_AUDIENCE
+
     @parameterized.expand(
         [
-            # (include_general, expected contents) — a scout's list must carry its own notes plus
-            # the fleet-wide general notes, and never another scout's.
-            ("with_general", "true", {"for the fleet", "for web analytics"}),
-            ("own_notes_only", "false", {"for web analytics"}),
+            # (target, include_general, expected contents) — a target's list must carry its own
+            # notes plus the fleet-wide general notes, and never another target's. A pipeline
+            # audience reads the same way a scout does, and neither one sees the other's notes.
+            ("scout_with_general", "signals-scout-web-analytics", "true", {"for the fleet", "for web analytics"}),
+            ("scout_own_notes_only", "signals-scout-web-analytics", "false", {"for web analytics"}),
+            ("pipeline_with_general", PIPELINE_AUDIENCE, "true", {"for the fleet", "for research"}),
+            ("pipeline_own_notes_only", PIPELINE_AUDIENCE, "false", {"for research"}),
         ]
     )
-    def test_list_scopes_to_skill_plus_general(self, _name: str, include_general: str, expected: set[str]) -> None:
+    def test_list_scopes_to_target_plus_general(
+        self, _name: str, target: str, include_general: str, expected: set[str]
+    ) -> None:
         SignalScoutNote.objects.create(team=self.team, skill_name="", content="for the fleet")
         SignalScoutNote.objects.create(
             team=self.team, skill_name="signals-scout-web-analytics", content="for web analytics"
         )
         SignalScoutNote.objects.create(team=self.team, skill_name="signals-scout-logs", content="for logs")
-        response = self.client.get(
-            f"{self._list_url()}?skill_name=signals-scout-web-analytics&include_general={include_general}"
-        )
+        SignalScoutNote.objects.create(team=self.team, skill_name=PIPELINE_AUDIENCE, content="for research")
+        response = self.client.get(self._list_url(), data={"skill_name": target, "include_general": include_general})
         assert response.status_code == status.HTTP_200_OK
         assert {row["content"] for row in response.json()} == expected
 
@@ -1465,6 +1526,9 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             # both a non-scout name and a scout name with no matching skill on the project.
             ("bad_target", {"content": "note", "skill_name": "web-analytics"}),
             ("unknown_scout", {"content": "note", "skill_name": "signals-scout-web-anlytics"}),
+            # Same reasoning for the pipeline family: it is an allowlist, not a free-form prefix,
+            # so a stage that reads no notes cannot be addressed.
+            ("unknown_pipeline_audience", {"content": "note", "skill_name": "pipeline:implementation"}),
             # A note born expired would never be seen by anyone.
             ("past_expiry", {"content": "note", "expires_at": "2020-01-01T00:00:00Z"}),
             ("blank_content", {"content": "   ", "skill_name": ""}),
@@ -2631,6 +2695,36 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert "signals-scout-error-tracking" not in {c["skill_name"] for c in response.json()}
         # Storage is untouched — the row is hidden from the response, not deleted.
         assert SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-error-tracking").exists()
+
+    def test_sync_tombstones_a_retired_canonical_scout(self) -> None:
+        # A scout removed from `products/signals/skills/` leaves a live row on every team the
+        # harness seeded it into, and the roster keeps listing a scout that can never run again.
+        # The sync reaps it, on the same terms as the coordinator tick.
+        retired = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-retired",
+            description="retired scout",
+            body="# retired scout",
+            metadata={"seeded_by": HARNESS_SEEDED_BY, "source": "products/signals/skills"},
+            category="scout",
+            version=1,
+            is_latest=True,
+        )
+        retired.metadata["canonical_hash"] = _compute_row_hash(retired, [])
+        retired.save(update_fields=["metadata"])
+        hand_authored = self._make_skill("signals-scout-mine")
+
+        response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        retired.refresh_from_db()
+        assert retired.deleted is True
+        assert retired.is_latest is False
+        assert "signals-scout-retired" not in {c["skill_name"] for c in response.json()}
+        # A team's own scout carrying the same prefix is never the harness's to reap.
+        hand_authored.refresh_from_db()
+        assert hand_authored.deleted is False
+        assert "signals-scout-mine" in {c["skill_name"] for c in response.json()}
 
     def test_sync_rejects_read_only_scope(self) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
