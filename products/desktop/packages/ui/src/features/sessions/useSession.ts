@@ -2,10 +2,7 @@ import type {
   AvailableCommand,
   SessionConfigOption,
 } from "@agentclientprotocol/sdk";
-import {
-  extractAvailableCommandsFromEvents,
-  extractUserPromptsFromEvents,
-} from "@posthog/core/sessions/sessionEvents";
+import { extractAvailableCommandsFromEvents } from "@posthog/core/sessions/sessionEvents";
 import type { PermissionRequest } from "@posthog/ui/features/sessions/sessionLogTypes";
 import { shallow } from "zustand/shallow";
 import {
@@ -67,16 +64,6 @@ export function getAvailableCommandsForTask(
   return extractAvailableCommandsFromEvents(session.events);
 }
 
-export function getUserPromptsForTask(taskId: string | undefined): string[] {
-  if (!taskId) return [];
-  const state = useSessionStore.getState();
-  const taskRunId = state.taskIdIndex[taskId];
-  if (!taskRunId) return [];
-  const session = state.sessions[taskRunId];
-  if (!session?.events) return [];
-  return extractUserPromptsFromEvents(session.events);
-}
-
 export const usePendingPermissionsForTask = (
   taskId: string | undefined,
 ): Map<string, PermissionRequest> => {
@@ -88,17 +75,6 @@ export const usePendingPermissionsForTask = (
     return session?.pendingPermissions ?? new Map();
   }, shallow);
 };
-
-export function getPendingPermissionsForTask(
-  taskId: string | undefined,
-): Map<string, PermissionRequest> {
-  if (!taskId) return new Map();
-  const state = useSessionStore.getState();
-  const taskRunId = state.taskIdIndex[taskId];
-  if (!taskRunId) return new Map();
-  const session = state.sessions[taskRunId];
-  return session?.pendingPermissions ?? new Map();
-}
 
 export const useQueuedMessagesForTask = (
   taskId: string | undefined,
