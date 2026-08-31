@@ -13,7 +13,9 @@ import {
   getScoutOrigin,
   isRunStuck,
   isScoutCreatedByUser,
+  listPausingSoonScouts,
   listScoutCreatorOptions,
+  listSystemPausedScouts,
   normalizeRunStatus,
   prettifyScoutSkillName,
   runDurationSeconds,
@@ -342,6 +344,49 @@ describe("rollups", () => {
         systemPausedCount: 1,
       },
     );
+  });
+});
+
+describe("scouts needing attention", () => {
+  const configs = [
+    makeConfig({ status: "active" }),
+    // Quiet warning: flagged but never escalates, so it belongs in neither list.
+    makeConfig({
+      id: "config-2",
+      skill_name: "signals-scout-logs",
+      status: "pending_pause",
+      pause_reason: "no_output",
+    }),
+    makeConfig({
+      id: "config-3",
+      skill_name: "signals-scout-surveys",
+      status: "pending_pause",
+      pause_reason: "ignored",
+    }),
+    makeConfig({
+      id: "config-4",
+      skill_name: "signals-scout-apm",
+      enabled: false,
+      status: "paused_by_system",
+      pause_reason: "repeated_failures",
+      consecutive_failure_count: 3,
+    }),
+  ];
+
+  it("names each auto-paused scout with why it stopped", () => {
+    expect(listSystemPausedScouts(configs)).toEqual([
+      {
+        name: "Apm",
+        reason:
+          "Paused itself — 3 runs in a row failed. Retries daily and resumes on its own.",
+      },
+    ]);
+  });
+
+  it("names pausing-soon scouts and excludes quiet warnings", () => {
+    expect(listPausingSoonScouts(configs)).toEqual([
+      { name: "Surveys", reason: "Pauses soon — nobody acted on its reports" },
+    ]);
   });
 });
 

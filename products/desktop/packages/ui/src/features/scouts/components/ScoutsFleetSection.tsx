@@ -11,7 +11,10 @@ import {
   computeScoutRollups,
   deriveScoutLifecycle,
   getScoutOrigin,
+  listPausingSoonScouts,
   listScoutCreatorOptions,
+  listSystemPausedScouts,
+  type ScoutAttentionItem,
   type ScoutCreatorIndex,
   type ScoutCreatorUser,
   scoutCreatorKey,
@@ -27,13 +30,19 @@ import {
   type ScoutRunsWindow,
   scoutRunsWindowLabel,
 } from "@posthog/core/scouts/scoutRunsWindow";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@posthog/quill";
 import type { ScoutChatType } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Text } from "@radix-ui/themes";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useMeQuery } from "../../auth/useMeQuery";
 import { useScoutChatTask } from "../hooks/useScoutChatTask";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
@@ -47,6 +56,48 @@ import { ScoutHelperSkillLinks } from "./ScoutHelperSkillLinks";
 import { ScoutRowCard } from "./ScoutRowCard";
 
 const EMPTY_CONFIGS: ScoutConfig[] = [];
+
+/** Longest list the attention tooltip shows before it stops being scannable. */
+const SCOUT_ATTENTION_TOOLTIP_MAX = 8;
+
+/**
+ * Names the scouts behind an attention count and states why each one waits. The
+ * count alone sends a person expanding the fleet to hunt for the scouts that
+ * stopped, so the number carries its roster with it.
+ */
+function ScoutAttentionTooltip({
+  title,
+  scouts,
+  children,
+}: {
+  title: string;
+  scouts: ScoutAttentionItem[];
+  children: ReactNode;
+}) {
+  const shown = scouts.slice(0, SCOUT_ATTENTION_TOOLTIP_MAX);
+  const hidden = scouts.length - shown.length;
+  return (
+    <TooltipProvider delay={300}>
+      <Tooltip>
+        <TooltipTrigger render={<span>{children}</span>} />
+        <TooltipContent side="bottom" className="max-w-xs">
+          <div className="flex flex-col gap-1.5">
+            <span className="font-semibold">{title}</span>
+            {shown.map((scout) => (
+              <div key={scout.name} className="flex flex-col">
+                <span className="font-semibold">{scout.name}</span>
+                <span>{scout.reason}</span>
+              </div>
+            ))}
+            {hidden > 0 ? (
+              <span>and {hidden} more in the fleet below</span>
+            ) : null}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 /**
  * Expandable scout fleet manager for the agents config page. Collapsed it is
@@ -103,9 +154,7 @@ export function ScoutsFleetSection() {
   }
 
   const enabledCount = configs.filter((config) => config.enabled).length;
-  const systemPausedCount = configs.filter(
-    (config) => deriveScoutLifecycle(config).isSystemPaused,
-  ).length;
+  const systemPausedScouts = listSystemPausedScouts(configs);
 
   return (
     <Flex direction="column" gap="3">
@@ -123,10 +172,15 @@ export function ScoutsFleetSection() {
             </Text>
             <Text className="text-[12px] text-gray-11 leading-snug">
               {enabledCount} of {configs.length} scouts enabled
-              {systemPausedCount > 0 ? (
-                <span className="text-(--red-11)">
-                  {` · ${systemPausedCount} auto-paused`}
-                </span>
+              {systemPausedScouts.length > 0 ? (
+                <ScoutAttentionTooltip
+                  title="Auto-paused scouts"
+                  scouts={systemPausedScouts}
+                >
+                  <span className="text-(--red-11)">
+                    {` · ${systemPausedScouts.length} auto-paused`}
+                  </span>
+                </ScoutAttentionTooltip>
               ) : null}
               {lastRunAt ? (
                 <>
@@ -215,6 +269,14 @@ export function ScoutsFleetListView({
     () => computeFleetSummary(configs, rollups),
     [configs, rollups],
   );
+  const systemPausedScouts = useMemo(
+    () => listSystemPausedScouts(configs),
+    [configs],
+  );
+  const pausingSoonScouts = useMemo(
+    () => listPausingSoonScouts(configs),
+    [configs],
+  );
   // Null/undefined creators = the skills API is gated for this org (or still
   // loading), so authorship is unknowable; render no picker instead of an
   // always-empty filter.
@@ -267,14 +329,24 @@ export function ScoutsFleetListView({
         {/* Auto-paused scouts sink below the enabled ones and vanish entirely
             under "Hide disabled", so the count has to lead here. */}
         {summary.systemPausedCount > 0 ? (
-          <span className="whitespace-nowrap text-(--red-11) text-[12.5px]">
-            {summary.systemPausedCount} auto-paused
-          </span>
+          <ScoutAttentionTooltip
+            title="Auto-paused scouts"
+            scouts={systemPausedScouts}
+          >
+            <span className="whitespace-nowrap text-(--red-11) text-[12.5px]">
+              {summary.systemPausedCount} auto-paused
+            </span>
+          </ScoutAttentionTooltip>
         ) : null}
         {summary.pausingSoonCount > 0 ? (
-          <span className="whitespace-nowrap text-(--amber-11) text-[12.5px]">
-            {summary.pausingSoonCount} pausing soon
-          </span>
+          <ScoutAttentionTooltip
+            title="Pausing soon unless someone acts"
+            scouts={pausingSoonScouts}
+          >
+            <span className="whitespace-nowrap text-(--amber-11) text-[12.5px]">
+              {summary.pausingSoonCount} pausing soon
+            </span>
+          </ScoutAttentionTooltip>
         ) : null}
         <span className="flex-1" />
         {creatorOptions.length > 0 ? (
