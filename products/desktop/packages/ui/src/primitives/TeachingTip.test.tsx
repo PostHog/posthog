@@ -1,4 +1,7 @@
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import {
+  DEFAULT_HINT_MAX,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import { Theme } from "@radix-ui/themes";
 import {
   act,
@@ -67,6 +70,24 @@ describe("TeachingTip", () => {
     await expectNoTip();
 
     rerender(tip("tip-hidden", true, 2));
+
+    await expectNoTip();
+  });
+
+  // A lesson nobody answers must still end: the artifacts occasion recurs on
+  // every restart, so a tip that only "Hide" could stop would nag forever.
+  // The final allowed showing must still run in full, so recording a showing
+  // must not count against the occasion it belongs to.
+  it("stops offering itself once it runs out of showings", async () => {
+    const { rerender } = render(tip("tip-counted", true, 1));
+    for (let occasion = 1; occasion <= DEFAULT_HINT_MAX; occasion++) {
+      rerender(tip("tip-counted", true, occasion));
+      await findTip();
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      await expectNoTip();
+    }
+
+    rerender(tip("tip-counted", true, DEFAULT_HINT_MAX + 1));
 
     await expectNoTip();
   });

@@ -24,11 +24,13 @@ export const TIP_KEYS = {
 export type TipKey = (typeof TIP_KEYS)[keyof typeof TIP_KEYS];
 
 /**
- * How a lesson stops offering itself. The toast hints fade after a few
- * showings; the anchored tips never count showings at all, and only the person
- * answering ends them, so a limit would mean nothing to them.
+ * How a lesson stops offering itself: answering it ends it at once, and
+ * running out of showings ends it on its own. Every lesson must be able to
+ * run out. The artifacts tip used to wait for an answer forever, and its
+ * occasion recurs on every restart, so a missed "Hide" press meant it came
+ * back for good.
  */
-type TipShowings = { kind: "counted"; max: number } | { kind: "answered-only" };
+type TipShowings = { max: number };
 
 /**
  * Every lesson's stopping rule, keyed the same way, so it is readable from
@@ -36,9 +38,9 @@ type TipShowings = { kind: "counted"; max: number } | { kind: "answered-only" };
  * it to tell a tip that has stopped showing from one still waiting to be seen.
  */
 export const TIP_SHOWINGS: Record<TipKey, TipShowings> = {
-  [TIP_KEYS.sessionArtifactsLocation]: { kind: "answered-only" },
-  [TIP_KEYS.pasteInline]: { kind: "counted", max: 3 },
-  [TIP_KEYS.pasteAsFile]: { kind: "counted", max: 3 },
-  [TIP_KEYS.recallMessageNav]: { kind: "counted", max: 3 },
-  [TIP_KEYS.steerSafeBoundary]: { kind: "counted", max: 1 },
+  [TIP_KEYS.sessionArtifactsLocation]: { max: 3 },
+  [TIP_KEYS.pasteInline]: { max: 3 },
+  [TIP_KEYS.pasteAsFile]: { max: 3 },
+  [TIP_KEYS.recallMessageNav]: { max: 3 },
+  [TIP_KEYS.steerSafeBoundary]: { max: 1 },
 };
