@@ -116,6 +116,7 @@ function LastDeliveryStatus({
 interface EditSubscriptionProps {
     id: number | 'new'
     insightShortId?: InsightShortId
+    insightName?: string
     dashboard?: DashboardType<any> | null
     onCancel: () => void
     onDelete: () => void
@@ -244,6 +245,7 @@ function DashboardInsightsField({
 function EditSubscriptionForm({
     id,
     insightShortId,
+    insightName,
     dashboard,
     onCancel,
     onDelete,
@@ -252,6 +254,7 @@ function EditSubscriptionForm({
     const logicProps = {
         id,
         insightShortId,
+        insightName,
         dashboardId,
         dashboardName: dashboard?.name,
     }
@@ -275,7 +278,14 @@ function EditSubscriptionForm({
         storedTeamsWebhookHost,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery, replaceTeamsWebhook } = useActions(logic)
+    const {
+        addContext,
+        applyDefaultSelectedInsights,
+        generatePreview,
+        removeContext,
+        replaceTeamsWebhook,
+        sendTestDelivery,
+    } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -284,6 +294,7 @@ function EditSubscriptionForm({
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
     const slackGalleryEnabled = useFeatureFlag('SUBSCRIPTION_SLACK_GALLERY')
     const slackReconnectRestriction = useIntegrationManagementRestriction()
+    const aiContextsEnabled = useFeatureFlag('SUBSCRIPTION_AI_CONTEXTS')
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -454,11 +465,15 @@ function EditSubscriptionForm({
                             <>
                                 <AiPromptSubscriptionIntroduction />
                                 <AiPromptFields
+                                    contexts={subscription.contexts}
+                                    contextsEnabled={Boolean(aiContextsEnabled)}
                                     prompt={subscription.prompt}
                                     windowMode={subscription.ai_prompt_config?.window?.mode}
                                     consentBanner={
                                         aiGate.showAiFormConsentBanner ? <AiConsentGateMessage /> : undefined
                                     }
+                                    onAddContext={addContext}
+                                    onRemoveContext={removeContext}
                                     onSelectAnalysisWindow={logic.actions.selectAiAnalysisWindow}
                                     onSelectExample={logic.actions.selectAiExamplePrompt}
                                 />

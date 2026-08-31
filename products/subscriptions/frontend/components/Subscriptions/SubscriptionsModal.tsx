@@ -128,6 +128,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                 <EditSubscription
                     id={subscriptionId ?? 'new'}
                     insightShortId={insightShortId}
+                    insightName={insightName}
                     dashboard={dashboard}
                     onCancel={() => push(urlForSubscriptions(baseProps))}
                     onDelete={() => push(urlForSubscriptions(baseProps))}

@@ -33,6 +33,7 @@ function makeReport(id: number, overrides: Partial<SubscriptionApi> = {}): Subsc
         deleted: false,
         summary: 'sent every week on the first Monday',
         next_delivery_date: '2026-08-10T12:00:00Z',
+        contexts: [],
         ...overrides,
     } as SubscriptionApi
 }

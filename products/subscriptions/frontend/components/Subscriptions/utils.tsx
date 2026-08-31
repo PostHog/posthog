@@ -18,6 +18,7 @@ import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 import { SubscriptionTargetEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
+export const MAX_CONTEXTS = 3
 
 export function requestSubscriptionWizardCancellation({
     onCancel,
