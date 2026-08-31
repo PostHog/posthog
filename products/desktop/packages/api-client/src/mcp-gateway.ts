@@ -216,11 +216,15 @@ export interface McpGatewayMemberSummary {
 
 /**
  * Gateway options accepted by install_custom / install_template. Credentials
- * are always personal to the installer; agents reach them through grants.
+ * are always personal to the installer; every built-in agent is granted the
+ * connection automatically when the installer may manage agent access.
  */
 export interface McpGatewayInstallSharingOptions {
   /** Whether the server starts enabled for the whole team. */
   team_enabled?: boolean;
-  /** Service accounts to grant the server to at install time, when team settings allow it. */
-  agent_ids?: string[];
+  /**
+   * How far the automatic agent grants reach. Defaults to "personal" on the
+   * backend; sending any value requires permission to manage agent access.
+   */
+  agent_scope?: McpAgentGrantScope;
 }

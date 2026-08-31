@@ -207,6 +207,7 @@ __all__ = [
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
     "get_active_wizard_cloud_run",
+    "get_latest_active_internal_task_run_for_organization",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_merged_pr_task_ids",
@@ -807,6 +808,33 @@ def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
 
 
+def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
+    """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
+
+    Callers use it to attribute a sandbox agent's writes to the stage that started it. Only
+    ``SIGNAL_REPORT``-origin tasks qualify, and ``ai_stage`` is written server-side once at run
+    creation (see ``Task.create_and_run``), so the sandbox whose token names the task cannot set
+    or change it — which is what makes it safe to treat as an identity rather than a claim.
+
+    A task's runs all carry the stage the pipeline started it for, so the newest run answers for
+    the task. ``None`` covers everything else: a scout run, a user-created task, a legacy row
+    predating the stamp.
+    """
+    state = (
+        TaskRun.objects.filter(
+            task_id=task_id,
+            team_id=team_id,
+            task__deleted=False,
+            task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        .order_by("-created_at")
+        .values_list("state", flat=True)
+        .first()
+    )
+    stage = (state or {}).get("ai_stage")
+    return stage if isinstance(stage, str) and stage else None
+
+
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
@@ -1038,6 +1066,30 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
             started_at=run.created_at,
         )
     return None
+
+
+def get_latest_active_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str
+) -> contracts.TaskRunDTO | None:
+    """Return the newest active cloud run for a server-owned organization flow."""
+    run = (
+        TaskRun.objects.filter(
+            team__organization_id=organization_id,
+            task__team__organization_id=organization_id,
+            task__internal=True,
+            environment=TaskRun.Environment.CLOUD,
+            state__ai_stage=ai_stage,
+            status__in=[
+                TaskRun.Status.NOT_STARTED,
+                TaskRun.Status.QUEUED,
+                TaskRun.Status.IN_PROGRESS,
+            ],
+        )
+        .select_related("task", "task__created_by")
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    return _task_run_to_dto(run) if run is not None else None
 
 
 def get_stale_queued_task_run_ids(
@@ -6342,7 +6394,8 @@ def warm_task_sandbox(
     (``Throttled``). The caller treats ``None`` as "no warm run; fall through to a cold create+run".
 
     When present, ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
-    (see :func:`resolve_team_github_integration_id`). Repository-less warms omit it.
+    (see :func:`resolve_team_github_integration_id`). A repository requires it; a repository-less warm
+    may carry it so the Run boots with the same GitHub credentials a repo-less create would get.
     """
     from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
         PermissionDenied,
@@ -6368,7 +6421,12 @@ def warm_task_sandbox(
         github_integration = Integration.objects.filter(
             id=github_integration_id, team_id=team_id, kind="github"
         ).first()
-    if bool(normalized_repositories) != bool(github_integration):
+    # An integration id that does not resolve to this team's GitHub integration is never warmed on, and
+    # a repository cannot be cloned without one. An integration without a repository is fine: the
+    # create path stores that pair too, and reuse matches on the integration id.
+    if github_integration_id is not None and github_integration is None:
+        return None
+    if normalized_repositories and github_integration is None:
         return None
     sandbox_environment = None
     if sandbox_environment_id is not None:

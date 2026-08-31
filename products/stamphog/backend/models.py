@@ -116,7 +116,9 @@ class PullRequest(ProductTeamModel):
     # when the engine predates the field; the digest falls back to the PR title.
     summary_line = models.CharField(max_length=200, blank=True, default="")
     digest_run = models.ForeignKey("DigestRun", on_delete=models.SET_NULL, null=True, related_name="pull_requests")
-    # The sticky comment is a PR-level artifact, upserted per PR across review runs.
+    # Historical: the sticky comment a verdict used to be written into. Verdicts are reviews now, so
+    # nothing writes this any more — it holds the last comment id from before that change. Kept
+    # because it is on the facade contract; drop both together.
     posted_comment_id = models.BigIntegerField(null=True)
     # The PR's own pull_request.updated_at from the last payload we applied. GitHub can redeliver or
     # fan out an older snapshot after a newer one; this field is the monotonic clock that lets the task

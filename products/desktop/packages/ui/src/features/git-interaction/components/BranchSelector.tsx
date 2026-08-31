@@ -4,7 +4,6 @@ import {
   Check,
   GitBranch,
   Plus,
-  Spinner,
 } from "@phosphor-icons/react";
 import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
@@ -26,6 +25,7 @@ import type {
   GitBusyOperation,
   GitBusyState,
 } from "@posthog/shared/domain-types";
+import { Spin, Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { Tooltip } from "../../../primitives/Tooltip";
@@ -59,7 +59,7 @@ const USE_INPUT_BRANCH_ACTION = "__use_input_branch__";
 function LoadingRow({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-1 px-2 py-1.5 text-muted-foreground text-xs">
-      <Spinner size={12} className="animate-spin" />
+      <Spinner size={12} />
       {label}
     </div>
   );
@@ -386,7 +386,7 @@ export function BranchSelector({
               className="min-w-0 max-w-[250px] shrink"
             >
               {showSpinner ? (
-                <Spinner size={14} className="shrink-0 animate-spin" />
+                <Spinner size={14} className="shrink-0" />
               ) : (
                 <GitBranch size={14} weight="regular" className="shrink-0" />
               )}
@@ -470,10 +470,9 @@ export function BranchSelector({
                   onRefresh();
                 }}
               >
-                <ArrowClockwise
-                  size={14}
-                  className={isRefreshing ? "animate-spin" : undefined}
-                />
+                <Spin spinning={isRefreshing}>
+                  <ArrowClockwise size={14} />
+                </Spin>
               </InputGroupButton>
             ) : null}
           </InputGroupAddon>
@@ -586,7 +585,7 @@ export function BranchSelector({
               >
                 {cloudBranchesFetchingMore ? (
                   <>
-                    <Spinner size={14} className="animate-spin" />
+                    <Spinner size={14} />
                     Loading more…
                   </>
                 ) : (

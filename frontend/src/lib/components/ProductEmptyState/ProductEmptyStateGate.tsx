@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import type { ReactNode } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,7 +14,28 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductEmptyState } from './ProductEmptyState'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
 import { SetupReminderContext } from './setupReminderContext'
-import type { ProductEmptyStateConfig, SceneProductEmptyState } from './types'
+import type { ProductEmptyStateConfig, ProductEmptyStateMode, SceneProductEmptyState } from './types'
+
+/**
+ * Search param that puts the setup screen on a scene that already has data, so anyone can
+ * review an empty state without emptying a project. `?empty_state=1` shows the `needs-setup`
+ * screen, `?empty_state=waiting-for-data` shows the other mode, and dropping the param
+ * returns the real scene.
+ */
+export const EMPTY_STATE_PARAM = 'empty_state'
+
+function forcedModeFromParam(value: unknown): ProductEmptyStateMode | null {
+    if (value === 'waiting-for-data') {
+        return 'waiting-for-data'
+    }
+    // kea-router parses search params before we see them, so `?empty_state=1` arrives as the
+    // number 1 and a bare `?empty_state` as null. Match those forms exactly rather than any
+    // truthy value, so a param we don't recognize leaves the real scene alone.
+    if (value === null || value === 1 || value === true || value === '1' || value === 'true') {
+        return 'needs-setup'
+    }
+    return null
+}
 
 export interface ProductEmptyStateGateProps {
     emptyState: SceneProductEmptyState
@@ -29,6 +51,9 @@ export interface ProductEmptyStateGateProps {
  * Mounts the product's detection logic, which pushes its normalized status into
  * `productSetupStatusLogic`. Wired automatically by the app shell for scenes that
  * declare `emptyState` on their `SceneExport`.
+ *
+ * `?empty_state=1` on any gated scene forces the setup screen regardless of status,
+ * so the screen can be reviewed on a project that already has data.
  */
 export function ProductEmptyStateGate({ emptyState, children }: ProductEmptyStateGateProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -48,6 +73,8 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     const { status, skipped, mode } = useValues(setupLogic)
     const { unskipEmptyState } = useActions(setupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
+    const forcedMode = forcedModeFromParam(searchParams[EMPTY_STATE_PARAM])
 
     // A lingering local skip is ignored for non-skippable products (the button may have been
     // shown before the product opted out of skipping). Derived once, because the empty-state
@@ -55,6 +82,16 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     // render the bare scene with neither the setup screen nor the reminder banner, and a
     // non-skippable product has no button left to clear the stored flag with.
     const skipHonored = skipped && config.skippable !== false
+
+    // Forcing wins over skip, over the detected status, and over detection still loading.
+    // The whole point is to see the screen on a project that would never show it on its own.
+    if (forcedMode) {
+        return (
+            <ProductSceneFrame config={config}>
+                <ProductEmptyState config={config} mode={forcedMode} />
+            </ProductSceneFrame>
+        )
+    }
 
     if (skipHonored) {
         // Skip bypasses the screen, not detection: render the scene, plus a "Set up" reminder

@@ -108,6 +108,8 @@ import {
   useSettingsStore,
 } from "../../settings/settingsStore";
 import { useSkills } from "../../skills/useSkills";
+import { cloudTargetIds } from "../cloudTargets";
+import { useCloudTargetSelection } from "../hooks/useCloudTarget";
 import {
   areReposReady,
   useInitialRepoSelectionFromFolderId,
@@ -341,12 +343,7 @@ export function TaskInput({
   const [selectedEnvironment, setSelectedEnvironmentRaw] = useState<
     string | null
   >(null);
-  const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
-    null,
-  );
-  const [selectedCustomImageId, setSelectedCustomImageId] = useState<
-    string | null
-  >(null);
+  const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
   const [activeReportAssociation, setActiveReportAssociation] = useState(
     reportAssociation ?? null,
   );
@@ -800,6 +797,7 @@ export function TaskInput({
   }
 
   const effectiveWorkspaceMode = workspaceMode;
+  const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
 
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
@@ -880,8 +878,8 @@ export function TaskInput({
     runtimeAdapter: adapter ?? null,
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
-    sandboxEnvironmentId: workspaceMode === "cloud" ? selectedCloudEnvId : null,
-    customImageId: workspaceMode === "cloud" ? selectedCustomImageId : null,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId ?? null,
+    customImageId: cloudIds.customImageId ?? null,
   });
 
   const branchForTaskCreation =
@@ -1020,14 +1018,8 @@ export function TaskInput({
     onTaskCreated,
     onTaskCreatedEffect: handleTaskCreatedEffect,
     environmentId: selectedEnvironment,
-    sandboxEnvironmentId:
-      effectiveWorkspaceMode === "cloud" && selectedCloudEnvId
-        ? selectedCloudEnvId
-        : undefined,
-    customImageId:
-      effectiveWorkspaceMode === "cloud" && selectedCustomImageId
-        ? selectedCustomImageId
-        : undefined,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId,
+    customImageId: cloudIds.customImageId,
     signalReportId: activeReportAssociation?.reportId,
     channelContext: includeChannelContext ? channelContext : undefined,
     channelContextPath: includeChannelContext ? channelContextPath : undefined,
@@ -1304,10 +1296,8 @@ export function TaskInput({
                   value={workspaceMode}
                   onChange={setWorkspaceMode}
                   adapter={runtime === "pi" ? undefined : adapter}
-                  selectedCloudEnvironmentId={selectedCloudEnvId}
-                  onCloudEnvironmentChange={setSelectedCloudEnvId}
-                  selectedCustomImageId={selectedCustomImageId}
-                  onCustomImageChange={setSelectedCustomImageId}
+                  cloudTarget={cloudTarget}
+                  onCloudTargetChange={setCloudTarget}
                   size="1"
                 />
                 {repoOptional && (

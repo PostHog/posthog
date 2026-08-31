@@ -176,6 +176,8 @@ from posthog.schema_enums import (
     MathGroupTypeIndex as MathGroupTypeIndex,
     MaxBillingContextBillingPeriodInterval as MaxBillingContextBillingPeriodInterval,
     MaxBillingContextSubscriptionLevel as MaxBillingContextSubscriptionLevel,
+    MCPToolQualitySortColumn as MCPToolQualitySortColumn,
+    MCPToolQualitySortDirection as MCPToolQualitySortDirection,
     MeanRetentionCalculation as MeanRetentionCalculation,
     MetaAdsConversionFallbackActionTypes as MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes as MetaAdsConversionOmniActionTypes,
@@ -281,7 +283,6 @@ from posthog.schema_enums import (
     UrlMatching as UrlMatching,
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
-    UserProductListReason as UserProductListReason,
     ValueDisplay as ValueDisplay,
     WebAgentAnalyticsQueryType as WebAgentAnalyticsQueryType,
     WebAgentContentGrouping as WebAgentContentGrouping,
@@ -2997,6 +2998,17 @@ class UserBasicType(BaseModel):
     uuid: str
 
 
+class UserProductListItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    enabled: bool
+    id: str
+    product_path: str
+    updated_at: str
+
+
 class VectorSearchResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5254,14 +5266,6 @@ class FileSystemImport(BaseModel):
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
-    reason: UserProductListReason | None = Field(
-        default=None,
-        description="Reason for custom product suggestion (from UserProductList)",
-    )
-    reasonText: str | None = Field(
-        default=None,
-        description=("Custom reason text for custom product suggestion (from UserProductList)"),
-    )
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
     sceneKey: str | None = Field(
         default=None,
@@ -8353,19 +8357,6 @@ class UsageMetricsQueryResponse(BaseModel):
             " access."
         ),
     )
-
-
-class UserProductListItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str
-    enabled: bool
-    id: str
-    product_path: str
-    reason: UserProductListReason
-    reason_text: str | None = None
-    updated_at: str
 
 
 class WebAgentAnalyticsQueryResponse(BaseModel):
@@ -12712,6 +12703,10 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+    totalCount: int = Field(
+        ...,
+        description="Number of tools matching the date, category, and search filters.",
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -18245,6 +18240,10 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    totalCount: int = Field(
+        ...,
+        description="Number of tools matching the date, category, and search filters.",
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -23304,6 +23303,10 @@ class QueryResponseAlternative104(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    totalCount: int = Field(
+        ...,
+        description="Number of tools matching the date, category, and search filters.",
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -26625,8 +26628,24 @@ class MCPToolQualityRowsQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     kind: Literal["MCPToolQualityRowsQuery"] = "MCPToolQualityRowsQuery"
+    limit: int | None = Field(
+        default=None,
+        description="Page size. The server defaults to 50 and caps this at 100.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = Field(default=None, description="Number of matching tools to skip.")
     response: MCPToolQualityRowsQueryResponse | None = None
+    search: str | None = Field(
+        default=None,
+        description="Case-insensitive substring search on the effective tool name.",
+    )
+    sortColumn: MCPToolQualitySortColumn | None = Field(
+        default=None,
+        description="Aggregate column used to order tools. Defaults to total_calls.",
+    )
+    sortDirection: MCPToolQualitySortDirection | None = Field(
+        default=None, description="Sort direction. Defaults to DESC."
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 

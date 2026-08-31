@@ -1054,6 +1054,11 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalytics": {
+        "template": "/mcp-analytics",
+        "params": [],
+        "scope": "project"
+    },
     "mcpAnalyticsActivity": {
         "template": "/mcp-analytics/activity",
         "params": [],
