@@ -807,7 +807,6 @@ too-many-positional-arguments = "ignore"  # Django metaprogramming signatures
 # Dual mypy+ty — mypy still runs, so its artifacts are legitimate
 redundant-cast = "ignore"  # casts needed by mypy that ty resolves
 unused-type-ignore-comment = "ignore"  # type: ignore comments required by mypy
-unused-ignore-comment = "ignore"  # stale ty: ignore directives from older ty versions remain in the tree
 
 # Django lazy imports and settings indirection
 possibly-missing-submodule = "ignore"

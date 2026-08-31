@@ -272,8 +272,8 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
         # the nudged author — buttons are clickable by anyone in the channel.
         raw_verdict = value.get("classifier")
         classifier_verdict: NudgeFunnelVerdict = (
-            raw_verdict if raw_verdict in get_args(NudgeClassifierVerdict) else "unknown"
-        )  # ty: ignore[invalid-assignment]
+            cast(NudgeFunnelVerdict, raw_verdict) if raw_verdict in get_args(NudgeClassifierVerdict) else "unknown"
+        )
         click_properties = nudge_event_properties(source_channel, source_message_ts, clicker, classifier_verdict)
 
         if action_id == TICKET_CONFIRM_ACTION_DISMISS:
