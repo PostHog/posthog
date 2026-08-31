@@ -27,7 +27,7 @@ class ContentAutopilotSiteProfile(TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         db_constraint=False,
         db_index=False,
-        related_name="content_autopilot_site_profiles",
+        related_name="+",
     )
     name = models.CharField(max_length=255, blank=True, default="")
     domain = models.URLField(max_length=2048)
@@ -60,7 +60,7 @@ class ContentAutopilotRun(TeamScopedRootMixin, UUIDModel):
         "posthog.Team",
         on_delete=models.CASCADE,
         db_constraint=False,
-        related_name="content_autopilot_runs",
+        related_name="+",
     )
     profile = models.ForeignKey(ContentAutopilotSiteProfile, on_delete=models.CASCADE, related_name="runs")
     run_status = models.CharField(max_length=32, choices=RunStatus.choices, default=RunStatus.PENDING)
@@ -99,7 +99,7 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
         "posthog.Team",
         on_delete=models.CASCADE,
         db_constraint=False,
-        related_name="content_autopilot_proposals",
+        related_name="+",
     )
     run = models.ForeignKey(ContentAutopilotRun, on_delete=models.CASCADE, related_name="proposals")
     proposal_type = models.CharField(max_length=32, choices=ProposalType.choices)

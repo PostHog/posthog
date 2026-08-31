@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
                         db_constraint=False,
                         db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="content_autopilot_site_profiles",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
@@ -94,7 +94,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="content_autopilot_runs",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
@@ -196,7 +196,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="content_autopilot_proposals",
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
