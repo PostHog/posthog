@@ -1289,8 +1289,7 @@ def cleanup_canvas_builds() -> int:
             break
         last_id = page[-1].id
 
-        pending_keys: list[str] = []
-        pending_build_ids: list[UUID] = []
+        build_keys: dict[UUID, list[str]] = {}
         for build in page:
             canvas_key = str(build.canvas_id)
             if canvas_key not in protected:
@@ -1313,16 +1312,19 @@ def cleanup_canvas_builds() -> int:
                 continue
 
             assets = (build.manifest or {}).get("assets", [])
-            pending_keys.extend(f"{build.artifact_object_prefix}/{asset['path']}" for asset in assets)
-            pending_build_ids.append(build.id)
+            build_keys[build.id] = [f"{build.artifact_object_prefix}/{asset['path']}" for asset in assets]
 
         # Clear prefixes only after the delete succeeds — a storage failure must
-        # leave the rows pointing at their (surviving) artifacts.
-        if pending_keys:
-            object_storage.delete_objects(pending_keys)
-        if pending_build_ids:
+        # leave the rows pointing at their (surviving) artifacts. delete_objects
+        # never raises; it returns the keys it could not remove, so a build with
+        # any failed key keeps its prefix and the next (idempotent) sweep retries
+        # it instead of orphaning the surviving objects.
+        pending_keys = [key for keys in build_keys.values() for key in keys]
+        failed_keys = set(object_storage.delete_objects(pending_keys)) if pending_keys else set()
+        pruned_build_ids = [build_id for build_id, keys in build_keys.items() if failed_keys.isdisjoint(keys)]
+        if pruned_build_ids:
             # nosemgrep: idor-lookup-without-team (cross-team retention sweep; ids collected from DB rows above, no user input)
-            CanvasBuild.objects.unscoped().filter(id__in=pending_build_ids).update(artifact_object_prefix=None)
-        pruned += len(pending_build_ids)
+            CanvasBuild.objects.unscoped().filter(id__in=pruned_build_ids).update(artifact_object_prefix=None)
+        pruned += len(pruned_build_ids)
 
     return pruned
