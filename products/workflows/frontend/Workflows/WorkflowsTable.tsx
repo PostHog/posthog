@@ -237,6 +237,10 @@ export function WorkflowsTable(): JSX.Element {
                                 // `<flow id>/<version>`, so a prefix match covers all activity.
                                 appSource: 'hog_flow_version',
                                 appSourceIdPrefix: `${id}/`,
+                                // Run-level rows carry an empty instance_id; per-action succeeded/failed
+                                // rows carry the action id. Filter to run-level so Completed and Failed
+                                // count runs, not steps. triggered is run-level too, so Started is unaffected.
+                                instanceId: '',
                                 metricName: ['triggered', 'succeeded', 'failed'],
                                 breakdownBy: 'metric_name',
                                 interval: 'day',
