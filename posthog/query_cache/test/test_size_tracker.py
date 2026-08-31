@@ -187,6 +187,13 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertEqual(task_kwargs["key"], "query_cache/1/evicted")
         self.assertEqual(task_kwargs["trigger"], "evicted")
 
+    def test_replace_value_never_shortens_remaining_ttl(self):
+        self.tracker.redis_client.set(entry_redis_key("test_key"), b"inline-bytes", ex=5000)
+
+        assert self.tracker.replace_value("test_key", b"new-pointer", 1000, expected=b"inline-bytes")
+
+        assert self.tracker.redis_client.ttl(entry_redis_key("test_key")) > 1000
+
     def test_broker_failure_does_not_break_the_cache_write(self):
         self._seed_entry("test_key_1", encode_pointer(S3BlobPointer(bucket="cache-bucket", key="query_cache/1/old")))
 

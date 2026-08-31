@@ -106,9 +106,18 @@ return {redis.call('GET', total_key), redis.call('ZCARD', entries_key)}
 # but only when that value is an S3 pointer record (ARGV[3] is the pointer magic). Capturing
 # atomically with the write guarantees a returned pointer is dereferenced, so its blob is
 # safe to delete; filtering server-side keeps multi-megabyte inline blobs off the wire.
+# The write never shortens the entry's remaining TTL: the same cache_key can be written from
+# an attached surface (full retention) and from a programmatic one (short retention), and the
+# entry must honor the longest retention promised for it. The pointer-swap script below
+# repeats the guard for the same reason.
 SET_ENTRY_RETURNING_OLD_POINTER_SCRIPT = """
+local ttl = tonumber(ARGV[2])
+local remaining = redis.call('TTL', KEYS[1])
+if remaining > ttl then
+    ttl = remaining
+end
 local old = redis.call('GET', KEYS[1])
-redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]))
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ttl)
 if old and string.sub(old, 1, string.len(ARGV[3])) == ARGV[3] then
     return old
 end
@@ -145,7 +154,12 @@ end
 if current ~= ARGV[1] then
     return 0
 end
-redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+local ttl = tonumber(ARGV[3])
+local remaining = redis.call('TTL', KEYS[1])
+if remaining > ttl then
+    ttl = remaining
+end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', ttl)
 return 1
 """
 
