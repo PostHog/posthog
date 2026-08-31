@@ -16,7 +16,7 @@ rules:
     - match: '/logs_alerting/'
       owners: apm
     - match: '/mcp_analytics/'
-      owners: team-mcp-analytics
+      owners: mcp-analytics
     - match: '/messaging/'
       owners: team-workflows
     - match: '/product_analytics/'
