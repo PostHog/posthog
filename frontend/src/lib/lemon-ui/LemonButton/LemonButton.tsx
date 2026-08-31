@@ -332,6 +332,10 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                                 dropdown={sideDropdown as LemonButtonDropdown}
                                 noPadding
                                 active={active}
+                                // The side action shares the main button's guard, so an access-denied
+                                // control cannot be opened through the side caret. An explicit reason on
+                                // the side action still wins via the spread below.
+                                disabledReason={disabledReason}
                                 {...sideActionRest}
                             />
                         </div>
