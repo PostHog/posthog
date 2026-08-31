@@ -18,6 +18,7 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.api import record_check_run
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 def _fail_queries_for_table(table_name: str):
@@ -272,6 +273,37 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         rows = self._query(
             "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
             context=self._context(denied_tables={"secrets"}),
+        )
+
+        assert rows == []
+
+    def test_a_backing_table_reference_stays_hidden_after_its_view_is_renamed(self) -> None:
+        referenced_view = self._view("customers")
+        backing_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=referenced_view.name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://bucket/{referenced_view.folder_path}/{referenced_view.normalized_name}",
+        )
+        referenced_view.table = backing_table
+        referenced_view.is_materialized = True
+        referenced_view.save(update_fields=["table", "is_materialized"])
+        check = self._check(
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM customers"},
+        )
+        self._run_for(
+            check,
+            check_config=check.config,
+            referenced_subjects=[{"subject_type": str(SubjectType.TABLE), "subject_uuid": str(backing_table.id)}],
+        )
+        referenced_view.name = "customers_v2"
+        referenced_view.save(update_fields=["name"])
+
+        rows = self._query(
+            "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
+            context=self._context(denied_tables={"customers_v2"}),
         )
 
         assert rows == []

@@ -117,15 +117,21 @@ class DenialContext:
 
 
 def readable_subjects(team_id: int, denied: set[str]) -> ReadableSubjects:
-    """The team's live warehouse subjects, minus the ones this caller is denied. Two queries.
+    """The team's live warehouse subjects, minus the ones this caller is denied. Four queries.
 
     Cost tracks the objects the team has, not the length of retained history, which is what makes
     it safe to hold a whole page of run history up against.
     """
     tables = warehouse_facade.all_queryable_table_names(team_id)
     views = data_modeling_facade.all_saved_query_names(team_id)
+    excluded_table_ids = set(data_modeling_facade.backing_table_ids_by_saved_query(team_id))
+    excluded_table_ids.update(warehouse_facade.direct_access_table_ids(team_id))
     return ReadableSubjects(
-        table_ids=frozenset(table_id for table_id, name in tables.items() if not is_subject_denied(name, denied)),
+        table_ids=frozenset(
+            table_id
+            for table_id, name in tables.items()
+            if table_id not in excluded_table_ids and not is_subject_denied(name, denied)
+        ),
         view_ids=frozenset(UUID(view_id) for view_id, name in views.items() if not is_subject_denied(name, denied)),
     )
 
@@ -212,14 +218,17 @@ def definition_reads_unreadable_subject(
 
     The parent is not the only subject a check reads: a ``relationships`` check names a second
     subject and a ``custom_sql`` query selects arbitrary tables, both run by the worker with team
-    scope only. Matched by name, because a definition names its references rather than pinning them:
-    a name that is denied, that no longer resolves, or that resolves to neither an allowed nor a
-    denied object proves nothing in the caller's favor.
+    scope only. Relationship targets are judged by their configured identity; custom SQL references
+    are matched by name because the query names them rather than pinning them. A name that is denied,
+    that no longer resolves, or that resolves to neither an allowed nor a denied object proves
+    nothing in the caller's favor.
     """
     if not check_type_reads_beyond_subject(check_type):
         return False
     refs = referenced_subjects(team_id, check_type, config)
-    if refs.unresolved_reference:
+    if refs.related_subject is not None and not context.readable.contains(
+        refs.related_subject.subject_type, refs.related_subject.subject_uuid
+    ):
         return True
     if any(is_subject_denied(name, context.denied) for name in refs.names):
         return True
@@ -266,14 +275,13 @@ def referencing_check_types() -> frozenset[str]:
 
 @frozen
 class ReferencedSubjects:
-    """What a check reads besides its declared subject, and whether that could be established.
+    """What a check reads besides its declared subject, by name and configured identity.
 
-    ``unresolved_reference`` is the part a name list cannot carry: a ``relationships`` target that no
-    longer resolves leaves no name behind, so a caller matching names alone would read "references
-    nothing" from a subject that was deleted out from under the denial set."""
+    ``related_subject`` keeps a ``relationships`` target as the identity its config stores, so
+    authorization does not need to resolve it through a mutable name."""
 
     names: tuple[str, ...]
-    unresolved_reference: bool
+    related_subject: SubjectIdentity | None
 
 
 def referenced_subjects(team_id: int, check_type: str, config: dict[str, Any]) -> ReferencedSubjects:
@@ -285,20 +293,25 @@ def referenced_subjects(team_id: int, check_type: str, config: dict[str, Any]) -
     a count oracle over one the author cannot read. Assumes config already validated."""
     spec = get_spec(check_type)
     parsed = spec.parse_config(config)
-    names = list(spec.referenced_table_names(parsed))
-    unresolved = False
-    if related := spec.related_subject_ref(parsed):
-        ref = resolve_subject(team_id, related[0], related[1])
-        if ref.exists:
-            names.append(ref.name)
-        else:
-            unresolved = True
-    return ReferencedSubjects(names=tuple(names), unresolved_reference=unresolved)
+    related_subject = (
+        SubjectIdentity(subject_type=str(related[0]), subject_uuid=str(related[1]))
+        if (related := spec.related_subject_ref(parsed))
+        else None
+    )
+    return ReferencedSubjects(names=tuple(spec.referenced_table_names(parsed)), related_subject=related_subject)
 
 
 def referenced_subject_names(team_id: int, check_type: str, config: dict[str, Any]) -> list[str]:
     """The names from :func:`referenced_subjects`, for callers that only report or match on them."""
-    return list(referenced_subjects(team_id, check_type, config).names)
+    referenced = referenced_subjects(team_id, check_type, config)
+    names = list(referenced.names)
+    if referenced.related_subject is not None:
+        related = resolve_subject(
+            team_id, referenced.related_subject.subject_type, referenced.related_subject.subject_uuid
+        )
+        if related.exists:
+            names.append(related.name)
+    return names
 
 
 def pin_referenced_subjects(team_id: int, check_type: str, config: dict[str, Any]) -> list[dict[str, str]] | None:
@@ -319,8 +332,11 @@ def pin_referenced_subjects(team_id: int, check_type: str, config: dict[str, Any
     try:
         spec = get_spec(check_type)
         parsed = spec.parse_config(config)
+        backing_tables = data_modeling_facade.backing_table_ids_by_saved_query(team_id)
         pinned = [
-            subject for name in spec.referenced_table_names(parsed) if (subject := _pin_name(team_id, name)) is not None
+            subject
+            for name in spec.referenced_table_names(parsed)
+            if (subject := _pin_name(team_id, name, backing_tables)) is not None
         ]
         if related := spec.related_subject_ref(parsed):
             pinned.append(SubjectIdentity(subject_type=str(related[0]), subject_uuid=str(related[1])))
@@ -368,8 +384,10 @@ def _memoized_definition_verdict(
     return verdicts[key]
 
 
-def _pin_name(team_id: int, name: str) -> SubjectIdentity | None:
+def _pin_name(team_id: int, name: str, backing_tables: dict[UUID, UUID]) -> SubjectIdentity | None:
     ref = resolve_subject_by_name(team_id, name)
     if ref is None:
         return None
+    if ref.subject_type == SubjectType.TABLE and (saved_query_id := backing_tables.get(UUID(ref.subject_uuid))):
+        return SubjectIdentity(subject_type=str(SubjectType.VIEW), subject_uuid=str(saved_query_id))
     return SubjectIdentity(subject_type=str(ref.subject_type), subject_uuid=ref.subject_uuid)

@@ -20,6 +20,7 @@ from products.data_quality.backend.facade.enums import (
 )
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 
@@ -283,6 +284,15 @@ class TestCheckRunner(BaseTest):
         target = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
         )
+        backing_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=target.name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://bucket/{target.folder_path}/{target.normalized_name}",
+        )
+        target.table = backing_table
+        target.is_materialized = True
+        target.save(update_fields=["table", "is_materialized"])
         is_custom_sql = check_type == CheckType.CUSTOM_SQL
         check = self._check(
             check_type=check_type,
