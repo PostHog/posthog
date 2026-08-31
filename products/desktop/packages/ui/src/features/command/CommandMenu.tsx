@@ -3,9 +3,11 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   ChartLine,
+  CubeIcon,
   EnvelopeSimple,
   Gauge,
   GitDiffIcon,
+  HashIcon,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
 import { workspaceIdSet } from "@posthog/core/command-center/eligibility";
@@ -113,7 +115,9 @@ import {
   ZoomOutIcon,
 } from "@radix-ui/react-icons";
 import {
+  lazy,
   type KeyboardEvent as ReactKeyboardEvent,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -126,6 +130,14 @@ interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+// The create dialog reaches the task-creation stack, which the palette itself
+// has no use for. Loading it on demand keeps that off the mod+K path.
+const CreateChannelModalLazy = lazy(() =>
+  import("@posthog/ui/features/canvas/components/CreateChannelModal").then(
+    (module) => ({ default: module.CreateChannelModal }),
+  ),
+);
 
 const DEFAULT_RESULT_LIMIT = 8;
 const COLLAPSED_CHIP_COUNT = 5;
@@ -240,6 +252,10 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     (state) => state.activeTasks,
   );
   const [query, setQuery] = useState("");
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  // Latched separately from `createChannelOpen` so the dialog stays mounted
+  // through its closing animation.
+  const [createChannelUsed, setCreateChannelUsed] = useState(false);
   const [recentCommands, setRecentCommands] = useState<Command[]>([]);
   const [remoteQuery, setRemoteQuery] = useState("");
   // The legacy title search only ever surfaces while the palette is browsing
@@ -474,6 +490,28 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           openTaskInput();
         },
       },
+      // The plus button in the spaces sidebar is the only other way in, and it
+      // takes a hunt to find.
+      ...(bluebirdEnabled
+        ? [
+            {
+              id: "create-channel",
+              label: spacesLayout ? "New space" : "New channel",
+              keywords: "create add space channel context",
+              icon: spacesLayout ? (
+                <CubeIcon size={12} className="text-gray-11" />
+              ) : (
+                <HashIcon size={12} className="text-gray-11" />
+              ),
+              action: "create-channel" as CommandMenuAction,
+              onRun: () => {
+                closeSettingsDialog();
+                setCreateChannelUsed(true);
+                setCreateChannelOpen(true);
+              },
+            },
+          ]
+        : []),
       {
         id: "toggle-left-sidebar",
         label: "Toggle left sidebar",
@@ -621,6 +659,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     loopsEnabled,
     inboxAvailable,
     spendAnalysisEnabled,
+    bluebirdEnabled,
+    spacesLayout,
   ]);
 
   const taskSections = useMemo<CommandSection[]>(() => {
@@ -1031,6 +1071,15 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         surface="command_menu"
         onCreated={(feed) => navigateToFeed(feed.id)}
       />
+      {createChannelUsed && (
+        <Suspense fallback={null}>
+          <CreateChannelModalLazy
+            open={createChannelOpen}
+            onOpenChange={setCreateChannelOpen}
+            surface="command_menu"
+          />
+        </Suspense>
+      )}
       {/* Outlives the palette, which closes as the command runs. */}
       {archiveDialog}
     </>

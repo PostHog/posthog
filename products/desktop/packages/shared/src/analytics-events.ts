@@ -45,6 +45,7 @@ export type SkillButtonId =
 export type CommandMenuAction =
   | "home"
   | "new-task"
+  | "create-channel"
   | "settings"
   | "logout"
   | "toggle-theme"
