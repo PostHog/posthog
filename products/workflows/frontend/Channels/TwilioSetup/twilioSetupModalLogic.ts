@@ -142,6 +142,14 @@ export const twilioSetupModalLogic = kea<twilioSetupModalLogicType>([
                     lemonToast.success('Twilio channel created successfully!')
                     props.onComplete(integration.id)
                 } catch (error: any) {
+                    // A 400 means Twilio rejected the keys. Flag both fields, since Twilio does not
+                    // say which one is wrong.
+                    if (error.status === 400) {
+                        actions.setTwilioIntegrationManualErrors({
+                            accountSid: 'Rejected by Twilio',
+                            authToken: 'Rejected by Twilio',
+                        })
+                    }
                     lemonToast.error(error.detail || 'Failed to create Twilio channel')
                     throw error
                 }

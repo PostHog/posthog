@@ -2,9 +2,12 @@
 
 from rest_framework.exceptions import ValidationError
 
-from products.workflows.backend.providers import TwilioProvider
+from products.workflows.backend.providers import TwilioCredentialsRejectedError, TwilioProvider
 
 from . import model
+
+# Twilio does not tell us which of the two keys is wrong, so the message points at both.
+CREDENTIALS_REJECTED_MESSAGE = "Twilio rejected these keys. Check your Account SID and auth token, then try again."
 
 
 class TwilioIntegration:
@@ -21,18 +24,19 @@ class TwilioIntegration:
         )
 
     def list_twilio_phone_numbers(self) -> list[dict]:
-        twilio_phone_numbers = self.twilio_provider.get_phone_numbers()
-
-        if not twilio_phone_numbers:
-            raise Exception(f"There was an internal error")
-
-        return twilio_phone_numbers
+        try:
+            return self.twilio_provider.get_phone_numbers()
+        except TwilioCredentialsRejectedError:
+            raise ValidationError({"accountSid": CREDENTIALS_REJECTED_MESSAGE})
 
     def integration_from_keys(self) -> model.Integration:
-        account_info = self.twilio_provider.get_account_info()
+        try:
+            account_info = self.twilio_provider.get_account_info()
+        except TwilioCredentialsRejectedError:
+            raise ValidationError({"accountSid": CREDENTIALS_REJECTED_MESSAGE})
 
         if not account_info.get("sid"):
-            raise ValidationError({"account_info": "Failed to get account info"})
+            raise ValidationError({"accountSid": CREDENTIALS_REJECTED_MESSAGE})
 
         integration, created = model.Integration.objects.update_or_create(
             team_id=self.integration.team_id,
