@@ -157,14 +157,16 @@ impl Failover {
     }
 }
 
-/// The (pipeline, lane) → output table the deployment state holds.
+/// The (pipeline, lane) → output map the deployment state holds.
 /// Degenerate today: one deployment-wide output serves every address, and
-/// per-lane topics resolve during prep via the `OutputRegistry`.
-pub struct OutputTable {
+/// per-lane topics resolve during prep via the [`TopicTable`].
+///
+/// [`TopicTable`]: crate::sinks::registry::TopicTable
+pub struct OutputRegistry {
     output: Output,
 }
 
-impl OutputTable {
+impl OutputRegistry {
     pub fn new(output: Output) -> Self {
         Self { output }
     }
@@ -172,7 +174,7 @@ impl OutputTable {
 
 /// Transitional facade serving the `Event` call sites from the table.
 #[async_trait]
-impl Event for OutputTable {
+impl Event for OutputRegistry {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         histogram!("capture_event_batch_size").record(1.0);
         self.output.publish_one(event).await
@@ -372,7 +374,7 @@ mod tests {
     #[tokio::test]
     async fn table_facade_serves_event_call_sites() {
         let leaf = MockSink::new();
-        let table = OutputTable::new(Output::single(leaf.clone()));
+        let table = OutputRegistry::new(Output::single(leaf.clone()));
 
         table.send(test_event()).await.unwrap();
         table

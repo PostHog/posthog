@@ -16,7 +16,7 @@ use tracing::{info, warn};
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
-use crate::outputs::{Output, OutputTable};
+use crate::outputs::{Output, OutputRegistry};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
@@ -572,7 +572,7 @@ async fn create_sink(
     advisory_handle: Option<lifecycle::Handle>,
 ) -> anyhow::Result<Box<dyn Event + Send + Sync>> {
     let output = create_output(config, sink_handle, advisory_handle).await?;
-    Ok(Box::new(OutputTable::new(output)))
+    Ok(Box::new(OutputRegistry::new(output)))
 }
 
 async fn create_output(
@@ -1190,7 +1190,7 @@ mod tests {
     }
 
     /// A blank output topic makes `create_sink` refuse to boot in every capture
-    /// mode — the misconfig fails fast at startup (via the `OutputRegistry`
+    /// mode — the misconfig fails fast at startup (via the `TopicTable`
     /// completeness check inside `KafkaSink::new`) rather than at first produce.
     #[rstest::rstest]
     #[case(CaptureMode::Events)]
