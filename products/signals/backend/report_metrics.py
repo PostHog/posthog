@@ -22,6 +22,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from posthog.hogql.errors import BaseHogQLError
+
+from posthog.hogql_queries.utils.formula_ast import FormulaAST
+
 from products.signals.backend.report_charts import validate_report_query
 
 _METRIC_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -100,6 +104,20 @@ _LIVE_METRIC_INTERVAL_SECONDS = {
     "year": 31_622_400,
 }
 _TRENDS_FORMULA_KEYS = ("formula", "formulas", "formulaNodes")
+
+
+def _validate_live_metric_formula(formula: object, series_count: int) -> None:
+    # The output-series count proves how many results a formula shape declares, not that each
+    # formula parses or refers to a defined series. A metric query runs live on every report open,
+    # so an empty, malformed, or out-of-range formula fails there instead of at authoring time.
+    # Replay the Trends formula parser against dummy series to reject it while the metric is written.
+    if not isinstance(formula, str) or not formula.strip():
+        raise ValueError("a live metric formula must be a non-empty arithmetic expression over the series")
+    dummy_series = [[1.0] for _ in range(series_count)]
+    try:
+        FormulaAST(dummy_series).call(formula)
+    except (BaseHogQLError, SyntaxError, ValueError, TypeError) as error:
+        raise ValueError(f"a live metric formula must be executable arithmetic over the series: {error}") from None
 
 
 class ReportMetricComparison(BaseModel):
@@ -343,21 +361,27 @@ class ReportMetric(BaseModel):
             accepted_intervals = ", ".join(_LIVE_METRIC_INTERVAL_SECONDS)
             raise ValueError(f"query.source.interval must be one of {accepted_intervals}")
         output_series_count = len(series)
+        selected_formulas: list[object] = []
         if isinstance(trends_filter, dict):
             formula_nodes = trends_filter.get("formulaNodes")
             formulas = trends_filter.get("formulas")
             formula = trends_filter.get("formula")
             if isinstance(formula_nodes, list) and formula_nodes:
                 output_series_count = len(formula_nodes)
+                selected_formulas = [node.get("formula") if isinstance(node, dict) else node for node in formula_nodes]
             elif isinstance(formulas, list) and formulas:
                 output_series_count = len(formulas)
+                selected_formulas = list(formulas)
             elif isinstance(formula, str) and formula:
                 output_series_count = 1
+                selected_formulas = [formula]
         if output_series_count != 1:
             raise ValueError(
                 "a live metric query must produce exactly one output series; use one source or combine up to "
                 f"{MAX_LIVE_METRIC_QUERY_SERIES} source series with exactly one formula"
             )
+        for selected_formula in selected_formulas:
+            _validate_live_metric_formula(selected_formula, len(series))
         interval_seconds = _LIVE_METRIC_INTERVAL_SECONDS[interval]
         estimated_buckets = (window_seconds + interval_seconds - 1) // interval_seconds + 1
         estimated_points = estimated_buckets * output_series_count

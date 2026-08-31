@@ -258,6 +258,22 @@ class TestReportMetric(SimpleTestCase):
         with self.assertRaisesRegex(ValidationError, f"at most {MAX_LIVE_METRIC_QUERY_SERIES} series"):
             ReportMetric.model_validate(content)
 
+    def test_live_query_rejects_formulas_the_trends_runner_cannot_execute(self) -> None:
+        for description, trends_formula in (
+            ("empty formulas entry", {"formulas": [""]}),
+            ("empty formula node", {"formulaNodes": [{"formula": ""}]}),
+            ("unknown series letter", {"formula": "B"}),
+            ("function call", {"formula": "round(A)"}),
+            ("invalid syntax", {"formula": "A +"}),
+        ):
+            with self.subTest(description=description):
+                content = _affected_users_metric().model_dump(mode="json")
+                content["kind"] = "custom"
+                content["query"]["source"]["trendsFilter"].update(trends_formula)
+
+                with self.assertRaisesRegex(ValidationError, "formula"):
+                    ReportMetric.model_validate(content)
+
     def test_live_query_requires_a_canonical_interval(self) -> None:
         content = _affected_users_metric().model_dump(mode="json")
         content["query"]["source"]["interval"] = "fortnight"
