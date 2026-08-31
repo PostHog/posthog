@@ -57,13 +57,8 @@ export function VerificationCodeInput({
                 <OTPField.Input
                     key={index}
                     // ph-ignore-input excludes the slots from session replay and autocapture, the same as the other auth inputs
-                    className={clsx(
-                        // The border colors come from VerificationCodeInput.scss. Tailwind border classes
-                        // carry !important and would defeat the .Field--error override there.
-                        'VerificationCodeInput__slot ph-ignore-input h-12 min-w-0 max-w-12 flex-1 rounded border bg-fill-input text-center font-mono text-2xl font-semibold leading-none text-primary caret-accent transition-colors',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-highlight-secondary',
-                        'disabled:cursor-not-allowed disabled:opacity-50'
-                    )}
+                    // The hover, focus, disabled, and error styles live in VerificationCodeInput.scss
+                    className="VerificationCodeInput__slot ph-ignore-input h-12 min-w-0 max-w-12 flex-1 rounded border bg-fill-input text-center font-mono text-2xl font-semibold leading-none text-primary caret-accent transition-colors"
                     autoFocus={index === 0}
                     aria-label={index > 0 ? `Verification code, digit ${index + 1}` : undefined}
                 />
