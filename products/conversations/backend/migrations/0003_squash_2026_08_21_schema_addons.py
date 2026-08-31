@@ -81,7 +81,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql='CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_conversations_ticket_email_config_id_aa259d61" ON "posthog_conversations_ticket" ("email_config_id");',
-            reverse_sql='DROP INDEX CONCURRENTLY IF EXISTS "posthog_conversations_ticket_email_config_id_aa259d61";',
+            reverse_sql="",
         ),
         posthog.migration_helpers.not_valid_constraint.ValidateConstraint(
             model_name="emailchannel",

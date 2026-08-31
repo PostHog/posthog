@@ -79,6 +79,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql="\n                CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS unique_pending_job_per_range\n                ON analytics_platform_preaggregationjob (team_id, query_hash, time_range_start, time_range_end)\n                WHERE status = 'pending';\n            ",
-            reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS unique_pending_job_per_range;",
+            reverse_sql="",
         ),
     ]

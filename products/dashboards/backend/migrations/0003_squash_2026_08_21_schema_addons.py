@@ -79,20 +79,22 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql='DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = \'posthog_dashboardtile_team_id_fkey\') THEN\nALTER TABLE "posthog_dashboardtile" ADD CONSTRAINT "posthog_dashboardtile_team_id_fkey" FOREIGN KEY ("team_id") REFERENCES "posthog_team"("id") ON DELETE CASCADE NOT VALID;\nEND IF; END $$;',
+            reverse_sql="",
         ),
         migrations.RunSQL(
             sql='CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_dashboardtile_team_id_idx" ON "posthog_dashboardtile" ("team_id")',
-            reverse_sql='DROP INDEX CONCURRENTLY IF EXISTS "posthog_dashboardtile_team_id_idx"',
+            reverse_sql="",
         ),
         migrations.RunSQL(
             sql='DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = \'posthog_dashboardtile_widget_id_fk\') THEN\nALTER TABLE "posthog_dashboardtile" ADD CONSTRAINT "posthog_dashboardtile_widget_id_fk" -- existing-table-constraint-ignore\n                        FOREIGN KEY ("widget_id") REFERENCES "posthog_dashboardwidget"("id") ON DELETE RESTRICT NOT VALID;\nEND IF; END $$;',
+            reverse_sql="",
         ),
         migrations.RunSQL(
             sql='CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_dashboardtile_widget_id_idx" ON "posthog_dashboardtile" ("widget_id") WHERE "widget_id" IS NOT NULL',
-            reverse_sql='DROP INDEX CONCURRENTLY IF EXISTS "posthog_dashboardtile_widget_id_idx"',
+            reverse_sql="",
         ),
         migrations.RunSQL(
             sql='CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_dashboardtile_button_tile_id_idx" ON "posthog_dashboardtile" ("button_tile_id") WHERE "button_tile_id" IS NOT NULL',
-            reverse_sql='DROP INDEX CONCURRENTLY IF EXISTS "posthog_dashboardtile_button_tile_id_idx"',
+            reverse_sql="",
         ),
     ]

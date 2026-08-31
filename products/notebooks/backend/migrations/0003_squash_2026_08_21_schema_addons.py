@@ -80,10 +80,10 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql='\n                CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_resourcenotebook_account_id_idx"\n                ON "posthog_resourcenotebook" ("account_id");\n            ',
-            reverse_sql='\n                DROP INDEX IF EXISTS "posthog_resourcenotebook_account_id_idx";\n            ',
+            reverse_sql="",
         ),
         migrations.RunSQL(
             sql='\n                CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_resourcenotebook_notebook_id_group_id_acc_7a017f67_uniq"\n                ON "posthog_resourcenotebook" (\n                    "notebook_id",\n                    "group_id",\n                    "account_id"\n                );\n            ',
-            reverse_sql='\n                CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_resourcenotebook_notebook_id_group_id_88c0a30b_uniq"\n                ON "posthog_resourcenotebook" (\n                    "notebook_id",\n                    "group_id"\n                );\n            ',
+            reverse_sql="",
         ),
     ]

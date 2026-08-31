@@ -80,6 +80,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql='\n                    CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "idx_team_id_raw_id_part" ON "posthog_errortrackingstackframe" ("team_id", "raw_id", "part");\n                    ',
-            reverse_sql='\n                        DROP INDEX IF EXISTS "idx_team_id_raw_id_part";\n                    ',
+            reverse_sql="",
         ),
     ]

@@ -80,6 +80,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql="\n                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS unique_team_slack_thread_key\n                        ON ee_conversation (team_id, slack_thread_key)\n                        WHERE slack_thread_key IS NOT NULL\n                    ",
-            reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS unique_team_slack_thread_key",
+            reverse_sql="",
         ),
     ]

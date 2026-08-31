@@ -599,7 +599,15 @@ class Emitter:
                     else:
                         self.dropped_runsql.append(f"{self.app}.{mig_name} [table-ddl]: {stmt[:160]}")
                 if forwarded_stmts:
-                    kept.append(dj_migrations.RunSQL(sql=";\n".join(forwarded_stmts) + ";"))
+                    # noop reverse: unapplying the addons squash (migration
+                    # tests walk backwards through it) must not drop schema,
+                    # and the existence guards make re-apply idempotent.
+                    kept.append(
+                        dj_migrations.RunSQL(
+                            sql=";\n".join(forwarded_stmts) + ";",
+                            reverse_sql=dj_migrations.RunSQL.noop,
+                        )
+                    )
                 continue
             # Skip any RunSQL that mixes table/column DDL with index
             # creation. Our squash's CreateModel + finalize_fks already
@@ -629,9 +637,11 @@ class Emitter:
             # after a CreateModel that may have auto-created an FK index
             # with the same name.
             sql_safe = self._ensure_idempotent_create_index(sql_text)
+            # noop reverse (not op.reverse_sql, often None = irreversible):
+            # see the FK-forwarding comment above.
             safe_op = dj_migrations.RunSQL(
                 sql=sql_safe,
-                reverse_sql=op.reverse_sql,
+                reverse_sql=dj_migrations.RunSQL.noop,
                 hints=op.hints,
             )
             kept.append(safe_op)
