@@ -55,6 +55,31 @@ describe('reportMetrics', () => {
         })
     })
 
+    it('drops a stored percent-stack view and hidden series when deriving the bar', () => {
+        const query = asReportMetricBarQuery({
+            kind: 'InsightVizNode',
+            source: {
+                kind: 'TrendsQuery',
+                dateRange: { date_from: '-7d' },
+                interval: 'day',
+                series: [{ kind: 'EventsNode', event: '$autocapture', math: 'dau' }],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsLineGraph,
+                    showPercentStackView: true,
+                    hiddenLegendIndexes: [0],
+                },
+            },
+        })
+
+        // A single-series metric bar must not percent-stack (every bucket would read 100%) or hide
+        // its only series.
+        expect(query?.source.trendsFilter).toMatchObject({
+            display: ChartDisplayType.ActionsBar,
+            showPercentStackView: false,
+        })
+        expect(query?.source.trendsFilter?.hiddenLegendIndexes).toBeUndefined()
+    })
+
     it('derives a whole-window aggregate query without changing the stored measurement', () => {
         const storedQuery = {
             kind: 'InsightVizNode',

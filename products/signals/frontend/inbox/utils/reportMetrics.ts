@@ -102,6 +102,11 @@ export function asReportMetricBarQuery(query: unknown): ReportMetricInsightQuery
         trendsFilter: {
             ...insightQuery.source.trendsFilter,
             display: ChartDisplayType.ActionsBar,
+            // A report metric renders a single series, so a stored percent-stack view would normalize
+            // every bucket to 100% and a hidden-legend index could blank the only series. Drop both
+            // display leftovers before deriving the longitudinal bar.
+            showPercentStackView: false,
+            hiddenLegendIndexes: undefined,
         },
     }
 
