@@ -30,6 +30,7 @@ def _run_emit(args: argparse.Namespace) -> None:
     squasher = planning.Squasher(tree, args.cutoff, include_prior_squashes=args.include_prior_squashes)
     state = planning.Snapshotter(squasher).final_state()
     cycle_breaker = cyclebreak.CycleBreaker(state)
+    emit.Emitter.check_young_against_deferred(squasher, cycle_breaker)
 
     sys.stderr.write(
         f"cycle apps: {sorted(cycle_breaker.cycle_apps) or '(none)'}\n"
@@ -105,24 +106,6 @@ def _run_emit(args: argparse.Namespace) -> None:
         edges_file = args.output_dir / "CYCLE_EDGE_REMOVALS.txt"
         edges_file.write_text("\n".join(f"{fa}/{fn} -> {ta}/{tn}" for (fa, fn, ta, tn) in cycle_edges) + "\n")
         sys.stderr.write(f"\nwrote cycle-break edge-removal list to {edges_file}\n")
-
-    # Save (app, first_young) entries that need a dep added so the latest
-    # squash in the app (finalize_fks and/or schema_addons) runs before any
-    # young migration in the same app. The install step looks up the actual
-    # leaf via the manifest, so we don't store the squash name here.
-    first_young_edits: list[tuple[str, str]] = []
-    for app in apps:
-        emitter = emit.Emitter(state, squasher, app, cycle_breaker)
-        leaf = retire_manifest["leaves"].get(app)
-        if leaf in (None, emitter.INITIAL_NAME):
-            continue  # plain initial chains in via replaces redirect already
-        first_young = emitter.first_young_in_app()
-        if first_young:
-            first_young_edits.append((app, first_young))
-    if first_young_edits:
-        adds_file = args.output_dir / "FIRST_YOUNG_DEP_ADDITIONS.txt"
-        adds_file.write_text("\n".join(f"{a}/{n}" for (a, n) in first_young_edits) + "\n")
-        sys.stderr.write(f"wrote first-young dep-addition list to {adds_file}\n")
 
     if dropped_runsql:
         dropped_path = args.output_dir / "DROPPED_RUNSQL.txt"

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import sys
 import argparse
 import subprocess
@@ -37,27 +36,6 @@ def _run_install(args: argparse.Namespace) -> None:
             fa, fn = lhs.split("/", 1)
             ta, tn = rhs.split("/", 1)
             cycle_edges.append((fa, fn, ta, tn))
-    # Read first-young dep-addition list (optional).
-    young_adds_path = output_dir / "FIRST_YOUNG_DEP_ADDITIONS.txt"
-    first_young_adds: list[tuple[str, str]] = []
-    if young_adds_path.exists():
-        for line in young_adds_path.read_text().splitlines():
-            s = line.strip()
-            if "/" in s:
-                a, n = s.split("/", 1)
-                first_young_adds.append((a, n))
-
-    # Read retire manifest to know each app's leaf squash (could be finalize_fks
-    # or schema_addons or just initial).
-    manifest_path = output_dir / "RETIRE_MANIFEST.json"
-    app_leaves: dict[str, str] = {}
-    app_initials: dict[str, str] = {}
-    if manifest_path.exists():
-        import json as _json
-
-        manifest = _json.loads(manifest_path.read_text())
-        app_leaves = manifest.get("leaves", {}) or {}
-        app_initials = manifest.get("initials", {}) or {}
 
     apps_processed: list[tuple[str, Path, list[Path]]] = []
     for app_dir in output_dir.iterdir() if output_dir.is_dir() else []:
@@ -82,17 +60,6 @@ def _run_install(args: argparse.Namespace) -> None:
         for edited in _strip_cycle_edges_from_migrations(app_edges, target_dir):
             if edited not in deleted:
                 deleted.append(edited)
-        # Add dep on the app's leaf squash to first-young so finalize_fks /
-        # schema_addons run before any young migration that needs them.
-        leaf_name = app_leaves.get(app)
-        if leaf_name and leaf_name != app_initials.get(app):
-            for a, young_name in first_young_adds:
-                if a != app:
-                    continue
-                edited = _add_dependency_to_migration(target_dir / f"{young_name}.py", (app, leaf_name))
-                if edited is not None and edited not in deleted:
-                    deleted.append(edited)
-
     leaves = _compute_all_app_graph_leaves([app for app, _, _ in apps_processed])
     for app, target_dir, squash_paths in apps_processed:
         leaf = leaves.get(app)
@@ -117,27 +84,6 @@ def _run_install(args: argparse.Namespace) -> None:
     sys.stderr.write(
         f"\ninstalled {len(installed)} files, stripped {len(stripped)} retired squashes, edited {len(deleted)} cycle-break files; log at {installed_log}\n"
     )
-
-
-def _add_dependency_to_migration(path: Path, dep: tuple[str, str]) -> Path | None:
-    """Add `(app, name)` as the first entry inside the migration's
-    `dependencies` list. Returns the path if modified, else None.
-    """
-
-    if not path.exists():
-        sys.stderr.write(f"  warning: {path} not found, can't add dep {dep!r}\n")
-        return None
-    src = path.read_text()
-    # If already declares this dep, no-op.
-    if re.search(r"\(\s*['\"]" + re.escape(dep[0]) + r"['\"]\s*,\s*['\"]" + re.escape(dep[1]) + r"['\"]\s*\)", src):
-        return None
-    pattern = re.compile(r"(dependencies\s*=\s*\[)", re.MULTILINE)
-    inserted = pattern.sub(r"\1\n        ('" + dep[0] + r"', '" + dep[1] + r"'),", src, count=1)
-    if inserted == src:
-        sys.stderr.write(f"  warning: could not insert dep {dep!r} into {path}\n")
-        return None
-    path.write_text(inserted)
-    return path
 
 
 def _remove_dep_entry(path: Path, dep: tuple[str, str]) -> bool:

@@ -661,9 +661,48 @@ class Emitter:
             deps.add((app, leaf))
         return sorted(deps)
 
-    def first_young_in_app(self) -> str | None:
-        names = sorted(m.ref.name for m in self.squasher.young.values() if m.ref.app == self.app)
-        return names[0] if names else None
+    @staticmethod
+    def check_young_against_deferred(squasher: planning.Squasher, cycle_breaker: cyclebreak.CycleBreaker) -> None:
+        """Refuse to emit when a young migration touches a deferred FK field.
+
+        Young migrations get no dependency edge onto finalize_fks or
+        schema_addons: such an edge makes Django's check_consistent_history
+        fail on every existing DB (applied young, unapplied empty-replaces
+        parent). That is safe only while no young operation needs the deferred
+        columns. The fix for a violation is bumping the cutoff past the
+        offending migration.
+        """
+        loader = MigrationLoader(connection=None, ignore_no_migrations=True)
+        violations: list[str] = []
+        for m in squasher.young.values():
+            deferred = cycle_breaker.deferred_field_keys_for_app(m.ref.app)
+            if not deferred:
+                continue
+            node = loader.graph.nodes.get(m.ref.key)
+            if node is None:
+                continue
+            models = {mo for mo, _ in deferred}
+            cols = {f"{f}_id" for _, f in deferred}
+            for op in node.operations:
+                kind = op.__class__.__name__
+                model_name = (getattr(op, "model_name", None) or "").lower()
+                if kind in {"AddIndex", "AddConstraint"} and model_name in models:
+                    thing = getattr(op, "index", None) or getattr(op, "constraint", None)
+                    fields = {f for mo, f in deferred if mo == model_name}
+                    if thing is None or Emitter._index_or_constraint_references(thing, fields):
+                        violations.append(f"{m.ref}: {kind} on {model_name} references a deferred field")
+                elif kind in {"AlterField", "RemoveField", "RenameField"}:
+                    fname = (getattr(op, "name", "") or "").lower()
+                    if (model_name, fname) in deferred:
+                        violations.append(f"{m.ref}: {kind} {model_name}.{fname}")
+                elif isinstance(op, dj_migrations.RunSQL):
+                    hits = sorted(c for c in cols if c in Emitter._runsql_text(op))
+                    if hits:
+                        violations.append(f"{m.ref}: RunSQL mentions deferred column(s) {hits}")
+        if violations:
+            raise RuntimeError(
+                "young migrations touch deferred FK fields — bump the cutoff past them:\n  " + "\n  ".join(violations)
+            )
 
     def build(self) -> list[SquashFile]:
         deferred_keys = self.cycle_breaker.deferred_field_keys_for_app(self.app)
