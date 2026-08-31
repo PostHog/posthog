@@ -1396,7 +1396,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         # caller wrapped it in has nothing left to do.
         if (
             isinstance(call, ast.Call)
-            and call.name == "ifNull"
+            and call.name.lower() == "ifnull"
             and len(call.args) == 2
             and isinstance(call.args[1], ast.Constant)
             and call.args[1].value == 0

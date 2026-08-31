@@ -161,6 +161,11 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 "select count() from events where ifNull(multiSearchAnyCaseInsensitive(toString(properties.$active_feature_flags), ['alpha', 'beta']), 0) > 0",
                 "arrayExists",
             ),
+            (
+                "icontains_multi_ifnull_lowercase",
+                "select count() from events where ifnull(multiSearchAnyCaseInsensitive(toString(properties.$active_feature_flags), ['alpha', 'beta']), 0) > 0",
+                "arrayExists",
+            ),
         ]
     )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
