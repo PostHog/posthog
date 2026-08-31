@@ -171,6 +171,7 @@ export class ResourceCatalog {
     private async warmupUiApps(): Promise<void> {
         const baseUrl = this.env.MCP_APPS_BASE_URL
         if (!baseUrl) {
+            console.warn('[ResourceCatalog] MCP_APPS_BASE_URL is not set — UI app resources will not be registered')
             return
         }
 
@@ -180,11 +181,14 @@ export class ResourceCatalog {
             const html = buildAppStubHtml(app.appDir, baseUrl)
             const meta = buildUiAppResourceMeta(baseUrl, analyticsBaseUrl)
 
+            // `_meta` goes on the list entry too, so a host that builds the iframe CSP from
+            // `resources/list` alone still allows the stub's script and stylesheet from `baseUrl`.
             this.uiAppResources.push({
                 name: app.name,
                 uri: app.uri,
                 mimeType: RESOURCE_MIME_TYPE,
                 description: app.description,
+                _meta: meta,
             })
             this.uiAppReadEntries.set(app.uri, {
                 uri: app.uri,

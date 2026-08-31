@@ -43,6 +43,7 @@ import { ResourceCatalog } from '@/hono/resource-catalog'
 import { getPromptsFromManifest } from '@/resources'
 import { fetchAndExtractEntries } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
+import { UI_APPS } from '@/resources/ui-apps.generated'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
@@ -205,6 +206,44 @@ describe('ResourceCatalog', () => {
                 )
             } finally {
                 consoleError.mockRestore()
+            }
+        })
+    })
+
+    describe('UI app resources', () => {
+        it('carries CSP _meta on the resources/list entry so hosts allow the app iframe', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            const uiUris = new Set(UI_APPS.map((app) => app.uri))
+            const listed = catalog.getResourcesList().resources.filter((r) => uiUris.has(r.uri))
+            expect(listed.length).toBe(UI_APPS.length)
+
+            for (const resource of listed) {
+                const meta = resource._meta as { ui?: { csp?: { resourceDomains?: string[] } } } | undefined
+                expect(meta?.ui?.csp?.resourceDomains).toContain(mockEnv.MCP_APPS_BASE_URL)
+            }
+        })
+
+        it('registers no UI apps and warns when MCP_APPS_BASE_URL is unset', async () => {
+            const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+            try {
+                vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+                vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+                const envWithoutBaseUrl = { MCP_APPS_BASE_URL: undefined } as any
+                const catalog = new ResourceCatalog(envWithoutBaseUrl, redis)
+                await catalog.warmup()
+
+                const uiUris = new Set(UI_APPS.map((app) => app.uri))
+                const listed = catalog.getResourcesList().resources.filter((r) => uiUris.has(r.uri))
+                expect(listed).toEqual([])
+                expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining('MCP_APPS_BASE_URL is not set'))
+            } finally {
+                consoleWarn.mockRestore()
             }
         })
     })
