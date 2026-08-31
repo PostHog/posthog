@@ -22,6 +22,7 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     deliver_email,
     deliver_slack,
+    load_persisted_recipient_results,
 )
 from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_initial_content_snapshot,
@@ -418,7 +419,13 @@ async def _deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSub
     # campaign keys mean MessagingRecord wouldn't dedup the duplicate email.
     if not subscription.enabled:
         LOGGER.info("deliver_subscription.skipped_disabled", subscription_id=inputs.subscription_id)
-        return DeliverSubscriptionResult(recipient_results=[])
+        if inputs.delivery_id is None:
+            return DeliverSubscriptionResult(recipient_results=[])
+        persisted_results = await database_sync_to_async(load_persisted_recipient_results, thread_sensitive=False)(
+            inputs.delivery_id,
+            subscription.id,
+        )
+        return DeliverSubscriptionResult(recipient_results=persisted_results)
 
     previous_target_value = inputs.previous_target_value
     if previous_target_value is None:
@@ -461,7 +468,12 @@ async def _deliver_insight_dashboard_subscription(
             subscription_id=inputs.subscription_id,
             target_type=subscription.target_type,
         )
-        return await auto_disable_and_return(subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results)
+        return await auto_disable_and_return(
+            subscription,
+            UNSUPPORTED_TARGET_DISABLE_REASON,
+            recipient_results,
+            inputs.delivery_id,
+        )
 
     assets_by_id = await database_sync_to_async(
         lambda: {
@@ -527,6 +539,7 @@ async def _deliver_insight_dashboard_subscription(
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
                 delivery_id=inputs.delivery_id,
             ),
+            delivery_id=inputs.delivery_id,
         )
     else:
         raise ApplicationError(

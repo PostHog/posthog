@@ -282,6 +282,7 @@ function EditSubscriptionForm({
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const slackGalleryEnabled = useFeatureFlag('SUBSCRIPTION_SLACK_GALLERY')
     const slackReconnectRestriction = useIntegrationManagementRestriction()
 
     const emailDisabled = !preflight?.email_service_available
@@ -571,7 +572,9 @@ function EditSubscriptionForm({
                                             </LemonField>
                                         )}
 
-                                        {subscription.integration_id &&
+                                        {(slackGalleryEnabled ||
+                                            subscription.delivery_config?.post_all_insights_in_main_message) &&
+                                            subscription.integration_id &&
                                             subscription.target_value &&
                                             (() => {
                                                 const selectedIntegration = integrations?.find(

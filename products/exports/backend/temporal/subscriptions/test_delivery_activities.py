@@ -136,17 +136,96 @@ async def test_deliver_slack_auto_disables_permanent_gallery_errors(team, user, 
         status_code=200,
     )
     send = AsyncMock(side_effect=SlackApiError("Error", response))
+    delivery = await sync_to_async(SubscriptionDelivery.objects.create)(
+        subscription=subscription,
+        team=team,
+        temporal_workflow_id=f"workflow-{slack_error_code}",
+        idempotency_key=f"gallery-error-{slack_error_code}",
+        trigger_type="scheduled",
+        target_type="slack",
+        target_value=subscription.target_value,
+    )
 
     with (
         patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"),
         patch("ee.tasks.subscriptions.auto_disable.create_subscription_auto_disabled_notification"),
         patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
     ):
-        result = await deliver_slack(subscription, [], send)
+        result = await deliver_slack(subscription, [], send, delivery_id=delivery.id)
 
     await sync_to_async(subscription.refresh_from_db)()
+    await sync_to_async(delivery.refresh_from_db)()
     assert subscription.enabled is False
     assert result.recipient_results[0].error == {
+        "message": "Slack file uploads are unavailable for this workspace",
+        "type": "slack_file_upload_unavailable",
+    }
+    assert delivery.recipient_results == [
+        {
+            "recipient": subscription.target_value,
+            "status": "failed",
+            "error": {
+                "message": "Slack file uploads are unavailable for this workspace",
+                "type": "slack_file_upload_unavailable",
+            },
+            "human_readable_error": "Slack file uploads are unavailable for this workspace",
+        }
+    ]
+
+
+async def test_disabled_activity_retry_returns_persisted_permanent_failure(team, user) -> None:
+    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        created_by=user,
+        target_type="slack",
+        target_value="C123|#general",
+        integration=integration,
+    )
+    delivery = await sync_to_async(SubscriptionDelivery.objects.create)(
+        subscription=subscription,
+        team=team,
+        temporal_workflow_id="workflow-disabled-retry",
+        idempotency_key="gallery-disabled-retry",
+        trigger_type="scheduled",
+        target_type="slack",
+        target_value=subscription.target_value,
+    )
+    response = AsyncSlackResponse(
+        client=None,
+        http_verb="POST",
+        api_url="https://slack.com/api/files.completeUploadExternal",
+        req_args={},
+        data={"ok": False, "error": "file_uploads_disabled"},
+        headers={},
+        status_code=200,
+    )
+
+    with (
+        patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"),
+        patch("ee.tasks.subscriptions.auto_disable.create_subscription_auto_disabled_notification"),
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+    ):
+        await deliver_slack(
+            subscription,
+            [],
+            AsyncMock(side_effect=SlackApiError("Error", response)),
+            delivery_id=delivery.id,
+        )
+
+    replay_result = await ActivityEnvironment().run(
+        deliver_subscription_v2,
+        DeliverSubscriptionInputs(
+            subscription_id=subscription.id,
+            exported_asset_ids=[],
+            total_insight_count=0,
+            delivery_id=delivery.id,
+        ),
+    )
+
+    assert len(replay_result.recipient_results) == 1
+    assert replay_result.recipient_results[0].status == "failed"
+    assert replay_result.recipient_results[0].error == {
         "message": "Slack file uploads are unavailable for this workspace",
         "type": "slack_file_upload_unavailable",
     }

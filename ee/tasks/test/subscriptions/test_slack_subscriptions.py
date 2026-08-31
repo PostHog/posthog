@@ -12,6 +12,7 @@ from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -302,6 +303,12 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     integration: Integration
 
     def setUp(self) -> None:
+        self.gallery_feature_patch = patch(
+            "ee.tasks.subscriptions.slack_subscriptions._slack_gallery_feature_enabled",
+            return_value=True,
+        )
+        self.gallery_feature_patch.start()
+        self.addCleanup(self.gallery_feature_patch.stop)
         self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
         self.asset = ExportedAsset.objects.create(
@@ -773,6 +780,32 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         mock_async.chat_postMessage.assert_not_called()
         assert result.is_partial_failure
 
+    def test_async_send_uses_legacy_layout_until_gallery_rollout_flag_is_enabled(
+        self, MockSlackIntegration: MagicMock
+    ) -> None:
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        mock_async.chat_postMessage.return_value = {"ts": "1.234"}
+        self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
+        self.subscription.save()
+        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
+
+        with patch(
+            "ee.tasks.subscriptions.slack_subscriptions._slack_gallery_feature_enabled",
+            return_value=False,
+        ):
+            result = asyncio.run(
+                send_slack_message_with_integration_async(
+                    self.integration,
+                    self.subscription,
+                    assets,
+                    total_asset_count=1,
+                )
+            )
+
+        mock_async.files_upload_v2.assert_not_awaited()
+        mock_async.chat_postMessage.assert_awaited()
+        assert result.is_complete_success
+
     def test_gallery_delivery_claim_prevents_activity_retry_from_uploading_again(
         self, MockSlackIntegration: MagicMock
     ) -> None:
@@ -859,13 +892,52 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         delivery.refresh_from_db()
         assert delivery.slack_gallery_delivery_started_at is None
 
+    def test_gallery_storage_metadata_failure_retries_before_claiming(self, MockSlackIntegration: MagicMock) -> None:
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
+        self.subscription.save()
+        delivery = SubscriptionDelivery.objects.create(
+            subscription=self.subscription,
+            team=self.team,
+            temporal_workflow_id="workflow-storage-retry",
+            idempotency_key="gallery-storage-retry",
+            trigger_type="scheduled",
+            target_type="slack",
+            target_value=self.subscription.target_value,
+        )
+        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
+
+        with (
+            patch(
+                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object_strict",
+                side_effect=ObjectStorageError("head_object failed"),
+            ),
+            patch("ee.tasks.subscriptions.slack_subscriptions._claim_slack_gallery_delivery") as claim_delivery,
+        ):
+            with pytest.raises(ObjectStorageError, match="head_object failed"):
+                asyncio.run(
+                    send_slack_message_with_integration_async(
+                        self.integration,
+                        self.subscription,
+                        assets,
+                        total_asset_count=1,
+                        delivery_id=delivery.id,
+                    )
+                )
+
+        claim_delivery.assert_not_called()
+        mock_async.files_upload_v2.assert_not_awaited()
+        mock_async.chat_postMessage.assert_not_awaited()
+        delivery.refresh_from_db()
+        assert delivery.slack_gallery_delivery_started_at is None
+
     def test_gallery_rejects_oversized_object_before_reading_it(self, MockSlackIntegration: MagicMock) -> None:
         self._setup_async_mock(MockSlackIntegration)
         assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
 
         with (
             patch(
-                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object",
+                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object_strict",
                 return_value={"ContentLength": MAX_SLACK_UPLOAD_BYTES + 1},
             ) as mock_head,
             patch("ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes") as mock_read,
@@ -1089,7 +1161,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
         with (
             patch(
-                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object",
+                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object_strict",
                 return_value={"ContentLength": len(b"STORAGEBYTES")},
             ),
             patch(
@@ -1112,7 +1184,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
         with (
             patch(
-                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object",
+                "ee.tasks.subscriptions.slack_subscriptions.object_storage.head_object_strict",
                 return_value={"ContentLength": 12},
             ),
             patch(

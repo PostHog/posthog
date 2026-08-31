@@ -13,10 +13,10 @@ import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/fronte
 
 /** Recipient failures are visible to every viewer. Query failures only affect viewers with access to
  * diagnostics because the API scrubs those diagnostics for query-restricted viewers. */
-export function isPartialDelivery(
-    row: Pick<SubscriptionDeliveryApi, 'status' | 'ai_report_diagnostics'> &
-        Partial<Pick<SubscriptionDeliveryApi, 'recipient_results'>>
-): boolean {
+type PartialDeliveryRow = Pick<SubscriptionDeliveryApi, 'status' | 'ai_report_diagnostics'> &
+    Partial<Pick<SubscriptionDeliveryApi, 'recipient_results'>>
+
+export function isPartialDelivery(row: PartialDeliveryRow): boolean {
     if (row.status !== SubscriptionDeliveryStatusEnumApi.Completed) {
         return false
     }
@@ -26,18 +26,34 @@ export function isPartialDelivery(
     )
 }
 
-/** The "Partial" status tag for a completed delivery whose report couldn't compute some queries. Null when
- * the delivery isn't partial (or its diagnostics are scrubbed), so the caller falls back to the plain tag. */
-export function partialDeliveryTag(row: SubscriptionDeliveryApi): JSX.Element | null {
+export function partialDeliveryTooltip(row: PartialDeliveryRow): string | null {
     if (!isPartialDelivery(row)) {
         return null
     }
     const diagnostics = row.ai_report_diagnostics ?? []
-    const failed = diagnostics.filter((d) => d.ok === false).length
+    const failedQueryCount = diagnostics.filter((d) => d.ok === false).length
+    const partialRecipientReasons = parseRecipientResults(row.recipient_results)
+        .filter((result) => result.status === 'partial')
+        .map((result) => result.human_readable_error)
+        .filter((reason): reason is string => Boolean(reason))
+    const details = [
+        failedQueryCount > 0
+            ? `${failedQueryCount} of ${diagnostics.length} queries failed; those metrics are missing from the report.`
+            : null,
+        ...partialRecipientReasons,
+    ].filter((detail): detail is string => Boolean(detail))
+    return details.length > 0 ? details.join(' ') : 'Some delivery content could not be included.'
+}
+
+/** Null lets the caller use the standard status tag when neither visible query failures nor recipient
+ * failures make the completed delivery partial. */
+export function partialDeliveryTag(row: SubscriptionDeliveryApi): JSX.Element | null {
+    const tooltip = partialDeliveryTooltip(row)
+    if (!tooltip) {
+        return null
+    }
     return (
-        <Tooltip
-            title={`${failed} of ${diagnostics.length} queries failed — those metrics are missing from the report.`}
-        >
+        <Tooltip title={tooltip}>
             <LemonTag type="warning" className="cursor-help">
                 Partial
             </LemonTag>

@@ -1,5 +1,7 @@
+import uuid
+import dataclasses
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
 from slack_sdk.errors import SlackApiError
 from structlog import get_logger
@@ -10,11 +12,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 
-from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     RecipientResult,
+    RecipientResultStatus,
 )
 
 from ee.tasks.subscriptions import SLACK_GALLERY_CONFIG_ERRORS, SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
@@ -33,6 +36,50 @@ LOGGER = get_logger(__name__)
 # details into history events capped at the gRPC payload limit, and an oversized non-retryable
 # error can't be recorded, leaving the workflow unable to complete its failing task.
 _MAX_ERROR_DETAIL_RESULTS = 50
+
+
+def persist_auto_disable_result(
+    delivery_id: uuid.UUID,
+    subscription_id: int,
+    recipient_results: list[RecipientResult],
+) -> None:
+    updated = SubscriptionDelivery.objects.filter(id=delivery_id, subscription_id=subscription_id).update(
+        recipient_results=[dataclasses.asdict(result) for result in recipient_results]
+    )
+    if updated != 1:
+        raise RuntimeError(f"Subscription delivery {delivery_id} was not found")
+
+
+def load_persisted_recipient_results(delivery_id: uuid.UUID, subscription_id: int) -> list[RecipientResult]:
+    raw_results = (
+        SubscriptionDelivery.objects.filter(
+            id=delivery_id,
+            subscription_id=subscription_id,
+        )
+        .values_list("recipient_results", flat=True)
+        .get()
+    )
+    results: list[RecipientResult] = []
+    if not isinstance(raw_results, list):
+        return results
+    for raw_result in raw_results:
+        if not isinstance(raw_result, dict):
+            continue
+        recipient = raw_result.get("recipient")
+        status = raw_result.get("status")
+        if not isinstance(recipient, str) or status not in {"success", "failed", "partial"}:
+            continue
+        error = raw_result.get("error")
+        human_readable_error = raw_result.get("human_readable_error")
+        results.append(
+            RecipientResult(
+                recipient=recipient,
+                status=cast(RecipientResultStatus, status),
+                error=error if isinstance(error, dict) else None,
+                human_readable_error=human_readable_error if isinstance(human_readable_error, str) else None,
+            )
+        )
+    return results
 
 
 def strip_null_bytes(value: Any) -> Any:
@@ -59,6 +106,7 @@ async def auto_disable_and_return(
     subscription: Subscription,
     reason: DisableReason,
     recipient_results: list[RecipientResult],
+    delivery_id: uuid.UUID | None = None,
 ) -> DeliverSubscriptionResult:
     """Permanent-failure exit path: record per-recipient failure, capture analytics,
     and auto-disable the subscription. Shared by the insight/dashboard and AI delivery paths."""
@@ -70,6 +118,12 @@ async def auto_disable_and_return(
             human_readable_error=reason.description,
         )
     )
+    if delivery_id is not None:
+        await database_sync_to_async(persist_auto_disable_result, thread_sensitive=False)(
+            delivery_id,
+            subscription.id,
+            recipient_results,
+        )
     # `_capture_delivery_failed_event` only reads `str(e)` and `type(e).__name__`,
     # so a plain Exception conveys the same info without implying retry semantics.
     _capture_delivery_failed_event(subscription, Exception(reason.description))
@@ -186,13 +240,19 @@ async def deliver_slack(
     subscription: Subscription,
     recipient_results: list[RecipientResult],
     send: Callable[[Integration], Awaitable[SlackDeliveryResult]],
+    delivery_id: uuid.UUID | None = None,
 ) -> DeliverSubscriptionResult:
     """A missing integration or a permanent Slack config error auto-disables the subscription;
     transient Slack errors raise so Temporal retries."""
     integration = await database_sync_to_async(_resolve_slack_integration, thread_sensitive=False)(subscription)
     if integration is None:
         LOGGER.warning("deliver_subscription.no_slack_integration", subscription_id=subscription.id)
-        return await auto_disable_and_return(subscription, SLACK_DISCONNECTED_DISABLE_REASON, recipient_results)
+        return await auto_disable_and_return(
+            subscription,
+            SLACK_DISCONNECTED_DISABLE_REASON,
+            recipient_results,
+            delivery_id,
+        )
 
     LOGGER.info("deliver_subscription.sending_slack_message", subscription_id=subscription.id)
     try:
@@ -214,11 +274,17 @@ async def deliver_slack(
         if slack_error_code in SLACK_USER_CONFIG_ERRORS:
             # Won't self-heal without user action — auto-disable so it stops re-firing.
             return await auto_disable_and_return(
-                subscription, SLACK_PERMISSION_REVOKED_DISABLE_REASON, recipient_results
+                subscription,
+                SLACK_PERMISSION_REVOKED_DISABLE_REASON,
+                recipient_results,
+                delivery_id,
             )
         if slack_error_code in SLACK_GALLERY_CONFIG_ERRORS:
             return await auto_disable_and_return(
-                subscription, SLACK_FILE_UPLOAD_UNAVAILABLE_DISABLE_REASON, recipient_results
+                subscription,
+                SLACK_FILE_UPLOAD_UNAVAILABLE_DISABLE_REASON,
+                recipient_results,
+                delivery_id,
             )
         raise  # Transient Slack errors — let Temporal retry
 

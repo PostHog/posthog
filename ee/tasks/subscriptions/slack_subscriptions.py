@@ -9,9 +9,11 @@ from django.utils import timezone as tz
 
 import aiohttp
 import structlog
+import posthoganalytics
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
+from posthog.constants import SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY
 from posthog.dataclasses import frozen
 from posthog.helpers.slack_subscription_explore import build_explore_hint, build_explore_hint_text
 from posthog.models.integration import Integration, SlackIntegration
@@ -134,7 +136,7 @@ def _asset_image_size(asset: ExportedAsset) -> int | None:
         if content_length:
             return content_length
     if asset.content_location:
-        metadata = object_storage.head_object(asset.content_location)
+        metadata = object_storage.head_object_strict(asset.content_location)
         content_length = metadata.get("ContentLength") if metadata else None
         return content_length if isinstance(content_length, int) else None
     return None
@@ -148,6 +150,28 @@ def _claim_slack_gallery_delivery(delivery_id: uuid.UUID) -> bool:
         ).update(slack_gallery_delivery_started_at=tz.now())
         == 1
     )
+
+
+def _slack_gallery_feature_enabled(subscription: Subscription) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY,
+                f"team_{subscription.team_id}",
+                groups={"organization": str(subscription.team.organization_id)},
+                group_properties={
+                    "organization": {"id": str(subscription.team.organization_id)},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "deliver_slack_gallery.feature_flag_evaluation_failed",
+            subscription_id=subscription.id,
+        )
+        return False
 
 
 def _insight_name(asset: ExportedAsset) -> str:
@@ -666,7 +690,12 @@ async def send_slack_message_with_integration_async(
     summary_skipped_over_budget: bool = False,
     delivery_id: uuid.UUID | None = None,
 ) -> SlackDeliveryResult:
-    if subscription.delivery_config.get("post_all_insights_in_main_message"):
+    gallery_requested = subscription.delivery_config.get("post_all_insights_in_main_message")
+    gallery_enabled = gallery_requested and await database_sync_to_async(
+        _slack_gallery_feature_enabled,
+        thread_sensitive=False,
+    )(subscription)
+    if gallery_enabled:
         gallery = await database_sync_to_async(_prepare_slack_gallery, thread_sensitive=False)(
             subscription,
             assets,

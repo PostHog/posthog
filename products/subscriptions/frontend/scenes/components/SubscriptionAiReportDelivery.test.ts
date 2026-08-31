@@ -4,7 +4,12 @@ import type {
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { isPartialDelivery, queryFailureReason, queryStatusLabel } from './SubscriptionAiReportDelivery'
+import {
+    isPartialDelivery,
+    partialDeliveryTooltip,
+    queryFailureReason,
+    queryStatusLabel,
+} from './SubscriptionAiReportDelivery'
 
 const diagnostic = (ok: boolean): AIReportQueryDiagnosticApi => ({
     description: 'q',
@@ -40,6 +45,43 @@ describe('SubscriptionAiReportDelivery helpers', () => {
                     recipient_results: [{ recipient: 'C123|#reports', status: 'partial', error: null }],
                 })
             ).toBe(true)
+        })
+    })
+
+    describe('partialDeliveryTooltip', () => {
+        it('describes recipient-only partials without referring to AI queries', () => {
+            const tooltip = partialDeliveryTooltip({
+                status: SubscriptionDeliveryStatusEnumApi.Completed,
+                ai_report_diagnostics: [],
+                recipient_results: [
+                    {
+                        recipient: 'C123|#reports',
+                        status: 'partial',
+                        error: null,
+                        human_readable_error: '2 images could not be attached',
+                    },
+                ],
+            })
+
+            expect(tooltip).toBe('2 images could not be attached')
+            expect(tooltip).not.toContain('queries')
+        })
+
+        it('describes both query and recipient partials', () => {
+            expect(
+                partialDeliveryTooltip({
+                    status: SubscriptionDeliveryStatusEnumApi.Completed,
+                    ai_report_diagnostics: [diagnostic(true), diagnostic(false)],
+                    recipient_results: [
+                        {
+                            recipient: 'C123|#reports',
+                            status: 'partial',
+                            error: null,
+                            human_readable_error: '1 image could not be attached',
+                        },
+                    ],
+                })
+            ).toBe('1 of 2 queries failed; those metrics are missing from the report. 1 image could not be attached')
         })
     })
 
