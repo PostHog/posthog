@@ -803,10 +803,7 @@ runcmd:
                 )
                 if query_resp.status_code == 200 and query_resp.json().get("results", []):
                     print(f"✅ Trace found after {attempt} poll(s)", flush=True)
-                    return (
-                        True,
-                        "Preflight healthy; events, log, exception issue, session recording, and trace ingested successfully",
-                    )
+                    break
                 if query_resp.status_code != 200:
                     print(f"   Poll {attempt}: trace HTTP {query_resp.status_code}", flush=True)
                 else:
@@ -814,8 +811,111 @@ runcmd:
             except Exception as e:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
+        else:
+            return False, f"Trace did not appear within {timeout_seconds}s ({attempt} polls)"
 
-        return False, f"Trace did not appear within {timeout_seconds}s ({attempt} polls)"
+        return self.smoke_test_csp_self_reporting(base_url, project_api_token, headers, timeout_seconds, poll_interval)
+
+    def smoke_test_csp_self_reporting(self, base_url, project_api_token, headers, timeout_seconds, poll_interval):
+        """Prove an install can collect the CSP violations of the pages it serves.
+
+        A self-hosted install reports nowhere until its operator names a destination, so this
+        walks the whole opt-in: point `CSP_REPORT_ENDPOINT` at this instance, confirm the served
+        policy advertises it, then send a report there and read the event back.
+        """
+        csp_report_endpoint = f"{base_url}/report/?token={project_api_token}&v=2"
+        print("📝 Pointing CSP_REPORT_ENDPOINT at this install...", flush=True)
+        env_result = self.run_ssh_command(
+            "cd /hobby && sed -i '/^CSP_REPORT_ENDPOINT=/d' .env && "
+            f"printf 'CSP_REPORT_ENDPOINT=%s\\n' '{csp_report_endpoint}' >> .env && "
+            "docker-compose up -d web",
+            timeout=300,
+        )
+        if env_result["exit_code"] != 0:
+            return False, f"Failed to configure CSP_REPORT_ENDPOINT: {env_result['stderr'][:500]}"
+
+        print(f"⏳ Waiting for the served policy to advertise it (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        last_policy = ""
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                page_resp = requests.get(
+                    f"{base_url}/login",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    timeout=10,
+                )
+                last_policy = page_resp.headers.get("Content-Security-Policy-Report-Only", "")
+                if f"report-uri {csp_report_endpoint}" in last_policy:
+                    print(f"✅ Served policy advertises this install after {attempt} poll(s)", flush=True)
+                    break
+                print(f"   Poll {attempt}: policy does not name this install yet", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+        else:
+            return (
+                False,
+                f"Served policy did not advertise the configured endpoint within {timeout_seconds}s "
+                f"({attempt} polls): {last_policy[:200]}",
+            )
+
+        # The whole point of the setting is that an install we do not run keeps its reports.
+        if "posthog.com" in last_policy:
+            return False, f"Served policy still names a PostHog endpoint: {last_policy[:200]}"
+
+        csp_distinct_id = f"hobby-ci-csp-{time.time_ns()}"
+        print("📤 Sending test CSP violation report...", flush=True)
+        try:
+            # Sent to the configured endpoint rather than the advertised one, which carries the
+            # app policy's `sample_rate=0.1` and would drop this report nine times in ten.
+            csp_resp = requests.post(
+                csp_report_endpoint,
+                params={"distinct_id": csp_distinct_id},
+                json={
+                    "csp-report": {
+                        "document-uri": f"{base_url}/hobby-ci-csp-smoke-test",
+                        "violated-directive": "default-src self",
+                        "blocked-uri": "https://blocked.example.com/script.js",
+                    }
+                },
+                headers={"Content-Type": "application/csp-report"},
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"CSP report request failed: {e}"
+        if csp_resp.status_code != 204:
+            return False, f"CSP report failed: HTTP {csp_resp.status_code} - {csp_resp.text[:200]}"
+
+        print(f"⏳ Polling for CSP violation event (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                csp_events_resp = requests.get(
+                    f"{base_url}/api/projects/@current/events/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    params={"event": "$csp_violation"},
+                    headers=headers,
+                    timeout=10,
+                )
+                if csp_events_resp.status_code == 200:
+                    results = csp_events_resp.json().get("results", [])
+                    if any(result.get("distinct_id") == csp_distinct_id for result in results):
+                        print(f"✅ CSP violation found after {attempt} poll(s)", flush=True)
+                        return (
+                            True,
+                            "Preflight healthy; events, log, exception issue, session recording, trace, "
+                            "and self-reported CSP violation ingested successfully",
+                        )
+                    print(f"   Poll {attempt}: CSP violation not found yet", flush=True)
+                else:
+                    print(f"   Poll {attempt}: CSP violation HTTP {csp_events_resp.status_code}", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+
+        return False, f"CSP violation did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
