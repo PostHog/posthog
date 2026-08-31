@@ -301,6 +301,12 @@ CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKH
 CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
+# Path to a file holding the live password. When set, it is read fresh per pool checkout so a
+# rotated short-lived token is used without a restart. CLICKHOUSE_PASSWORD is the fallback when
+# the file is missing or empty. Per-user files use CLICKHOUSE_<USER>_PASSWORD_FILE.
+# Unset by default, and left unset on purpose: the deployment sets it per user only when that user
+# is migrated to token auth, so native pools keep using the static password until then.
+CLICKHOUSE_PASSWORD_FILE: str | None = os.getenv("CLICKHOUSE_PASSWORD_FILE", None)
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
@@ -576,6 +582,14 @@ WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(
     get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
+)
+
+# Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
+# ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
+# Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every
+# request until the secret is provisioned and the worker stays on its legacy auth path (#82564).
+CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
+    get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
 )
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")

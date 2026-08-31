@@ -8,7 +8,7 @@
 // + esm.sh CDN). In published/view mode these resolve to self-hosted, frozen
 // copies instead (Phase 2: the publish/bundle step rewrites the import map); the
 // names stay the same so canvas code is identical across tiers.
-export interface WhitelistEntry {
+interface WhitelistEntry {
   /** The bare import specifier the agent writes, e.g. "recharts". */
   name: string;
   /** Pinned version. Frozen so a canvas can't drift onto a new major. */

@@ -39,7 +39,7 @@ export function PersonalizationSettingsView({
   return (
     <SettingsSection
       label="Custom instructions"
-      description="Included in every agent session."
+      description="Included in every agent session"
     >
       <SettingsCard>
         <SettingsCardRow
@@ -78,7 +78,7 @@ export function PersonalizationSettingsView({
           />
           {syncFromFile ? (
             synced && (
-              <span className="text-right text-[12px] text-gray-10">
+              <span className="text-right text-[12px] text-muted-foreground">
                 Using{" "}
                 <span className="font-mono text-[11px]">
                   {synced.displayPath}
@@ -88,7 +88,7 @@ export function PersonalizationSettingsView({
               </span>
             )
           ) : (
-            <span className="text-right text-[12px] text-gray-10 tabular-nums">
+            <span className="text-right text-[12px] text-muted-foreground tabular-nums">
               {instructions.length}/{MAX_INSTRUCTIONS_LENGTH}
             </span>
           )}
@@ -217,7 +217,10 @@ function FunSection() {
   );
 
   return (
-    <SettingsSection label="Fun">
+    <SettingsSection
+      label="Fun"
+      description="Extras that make the app a bit more playful"
+    >
       <SettingsCard>
         <SettingsCardRow
           label="Hedgehog mode"
@@ -232,7 +235,7 @@ function FunSection() {
 
         <SettingsCardRow
           label="Slot machine mode 🎰"
-          description="A pull-able lever while a task runs. Every run is a gamble."
+          description="A pull-able lever while a task runs; every run is a gamble"
         >
           <Switch
             size="sm"

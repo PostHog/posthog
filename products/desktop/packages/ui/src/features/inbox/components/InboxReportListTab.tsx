@@ -52,7 +52,7 @@ interface DismissibleCardProps {
   isDismissPending: boolean;
 }
 
-export interface InboxReportListTabEmptyState {
+interface InboxReportListTabEmptyState {
   Icon: ComponentType<IconProps>;
   /** Title shown when the scope is "For you". */
   forYouTitle: string;

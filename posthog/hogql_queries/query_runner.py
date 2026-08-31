@@ -600,7 +600,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "FunnelsQuery":
-        from .insights.funnels.funnels_query_runner import FunnelsQueryRunner
+        from products.product_analytics.backend.facade.queries import FunnelsQueryRunner
 
         return FunnelsQueryRunner(
             query=cast(FunnelsQuery | dict[str, Any], query),
@@ -775,7 +775,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "FunnelCorrelationQuery":
-        from .insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
+        from products.product_analytics.backend.facade.queries import FunnelCorrelationQueryRunner
 
         return FunnelCorrelationQueryRunner(
             query=cast(FunnelCorrelationQuery | dict[str, Any], query),
@@ -1026,6 +1026,18 @@ def get_query_runner(
         from products.error_tracking.backend.facade.queries import ErrorTrackingBreakdownsQueryRunner
 
         return ErrorTrackingBreakdownsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "ErrorTrackingReleasesQuery":
+        from products.error_tracking.backend.facade.queries import ErrorTrackingReleasesQueryRunner
+
+        return ErrorTrackingReleasesQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -1401,6 +1413,20 @@ def get_query_runner(
         )
 
         return MarketingAnalyticsAttributionPathsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_retention_query_runner import (
+            MarketingAnalyticsRetentionQueryRunner,
+        )
+
+        return MarketingAnalyticsRetentionQueryRunner(
             query=query,
             team=team,
             timings=timings,

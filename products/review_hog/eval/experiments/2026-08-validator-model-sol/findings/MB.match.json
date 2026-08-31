@@ -1,0 +1,102 @@
+{
+    "MB1": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Identical to LA20/MA18 (cluster 31, KA1/KB10 precedent): the receiver reads stamphog_review_inbox_prs only before publishing and process_inbox_pr_review never calls the resolver again, trusting the queued acting_user_id while fetching the current head, so a delayed or retried task reviews and approves after the opt-out; runner-up cluster 57 (single acting reviewer) is a different gate defect."
+    },
+    "MB2": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Identical to LA3/MA3/LB3 (cluster 35, KA7/KB2/KC5 precedent): _format_self_driving receives only the classification, so the hard-coded draft sentence renders in trusted context on synchronize reviews after the PR is ready; runner-up cluster 5 (trusted provenance rendered solely off the flag) is the broader framing, not the stale-draft claim."
+    },
+    "MB3": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to LA1/MA14/LB15 (cluster 58, KA13/KB3/KC3 precedent): the receiver's on_commit callback catches every publish failure and only logs it, no durable pending record exists, consumer retries cannot run when the producer never delivered, and no later save is guaranteed, so a broker outage drops the initial review; runner-up cluster 54 is the unguarded .delay raising into the caller, which MB3 does not claim."
+    },
+    "MB4": {
+        "cluster": 42,
+        "confidence": "high",
+        "reason": "Identical to cluster 42 (S8/Z9/O15): concurrent receiver fires for the same PR, select_for_update over an absent ReviewRun row locks nothing, and no (pull_request, head_sha) unique key exists, so duplicate runs post duplicate reviews; the validator refutes it via the PullRequest row lock, which is the cluster's own parenthetical. Runner-up cluster 36 is cross-leg double review of one head by the webhook supersede path, not same-leg concurrent refires."
+    },
+    "MB5": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New: no cluster claims that ReviewRun stores no base SHA, so the receiver's (pull_request, head_sha) dedupe treats a base-retargeted diff as already reviewed and, if the retarget webhook is lost, leaves the old approval standing over an unreviewed diff. Runner-ups 42 (concurrent-refire race on the same head-keyed dedupe) and 36 (cross-leg same-head double review) are about duplicate runs, not a missing base identity; clusters 50/53 concern retarget dismissal copy, and LB2 uses retarget only as a route to a same-head FAILED run."
+    },
+    "MB6": {
+        "cluster": 41,
+        "confidence": "high",
+        "reason": "Identical to cluster 41 (P17/E4): the receiver dedupe excludes FAILED runs, so every later TaskRun.output save creates a fresh ReviewRun and workflow for the unchanged head with no attempt cap or cooldown, and a deterministic failure relaunches costly sandboxes without limit. Runner-up LB2 is the same exclude clause with the opposite consequence (an older COMPLETED run hides a newer FAILED one), and cluster 58's retry-exhaustion angle is about too few retries, not too many."
+    },
+    "MB7": {
+        "cluster": 70,
+        "confidence": "high",
+        "reason": "Identical to cluster 70 (O23): review-guidance.md's 'bot author always needs human review' showstopper is loaded into REVIEWER_SYSTEM while the self-driving exception is injected only into the user prompt, so a compliant model can refuse or escalate the PRs the carve-out intends to approve; runner-up cluster 5 is about the trusted block asserting provenance off the flag, not the unreconciled system-prompt rule."
+    },
+    "MB8": {
+        "cluster": 2,
+        "confidence": "medium",
+        "reason": "Engine-located restatement of cluster 2, same as MA10/LB10: the harm is the initial Inbox path stamping self_driving_review without verifying the task run, task repository, head repository, or Code bot identity, and every substantive remedy is server-side verification before the flag is written. Runner-up cluster 6 loses because MB8 never asks the engine to couple its relaxation to pr.author_is_bot (LA19's defining fix); the literal-`true` clause is a cluster 3 aside the validator itself discounts."
+    },
+    "MB9": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to LA5/MA4/LB6 (cluster 58 stated at the facade publish site, KC4 precedent; facade/api.py:149 is already a cluster 58 file): the single .delay() is the only record of a pending initial review, the receiver swallows the publish error, and no durable request or dispatcher reconciles it; runner-up cluster 54 shares the line but claims the exception escapes into the save path, whereas MB9 says the caller catches it."
+    },
+    "MB10": {
+        "cluster": 58,
+        "confidence": "medium",
+        "reason": "Same as LB5 and the first half of LA6 (cluster 58's retry-exhaustion angle, M6/L9): early-ack worker loss during the GitHub fetch or Temporal start drops the only initial dispatch with no durable record or reconciler, and the cluster's durable-record-plus-reconciler fix covers it; medium because the acks_late/reject_on_worker_lost mechanism appears in no member text. Runner-up cluster 32 names a stranded run via the disproven on_commit-ordering mechanism, which MB10 does not claim."
+    },
+    "MB11": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to MA5 (cluster 57 stated at the webhook-leg call site tasks.py:201-207, KC7 precedent covers both legs): the resolver selects the task creator or first assigned reviewer and returns None when that user opted out even if another assignee opted in, contradicting the 'any assigned reviewer opted in' contract; the validator refutes it via DECISIONS.md, matching the cluster's 2/11 real record. Runner-up cluster 11 (resolver identity drift between legs) is a different claim."
+    },
+    "MB12": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as LB21 (adjudicated new, real consider): _retract_stale_approvals_on_skip only dismisses approvals with a saved posted_review_id, a worker can post the approval and die before persisting the id, and the opt-out skip path starts no workflow so the GitHub-side orphan sweep never runs. Runner-up cluster 29 (carve-out failure blocks retraction) is about the retraction not running at all, not what it can find; LB20 is the un-superseded live run, a different orphan."
+    },
+    "MB13": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as LA8 (adjudicated new, real consider): the inbox stale check accepts equal updated_at values, a same-second fetch of the old head supersedes the newer webhook run for the live head, and the old run then fails post_verdict's head guard so the current head gets no verdict. Runner-ups 36 (cross-leg double review) and 42 (concurrent-refire dedupe race) involve one head, not an equal-timestamp tie between different heads."
+    },
+    "MB14": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to LA10/MA6 (cluster 2 in AGENTS.md form, KB5 precedent; cluster 2 already lists AGENTS.md:110): the documented linkage guarantee is false on the receiver path because process_inbox_pr_review never loads task_run_id or compares the caller-writable pr_url with Task.repository, head repo, branch, or bot identity before stamping inbox_review; runner-up cluster 48 is the provenance key name in AGENTS.md, not the false linkage assertion."
+    },
+    "MB15": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to LA11/MA7/LB8 (cluster 2, KA10/KB6/KC6 precedent): the receiver forwards caller-writable TaskRun.output.pr_url after only task-shape and toggle checks and process_inbox_pr_review stamps inbox_review with no task-to-PR binding, repo-native head, or Code bot check, so a project member can obtain a real approval on an unrelated PR. The validator's webhook-leg asides (any-bot identity, pr_url match before branch) belong to runner-ups 75 and LA15, and the 'both paths' attestation ask is LA15's claim, carried by MB17."
+    },
+    "MB16": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to LA13/MA8 (cluster 2, KB6/KC6 precedent): process_inbox_pr_review checks only the repo config, open state, and head SHA, never loading task_run_id or signal_report_id or checking task repository, author, or head repository, before stamping trusted inbox provenance from a caller-controlled URL; the 'current reviewer opt-in' clause in the suggestion belongs to runner-up cluster 31, which MB1 carries separately."
+    },
+    "MB17": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as LA15/MA9 (adjudicated real must_fix, distinct from clusters 2/73/75): find_signal_implementation_run treats a find_task_run match on caller-writable output.pr_url or branch, plus caller-settable signal_report/internal, as proof the run produced the PR, so a member binds a qualifying task to an unrelated native bot PR and later webhooks bypass the gates. Runner-up cluster 73 covers only accidental branch-fallback mis-binding and cluster 75 only the any-bot floor; the 'verify it is an implementation task' aside is LB14/MB20's sub-claim."
+    },
+    "MB18": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Identical to LA16/MA12/LB16 (cluster 39, KA5/KB1/KC2 precedent): find_task_run selects one row across all tenants and the facade applies team_id only afterwards, returning None instead of the requested team's valid run, so another tenant's newer matching row suppresses this team's re-review (the W8/T8 shadowing mode); runner-up cluster 73 is the opposite direction (branch fallback mis-binds an unrelated run) and cluster 23 the performance angle."
+    },
+    "MB19": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to LA17/MA11/LB11 (cluster 57, KA4/KB8/KC7 precedent): the receiver selects one acting reviewer before reading stamphog_review_inbox_prs and the webhook resolver repeats the rule, so an opted-in secondary assigned reviewer is ignored on both legs, contradicting the 'any assigned reviewer opted in' contract; runner-up cluster 11 (resolver identity drift between legs) is a different claim."
+    },
+    "MB20": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as LB14 (adjudicated new, refuted as a sub-case of LA15 with a wrong remedy): the facade infers implementation from signal_report_id plus internal=False, so non-internal discussion or research report-linked tasks inherit the carve-out, with the Signals relationship/type as the missing check. Runner-up cluster 22 (identification relies on deprecated signal_report without origin_product corroboration) shares the discriminator ask but its fix would not exclude discussion tasks, which also carry origin_product=SIGNAL_REPORT; cluster 21 is run and task lifetime, not task kind."
+    }
+}

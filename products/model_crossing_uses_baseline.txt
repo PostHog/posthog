@@ -108,8 +108,6 @@ product_analytics.Insight products.reminders.backend.constants in-collection 1
 product_analytics.Insight products.slack_app.backend.slack_link_unfurl instance-single 1
 product_analytics.Insight products.surveys.backend.api.survey instance-single 1
 surveys.Survey products.early_access_features.backend.management.commands.migrate_enrollments_to_waitlist_surveys get_model 1
-tasks.CodeInvite products.posthog_ai.eval_harness.harness.demo_data get_model 1
-tasks.CodeInviteRedemption products.posthog_ai.eval_harness.harness.demo_data get_model 1
 tasks.TaskRun products.review_hog.backend.receivers get_model 1
 warehouse_sources.DataWarehouseCredential posthog.hogql.database.database instance-many(filter) 1
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table drf-model-serializer 1
@@ -126,7 +124,7 @@ warehouse_sources.DataWarehouseTable posthog.hogql.direct_connection instance-ma
 warehouse_sources.DataWarehouseTable posthog.hogql_queries.access_controlled_resources instance-many(only) 1
 warehouse_sources.DataWarehouseTable posthog.tasks.usage_report instance-many(annotate) 2
 warehouse_sources.DataWarehouseTable posthog.temporal.data_modeling.run_workflow instance-single 2
-warehouse_sources.DataWarehouseTable products.data_catalog.backend.logic.certifications instance-many(filter) 1
+warehouse_sources.DataWarehouseTable products.data_catalog.backend.logic.certifications instance-many(select_related) 1
 warehouse_sources.DataWarehouseTable products.data_catalog.evals.seeders instance-many(filter) 1
 warehouse_sources.DataWarehouseTable products.data_catalog.evals.seeders write(create) 1
 warehouse_sources.DataWarehouseTable products.data_modeling.backend.logic.node_frequency instance-many(exclude) 1
@@ -163,7 +161,6 @@ warehouse_sources.DataWarehouseTable products.marketing_analytics.backend.manage
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder construct 1
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder write(bulk_create) 1
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder write(create) 1
-warehouse_sources.ExternalDataJob posthog.hogql.database.database prefetch 1
 warehouse_sources.ExternalDataJob posthog.tasks.usage_report instance-many(annotate) 4
 warehouse_sources.ExternalDataJob products.data_warehouse.backend.logic.data_load.source_templates instance-single 2
 warehouse_sources.ExternalDataJob products.data_warehouse.backend.logic.external_data_source.jobs lock 1
