@@ -59,6 +59,33 @@ struct AggregateFunnelRow {
 
 const MAX_REPLAY_EVENTS: usize = 10;
 
+// Two consecutive steps often fire from independent scripts on one page load, a few
+// milliseconds apart rather than at the exact same microsecond. We treat events within
+// this window as simultaneous so they take the order-independent permutation path, the
+// same path exact ties already take. Without it, the arrival race decides whether the
+// funnel counts the conversion.
+const SIMULTANEITY_WINDOW_SECONDS: f64 = 0.05;
+
+// Group consecutive events that fall within SIMULTANEITY_WINDOW_SECONDS of the group's
+// first event. Events arrive sorted by timestamp ascending, so each group is bounded to
+// one window and a long run of closely-spaced events cannot collapse into one group.
+fn group_simultaneous<'a>(events: impl Iterator<Item = &'a Event>) -> Vec<Vec<&'a Event>> {
+    let mut groups: Vec<Vec<&Event>> = Vec::new();
+    let mut group_start = 0.0;
+    for event in events {
+        match groups.last_mut() {
+            Some(group) if event.timestamp - group_start <= SIMULTANEITY_WINDOW_SECONDS => {
+                group.push(event);
+            }
+            _ => {
+                group_start = event.timestamp;
+                groups.push(vec![event]);
+            }
+        }
+    }
+    groups
+}
+
 pub const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timestamp: 0.0,
     excluded: false,
@@ -123,51 +150,36 @@ impl AggregateFunnelRow {
             entered_timestamp: vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1],
         };
 
-        let filtered_events = args
-            .value
-            .iter()
-            .filter(|e| {
-                if args.breakdown_attribution_type == "all_events" {
-                    e.breakdown == *prop_val
-                } else {
-                    true
-                }
-            })
-            .chunk_by(|e| e.timestamp);
+        let simultaneous_groups = group_simultaneous(args.value.iter().filter(|e| {
+            if args.breakdown_attribution_type == "all_events" {
+                e.breakdown == *prop_val
+            } else {
+                true
+            }
+        }));
 
-        for (timestamp, events_with_same_timestamp) in &filtered_events {
-            let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();
+        for simultaneous_events in simultaneous_groups {
             vars.entered_timestamp[0] = EnteredTimestamp {
-                timestamp,
+                timestamp: simultaneous_events[0].timestamp,
                 excluded: false,
                 timings: vec![],
                 uuids: vec![],
                 steps: 0,
             };
 
-            if events_with_same_timestamp.len() == 1 {
-                self.process_event(
-                    args,
-                    &mut vars,
-                    events_with_same_timestamp[0],
-                    prop_val,
-                    false,
-                );
-            } else if events_with_same_timestamp
-                .iter()
-                .map(|x| &x.steps)
-                .all_equal()
-            {
+            if simultaneous_events.len() == 1 {
+                self.process_event(args, &mut vars, simultaneous_events[0], prop_val, false);
+            } else if simultaneous_events.iter().map(|x| &x.steps).all_equal() {
                 // Deal with the most common case where they are all the same event (order doesn't matter)
-                for event in events_with_same_timestamp {
+                for event in simultaneous_events {
                     self.process_event(args, &mut vars, event, prop_val, false);
                 }
             } else {
-                // Handle permutations for different events with the same timestamp
+                // Handle permutations for different events that fired near-simultaneously
                 // We ignore strict steps and exclusions in this case
                 // The behavior here is mostly dictated by how it was handled in the old style
 
-                let sorted_events = events_with_same_timestamp
+                let sorted_events = simultaneous_events
                     .iter()
                     .flat_map(|&event| {
                         event
@@ -335,5 +347,60 @@ impl AggregateFunnelRow {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // step_reached is 0-indexed: 1 means both steps of a 2-step funnel matched.
+    fn step_reached(events_json: &str) -> i8 {
+        let input = format!(
+            r#"{{"num_steps":2,"conversion_window_limit":3600,"breakdown_attribution_type":"first_touch","funnel_order_type":"ordered","prop_vals":["en"],"optional_steps":[],"value":{events_json}}}"#
+        );
+        let args = parse_args(&input).unwrap();
+        let results = run(&args);
+        assert_eq!(results.len(), 1);
+        results[0].0
+    }
+
+    // Step 2 fires 10 ms before step 1 on the same page load. The arrival race must not
+    // decide the conversion: both steps fall in one simultaneity window and match.
+    #[test]
+    fn near_simultaneous_out_of_order_steps_convert() {
+        let events = r#"[
+            {"timestamp":1.00,"uuid":"00000000-0000-0000-0000-000000000002","breakdown":"en","steps":[2]},
+            {"timestamp":1.01,"uuid":"00000000-0000-0000-0000-000000000001","breakdown":"en","steps":[1]}
+        ]"#;
+        assert_eq!(step_reached(events), 1);
+    }
+
+    // Events further apart than the window keep their order, so an out-of-order step 2
+    // before step 1 does not convert.
+    #[test]
+    fn steps_beyond_window_keep_ordering() {
+        let events = r#"[
+            {"timestamp":1.0,"uuid":"00000000-0000-0000-0000-000000000002","breakdown":"en","steps":[2]},
+            {"timestamp":1.5,"uuid":"00000000-0000-0000-0000-000000000001","breakdown":"en","steps":[1]}
+        ]"#;
+        assert_eq!(step_reached(events), 0);
+    }
+
+    // A run of closely-spaced events cannot chain into one oversized group: each group is
+    // bounded to one window from its first event.
+    #[test]
+    fn groups_are_bounded_to_one_window() {
+        let e = |t: f64| Event {
+            timestamp: t,
+            uuid: Uuid::nil(),
+            breakdown: PropVal::Int(0),
+            steps: vec![1],
+        };
+        let events = vec![e(0.0), e(0.04), e(0.08), e(0.12)];
+        let groups = group_simultaneous(events.iter());
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].len(), 2); // 0.00 and 0.04
+        assert_eq!(groups[1].len(), 2); // 0.08 and 0.12
     }
 }
