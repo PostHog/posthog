@@ -1,3 +1,5 @@
+import { escapeHogQLString } from '~/queries/utils'
+
 import type { EvaluationConfig } from './types'
 
 // Most-recent runs fetched for an evaluation's runs table and its result badges
@@ -34,6 +36,6 @@ export function evaluationPassedHogQLForMany(detectorEvaluationIds: string[]): s
     if (detectorEvaluationIds.length === 0) {
         return EVALUATION_RESULT_TRUE_HOGQL
     }
-    const ids = detectorEvaluationIds.map((id) => `'${id}'`).join(', ')
+    const ids = detectorEvaluationIds.map((id) => escapeHogQLString(id)).join(', ')
     return `if(properties.$ai_evaluation_id IN (${ids}), ${EVALUATION_RESULT_FALSE_HOGQL}, ${EVALUATION_RESULT_TRUE_HOGQL})`
 }
