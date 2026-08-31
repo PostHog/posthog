@@ -18,10 +18,6 @@ const LazyMermaidDiagram = lazy(() => import('lib/lemon-ui/LemonMarkdown/Mermaid
 // Mermaid render instead of one parse and layout per character.
 const MERMAID_PREVIEW_DEBOUNCE_MS = 250
 
-export function isMermaidCodeBlock(node: NotebookCodeBlockNode): boolean {
-    return node.language?.toLowerCase() === 'mermaid'
-}
-
 export function NotebookMermaidBlock({
     node,
     mode,

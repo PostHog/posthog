@@ -7,6 +7,7 @@ import {
     isCommentComponentNode,
     isDiscussionCommentNode,
     isDividerComponentNode,
+    isMermaidCodeBlock,
     isPromptComponentNode,
 } from './documentModel'
 import { EditableCodeBlock } from './EditableCodeBlock'
@@ -22,7 +23,7 @@ import {
     TextSelectionPointerStartEvent,
 } from './editorTypes'
 import { MemoizedNotebookComponentShell } from './NotebookComponentShell'
-import { isMermaidCodeBlock, NotebookMermaidBlock } from './NotebookMermaidBlock'
+import { NotebookMermaidBlock } from './NotebookMermaidBlock'
 import { NotebookBlockNode, NotebookComponentRegistry, NotebookMode } from './types'
 
 export function renderNode({

@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import { isMermaidCodeBlock } from './documentModel'
 import { NotebookBlockNode, NotebookCodeBlockNode } from './types'
 
 jest.mock('kea', () => ({
@@ -26,7 +27,7 @@ jest.mock('mermaid', () => ({
 // the test runs, keeping the cold transform out of findByTestId's 1000ms window (flaky under CI load).
 import 'lib/lemon-ui/LemonMarkdown/MermaidDiagram'
 
-import { isMermaidCodeBlock, NotebookMermaidBlock } from './NotebookMermaidBlock'
+import { NotebookMermaidBlock } from './NotebookMermaidBlock'
 
 function codeNode(text: string, language: string | undefined): NotebookCodeBlockNode {
     return { id: 'block-1', type: 'code', language, text }
