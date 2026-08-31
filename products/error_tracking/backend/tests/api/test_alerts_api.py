@@ -172,6 +172,18 @@ class TestErrorTrackingAlerts(APIBaseTest):
             ),
             ("missing_integration", {"destinations": [{"channel_type": "slack", "config": {"channel": "C1"}}]}),
             (
+                "person_property_filter",
+                {"filters": {"properties": [{"key": "email", "value": "@example.com", "type": "person"}]}},
+            ),
+            (
+                "action_filters",
+                {"filters": {"actions": [{"id": "1", "name": "Action", "type": "actions"}]}},
+            ),
+            (
+                "filter_test_accounts",
+                {"filters": {"filter_test_accounts": True}},
+            ),
+            (
                 "missing_channel_in_config",
                 {"destinations": [{"channel_type": "slack", "integration_id": VALID_INTEGRATION, "config": {}}]},
             ),

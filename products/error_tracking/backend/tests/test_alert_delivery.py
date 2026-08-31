@@ -526,6 +526,24 @@ class TestAlertFilterEvaluation(AlertTestMixin):
         client.chat_postMessage.assert_called_once()
         assert fetcher.call_count == 2
 
+    def test_lifecycle_only_properties_are_filterable(self):
+        client = self._mock_slack()
+        self._create_filtered_alert(
+            {"properties": [{"key": "computed_baseline", "value": "10", "type": "event"}]},
+            triggers=["issue_spiking"],
+        )
+        self._patch_exception_properties({})
+
+        skipped = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_spiking", extra={"computed_baseline": "99"})
+        )
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_spiking", notification_id="n-2", extra={"computed_baseline": "10"})
+        )
+
+        assert (skipped, delivered) == (0, 1)
+        client.chat_postMessage.assert_called_once()
+
     def test_replies_are_never_filtered(self):
         client = self._mock_slack()
         alert = self._create_filtered_alert(self.ENVIRONMENT_FILTER)
