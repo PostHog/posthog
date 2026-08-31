@@ -13,7 +13,6 @@ from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResu
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -73,7 +72,7 @@ class _CancelWatchdog:
 
 class TrinoAdapter:
     engine = "trino"
-    dialect: HogQLDialect | None = "trino"
+    dialect: HogQLDialect | None = None
 
     def validate_source_config(self, source: ExternalDataSource, team: Team) -> tuple[TrinoSource, TrinoSourceConfig]:
         from products.warehouse_sources.backend.facade.source_management import (
@@ -114,7 +113,6 @@ class TrinoAdapter:
         span.set_attribute("team_id", request.team.pk)
         span.set_attribute("query_type", request.query_type)
         span.set_attribute("source_id", str(request.source.id))
-        sql, values = convert_pyformat_placeholders(request.sql, request.values)
 
         try:
             with request.timings.measure("trino_execute"), observe_direct_query("trino"):
@@ -123,7 +121,7 @@ class TrinoAdapter:
                     with _CancelWatchdog(cursor, timeout_seconds) as watchdog:
                         try:
                             cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- direct SQL is intentionally user-authored and SELECT-gated
-                                sql, values or None
+                                request.sql
                             )
                             results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
                         except Exception as error:

@@ -18,7 +18,6 @@ def _context_with_trino_table() -> HogQLContext:
     database.tables.add_child(
         TableNode(
             name="users",
-            case_insensitive=True,
             table=DirectTrinoTable(
                 name="users",
                 fields={
@@ -442,12 +441,6 @@ def test_lowers_window_count_distinct_without_unsupported_distinct_window_aggreg
     assert "cardinality(array_distinct(filter(array_agg(" in sql
     assert 'OVER (PARTITION BY "users"."created_at")' in sql
     assert "count(DISTINCT" not in sql
-
-
-def test_resolves_direct_trino_identifiers_case_insensitively() -> None:
-    sql, _ = prepare_and_print_ast(parse_select("SELECT USER_ID FROM USERS"), _context_with_trino_table(), "trino")
-
-    assert 'SELECT "USERS"."user_id" FROM "ducklake"."analytics"."users" AS "USERS"' in sql
 
 
 @pytest.mark.parametrize(

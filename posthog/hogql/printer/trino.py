@@ -4,7 +4,7 @@ from typing import ClassVar, NoReturn
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
-from posthog.hogql.database.direct_trino_table import DirectTrinoTable
+from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.functions import find_hogql_aggregation
@@ -273,13 +273,13 @@ class TrinoPrinter(PostgresPrinter):
             if isinstance(arg_type, ast.BooleanType):
                 return f"CASE WHEN {rendered} THEN 1 ELSE 0 END"
         if name == "todatetime" and node.args:
-            value = node.args[0]
+            value_expr = node.args[0]
             if (
-                isinstance(value, ast.Constant)
-                and isinstance(value.value, str)
-                and re.search(r"T.*(?:Z|[+-]\d\d:\d\d)$", value.value)
+                isinstance(value_expr, ast.Constant)
+                and isinstance(value_expr.value, str)
+                and re.search(r"T.*(?:Z|[+-]\d\d:\d\d)$", value_expr.value)
             ):
-                timestamp = f"from_iso8601_timestamp({self.visit(value)})"
+                timestamp = f"from_iso8601_timestamp({self.visit(value_expr)})"
                 if len(node.args) == 1:
                     return f"CAST({timestamp} AS TIMESTAMP)"
                 if len(node.args) == 2:
@@ -288,7 +288,7 @@ class TrinoPrinter(PostgresPrinter):
                     node, "toDateTime expects a value and optional timezone in Trino mode."
                 )
             if len(node.args) == 2:
-                return f"with_timezone(CAST({self.visit(value)} AS TIMESTAMP), {self.visit(node.args[1])})"
+                return f"with_timezone(CAST({self.visit(value_expr)} AS TIMESTAMP), {self.visit(node.args[1])})"
         if name == "totimezone":
             value, timezone = self._visit_binary_args(node)
             return f"at_timezone(with_timezone(CAST({value} AS TIMESTAMP), 'UTC'), {timezone})"
@@ -992,8 +992,8 @@ class TrinoPrinter(PostgresPrinter):
         return self._print_table(table)
 
     def _print_table(self, table) -> str:
-        if isinstance(table, DirectTrinoTable):
-            return table.to_printed_trino(self.context)
+        if isinstance(table, NumbersTable):
+            return "UNNEST"
         if hasattr(table, "to_printed_trino"):
             return table.to_printed_trino(self.context)
         locator = resolve_trino_table_locator(table, self.context)

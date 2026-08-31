@@ -28,7 +28,6 @@ from posthog.hogql.printer.mysql import MySQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
-from posthog.hogql.printer.trino import TrinoPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
@@ -40,7 +39,6 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
-from posthog.hogql.transforms.trino.normalize import normalize_trino_ast
 from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
@@ -57,7 +55,6 @@ PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
     "mysql": MySQLPrinter,
     "snowflake": SnowflakePrinter,
     "redshift": RedshiftPrinter,
-    "trino": TrinoPrinter,
     "hogql": HogQLPrinter,
 }
 
@@ -159,6 +156,9 @@ def prepare_ast_for_printing(
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
     if dialect == "trino":
+        from posthog.hogql.transforms.trino.normalize import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
+            normalize_trino_ast,
+        )
         from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
             validate_trino_source_ast,
         )
@@ -397,7 +397,14 @@ def print_prepared_ast(
     with context.timings.measure("printer"):
         printer_stack = cast(list[ast.AST], stack or [])
 
-        printer_class = PRINTER_CLASSES.get(dialect)
+        if dialect == "trino":
+            from posthog.hogql.printer.trino import (  # noqa: PLC0415 -- other dialects do not need the Trino backend
+                TrinoPrinter,
+            )
+
+            printer_class: type[BasePrinter] | None = TrinoPrinter
+        else:
+            printer_class = PRINTER_CLASSES.get(dialect)
         if printer_class is None:
             raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
 

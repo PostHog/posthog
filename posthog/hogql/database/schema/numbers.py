@@ -27,8 +27,5 @@ class NumbersTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
     def to_printed_clickhouse(self, context):
         return "numbers"
 
-    def to_printed_trino(self, context):
-        return "UNNEST"
-
     def to_printed_hogql(self):
         return "numbers"
