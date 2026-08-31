@@ -14,8 +14,18 @@ on:
     push:
         branches:
             - master
+    schedule:
+        # Hourly jest run against the newest master state. Master pushes no longer run
+        # jest per commit — the merge queue's trunk-merge/** run already gated every
+        # commit before it landed — so this is where master's jest coverage and its
+        # Trunk flaky-test baseline come from. Typecheck, format and bundle size stay
+        # on every push, because they are cheap and per-commit meaningful.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '7 * * * *'
 
 concurrency:
+    # Scheduled runs share the ref group with master pushes and do not cancel, so a
+    # slow hourly run queues the next one instead of stacking runs.
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -80,7 +90,10 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. On schedule the action would otherwise diff only the
+              # last commit and could turn the full jest run into a no-op.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -183,11 +196,11 @@ jobs:
             # above is inline YAML — paths-filter takes one or the other. The exclude-only
             # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
-              if: github.event_name != 'push'
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
             - uses: ./.github/actions/paths-filter
               id: exclude
-              if: github.event_name != 'push'
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: ${{ runner.temp }}/frontend-exclude.yml
@@ -730,9 +743,13 @@ jobs:
         # A status function is required because select-jest-tests is skipped on ready
         # PRs and master pushes, and a skipped need would otherwise cascade a skip here.
         # !cancelled() rather than always() so a superseded run's shards stop promptly.
+        # Skipped on master push: the merge queue already ran the full matrix for every
+        # landed commit, and the hourly scheduled run keeps master's jest coverage and
+        # its Trunk flaky baseline.
         if: |
             !cancelled() && needs.changes.outputs.frontend_code == 'true'
             && needs.select-jest-tests.outputs.should_run != 'false'
+            && github.event_name != 'push'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
         strategy:
             # If one test fails, still run the others
@@ -740,8 +757,8 @@ jobs:
             # On draft PRs, select-jest-tests may narrow this to two EE jobs
             # running only the tests reachable from changed frontend source files,
             # or skip jest entirely (should_run=false) when selection can't be
-            # trusted. On ready PRs and master pushes it's skipped, so
-            # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
+            # trusted. On ready PRs and on the hourly scheduled run it's skipped, so
+            # we fall back to the full FOSS×EE × chunk fanout.
             matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
 
         steps:
