@@ -71,6 +71,20 @@ export interface ErrorTrackingAlertDestinationApi {
     config: ErrorTrackingAlertSlackConfigApi
     /** Unique identifier of the destination. */
     readonly id: string
+    /**
+     * When a notification last reached this destination.
+     * @nullable
+     */
+    readonly last_delivered_at: string | null
+    /**
+     * When delivery to this destination last failed.
+     * @nullable
+     */
+    readonly last_failure_at: string | null
+    /** Message of the most recent delivery failure. */
+    readonly last_error: string
+    /** Delivery failures since the last successful delivery. */
+    readonly consecutive_failures: number
 }
 
 export interface ErrorTrackingAlertApi {

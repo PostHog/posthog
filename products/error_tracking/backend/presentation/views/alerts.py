@@ -72,6 +72,18 @@ class ErrorTrackingAlertDestinationRequestSerializer(serializers.Serializer):
 
 class ErrorTrackingAlertDestinationSerializer(ErrorTrackingAlertDestinationRequestSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier of the destination.")
+    last_delivered_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When a notification last reached this destination."
+    )
+    last_failure_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When delivery to this destination last failed."
+    )
+    last_error = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Message of the most recent delivery failure."
+    )
+    consecutive_failures = serializers.IntegerField(
+        read_only=True, help_text="Delivery failures since the last successful delivery."
+    )
 
 
 class ErrorTrackingAlertSerializer(serializers.Serializer):

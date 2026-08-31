@@ -958,6 +958,12 @@ class ErrorTrackingAlertDestination(TeamScopedRootMixin, UUIDTModel):
     integration = models.ForeignKey(Integration, on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
     # Channel-specific delivery settings, e.g. {"channel": "C0123", "channel_name": "#alerts"} for Slack
     config = models.JSONField(default=dict, blank=True)
+    # Delivery outcome record: visibility only, nothing auto-disables a failing
+    # destination (per the alerting RFC that stays an open question).
+    last_delivered_at = models.DateTimeField(null=True, blank=True)
+    last_failure_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True, default="")
+    consecutive_failures = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
