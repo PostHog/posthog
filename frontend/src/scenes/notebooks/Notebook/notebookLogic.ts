@@ -23,6 +23,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isAccessDeniedError } from 'lib/api-error'
 import { getSeriesColor } from 'lib/colors'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import {
@@ -1009,7 +1010,7 @@ export const notebookLogic = kea<notebookLogicType>([
                                 'If-None-Match': values.notebook?.version,
                             })
                         } catch (e: any) {
-                            if (e.status === 403 && e.code === 'permission_denied') {
+                            if (isAccessDeniedError(e)) {
                                 actions.setAccessDeniedToNotebook()
                             } else if (e.status === 304) {
                                 // Indicates nothing has changed
