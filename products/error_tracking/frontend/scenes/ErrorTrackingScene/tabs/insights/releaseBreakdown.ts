@@ -42,8 +42,6 @@ export interface ExceptionBand {
     total: number
     /** Share of the period's exceptions, as a percentage. */
     share: number
-    firstSeen: string | null
-    lastSeen: string | null
     /** Filters a click applies, or null for a band that folds several values together. */
     filters: BandFilter[] | null
 }
@@ -107,9 +105,6 @@ interface BandGroup {
 interface MergedCounts {
     counts: number[]
     total: number
-    /** Index into the bucket keys of the first and last bucket with an occurrence. */
-    firstIndex: number | null
-    lastIndex: number | null
 }
 
 function mergeRows(rows: ReleaseRow[], bucketCount: number): MergedCounts {
@@ -119,13 +114,7 @@ function mergeRows(rows: ReleaseRow[], bucketCount: number): MergedCounts {
             counts[index] += count
         })
     }
-    const seen = counts.map((count, index) => (count > 0 ? index : -1)).filter((index) => index >= 0)
-    return {
-        counts,
-        total: counts.reduce((sum, count) => sum + count, 0),
-        firstIndex: seen.length > 0 ? seen[0] : null,
-        lastIndex: seen.length > 0 ? seen[seen.length - 1] : null,
-    }
+    return { counts, total: counts.reduce((sum, count) => sum + count, 0) }
 }
 
 /**
@@ -133,6 +122,9 @@ function mergeRows(rows: ReleaseRow[], bucketCount: number): MergedCounts {
  * for "the property was not set" keeps its filters, because filtering down to it is the point of
  * showing it; the folded band cannot be filtered, so it carries none.
  */
+/** Prefix that no grouped value can produce, so a band named "other" cannot collide with the fold. */
+const SYNTHETIC_KEY = '\0band:'
+
 function foldBands(
     named: BandGroup[],
     unset: BandGroup | null,
@@ -142,7 +134,6 @@ function foldBands(
     truncated: boolean
 ): ExceptionBreakdown {
     const bucketCount = bucketKeys.length
-    const bucketAt = (index: number | null): string | null => (index === null ? null : bucketKeys[index])
     const ranked = [...named]
         .map((group) => ({ group, merged: mergeRows(group.rows, bucketCount) }))
         .sort((a, b) => b.merged.total - a.merged.total)
@@ -159,8 +150,6 @@ function foldBands(
         counts: merged.counts,
         total: merged.total,
         share: share(merged.total),
-        firstSeen: bucketAt(merged.firstIndex),
-        lastSeen: bucketAt(merged.lastIndex),
         filters: group.filters,
     }))
 
@@ -170,14 +159,12 @@ function foldBands(
             bucketCount
         )
         bands.push({
-            key: 'other',
+            key: `${SYNTHETIC_KEY}other`,
             label: formatReleaseCount(hidden.length, `other ${otherNoun}`, truncated),
             color: UNATTRIBUTED_RELEASE_COLOR,
             counts: merged.counts,
             total: merged.total,
             share: share(merged.total),
-            firstSeen: null,
-            lastSeen: null,
             filters: null,
         })
     }
@@ -190,8 +177,6 @@ function foldBands(
             counts: unsetMerged.counts,
             total: unsetMerged.total,
             share: share(unsetMerged.total),
-            firstSeen: null,
-            lastSeen: null,
             filters: unset.filters,
         })
     }
@@ -207,8 +192,10 @@ function foldBands(
  */
 export function buildReleaseBreakdown(rows: ReleaseRow[], bucketKeys: string[], palette: string[]): ExceptionBreakdown {
     const multipleApps = new Set(rows.filter((row) => row.version !== null).map((row) => row.namespace)).size > 1
+    // A row carrying only a namespace has no release. The Releases tile counts releases the same way
+    // (queries.ts, HAS_RELEASE), so the tile and this panel report the same number.
     const named: BandGroup[] = rows
-        .filter((row) => row.namespace !== null || row.version !== null)
+        .filter((row) => row.version !== null)
         .map((row) => {
             const version = formatReleaseVersion(row)
             return {
@@ -222,11 +209,11 @@ export function buildReleaseBreakdown(rows: ReleaseRow[], bucketKeys: string[], 
                 rows: [row],
             }
         })
-    const unattributed = rows.filter((row) => row.namespace === null && row.version === null)
+    const unattributed = rows.filter((row) => row.version === null)
     return foldBands(
         named,
         {
-            key: 'unattributed',
+            key: `${SYNTHETIC_KEY}unattributed`,
             label: 'No release data',
             filters: [
                 { key: '$app_namespace', value: null },
@@ -268,7 +255,7 @@ export function buildAppBreakdown(rows: ReleaseRow[], bucketKeys: string[], pale
     return foldBands(
         named,
         {
-            key: 'unattributed',
+            key: `${SYNTHETIC_KEY}unattributed`,
             label: 'No app data',
             filters: [{ key: '$app_namespace', value: null }],
             rows: rows.filter((row) => row.namespace === null),

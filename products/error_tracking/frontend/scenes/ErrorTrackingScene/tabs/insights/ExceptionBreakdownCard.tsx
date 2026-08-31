@@ -24,6 +24,7 @@ export function ExceptionBreakdownCard({
     theme,
     timezone,
     interval,
+    incompleteTail,
     onSelectBand,
 }: {
     title: string
@@ -37,6 +38,7 @@ export function ExceptionBreakdownCard({
     theme: ChartTheme
     timezone: string
     interval: IntervalType
+    incompleteTail: boolean
     onSelectBand: (filters: BandFilter[]) => void
 }): JSX.Element {
     return (
@@ -59,12 +61,12 @@ export function ExceptionBreakdownCard({
                 theme={theme}
                 timezone={timezone}
                 interval={interval}
+                incompleteTail={incompleteTail}
                 onSelectBand={onSelectBand}
             />
             <ExceptionBandTable
                 bands={breakdown.bands}
                 loading={loading}
-                interval={interval}
                 columnLabel={columnLabel}
                 onSelectBand={onSelectBand}
             />

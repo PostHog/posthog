@@ -127,4 +127,32 @@ describe('errorTrackingInsightsLogic', () => {
         // all but the last of them.
         expect(issueFilters.values.filterAddedFromPreview).toBe(3)
     })
+
+    // A band is one value spread over several properties. Left in an "Any" group its chips match
+    // anything carrying any one of them, which is the opposite of filtering down to the band.
+    it('makes the filter group conjunctive so a band cannot be applied as an OR', async () => {
+        issueFilters.actions.setFilterGroup({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.Or,
+                    values: [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$browser',
+                            operator: PropertyOperator.Exact,
+                            value: ['Firefox'],
+                        },
+                    ],
+                },
+            ],
+        })
+
+        await expectLogic(insights, () => {
+            insights.actions.filterByBand([{ key: '$app_namespace', value: 'web' }])
+        }).toFinishAllListeners()
+
+        const inner = issueFilters.values.filterGroup.values[0] as UniversalFiltersGroup
+        expect(inner.type).toBe(FilterLogicalOperator.And)
+    })
 })

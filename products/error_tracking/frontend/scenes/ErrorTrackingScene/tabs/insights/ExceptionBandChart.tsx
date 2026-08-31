@@ -20,6 +20,7 @@ export function ExceptionBandChart({
     theme,
     timezone,
     interval,
+    incompleteTail,
     onSelectBand,
 }: {
     bands: ExceptionBand[]
@@ -29,6 +30,9 @@ export function ExceptionBandChart({
     theme: ChartTheme
     timezone: string
     interval: IntervalType
+    // When true, the final bucket is the interval still in progress. Required rather than optional:
+    // an omitted prop silently draws a partial period as a settled drop in volume.
+    incompleteTail: boolean
     onSelectBand: (filters: BandFilter[]) => void
 }): JSX.Element {
     const series = useMemo<Series<ExceptionBand>[]>(
@@ -39,8 +43,13 @@ export function ExceptionBandChart({
                 color: band.color,
                 data: band.counts,
                 meta: band,
+                // A bar cannot carry the dashed treatment the tiles' sparklines use, so hatch the
+                // in-progress bucket instead. Without it a period a few hours old reads as a drop.
+                bars: incompleteTail
+                    ? band.counts.map((_, index) => ({ hatch: index === band.counts.length - 1 }))
+                    : undefined,
             })),
-        [bands]
+        [bands, incompleteTail]
     )
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({

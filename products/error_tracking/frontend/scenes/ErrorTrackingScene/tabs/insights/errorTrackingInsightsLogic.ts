@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -89,6 +89,7 @@ export interface errorTrackingInsightsLogicValues {
     insightsFilterGroup: UniversalFiltersGroup
     interval: IntervalType
     issuesCreatedQuery: InsightVizNode<TrendsQuery>
+    loadFailed: boolean
     metrics: InsightsMetrics
     metricsLoading: boolean
     releaseRows: ReleaseRow[]
@@ -253,6 +254,18 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
     actions({
         loadInsights: () => {},
         filterByBand: (filters: BandFilter[]) => ({ filters }),
+    }),
+
+    reducers({
+        loadFailed: [
+            false,
+            {
+                loadInsights: () => false,
+                loadComparisonTotalsFailure: () => true,
+                loadSummaryBucketsFailure: () => true,
+                loadReleaseRowsFailure: () => true,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -437,10 +450,22 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                     true
                 )
             }
+            // A band is one value spread over several properties, so its chips only mean what the
+            // panel says while they combine with AND. Added to a group the user set to "Any" they
+            // would instead match anything carrying any one of them.
+            const group = values.filterGroup
+            const first = group.values[0]
+            const conjunctive =
+                isUniversalGroupFilterLike(first) && first.type !== FilterLogicalOperator.And
+                    ? {
+                          ...group,
+                          values: [{ ...first, type: FilterLogicalOperator.And }, ...group.values.slice(1)],
+                      }
+                    : group
             // Each add resets the preview-added count to one chip, so all but the last of these would
             // open its value editor on the next render. Re-count every chip this click added, which
             // lands the band as chips alone.
-            actions.setFilterGroup(values.filterGroup, filters.length)
+            actions.setFilterGroup(conjunctive, filters.length)
         },
     })),
 

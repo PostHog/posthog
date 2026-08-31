@@ -182,8 +182,10 @@ export function formatBucketLabel(bucket: string, interval: IntervalType): strin
 export interface ComparisonWindow {
     /** Start of the doubled window: one selected period earlier than the selected period's start. */
     dateFrom: string
-    /** End of the selected period. */
-    dateTo: string
+    /** The caller's own `dateTo`, unresolved. A date-only bound resolves inclusively server-side and
+     *  a datetime resolves exclusively, so handing back a resolved instant would make a query built
+     *  on this window cover a different last day than one built on the raw range. */
+    dateTo: string | null
     /** Bucket key the doubled window splits on. Buckets at or after it are the selected period. */
     currentStartBucket: string
 }
@@ -206,7 +208,7 @@ export function buildComparisonWindow(
     const priorStart = start.subtract(selectedBuckets, interval)
     return {
         dateFrom: priorStart.toISOString(),
-        dateTo: end.toISOString(),
+        dateTo,
         currentStartBucket: startOfBucket(start, interval).format(BUCKET_FORMAT),
     }
 }

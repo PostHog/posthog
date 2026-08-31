@@ -48,23 +48,6 @@ describe('releaseBreakdown', () => {
     })
 
     describe('buildReleaseBreakdown', () => {
-        it('reports when a release was first and last seen in the period', () => {
-            const rows = parseReleaseRows(
-                [
-                    releaseRow('1.2.0', [
-                        ['2026-06-03 00:00:00', 7],
-                        ['2026-06-01 00:00:00', 3],
-                    ]),
-                ],
-                BUCKET_KEYS
-            )
-
-            expect(buildReleaseBreakdown(rows, BUCKET_KEYS, PALETTE).bands[0]).toMatchObject({
-                firstSeen: '2026-06-01 00:00:00',
-                lastSeen: '2026-06-03 00:00:00',
-            })
-        })
-
         it('folds everything past the visible cap into one band that cannot be filtered', () => {
             const rows = parseReleaseRows(
                 Array.from({ length: MAX_VISIBLE_BANDS + 3 }, (_, index) =>

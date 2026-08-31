@@ -32,9 +32,14 @@ describe('insightsMetrics', () => {
         it.each([
             [100, 20, 80],
             [100, 0, 100],
-            [0, 0, 100],
         ])('%s sessions with %s crashing is %s%% crash-free', (sessions, crashSessions, expected) => {
             expect(crashFreeRate({ sessions, crashSessions })).toBe(expected)
+        })
+
+        // Reporting 100% for a period with no traffic claims a clean period on no evidence, and hands
+        // the comparison a baseline that makes every delta read as no change.
+        it('has no rate for a period with no sessions', () => {
+            expect(crashFreeRate({ sessions: 0, crashSessions: 0 })).toBeNull()
         })
     })
 

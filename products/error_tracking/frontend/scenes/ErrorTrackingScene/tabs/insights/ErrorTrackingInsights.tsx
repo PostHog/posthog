@@ -1,4 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 
@@ -26,7 +28,9 @@ export function ErrorTrackingInsights(): JSX.Element {
         metrics,
         metricsLoading,
         incompleteTail,
+        loadFailed,
     } = useValues(errorTrackingInsightsLogic)
+    const { loadInsights } = useActions(errorTrackingInsightsLogic)
 
     return (
         <div>
@@ -34,6 +38,11 @@ export function ErrorTrackingInsights(): JSX.Element {
                 <InsightsFilters />
             </SceneStickyBar>
             <div className="flex flex-col gap-4">
+                {loadFailed && (
+                    <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadInsights() }}>
+                        Couldn't load these insights. The numbers below may be out of date.
+                    </LemonBanner>
+                )}
                 <InsightsSection title="Key metrics">
                     <MetricTiles metrics={metrics} loading={metricsLoading} incompleteTail={incompleteTail} />
                 </InsightsSection>

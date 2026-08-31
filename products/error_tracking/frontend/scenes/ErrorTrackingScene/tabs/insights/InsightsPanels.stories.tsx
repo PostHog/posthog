@@ -162,6 +162,7 @@ export const ExceptionsByRelease: Story = {
             theme={theme}
             timezone="UTC"
             interval="day"
+            incompleteTail={false}
             onSelectBand={() => {}}
         />
     )),
@@ -176,6 +177,7 @@ export const ExceptionsByApp: Story = {
             theme={theme}
             timezone="UTC"
             interval="day"
+            incompleteTail={false}
             onSelectBand={() => {}}
         />
     )),
@@ -190,6 +192,7 @@ export const ExceptionsByReleaseEmpty: Story = {
             theme={theme}
             timezone="UTC"
             interval="day"
+            incompleteTail={false}
             onSelectBand={() => {}}
         />
     )),
@@ -197,11 +200,20 @@ export const ExceptionsByReleaseEmpty: Story = {
 
 export const ReleaseList: Story = {
     render: withTheme(() => (
-        <ExceptionBandTable
+        <ExceptionBandTable bands={BREAKDOWN.bands} loading={false} columnLabel="Release" onSelectBand={() => {}} />
+    )),
+}
+
+export const ExceptionsByReleaseInProgressBucket: Story = {
+    render: withTheme((theme) => (
+        <ExceptionBandChart
             bands={BREAKDOWN.bands}
+            labels={BUCKETS}
             loading={false}
+            theme={theme}
+            timezone="UTC"
             interval="day"
-            columnLabel="Release"
+            incompleteTail
             onSelectBand={() => {}}
         />
     )),

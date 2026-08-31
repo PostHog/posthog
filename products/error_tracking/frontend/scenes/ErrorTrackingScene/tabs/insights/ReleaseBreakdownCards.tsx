@@ -8,7 +8,8 @@ import { ExceptionBreakdownCard } from './ExceptionBreakdownCard'
 import { buildAppBreakdown, buildReleaseBreakdown } from './releaseBreakdown'
 
 export function ReleaseBreakdownCards(): JSX.Element {
-    const { releaseRows, releaseRowsLoading, bucketKeys, interval, timezone } = useValues(errorTrackingInsightsLogic)
+    const { releaseRows, releaseRowsLoading, bucketKeys, interval, timezone, incompleteTail } =
+        useValues(errorTrackingInsightsLogic)
     const { filterByBand } = useActions(errorTrackingInsightsLogic)
     const theme = useChartTheme()
 
@@ -38,6 +39,7 @@ export function ReleaseBreakdownCards(): JSX.Element {
                     theme={theme}
                     timezone={timezone}
                     interval={interval}
+                    incompleteTail={incompleteTail}
                     onSelectBand={filterByBand}
                 />
                 <ExceptionBreakdownCard
@@ -50,6 +52,7 @@ export function ReleaseBreakdownCards(): JSX.Element {
                     theme={theme}
                     timezone={timezone}
                     interval={interval}
+                    incompleteTail={incompleteTail}
                     onSelectBand={filterByBand}
                 />
             </div>

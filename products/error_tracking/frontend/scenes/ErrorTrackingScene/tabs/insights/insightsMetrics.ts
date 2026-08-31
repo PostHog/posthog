@@ -3,8 +3,9 @@ import { formatBucketLabel, normalizeBucket } from 'lib/utils/timeBuckets'
 import { IntervalType } from '~/types'
 
 export interface InsightMetric {
-    value: number
-    previousValue: number
+    /** Null when the period holds nothing the metric can be computed from. */
+    value: number | null
+    previousValue: number | null
     /** Null when the previous period had nothing to compare against, so the tile shows no change pill. */
     deltaPct: number | null
     sparkline: number[]
@@ -50,14 +51,26 @@ const EMPTY_TOTALS: PeriodTotals = {
 
 export const EMPTY_COMPARISON_TOTALS: ComparisonTotals = { current: EMPTY_TOTALS, previous: EMPTY_TOTALS }
 
-/** Percentage of sessions that reported no exception. A period with no sessions counts as crash-free. */
-export function crashFreeRate({ sessions, crashSessions }: Pick<PeriodTotals, 'sessions' | 'crashSessions'>): number {
-    return sessions > 0 ? ((sessions - crashSessions) / sessions) * 100 : 100
+/**
+ * Percentage of sessions that reported no exception, or null when there were no sessions at all.
+ * A period with no traffic has no rate: reporting 100% there would claim a clean period on the
+ * strength of no evidence, and it would give the comparison a baseline to divide by.
+ */
+export function crashFreeRate({
+    sessions,
+    crashSessions,
+}: Pick<PeriodTotals, 'sessions' | 'crashSessions'>): number | null {
+    return sessions > 0 ? ((sessions - crashSessions) / sessions) * 100 : null
 }
 
-function changePct(current: number, previous: number): number | null {
-    if (previous === 0) {
-        return current === 0 ? 0 : null
+/** Per-bucket rate for the sparkline, where a bucket with no sessions draws flat rather than absent. */
+function bucketCrashFreeRate(totals: PeriodTotals): number {
+    return crashFreeRate(totals) ?? 100
+}
+
+function changePct(current: number | null, previous: number | null): number | null {
+    if (current === null || previous === null || previous === 0) {
+        return current === 0 && previous === 0 ? 0 : null
     }
     return ((current - previous) / previous) * 100
 }
@@ -114,8 +127,8 @@ export function buildMetrics(
     const sparklineLabels = bucketKeys.map((key) => formatBucketLabel(key, interval))
 
     const metric = (
-        value: number,
-        previousValue: number,
+        value: number | null,
+        previousValue: number | null,
         sparkline: number[],
         goodDirection: 'up' | 'down'
     ): InsightMetric => ({
@@ -155,7 +168,7 @@ export function buildMetrics(
         crashFreeRate: metric(
             crashFreeRate(totals.current),
             crashFreeRate(totals.previous),
-            series.map(crashFreeRate),
+            series.map(bucketCrashFreeRate),
             'up'
         ),
         releases: metric(

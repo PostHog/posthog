@@ -11,13 +11,10 @@ import {
     Text,
 } from 'lib/ui/quill'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
-import { formatBucketLabel } from 'lib/utils/timeBuckets'
-
-import { IntervalType } from '~/types'
 
 import { BandFilter, ExceptionBand } from './releaseBreakdown'
 
-const COLUMN_COUNT = 5
+const COLUMN_COUNT = 3
 
 function formatShare(share: number): string {
     if (share > 0 && share < 0.5) {
@@ -65,12 +62,10 @@ function BandLabel({
 function BandRows({
     bands,
     loading,
-    interval,
     onSelectBand,
 }: {
     bands: ExceptionBand[]
     loading: boolean
-    interval: IntervalType
     onSelectBand: (filters: BandFilter[]) => void
 }): JSX.Element {
     if (loading) {
@@ -91,10 +86,6 @@ function BandRows({
     if (bands.length === 0) {
         return <TableEmpty className="py-6 text-secondary">No exceptions in this period.</TableEmpty>
     }
-    // A bucket key is a wall clock in the project's timezone, never an instant, so it is formatted
-    // rather than converted. Converting would shift every date by the browser's offset.
-    const formatSeen = (bucket: string | null): string => (bucket ? formatBucketLabel(bucket, interval) : '-')
-
     return (
         <TableBody>
             {bands.map((band) => (
@@ -108,12 +99,6 @@ function BandRows({
                     <TableCell align="right" className="tabular-nums text-secondary">
                         {formatShare(band.share)}
                     </TableCell>
-                    <TableCell align="right" className="whitespace-nowrap text-secondary">
-                        {formatSeen(band.firstSeen)}
-                    </TableCell>
-                    <TableCell align="right" className="whitespace-nowrap text-secondary">
-                        {formatSeen(band.lastSeen)}
-                    </TableCell>
                 </TableRow>
             ))}
         </TableBody>
@@ -123,13 +108,11 @@ function BandRows({
 export function ExceptionBandTable({
     bands,
     loading,
-    interval,
     columnLabel,
     onSelectBand,
 }: {
     bands: ExceptionBand[]
     loading: boolean
-    interval: IntervalType
     /** Header of the first column, naming what the rows are split by. */
     columnLabel: string
     onSelectBand: (filters: BandFilter[]) => void
@@ -142,11 +125,9 @@ export function ExceptionBandTable({
                         <TableHead expand>{columnLabel}</TableHead>
                         <TableHead align="right">Exceptions</TableHead>
                         <TableHead align="right">Share</TableHead>
-                        <TableHead align="right">First seen</TableHead>
-                        <TableHead align="right">Last seen</TableHead>
                     </TableRow>
                 </TableHeader>
-                <BandRows bands={bands} loading={loading} interval={interval} onSelectBand={onSelectBand} />
+                <BandRows bands={bands} loading={loading} onSelectBand={onSelectBand} />
             </Table>
         </div>
     )

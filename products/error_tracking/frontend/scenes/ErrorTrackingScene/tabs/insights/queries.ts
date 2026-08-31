@@ -12,6 +12,10 @@ export interface InsightQueryFilters {
 
 const MAX_HOURS_FOR_HOURLY_INTERVAL = 25
 
+// Buckets the summary series may return. Hourly windows stay under a day and daily windows come from
+// a date picker, so no reachable range approaches this.
+const MAX_SUMMARY_BUCKETS = 10000
+
 export function getInterval(dateFrom: string | null | undefined, dateTo: string | null | undefined): IntervalType {
     const from = dateStringToDayJs(dateFrom ?? null)
     const to = dateStringToDayJs(dateTo ?? null) ?? dayjs()
@@ -72,6 +76,11 @@ export function buildComparisonTotalsQuery(currentStartBucket: string, timezone:
 /**
  * The same measures per bucket over the selected period, for the metric tiles' sparklines. Column
  * order is the contract `parseSummaryBuckets` reads.
+ *
+ * The LIMIT is load-bearing. A HogQL query with no limit of its own is paginated at 100 rows, and
+ * these rows are ordered oldest first, so a window longer than 100 buckets would drop its most
+ * recent ones and the zero-fill would draw them as zeros. The cap is set above any window the date
+ * picker can produce rather than at a number a real range could reach.
  */
 export function buildSummarySeriesQuery(interval: IntervalType): string {
     return `
@@ -86,6 +95,7 @@ export function buildSummarySeriesQuery(interval: IntervalType): string {
         WHERE {filters}
         GROUP BY bucket
         ORDER BY bucket
+        LIMIT ${MAX_SUMMARY_BUCKETS}
     `
 }
 

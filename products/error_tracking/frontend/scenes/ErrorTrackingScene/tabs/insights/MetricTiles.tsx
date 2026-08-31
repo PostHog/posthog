@@ -31,6 +31,12 @@ const TILE_BODY_CLASS = 'flex h-full flex-col px-3 text-primary'
 const TILE_HEADER_CLASS = 'flex items-start justify-between gap-2'
 const TILE_TITLE_CLASS = 'text-sm font-medium'
 const TILE_SUBTITLE_CLASS = 'mt-1 text-sm opacity-60'
+const NO_VALUE = '-'
+
+/** A rate a hair under 100 must not render as a clean "100%" — that reads as "no crashes at all". */
+function formatRate(value: number): string {
+    return formatPercentage(Math.floor(value * 10) / 10, { precise: true, compact: true })
+}
 
 interface TileSpec {
     label: string
@@ -54,22 +60,25 @@ function MetricTile({
     // hours old reads as a collapse in exceptions rather than a period that has not finished.
     const dashedFromIndex =
         incompleteTail && tile.metric.sparkline.length >= 2 ? tile.metric.sparkline.length - 1 : undefined
+    const { value, previousValue, deltaPct } = tile.metric
+    // A zero delta is not a rise, so it gets no pill rather than the change badge's upward chevron.
+    const change = value !== null && deltaPct !== null && deltaPct !== 0 ? { value: deltaPct } : null
 
     return (
         <Card size="sm" flush className="flex-1">
             <Metric
                 className={TILE_BODY_CLASS}
-                value={tile.metric.value}
+                value={value ?? 0}
                 data={tile.metric.sparkline}
                 labels={tile.metric.sparklineLabels}
                 theme={theme}
                 color={tile.color}
                 goodDirection={tile.metric.goodDirection}
-                formatValue={tile.format}
-                change={tile.metric.deltaPct !== null ? { value: tile.metric.deltaPct } : null}
+                formatValue={value === null ? () => NO_VALUE : tile.format}
+                change={change}
                 changeTooltip={
-                    tile.metric.deltaPct !== null
-                        ? `vs. ${tile.format(tile.metric.previousValue)} in the previous period`
+                    change !== null && previousValue !== null
+                        ? `vs. ${tile.format(previousValue)} in the previous period`
                         : undefined
                 }
                 hoverChangeFromPreviousPoint
@@ -160,8 +169,7 @@ export function MetricTiles({
         {
             label: 'Crash-free sessions',
             metric: metrics.crashFreeRate,
-            // Two significant digits would round 99.8% to 100% and flatten the range this metric moves in.
-            format: (value) => formatPercentage(value, { precise: true, compact: true }),
+            format: formatRate,
             color: theme.colors[0],
             subtitle: 'This period',
         },

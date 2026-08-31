@@ -25,7 +25,12 @@ export function InsightsCard({
                 without reaching for the slot's markup. */}
             <CardHeader className="flex flex-row items-start justify-between gap-2">
                 <div className="flex min-w-0 flex-col gap-1">
-                    <CardTitle>{title}</CardTitle>
+                    {/* quill renders CardTitle as a plain div, so the panel titles carry no heading
+                        semantics on their own. The role restores them without forking the primitive
+                        or restating its typography on an inner element. */}
+                    <CardTitle role="heading" aria-level={3}>
+                        {title}
+                    </CardTitle>
                     {description ? <CardDescription>{description}</CardDescription> : null}
                 </div>
                 {action ? <div className="shrink-0">{action}</div> : null}
