@@ -96,14 +96,17 @@ class Emitter:
     # applied on live DBs resolve swappable deps (AUTH_USER_MODEL, swapped
     # OAuth models) to exactly that sentinel, and check_consistent_history
     # then demands the stub be applied — its squash exemption only fires for
-    # nodes with a non-empty `replaces`. Claim the app's ROOT migration so the
-    # exemption applies and check_replacements stamps the stub. The claim MUST
-    # be parentless: a mid-chain claim weaves stub and initial into a
-    # CircularDependencyError, because remove_replaced_nodes re-parents the
-    # claimed node's neighbours onto both replacement nodes. Only
-    # swappable-target apps need this; today that is posthog alone.
+    # nodes with a non-empty `replaces`. Claim the app's ROOT node so the
+    # exemption applies and check_replacements stamps the stub. Two rules:
+    # the claim MUST be parentless (a mid-chain claim weaves stub and initial
+    # into a CircularDependencyError, because remove_replaced_nodes re-parents
+    # the claimed node's neighbours onto both replacement nodes), and it must
+    # be a node that exists in the EMIT-TIME graph — the loader substitutes
+    # the historical 0284 squash for the ancient names it replaces, so
+    # "0001_initial" is not a node on a clean tree. Only swappable-target
+    # apps need this; today that is posthog alone.
     STUB_CLAIMS_BY_APP: dict[str, tuple[tuple[str, str], ...]] = {
-        "posthog": (("posthog", "0001_initial"),),
+        "posthog": (("posthog", "0001_initial_squashed_0284_improved_caching_state_idx"),),
     }
 
     def __init__(
@@ -639,7 +642,13 @@ class Emitter:
         for ms in early_models:
             create, _, _, _ = self._create_model_op(ms, set())
             stub_ops.append(create)
-        stub_claims = [key for key in self.STUB_CLAIMS_BY_APP.get(self.app, ()) if key in self.squasher.old_keys]
+        configured_claims = self.STUB_CLAIMS_BY_APP.get(self.app, ())
+        stub_claims = [key for key in configured_claims if key in self.squasher.old_keys]
+        if len(stub_claims) != len(configured_claims):
+            # An empty-replaces stub fails check_consistent_history on every
+            # live DB; that must never happen silently.
+            missing = sorted(set(configured_claims) - set(stub_claims))
+            raise RuntimeError(f"stub claim(s) not in the old partition for {self.app}: {missing}")
         stub = SquashFile(
             app=self.app,
             name=self.STUB_NAME,
