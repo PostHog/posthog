@@ -365,9 +365,7 @@ class TestCommunitySkillAPI(APIBaseTest):
             skill = _create_template_skill(slug="feed-scout")
             skill.body = "Watch {{ feed_table }} and {{ undeclared }}."
             skill.save(update_fields=["body"])
-            self.client.post(
-                self._url("feed-scout/install/"), {"variables": {"feed_table": "x"}}, format="json"
-            )
+            self.client.post(self._url("feed-scout/install/"), {"variables": {"feed_table": "x"}}, format="json")
 
         failures = _captured_events(mock_capture, "community skill install failed")
         self.assertEqual([p["reason"] for p in failures], [reason])
