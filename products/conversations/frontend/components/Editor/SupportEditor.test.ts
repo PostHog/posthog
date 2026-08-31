@@ -1,7 +1,13 @@
 import { JSONContent, getSchema } from '@tiptap/core'
 import { Node as ProseMirrorNode } from '@tiptap/pm/model'
 
-import { SUPPORT_PREVIEW_EXTENSIONS, serializeToMarkdown, serializeToPlainText } from './SupportEditor'
+import {
+    SUPPORT_EXTENSIONS,
+    SUPPORT_GREETING_EXTENSIONS,
+    SUPPORT_PREVIEW_EXTENSIONS,
+    serializeToMarkdown,
+    serializeToPlainText,
+} from './SupportEditor'
 
 // jest.setup.ts stubs this module out, which would make schema construction meaningless here
 jest.unmock('@tiptap/extension-code-block-lowlight')
@@ -148,5 +154,20 @@ describe('SupportEditor serialization and preview schema', () => {
         const doc: JSONContent = { type: 'doc', content: [{ type: 'table', content: [] }] }
         const schema = getSchema([...SUPPORT_PREVIEW_EXTENSIONS])
         expect(() => ProseMirrorNode.fromJSON(schema, doc)).toThrow('Unknown node type: table')
+    })
+
+    // The greeting is served in the unauthenticated per-token config every site visitor receives.
+    // A member mention there would publish an internal user ID, so the greeting editor drops mentions.
+    it('greeting schema has no mention node, unlike the full editor', () => {
+        const mentionDoc: JSONContent = {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'ph-mention', attrs: { id: 7 } }] }],
+        }
+        // The full editor keeps mentions for internal agent threads.
+        expect(() => ProseMirrorNode.fromJSON(getSchema([...SUPPORT_EXTENSIONS]), mentionDoc).check()).not.toThrow()
+        // The public greeting must not, or `@member:<id>` leaks into the widget config.
+        expect(() => ProseMirrorNode.fromJSON(getSchema([...SUPPORT_GREETING_EXTENSIONS]), mentionDoc)).toThrow(
+            'Unknown node type: ph-mention'
+        )
     })
 })

@@ -167,6 +167,7 @@ export function WidgetSection(): JSX.Element {
                                         <SupportEditor
                                             key={currentTeam.id}
                                             placeholder="Enter greeting message"
+                                            disableMentions
                                             initialContent={
                                                 currentTeam.conversations_settings?.widget_greeting_rich_content ??
                                                 greetingTextToRichContent(

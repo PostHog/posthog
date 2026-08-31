@@ -158,6 +158,8 @@ export type SupportEditorProps = {
     disabled?: boolean
     minRows?: number
     className?: string
+    /** Drop member mentions — use on public surfaces like the widget greeting, where a mention publishes an internal user ID. */
+    disableMentions?: boolean
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -264,6 +266,14 @@ export const SUPPORT_EXTENSIONS = [
     LinkOnPasteExtension,
     SupportCodeBlockExtension,
 ]
+
+// The widget greeting is published in the per-token config that every site visitor receives
+// unauthenticated, so it drops member mentions. A mention carries an internal user ID and means
+// nothing to a visitor. Removing both the suggestion trigger and the node keeps a mention out of
+// the saved rich content and its plain-text fallback.
+export const SUPPORT_GREETING_EXTENSIONS = SUPPORT_EXTENSIONS.filter(
+    (extension) => extension !== MentionsExtension && extension !== RichContentNodeMention
+)
 
 export const SUPPORT_PREVIEW_EXTENSIONS = [
     MentionsExtension,
@@ -519,6 +529,7 @@ export function SupportEditor({
     disabled = false,
     minRows,
     className,
+    disableMentions = false,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -543,7 +554,7 @@ export function SupportEditor({
 
     const editor = useRichContentEditor({
         extensions: [
-            ...SUPPORT_EXTENSIONS,
+            ...(disableMentions ? SUPPORT_GREETING_EXTENSIONS : SUPPORT_EXTENSIONS),
             Placeholder.configure({ placeholder }),
             CommandEnterExtension.configure({ onPressCmdEnter }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
