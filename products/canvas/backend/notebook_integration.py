@@ -12,6 +12,30 @@ from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVers
 from products.canvas.backend.source import has_errors, synthetic_source_project, validate_source_project
 
 _READ_FRAME_RE = re.compile(r"\bph\s*\.\s*readFrame\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
+_NOTEBOOK_SOURCE_RESTRICTIONS: tuple[tuple[re.Pattern[str], str, str], ...] = (
+    (
+        re.compile(
+            r"\bph\s*\.\s*readFrame\b(?!\s*\()|\bph\s*\[\s*[\"']readFrame[\"']\s*\]"
+            r"|\b(?:const|let|var)\s*\{[^}]*\breadFrame\b[^}]*\}\s*=\s*ph\b"
+        ),
+        "notebook_frame_indirect_access",
+        "Use ph.readFrame() directly with a literal dataframe name.",
+    ),
+    (
+        re.compile(r"\bph\s*(?:\.\s*state\b|\[\s*[\"']state[\"']\s*\])"),
+        "notebook_state_access_not_allowed",
+        "Notebook widgets cannot access Canvas state directly. Use ph.readFrame() for dataframe input.",
+    ),
+    (
+        re.compile(
+            r"\b(?:window|globalThis|self|document|top|parent)\s*(?:\.\s*(?:location|navigation|open)\b|\[\s*[\"'](?:location|navigation|open)[\"']\s*\])"
+            r"|(?<![\w.])(?:location|navigation)\s*(?:\.|\[|=)"
+            r"|(?<![\w.])open\s*\("
+        ),
+        "notebook_navigation_not_allowed",
+        "Notebook widgets cannot navigate or open browser contexts.",
+    ),
+)
 _NETWORK_DIAGNOSTICS = {"network_fetch", "network_xhr"}
 _LEGACY_FRAME_BRIDGE_START = "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */"
 _LEGACY_FRAME_BRIDGE_END = "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */"
@@ -114,6 +138,9 @@ def validate_notebook_canvas_source(source: str, input_names: list[str]) -> list
         {**diagnostic, "severity": "error"} if diagnostic.get("code") in _NETWORK_DIAGNOSTICS else diagnostic
         for diagnostic in diagnostics
     ]
+    for pattern, code, message in _NOTEBOOK_SOURCE_RESTRICTIONS:
+        if pattern.search(source):
+            diagnostics.append({"severity": "error", "code": code, "message": message})
     for match in _READ_FRAME_RE.finditer(source):
         frame_name = match.group(1)
         if frame_name is None:

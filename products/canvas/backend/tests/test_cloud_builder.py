@@ -110,6 +110,41 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn("blockNavigation", runtime)
         self.assertNotIn("notebook-connect", generated)
 
+    def test_notebook_runtime_keeps_navigation_blocked_after_source_mutates_event_prototype(self) -> None:
+        result = run_cloud_builder(self._notebook_project("void ph.readFrame"))
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = { postMessage: () => {} };",
+                'globalThis.document = { readyState: "complete", body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.Element = class {};",
+                "globalThis.Event = class { preventDefault() { this.defaultPrevented = true; } };",
+                "globalThis.MessageEvent = class { constructor(_type, init) { Object.assign(this, init); } };",
+                "globalThis.navigation = { addEventListener: (type, fn) => { (listeners[type] ||= []).push(fn); } };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.dispatchEvent = () => {};",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                "Event.prototype.preventDefault = () => {};",
+                "const event = new Event();",
+                "for (const listener of listeners.navigate) listener(event);",
+                'if (!event.defaultPrevented) { console.error("navigation was not prevented"); process.exit(1); }',
+                'if (open("https://example.com") !== null) { console.error("open did not return null"); process.exit(1); }',
+                "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
         result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
 
