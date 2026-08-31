@@ -44,6 +44,7 @@ describe('notebookNodeSQLV2Logic', () => {
             .spyOn(api.notebooks, 'sqlV2RunResult')
             .mockResolvedValue({ status: 'running', result: null, error: null })
         jest.mocked(notebooksKernelStatusRetrieve).mockResolvedValue({
+            backend: 'modal',
             status: 'stopped',
             frames: [],
             cpu_cores: 1,
@@ -249,6 +250,26 @@ describe('notebookNodeSQLV2Logic', () => {
             // The user never asked for a sandbox here, so the notice has to name the rate.
             expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('$0.25 / h'))
         })
+    })
+
+    it('does not quote a rate for a free local docker kernel', async () => {
+        // The status endpoint returns hourly_price whatever the backend, but only a Modal
+        // sandbox is charged. Quoting a docker kernel invents a bill nobody will be sent.
+        jest.mocked(notebooksKernelStatusRetrieve).mockResolvedValue({
+            backend: 'docker',
+            status: 'stopped',
+            frames: [],
+            cpu_cores: 1,
+            memory_gb: 2,
+            hourly_price: 0.25,
+        } as Awaited<ReturnType<typeof notebooksKernelStatusRetrieve>>)
+        const toastSpy = jest.spyOn(lemonToast, 'info')
+        mount()
+        logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
+        expect(toastSpy).not.toHaveBeenCalledWith(expect.stringContaining('$'))
     })
 
     it('still announces the sandbox when the price lookup hangs', async () => {

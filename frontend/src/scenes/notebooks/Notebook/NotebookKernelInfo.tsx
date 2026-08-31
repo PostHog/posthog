@@ -32,9 +32,9 @@ const PRICE_TOOLTIP =
     'Billed for as long as the sandbox runs, whether or not a cell is running. Stop it to stop the charge.'
 
 export const NotebookKernelInfo = (): JSX.Element => {
-    const { shortId } = useValues(notebookLogic)
+    const { shortId, isShared } = useValues(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
-    const logic = notebookKernelInfoLogic({ shortId })
+    const logic = notebookKernelInfoLogic({ shortId, isShared })
     useAttachedLogic(logic, notebookLogic)
     const {
         kernelInfo,
