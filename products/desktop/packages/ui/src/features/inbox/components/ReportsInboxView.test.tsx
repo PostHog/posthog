@@ -12,10 +12,25 @@ const mocks = vi.hoisted(() => ({
   prefetchReport: vi.fn(),
   prefetchRoute: vi.fn(),
   searchQuery: "",
+  triageFocusEnabled: false,
+  triageProps: null as {
+    initialReportId?: string;
+    onExit: () => void;
+  } | null,
+  locationState: {} as {
+    inboxTriageOrigin?: { reportId: string };
+  },
+  navigate: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/feature-flags/useTriageFocusEnabled", () => ({
-  useTriageFocusEnabled: () => false,
+  useTriageFocusEnabled: () => mocks.triageFocusEnabled,
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  useLocation: ({ select }: { select: (location: unknown) => unknown }) =>
+    select({ state: mocks.locationState }),
+  useNavigate: () => mocks.navigate,
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
@@ -100,6 +115,16 @@ vi.mock("@posthog/ui/features/inbox/components/ReportRestoreButton", () => ({
   ReportRestoreButton: () => null,
 }));
 
+vi.mock("@posthog/ui/features/inbox/components/ReportTriageFocus", () => ({
+  ReportTriageFocus: (props: {
+    initialReportId?: string;
+    onExit: () => void;
+  }) => {
+    mocks.triageProps = props;
+    return null;
+  },
+}));
+
 vi.mock("@posthog/ui/features/inbox/components/InboxSearchFilterBar", () => ({
   InboxSearchFilterBar: () => null,
 }));
@@ -141,6 +166,9 @@ describe("ReportsInboxView", () => {
       archivedReport("hidden-report", "Slow dashboards"),
     ];
     mocks.searchQuery = "checkout";
+    mocks.triageFocusEnabled = false;
+    mocks.triageProps = null;
+    mocks.locationState = {};
     useInboxSignalsFilterStore.setState({
       searchQuery: "checkout",
       sourceProductFilter: [],
@@ -184,5 +212,21 @@ describe("ReportsInboxView", () => {
     expect(mocks.navigateToInboxReportDetail).toHaveBeenCalledWith(
       "first-report",
     );
+  });
+
+  it("returns to the same report in triage mode", () => {
+    mocks.activeReports = [
+      activeReport("first-report", "First report"),
+      activeReport("second-report", "Second report"),
+    ];
+    mocks.searchQuery = "";
+    mocks.triageFocusEnabled = true;
+    mocks.locationState = {
+      inboxTriageOrigin: { reportId: "second-report" },
+    };
+
+    render(<ReportsInboxView />);
+
+    expect(mocks.triageProps?.initialReportId).toBe("second-report");
   });
 });

@@ -208,7 +208,7 @@ describe("ReportVerdictBanner", () => {
     expect(screen.getByText("View PR on GitHub")).toBeInTheDocument();
     expect(screen.getByText("Ask about it")).toBeInTheDocument();
     expect(screen.queryByText("Continue the task")).not.toBeInTheDocument();
-    expect(screen.queryByText("Fix & monitor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Create PR")).not.toBeInTheDocument();
     expect(screen.queryByText("Defer")).not.toBeInTheDocument();
   });
 
@@ -222,44 +222,41 @@ describe("ReportVerdictBanner", () => {
     render(
       <ReportVerdictBanner
         report={{ ...report, actionability: "immediately_actionable" }}
-        actionHotkey="f"
+        actionHotkey="c"
       />,
     );
 
     expect(screen.getByText("View task")).toBeInTheDocument();
     expect(screen.getByText("Ask about it")).toBeInTheDocument();
-    expect(screen.queryByText("Fix & monitor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Create PR")).not.toBeInTheDocument();
 
-    await user.keyboard("f");
+    await user.keyboard("c");
 
     expect(openTask).toHaveBeenCalledWith(runningImplementationTask.task);
     expect(createPrReport).not.toHaveBeenCalled();
   });
 
-  it("keeps triage fix direction before starting the implementation task", async () => {
+  it("keeps triage direction before creating the implementation task", async () => {
     const user = userEvent.setup();
     render(
       <ReportVerdictBanner
         report={{ ...report, actionability: "immediately_actionable" }}
         variant="triage-actions"
-        actionHotkey="f"
-        archiveHotkey="a"
+        actionHotkey="c"
         surface="triage"
       />,
     );
 
     expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
-    expect(screen.getByText("F")).toBeInTheDocument();
-    expect(screen.getByText("A")).toBeInTheDocument();
 
-    await user.keyboard("f");
+    await user.keyboard("c");
 
     const direction = screen.getByLabelText("Optional direction for the agent");
     expect(direction).toBeInTheDocument();
     expect(createPrReport).not.toHaveBeenCalled();
 
     await user.type(direction, "Start with the smallest safe change");
-    await user.click(screen.getAllByText("Fix & monitor")[1]);
+    await user.click(screen.getAllByText("Create PR")[1]);
 
     expect(createPrReport).toHaveBeenCalledWith(
       "Start with the smallest safe change",

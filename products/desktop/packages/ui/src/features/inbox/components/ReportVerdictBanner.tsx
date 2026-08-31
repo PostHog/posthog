@@ -41,7 +41,6 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { KeyHint } from "@posthog/ui/primitives/KeyHint";
 import { useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";
@@ -52,7 +51,6 @@ const isMac =
 
 // Same sizing as PrDecisionBlock: the decision is the page's one ask.
 const BIG_BUTTON = "h-9 gap-2 px-4 text-[14px]";
-const PRIMARY_KEY_CLASS = "border-(--gray-12) bg-(--gray-12) text-(--gray-1)";
 
 const TONE_CLASS: Record<ReportVerdictTone, string> = {
   decision: "border-(--amber-6) bg-(--amber-2)",
@@ -68,7 +66,6 @@ interface ReportVerdictBannerProps {
   variant?: ReportVerdictBannerVariant;
   actionHotkey?: string;
   askHotkey?: string;
-  archiveHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
   /** Called after an action opens the report's conversation dock. */
@@ -87,7 +84,6 @@ export function ReportVerdictBanner({
   variant = "full",
   actionHotkey,
   askHotkey,
-  archiveHotkey,
   initialEngagementOnly = false,
   onEngaged,
   surface = "detail_pane",
@@ -189,10 +185,10 @@ export function ReportVerdictBanner({
     onTaskCreated: handleTaskCreated,
   });
 
-  // Archive is the "no" beside Fix & monitor's "yes" — a decision, so it lives in
-  // the decision row. Offered wherever the report is waiting on a person
+  // Keep Archive beside Create PR because both resolve the review decision.
+  // Offer it wherever the report is waiting on a person
   // (several verdict bodies tell the reader to archive; the button should be
-  // right there). Running reports keep it out of the banner — the header's
+  // right there). Running reports keep it out of the banner because the header's
   // Dismiss covers that rare case.
   const { dialog: dismissDialog, openDialog: openDismissDialog } =
     useInboxReportDismissAction(report, surface);
@@ -356,7 +352,6 @@ export function ReportVerdictBanner({
     >
       <ArchiveIcon size={15} />
       Archive…
-      {archiveHotkey && <KeyHint>{archiveHotkey.toUpperCase()}</KeyHint>}
     </Button>
   );
 
@@ -372,11 +367,6 @@ export function ReportVerdictBanner({
         >
           <ArrowSquareOutIcon size={16} />
           View PR on GitHub
-          {actionHotkey && (
-            <KeyHint className={PRIMARY_KEY_CLASS}>
-              {actionHotkey.toUpperCase()}
-            </KeyHint>
-          )}
         </Button>
       ) : report.status === "ready" && continuableTask ? (
         <Button
@@ -388,11 +378,6 @@ export function ReportVerdictBanner({
         >
           <ArrowsOutSimpleIcon />
           {surface === "triage" ? "Continue in chat" : "View task"}
-          {actionHotkey && (
-            <KeyHint className={PRIMARY_KEY_CLASS}>
-              {actionHotkey.toUpperCase()}
-            </KeyHint>
-          )}
         </Button>
       ) : report.status === "ready" && !hasExistingPr && canCreatePr ? (
         <Popover
@@ -411,12 +396,7 @@ export function ReportVerdictBanner({
                 className={buttonClass}
               >
                 {isCreatingPr ? <Spinner /> : <GitPullRequestIcon size={15} />}
-                Fix & monitor
-                {actionHotkey && (
-                  <KeyHint className={PRIMARY_KEY_CLASS}>
-                    {actionHotkey.toUpperCase()}
-                  </KeyHint>
-                )}
+                Create PR
               </Button>
             }
           />
@@ -463,7 +443,7 @@ export function ReportVerdictBanner({
                 disabled={isCreatingPr || isDiscussing}
                 onClick={handleCreatePr}
               >
-                Fix & monitor
+                Create PR
               </Button>
             </div>
           </PopoverContent>

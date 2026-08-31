@@ -44,6 +44,7 @@ import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportT
 import { SuggestedReviewerAvatarStack } from "@posthog/ui/features/inbox/components/SuggestedReviewerAvatarStack";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
@@ -68,7 +69,8 @@ import {
   navigateToInboxReportDetail,
 } from "@posthog/ui/router/navigationBridge";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -115,7 +117,22 @@ export function ReportsInboxView() {
     applyPrFilter: true,
   });
   const triageFocusEnabled = useTriageFocusEnabled();
-  const [focusMode, setFocusMode] = useState(false);
+  const triageOrigin = useInboxTriageOrigin();
+  const navigate = useNavigate();
+  const [focusMode, setFocusMode] = useState(() => triageOrigin !== null);
+
+  const exitFocusMode = useCallback(() => {
+    setFocusMode(false);
+    if (!triageOrigin) return;
+    void navigate({
+      to: "/inbox/reports",
+      replace: true,
+      state: (previous) => ({
+        ...previous,
+        inboxTriageOrigin: undefined,
+      }),
+    });
+  }, [navigate, triageOrigin]);
 
   const sections = useMemo(
     () => partitionInboxReports(scopedReports),
@@ -186,7 +203,7 @@ export function ReportsInboxView() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [triageFocusEnabled, focusMode, sections.decision.length]);
 
-  if (triageFocusEnabled && focusMode) {
+  if (triageFocusEnabled && focusMode && !isLoading) {
     return (
       <div className="h-full min-h-0">
         <ReportTriageFocus
@@ -194,7 +211,8 @@ export function ReportsInboxView() {
           allReports={allReports}
           scope={scope}
           hasActiveFilters={hasActiveFilters}
-          onExit={() => setFocusMode(false)}
+          initialReportId={triageOrigin?.reportId}
+          onExit={exitFocusMode}
         />
       </div>
     );

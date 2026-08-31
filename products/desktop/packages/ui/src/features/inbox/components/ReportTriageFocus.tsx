@@ -92,6 +92,7 @@ export function ReportTriageFocus({
   allReports,
   scope,
   hasActiveFilters,
+  initialReportId,
   onExit,
 }: {
   /** The decision queue, in the list's current sort order. */
@@ -101,9 +102,15 @@ export function ReportTriageFocus({
   /** Scope and filter context inherited from the list that opened triage. */
   scope: InboxScope;
   hasActiveFilters: boolean;
+  initialReportId?: string;
   onExit: () => void;
 }) {
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => {
+    const initialIndex = initialReportId
+      ? reports.findIndex((report) => report.id === initialReportId)
+      : -1;
+    return Math.max(0, initialIndex);
+  });
   const [dismissOpen, setDismissOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const chatOpen = useReportChatPanelStore((state) => state.open);
@@ -210,9 +217,9 @@ export function ReportTriageFocus({
   }, [finishSession, onExit]);
   const handleOpenReport = useCallback(() => {
     if (!report) return;
-    handleExit();
-    navigateToInboxReportDetail(report.id);
-  }, [handleExit, report]);
+    finishSession("exited");
+    navigateToInboxReportDetail(report.id, { returnToTriage: true });
+  }, [finishSession, report]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -301,7 +308,6 @@ export function ReportTriageFocus({
             >
               <XIcon />
               Exit triage
-              <KeyHint>Esc</KeyHint>
             </Button>
           </div>
 
@@ -432,8 +438,7 @@ export function ReportTriageFocus({
               <ReportVerdictBanner
                 report={report}
                 variant="triage-actions"
-                actionHotkey={dismissOpen ? undefined : "f"}
-                archiveHotkey={dismissOpen ? undefined : "a"}
+                actionHotkey={dismissOpen ? undefined : "c"}
                 surface="triage"
               />
               <div className="ml-auto flex items-center gap-2">
@@ -443,7 +448,6 @@ export function ReportTriageFocus({
                   onClick={handleOpenReport}
                 >
                   Open report
-                  <KeyHint>O</KeyHint>
                 </Button>
                 <Button
                   type="button"
@@ -451,7 +455,6 @@ export function ReportTriageFocus({
                   onClick={() => setExpanded((current) => !current)}
                 >
                   {expanded ? "Hide summary" : "Read summary"}
-                  <KeyHint>↵</KeyHint>
                 </Button>
               </div>
             </div>
@@ -473,6 +476,34 @@ export function ReportTriageFocus({
               </span>
             </Button>
           )}
+
+          <div className="flex flex-wrap items-center justify-center gap-4 text-[13px] text-gray-10">
+            <span className="flex items-center gap-1">
+              <KeyHint>J</KeyHint>
+              <KeyHint>K</KeyHint>
+              move
+            </span>
+            <span className="flex items-center gap-1">
+              <KeyHint>C</KeyHint>
+              create PR
+            </span>
+            <span className="flex items-center gap-1">
+              <KeyHint>A</KeyHint>
+              archive
+            </span>
+            <span className="flex items-center gap-1">
+              <KeyHint>O</KeyHint>
+              open
+            </span>
+            <span className="flex items-center gap-1">
+              <KeyHint>Enter</KeyHint>
+              summary
+            </span>
+            <span className="flex items-center gap-1">
+              <KeyHint>Esc</KeyHint>
+              exit
+            </span>
+          </div>
         </div>
 
         {dismissOpen && (
