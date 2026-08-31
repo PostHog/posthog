@@ -143,6 +143,10 @@ _LITELLM_INTERNAL_METADATA_KEYS = frozenset({
     "password",
     "session",
     "cookie",
+    "bearer",
+    "access_token",
+    "refresh_token",
+    "private_key",
 })
 
 _MAX_CUSTOM_METADATA_VALUE_SIZE = 10 * 1024
@@ -163,12 +167,7 @@ def _is_gateway_owned_property(key: str) -> bool:
 
 
 def _is_sensitive_key(key: str) -> bool:
-    key_lower = key.lower()
-    if key_lower in _LITELLM_INTERNAL_METADATA_KEYS:
-        return True
-    if any(secret in key_lower for secret in ("authorization", "api_key", "bearer", "password", "secret", "token")):
-        return True
-    return False
+    return key.lower() in _LITELLM_INTERNAL_METADATA_KEYS
 
 
 def _is_rejected_custom_key(key: str) -> bool:
@@ -179,8 +178,6 @@ def _is_rejected_custom_key(key: str) -> bool:
     if key.startswith("$") or key_lower.startswith("$"):
         return True
     if key in _GATEWAY_OWNED_FIELDS or key_lower in _GATEWAY_OWNED_FIELDS:
-        return True
-    if key_lower in _LITELLM_INTERNAL_METADATA_KEYS:
         return True
     if _is_sensitive_key(key):
         return True

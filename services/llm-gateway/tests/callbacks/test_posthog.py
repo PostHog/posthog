@@ -1368,10 +1368,11 @@ class TestTruncateForCapture:
             "$process_person_profile": False,
             "Authorization": "Bearer sensitive_token",
             "api_key": "sk-secret123",
+            "token_count": 42,
             "nested_secrets": {
                 "AUTH": "Basic secret",
                 "safe_field": "valid_value",
-                "nested_password": "super_secret_password",
+                "password": "super_secret_password",
                 "$feature/nested_flag": True,
                 "$group_nested": "should_be_stripped",
                 "$ai_injected": "should_be_stripped",
@@ -1413,9 +1414,10 @@ class TestTruncateForCapture:
             assert "$process_person_profile" not in props
             assert "Authorization" not in props
             assert "api_key" not in props
+            assert props["token_count"] == 42
             assert props["valid_custom_key"] == "valid_custom_value"
             assert "AUTH" not in props["nested_secrets"]
-            assert "nested_password" not in props["nested_secrets"]
+            assert "password" not in props["nested_secrets"]
             assert "$feature/nested_flag" not in props["nested_secrets"]
             assert "$group_nested" not in props["nested_secrets"]
             assert "$ai_injected" not in props["nested_secrets"]
