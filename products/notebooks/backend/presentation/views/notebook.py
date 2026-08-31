@@ -64,7 +64,7 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
-from products.notebooks.backend.compute_pricing import (
+from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
     find_matching_preset,
