@@ -1,6 +1,7 @@
 import { IconSend, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import {
     LemonButton,
+    LemonBanner,
     LemonDivider,
     LemonSelect,
     LemonTable,
@@ -13,6 +14,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type {
     PaginatedSubscriptionDeliveryListApi,
+    PulseRunHistoryDTOApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -98,24 +100,35 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
-// Module-scope const keeps the reference stable across parent re-renders. The expanded-row view and its
-// per-query helpers live in SubscriptionAiReportDelivery — this table just wires them into the row.
-const DELIVERY_TABLE_EXPANDABLE = {
-    rowExpandable: deliveryRowHasExpandableContent,
-    expandedRowRender: (row: SubscriptionDeliveryApi) => <ExpandedDeliveryRow row={row} />,
-}
+const EMPTY_PULSE_RUNS_BY_DELIVERY: Readonly<Record<string, PulseRunHistoryDTOApi>> = {}
 
 // Only called from storybook visual tests — production use ignores the optional set.
-function buildExpandable(initiallyExpandedIds?: ReadonlySet<string>): typeof DELIVERY_TABLE_EXPANDABLE & {
+function buildExpandable(
+    pulseRunsByDelivery: Readonly<Record<string, PulseRunHistoryDTOApi>>,
+    pulseDecisionLoadingIds: Readonly<Record<string, true>>,
+    onPulseActionDecision: ((actionId: string, decision: 'adopted' | 'dismissed') => void) | undefined,
+    initiallyExpandedIds?: ReadonlySet<string>
+): {
+    rowExpandable: (row: SubscriptionDeliveryApi) => boolean
+    expandedRowRender: (row: SubscriptionDeliveryApi) => JSX.Element | null
     isRowExpanded?: (row: SubscriptionDeliveryApi) => number
 } {
+    const expandable = {
+        rowExpandable: (row: SubscriptionDeliveryApi): boolean =>
+            deliveryRowHasExpandableContent(row, pulseRunsByDelivery[row.id]),
+        expandedRowRender: (row: SubscriptionDeliveryApi): JSX.Element | null => (
+            <ExpandedDeliveryRow
+                row={row}
+                pulseRun={pulseRunsByDelivery[row.id]}
+                pulseDecisionLoadingIds={pulseDecisionLoadingIds}
+                onPulseActionDecision={onPulseActionDecision}
+            />
+        ),
+    }
     if (!initiallyExpandedIds || initiallyExpandedIds.size === 0) {
-        return DELIVERY_TABLE_EXPANDABLE
+        return expandable
     }
-    return {
-        ...DELIVERY_TABLE_EXPANDABLE,
-        isRowExpanded: (row) => (initiallyExpandedIds.has(row.id) ? 1 : -1),
-    }
+    return { ...expandable, isRowExpanded: (row) => (initiallyExpandedIds.has(row.id) ? 1 : -1) }
 }
 
 function buildDeliveryColumns(): LemonTableColumns<SubscriptionDeliveryApi> {
@@ -319,6 +332,18 @@ export type SubscriptionDeliveryHistoryProps = {
     deliveryFeedback?: Record<string, DeliveryFeedback>
     /** Deliveries thanked moments ago — those rows briefly show "Thanks!" before settling into the chosen option. */
     recentlyThankedDeliveries?: Record<string, true>
+    /** Pulse runs keyed by their immutable delivery id. */
+    pulseRunsByDelivery?: Readonly<Record<string, PulseRunHistoryDTOApi>>
+    /** Recommendation ids whose outcome decision is in flight. */
+    pulseDecisionLoadingIds?: Readonly<Record<string, true>>
+    /** Whether the proactive history request failed after the subscription loaded. */
+    pulseHistoryLoadFailed?: boolean
+    /** Whether the proactive history request is in flight. */
+    pulseHistoryLoading?: boolean
+    /** Persisted, server-attributed action feedback. */
+    onPulseActionDecision?: (actionId: string, decision: 'adopted' | 'dismissed') => void
+    /** Retry the proactive history request after a failed response. */
+    onRetryPulseHistory?: () => void
     /**
      * STORYBOOK-ONLY: delivery ids whose AI summary row should render pre-expanded
      * on first render. Used exclusively by visual regression tests to capture the
@@ -338,6 +363,12 @@ export function SubscriptionDeliveryHistory({
     onDeliveryFeedback,
     deliveryFeedback = {},
     recentlyThankedDeliveries = {},
+    pulseRunsByDelivery = EMPTY_PULSE_RUNS_BY_DELIVERY,
+    pulseDecisionLoadingIds = {},
+    pulseHistoryLoadFailed = false,
+    pulseHistoryLoading = false,
+    onPulseActionDecision,
+    onRetryPulseHistory,
     __storyOnlyInitiallyExpandedDeliveryIds,
 }: SubscriptionDeliveryHistoryProps): JSX.Element {
     const rowCount = deliveriesPage?.results.length ?? 0
@@ -349,7 +380,12 @@ export function SubscriptionDeliveryHistory({
         (deliveryStatusFilter != null && deliveriesPage != null)
     const showStatusFilter = Boolean(onDeliveryStatusFilterChange)
     const tableEmptyState = deliveryStatusFilter != null ? 'No deliveries match this filter' : 'No deliveries yet'
-    const expandable = buildExpandable(__storyOnlyInitiallyExpandedDeliveryIds)
+    const expandable = buildExpandable(
+        pulseRunsByDelivery,
+        pulseDecisionLoadingIds,
+        onPulseActionDecision,
+        __storyOnlyInitiallyExpandedDeliveryIds
+    )
     const columns = onDeliveryFeedback
         ? [...deliveryColumns, buildFeedbackColumn(deliveryFeedback, recentlyThankedDeliveries, onDeliveryFeedback)]
         : deliveryColumns
@@ -375,6 +411,19 @@ export function SubscriptionDeliveryHistory({
                         </div>
                     ) : null}
                 </div>
+                {pulseHistoryLoadFailed && onRetryPulseHistory ? (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Retry',
+                            onClick: onRetryPulseHistory,
+                            loading: pulseHistoryLoading,
+                            disabled: pulseHistoryLoading,
+                        }}
+                    >
+                        Could not load proactive delivery details.
+                    </LemonBanner>
+                ) : null}
                 {showTable ? (
                     <LemonTable
                         dataSource={deliveriesPage?.results ?? []}

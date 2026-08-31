@@ -17,6 +17,7 @@ import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModa
 type StoryArgs = SubscriptionsModalProps & {
     formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit'
     narrow?: boolean
+    proactiveAvailable?: boolean
 }
 
 const DASHBOARD = {
@@ -183,6 +184,14 @@ const AI_REPORT_MIXED_CONTEXT = {
     id: 32,
     title: 'Activation and retention report',
     prompt: 'Compare activation and retention trends from the last week.',
+    proactive_config: {
+        enabled: true,
+        create_draft_pr: true,
+        repository: 'PostHog/posthog',
+        repository_integration_id: 17,
+        repository_grant_id: '00000000-0000-4000-8000-000000000017',
+        public_research_subject_id: null,
+    },
     contexts: [
         { dashboard_id: 1, dashboard_name: 'Product overview' },
         { insight_id: 12, insight_short_id: 'ins12', insight_name: 'Signup conversion' },
@@ -205,6 +214,7 @@ const AI_PROMPT_PARAMETERS = {
     featureFlags: {
         [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
         [FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]: true,
+        [FEATURE_FLAGS.SUBSCRIPTION_CREATION_WIZARD]: 'test',
     },
 }
 
@@ -223,7 +233,7 @@ const meta: Meta<StoryArgs> = {
         },
     },
     render: (args) => {
-        const { formScenario = 'default', narrow = false, ...props } = args
+        const { formScenario = 'default', narrow = false, proactiveAvailable = true, ...props } = args
         const aiSummaryAtLimit = formScenario === 'ai-summary-limit'
         const freeTierSubscriptionCount = formScenario === 'free-tier-limit' ? 5 : undefined
         const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
@@ -264,6 +274,7 @@ const meta: Meta<StoryArgs> = {
                     return { count: results.length, results }
                 },
                 '/api/environments/:id/subscriptions/:subId': selectedSubscription,
+                '/api/projects/:id/subscriptions/:subId/': selectedSubscription,
                 '/api/projects/:id/subscriptions/': {
                     count: freeTierSubscriptionCount ?? 0,
                     results: [],
@@ -272,6 +283,21 @@ const meta: Meta<StoryArgs> = {
                 '/api/projects/:id/subscriptions/summary_quota': aiSummaryAtLimit
                     ? { active_count: 10, limit: 10, at_limit: true }
                     : { active_count: 0, limit: 10, at_limit: false },
+                '/api/projects/:id/subscriptions/pulse/configuration-options/': {
+                    proactive_available: proactiveAvailable,
+                    draft_pr_available: proactiveAvailable,
+                    repositories: [
+                        { repository: 'PostHog/posthog', repository_integration_id: 17 },
+                        { repository: 'PostHog/posthog-js', repository_integration_id: 17 },
+                    ],
+                    public_research_subjects: [
+                        {
+                            id: '00000000-0000-4000-8000-000000000010',
+                            display_name: 'PostHog public documentation',
+                            canonical_domain: 'posthog.com',
+                        },
+                    ],
+                },
                 '/api/projects/:id/integrations': { results: [mockIntegration] },
                 '/api/projects/:id/integrations/:intId/channels': { channels: mockSlackChannels },
             },
@@ -325,6 +351,19 @@ export const SubscriptionWizardNew: Story = {
     args: { isCreating: true, formScenario: 'default' },
 }
 
+export const ProactiveAIReportWizard: Story = {
+    parameters: {
+        ...AI_PROMPT_PARAMETERS,
+        mockDate: '2026-08-30 12:00:00',
+        pageUrl: '/subscriptions/new?resource_type=ai_prompt',
+        featureFlags: {
+            ...AI_PROMPT_PARAMETERS.featureFlags,
+            [FEATURE_FLAGS.SUBSCRIPTION_CREATION_WIZARD]: 'test',
+        },
+    },
+    args: { isCreating: true, formScenario: 'default' },
+}
+
 // Tabbed overview, dashboard context: This dashboard / Insights / AI prompt reports tabs.
 export const SubscriptionsTabbed: Story = {
     parameters: {
@@ -356,6 +395,11 @@ export const AIReportWithNoContext: Story = {
 export const AIReportWithMixedContext: Story = {
     parameters: { ...AI_PROMPT_PARAMETERS, pageUrl: `/subscriptions/${AI_REPORT_MIXED_CONTEXT.id}/edit` },
     args: { subscriptionId: AI_REPORT_MIXED_CONTEXT.id },
+}
+
+export const AIReportWithRetainedActionsUnavailable: Story = {
+    parameters: { ...AI_PROMPT_PARAMETERS, pageUrl: `/subscriptions/${AI_REPORT_MIXED_CONTEXT.id}/edit` },
+    args: { subscriptionId: AI_REPORT_MIXED_CONTEXT.id, proactiveAvailable: false },
 }
 
 export const AIReportAtContextLimit: Story = {

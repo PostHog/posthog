@@ -16,7 +16,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, SubscriptionType } from '~/types'
 
-import type { SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type {
+    SubscriptionContextApi,
+    SubscriptionWriteApi,
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { subscriptionLogic, SubscriptionLogicProps } from './subscriptionLogic'
 import { MAX_CONTEXTS } from './utils'
@@ -66,7 +69,7 @@ describe('subscriptionLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1),
+                '/api/projects/:team/subscriptions/1/': fixtureSubscriptionResponse(1),
                 '/api/projects/:team/subscriptions/1/deliveries/': {
                     next: null,
                     previous: null,
@@ -78,9 +81,19 @@ describe('subscriptionLogic', () => {
                     limit: null,
                     at_limit: false,
                 },
+                '/api/projects/:team/subscriptions/pulse/configuration-options/': {
+                    proactive_available: true,
+                    repositories: [
+                        {
+                            repository: 'example/product',
+                            repository_integration_id: 17,
+                        },
+                    ],
+                    public_research_subjects: [],
+                },
             },
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => [
+                '/api/projects/:team/subscriptions/': async ({ request }) => [
                     200,
                     { id: 42, ...((await request.json()) as Partial<SubscriptionType>) } as SubscriptionType,
                 ],
@@ -151,7 +164,7 @@ describe('subscriptionLogic', () => {
     it('uses the UTC weekday for legacy weekly subscriptions', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/projects/:team/subscriptions/1/': fixtureSubscriptionResponse(1, {
                     frequency: 'weekly',
                     start_date: '2024-01-01T00:30:00Z',
                     byweekday: null,
@@ -169,7 +182,7 @@ describe('subscriptionLogic', () => {
     it('removes hidden weekday constraints from daily subscriptions with intervals greater than one', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/projects/:team/subscriptions/1/': fixtureSubscriptionResponse(1, {
                     frequency: 'daily',
                     interval: 2,
                     byweekday: ['monday', 'wednesday'],
@@ -738,14 +751,128 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscriptionErrors.prompt).toBeUndefined()
     })
 
+    it('defaults proactive follow-up off', async () => {
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.proactive_config).toEqual({
+            enabled: false,
+            repository: null,
+            repository_integration_id: null,
+            create_draft_pr: false,
+            repository_grant_id: null,
+            public_research_subject_id: null,
+        })
+        expect(newLogic.values.proactiveConfigurationOptions).toEqual({
+            proactive_available: true,
+            repositories: [{ repository: 'example/product', repository_integration_id: 17 }],
+            public_research_subjects: [],
+        })
+    })
+
+    it('binds and clears exact proactive repository consent through logic actions', async () => {
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+
+        newLogic.actions.setProactiveEnabled(true)
+        newLogic.actions.setDraftPrEnabled(true)
+        newLogic.actions.selectProactiveRepository({
+            repository: 'example/product',
+            repository_integration_id: 17,
+        })
+
+        expect(newLogic.values.subscription.proactive_config).toMatchObject({
+            enabled: true,
+            create_draft_pr: true,
+            repository: 'example/product',
+            repository_integration_id: 17,
+        })
+
+        newLogic.actions.setProactiveEnabled(false)
+
+        expect(newLogic.values.subscription.proactive_config).toEqual({
+            enabled: false,
+            repository: null,
+            repository_integration_id: null,
+            create_draft_pr: false,
+            repository_grant_id: null,
+            public_research_subject_id: null,
+        })
+    })
+
+    it('requires an exact repository before automatic draft pull requests can be enabled', async () => {
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Help us improve activation',
+            title: 'Activation goal',
+            proactive_config: {
+                enabled: true,
+                create_draft_pr: true,
+                repository: null,
+                repository_integration_id: null,
+                repository_grant_id: null,
+                public_research_subject_id: null,
+            },
+        })
+
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscriptionErrors.proactive_config?.repository).toBe(
+            'Select a repository for automatic draft pull requests'
+        )
+    })
+
+    it('submits proactive standing consent through the generated subscription client', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            post: {
+                '/api/projects/:team/subscriptions/': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 46, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Help us improve activation',
+            title: 'Activation goal',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+            proactive_config: {
+                enabled: true,
+                create_draft_pr: true,
+                repository: 'example/product',
+                repository_integration_id: 17,
+                repository_grant_id: null,
+                public_research_subject_id: '00000000-0000-4000-8000-000000000010',
+            },
+        })
+
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.proactive_config).toEqual({
+            enabled: true,
+            create_draft_pr: true,
+            repository: 'example/product',
+            repository_integration_id: 17,
+            public_research_subject_id: '00000000-0000-4000-8000-000000000010',
+        })
+    })
+
     it('clears a carried-over insight selection when saving an AI subscription', async () => {
         // Opening the AI flow from a dashboard pre-populates dashboard_export_insights;
         // those must not be sent, else the backend rejects insights without a dashboard.
-        let capturedBody: Partial<SubscriptionType> | undefined
+        let capturedBody: Partial<SubscriptionWriteApi> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
-                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                '/api/projects/:team/subscriptions/': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionWriteApi>
                     return [200, { id: 42, ...capturedBody } as SubscriptionType]
                 },
             },
@@ -815,7 +942,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Record<string, unknown> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions/': async ({ request }) => {
                     capturedBody = (await request.json()) as Record<string, unknown>
                     return [200, { id: 44, ...capturedBody } as SubscriptionType]
                 },
@@ -851,7 +978,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Record<string, unknown> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions/': async ({ request }) => {
                     capturedBody = (await request.json()) as Record<string, unknown>
                     return [200, { id: 45, ...capturedBody } as SubscriptionType]
                 },
@@ -880,7 +1007,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Record<string, unknown> | undefined
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': {
+                '/api/projects/:team/subscriptions/1/': {
                     ...fixtureSubscriptionResponse(1, {
                         resource_type: 'ai_prompt',
                         prompt: 'Compare activation and signup conversion',
@@ -889,7 +1016,7 @@ describe('subscriptionLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                '/api/projects/:team/subscriptions/1/': async ({ request }) => {
                     capturedBody = (await request.json()) as Record<string, unknown>
                     return [200, { ...fixtureSubscriptionResponse(1), ...capturedBody } as SubscriptionType]
                 },
@@ -950,14 +1077,96 @@ describe('subscriptionLogic', () => {
         }
     )
 
+    it('retries insight context prefill once when feature flags resolve after the form loads', async () => {
+        let insightLookups = 0
+        useMocks({
+            get: {
+                '/api/environments/:team/insights/': () => {
+                    insightLookups += 1
+                    return [200, { results: [{ id: 12 }] }]
+                },
+            },
+        })
+        window.localStorage.clear()
+        initKeaTests()
+        featureFlagLogic.mount()
+        const contextLogic = subscriptionLogic({
+            id: 'new',
+            insightShortId: 'signup-conversion' as InsightShortId,
+            insightName: 'Signup conversion',
+        })
+        contextLogic.mount()
+
+        router.actions.push('/insights/signup-conversion/subscriptions/new')
+        await expectLogic(contextLogic).toFinishAllListeners()
+        contextLogic.actions.setSubscriptionValue('resource_type', 'ai_prompt')
+        await expectLogic(contextLogic).toFinishAllListeners()
+
+        expect(contextLogic.values.subscription.contexts).toEqual([])
+        expect(insightLookups).toBe(0)
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]: true })
+        await expectLogic(contextLogic).toFinishAllListeners()
+
+        expect(contextLogic.values.subscription.contexts).toEqual([INSIGHT_CONTEXT])
+        expect(insightLookups).toBe(1)
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]: true })
+        await expectLogic(contextLogic).toFinishAllListeners()
+
+        expect(insightLookups).toBe(1)
+        contextLogic.unmount()
+    })
+
+    it('waits for an in-flight insight context prefill before building the create payload', async () => {
+        let resolveInsightLookup!: (response: [number, { results: { id: number }[] }]) => void
+        const insightLookup = new Promise<[number, { results: { id: number }[] }]>((resolve) => {
+            resolveInsightLookup = resolve
+        })
+        let capturedBody: Partial<SubscriptionWriteApi> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/insights/': async () => await insightLookup,
+            },
+            post: {
+                '/api/projects/:team/subscriptions/': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionWriteApi>
+                    return [200, { id: 46, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const contextLogic = subscriptionLogic({
+            id: 'new',
+            insightShortId: 'signup-conversion' as InsightShortId,
+            insightName: 'Signup conversion',
+        })
+        contextLogic.mount()
+        router.actions.push('/insights/signup-conversion/subscriptions/new')
+        await expectLogic(contextLogic).toFinishAllListeners()
+
+        contextLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Review signup conversion.',
+            title: 'Signup conversion report',
+            target_type: 'email',
+            target_value: 'owner@example.com',
+        })
+        contextLogic.actions.submitSubscription()
+        resolveInsightLookup([200, { results: [{ id: 12 }] }])
+        await expectLogic(contextLogic).toFinishAllListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.contexts).toEqual([{ insight_id: 12 }])
+        contextLogic.unmount()
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.
-        let capturedBody: Partial<SubscriptionType> | undefined
+        let capturedBody: Partial<SubscriptionWriteApi> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
-                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                '/api/projects/:team/subscriptions/': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionWriteApi>
                     return [200, { id: 43, ...capturedBody } as SubscriptionType]
                 },
             },
@@ -974,5 +1183,81 @@ describe('subscriptionLogic', () => {
         newLogic.actions.submitSubscription()
         await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
         expect(capturedBody?.prompt).toBeUndefined()
+        expect(capturedBody?.proactive_config).toBeUndefined()
+    })
+
+    it('falls back from Actions without losing form values when Pulse becomes unavailable', async () => {
+        const wizardLogic = subscriptionLogic({ id: 'new', creationSource: 'wizard' })
+        wizardLogic.mount()
+        router.actions.push('/subscriptions/new?resource_type=ai_prompt')
+        await expectLogic(wizardLogic).toFinishAllListeners()
+
+        wizardLogic.actions.setSubscriptionWizardStep('actions')
+        wizardLogic.actions.setSubscriptionEditTab('actions')
+        wizardLogic.actions.setSubscriptionValue('title', 'Keep this report name')
+        wizardLogic.actions.loadProactiveConfigurationOptionsSuccess({
+            proactive_available: false,
+            draft_pr_available: false,
+            repositories: [],
+            public_research_subjects: [],
+        })
+        await expectLogic(wizardLogic).toFinishAllListeners()
+
+        expect(wizardLogic.values.subscriptionWizardStep).toBe('notify')
+        expect(wizardLogic.values.subscriptionEditTab).toBe('content')
+        expect(wizardLogic.values.subscription.title).toBe('Keep this report name')
+        wizardLogic.unmount()
+    })
+
+    it('keeps the selected edit tab when subscription data refreshes', async () => {
+        existingLogic.actions.setSubscriptionEditTab('delivery')
+        existingLogic.actions.loadSubscriptionSuccess({
+            ...fixtureSubscriptionResponse(1),
+            contexts: [],
+            proactive_config: {
+                enabled: false,
+                create_draft_pr: false,
+                repository: null,
+                repository_integration_id: null,
+                repository_grant_id: null,
+                public_research_subject_id: null,
+            },
+        })
+        await expectLogic(existingLogic).toFinishAllListeners()
+
+        expect(existingLogic.values.subscriptionEditTab).toBe('delivery')
+    })
+
+    it('routes a failed wizard submit to the first invalid hidden section', async () => {
+        const wizardLogic = subscriptionLogic({ id: 'new', creationSource: 'wizard' })
+        wizardLogic.mount()
+        router.actions.push('/subscriptions/new?resource_type=ai_prompt')
+        await expectLogic(wizardLogic).toFinishAllListeners()
+        wizardLogic.actions.loadProactiveConfigurationOptionsSuccess({
+            proactive_available: true,
+            draft_pr_available: true,
+            repositories: [],
+            public_research_subjects: [],
+        })
+        wizardLogic.actions.setSubscriptionValues({
+            title: 'Activation opportunities',
+            prompt: 'Find the largest activation opportunity.',
+            target_type: 'email',
+            target_value: 'owner@example.com',
+            proactive_config: {
+                enabled: true,
+                create_draft_pr: true,
+                repository: null,
+                repository_integration_id: null,
+                repository_grant_id: null,
+                public_research_subject_id: null,
+            },
+        })
+        wizardLogic.actions.setSubscriptionWizardStep('review')
+        wizardLogic.actions.submitSubscription()
+        await expectLogic(wizardLogic).toFinishAllListeners()
+
+        expect(wizardLogic.values.subscriptionWizardStep).toBe('actions')
+        wizardLogic.unmount()
     })
 })

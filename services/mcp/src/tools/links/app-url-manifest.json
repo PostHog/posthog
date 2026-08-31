@@ -1269,11 +1269,6 @@
         "params": [],
         "scope": "project"
     },
-    "pulse": {
-        "template": "/pulse",
-        "params": [],
-        "scope": "project"
-    },
     "replay": {
         "template": "/replay/home",
         "params": [],

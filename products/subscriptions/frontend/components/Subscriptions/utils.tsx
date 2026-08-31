@@ -166,7 +166,8 @@ export function formatSubscriptionSchedule(
         ? ` ${formatSelectedDeliveryDays(subscription.byweekday ?? [])}`
         : ''
 
-    return `Every ${subscription.interval} ${frequency}${selectedDays} at ${dayjs(subscription.start_date).format('h:mm A')}`
+    const interval = subscription.interval === 1 ? '' : `${subscription.interval} `
+    return `Every ${interval}${frequency}${selectedDays} at ${dayjs(subscription.start_date).format('h:mm A')}`
 }
 
 export function getSubscriptionAdvancedSettings(

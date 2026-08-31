@@ -51,7 +51,7 @@ describe('formatSubscriptionSchedule', () => {
                 start_date: '2024-01-01T09:00:00Z',
                 byweekday: ['monday', 'wednesday'],
             })
-        ).toBe('Every 1 week on Monday and Wednesday at 9:00 AM')
+        ).toBe('Every week on Monday and Wednesday at 9:00 AM')
     })
 })
 

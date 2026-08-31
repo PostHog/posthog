@@ -19,7 +19,8 @@ import { SubscriptionContextPicker } from './SubscriptionContextPicker'
 export function AiPromptSubscriptionIntroduction(): JSX.Element {
     return (
         <LemonBanner type="info" className="text-sm">
-            Tell us what you want to know. We'll surface the relevant information from your project data in each report.
+            Tell us what your team wants to achieve. Each report will surface relevant information from your project
+            data.
         </LemonBanner>
     )
 }
@@ -131,18 +132,18 @@ export function AiPromptFields({
             ) : null}
             <LemonField
                 name="prompt"
-                label="What do you want to know?"
-                help="We'll use this question to surface the right information in each report."
+                label="What goal should this report help your team achieve?"
+                help="We'll use this goal to surface the right information in each report."
             >
                 <LemonTextArea
-                    placeholder="e.g. Which events grew the most week-over-week? Highlight any unusual spikes."
+                    placeholder="e.g. Help us improve activation by finding unusual changes and the events behind them."
                     minRows={4}
                     maxLength={SubscriptionAIPromptMaxLength.CHARACTERS}
                 />
             </LemonField>
             {showExamples ? (
                 <div className="flex flex-col gap-1">
-                    <span className="text-xs text-secondary">Try one of these questions:</span>
+                    <span className="text-xs text-secondary">Try one of these goals:</span>
                     <div className="flex flex-wrap gap-1">
                         {AI_PROMPT_EXAMPLES.map((example) => (
                             <LemonButton
