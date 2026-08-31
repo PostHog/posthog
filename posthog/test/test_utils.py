@@ -490,7 +490,8 @@ class TestRelativeDateParse(TestCase):
             relative_date_parse(input, ZoneInfo("UTC"))
         # A single quote in the message flips the ErrorDetail repr delimiter to double
         # quotes, which the frontend async-query parser cannot read.
-        self.assertNotIn("'", str(ctx.exception.detail[0]))
+        detail = cast(list, ctx.exception.detail)
+        self.assertNotIn("'", str(detail[0]))
 
 
 class TestDefaultEventName(BaseTest):
