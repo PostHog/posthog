@@ -655,12 +655,12 @@ export const LoopsSkillBundlesUpdateBody = /* @__PURE__ */ zod
                         .max(loopsSkillBundlesUpdateBodyBundlesItemSkillNameMax)
                         .describe('Name of the skill inside the bundle.'),
                     skill_source: zod
-                        .enum(['user', 'repo', 'marketplace', 'codex'])
+                        .enum(['user', 'repo', 'marketplace', 'codex', 'workflow'])
                         .describe(
-                            '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                         )
                         .describe(
-                            'Local source the bundle was built from, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                            'Local source the bundle was built from, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                         ),
                     content_sha256: zod
                         .string()
@@ -2109,12 +2109,12 @@ export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.
                             .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
                             .describe('Name of the local skill included in a skill_bundle artifact.'),
                         skill_source: zod
-                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .enum(['user', 'repo', 'marketplace', 'codex', 'workflow'])
                             .describe(
-                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                             )
                             .describe(
-                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                             ),
                         content_sha256: zod
                             .string()
@@ -2204,12 +2204,12 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
                             .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
                             .describe('Name of the local skill included in a skill_bundle artifact.'),
                         skill_source: zod
-                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .enum(['user', 'repo', 'marketplace', 'codex', 'workflow'])
                             .describe(
-                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                             )
                             .describe(
-                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                             ),
                         content_sha256: zod
                             .string()
@@ -2692,12 +2692,12 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                             .max(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSkillNameMax)
                             .describe('Name of the local skill included in a skill_bundle artifact.'),
                         skill_source: zod
-                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .enum(['user', 'repo', 'marketplace', 'codex', 'workflow'])
                             .describe(
-                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                             )
                             .describe(
-                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                             ),
                         content_sha256: zod
                             .string()
@@ -2821,12 +2821,12 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                             .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
                             .describe('Name of the local skill included in a skill_bundle artifact.'),
                         skill_source: zod
-                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .enum(['user', 'repo', 'marketplace', 'codex', 'workflow'])
                             .describe(
-                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                             )
                             .describe(
-                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                             ),
                         content_sha256: zod
                             .string()
@@ -2916,12 +2916,12 @@ export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.obj
                             .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
                             .describe('Name of the local skill included in a skill_bundle artifact.'),
                         skill_source: zod
-                            .enum(['user', 'repo', 'marketplace', 'codex'])
+                            .enum(['user', 'repo', 'marketplace', 'codex', 'workflow'])
                             .describe(
-                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                                '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                             )
                             .describe(
-                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
+                                'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex\n\* `workflow` - workflow'
                             ),
                         content_sha256: zod
                             .string()

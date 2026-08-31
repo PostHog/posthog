@@ -42326,6 +42326,7 @@ export namespace Schemas {
      * * `task_model` - task_model
      * * `task_repository` - task_repository
      * * `task_mcp_installations` - task_mcp_installations
+     * * `task_skills` - task_skills
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -42351,6 +42352,7 @@ export namespace Schemas {
       TaskModel: 'task_model',
       TaskRepository: 'task_repository',
       TaskMcpInstallations: 'task_mcp_installations',
+      TaskSkills: 'task_skills',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -48877,6 +48879,7 @@ export namespace Schemas {
      * * `repo` - repo
      * * `marketplace` - marketplace
      * * `codex` - codex
+     * * `workflow` - workflow
      */
     export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
 
@@ -48886,6 +48889,7 @@ export namespace Schemas {
       Repo: 'repo',
       Marketplace: 'marketplace',
       Codex: 'codex',
+      Workflow: 'workflow',
     } as const;
 
     /**
@@ -48907,7 +48911,8 @@ export namespace Schemas {
        * * `user` - user
        * * `repo` - repo
        * * `marketplace` - marketplace
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `workflow` - workflow */
       skill_source: SkillSourceEnum;
       /**
          * SHA-256 hex digest of the bundle bytes.
@@ -57403,7 +57408,8 @@ export namespace Schemas {
        * * `user` - user
        * * `repo` - repo
        * * `marketplace` - marketplace
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `workflow` - workflow */
       skill_source: SkillSourceEnum;
       /**
          * SHA-256 hex digest of the uploaded skill bundle bytes.
