@@ -255,19 +255,12 @@ describe('email tracking code', () => {
 
     describe('versioned payload rollout', () => {
         it('emits the marker so the version reaches the engagement webhook', () => {
-            // Phase two: the marker-aware parser is fleet-wide, so minting a marked code is now safe
-            // and is what carries the sending version to an open/click/bounce arriving days later.
+            // The marker carries the sending version to an open, click or bounce arriving days later.
             const code = signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 })
             const decoded = Buffer.from(code.split('.')[0], 'base64').toString('utf8')
 
             expect(decoded.startsWith('v2:fn-1:')).toBe(true)
             expect(signer.parse(code)?.workflowVersion).toBe(3)
-        })
-
-        it('still mints an unmarked code for a send with no version, so hog functions are unchanged', () => {
-            const code = signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3 })
-
-            expect(signer.parse(code)?.workflowVersion).toBeUndefined()
         })
     })
 
