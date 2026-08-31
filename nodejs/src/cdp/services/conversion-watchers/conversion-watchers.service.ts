@@ -44,7 +44,7 @@ export class ConversionWatchersService {
     private queuedRows: ConversionWatcherRow[] = []
     private pool: Pool | null = null
     private stopped = false
-    private inFlightFlush: Promise<void> | null = null
+    private inFlight = new Set<Promise<unknown>>()
 
     // Owns its pool rather than taking one, mirroring the subscription matcher: the table lives in the
     // cyclotron database, which nothing else in the result-sink chain connects to. A process without
@@ -78,10 +78,10 @@ export class ConversionWatchersService {
         // Set first so a flush that has not started yet gets no pool and drops its rows through the
         // failure counter, rather than opening a connection this method is about to close.
         this.stopped = true
-        // A flush that is already running holds a pool reference and awaits between chunks. Ending the
-        // pool under it would fail the chunks it has not written yet, so wait for it to finish. Its own
-        // per-chunk handler reports any failure, and shutdown must not re-raise that.
-        await this.inFlightFlush?.catch(() => {})
+        // A flush or a sweep that is already running holds a pool reference and awaits a query. Ending
+        // the pool under it would fail the work it has not finished, so wait for every one of them.
+        // Each operation reports its own failure, and shutdown must not re-raise that.
+        await Promise.all([...this.inFlight].map((operation) => operation.catch(() => {})))
         const pool = this.pool
         this.pool = null
         await pool?.end()
@@ -96,18 +96,18 @@ export class ConversionWatchersService {
         gaugeConversionWatchersPending.set(this.queuedRows.length)
     }
 
-    // Published so stop() can wait for it. Cleared only by the flush that set it, so a later flush
-    // cannot have its promise dropped by an earlier one finishing.
+    // Registers a running operation so stop() can wait for it before it closes the pool. The operation
+    // takes its pool reference before the first await, so by the time it is tracked it already holds
+    // one, and stop() cannot slip in between. The returned promise is the caller's, so a failure still
+    // surfaces where it was started.
+    private track<T>(operation: Promise<T>): Promise<T> {
+        this.inFlight.add(operation)
+        void operation.catch(() => {}).finally(() => this.inFlight.delete(operation))
+        return operation
+    }
+
     public async flush(): Promise<void> {
-        const flushing = this.writeQueuedRows()
-        this.inFlightFlush = flushing
-        try {
-            await flushing
-        } finally {
-            if (this.inFlightFlush === flushing) {
-                this.inFlightFlush = null
-            }
-        }
+        await this.track(this.writeQueuedRows())
     }
 
     private async writeQueuedRows(): Promise<void> {
@@ -176,6 +176,10 @@ export class ConversionWatchersService {
      * converts is deleted by the claim, and one that never converts would otherwise live forever.
      */
     public async sweepExpired(): Promise<number> {
+        return this.track(this.deleteExpiredRows())
+    }
+
+    private async deleteExpiredRows(): Promise<number> {
         const pool = this.getPool()
         if (!pool) {
             return 0

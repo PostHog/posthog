@@ -248,8 +248,6 @@ export class CdpApi {
             this.cdpSourceWebhooksConsumer.stop(),
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
-            // CdpApi builds a CDP service set but does not extend CdpConsumerBase, so it does not
-            // inherit that class's teardown. Stop the result sinks here or their resources leak.
             this.invocationResultsService.stop(),
         ])
     }
