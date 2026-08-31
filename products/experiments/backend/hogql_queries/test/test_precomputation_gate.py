@@ -98,6 +98,22 @@ class TestShouldPrecomputeRespectsGate(ExperimentQueryRunnerBaseTest):
         assert runner._should_precompute() is False
 
     @freeze_time("2026-04-30T12:00:00Z")
+    def test_precomputed_override_falls_back_for_activation_mode(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2026, 4, 28, 0, 0, 0),  # well over threshold
+        )
+        experiment.exposure_criteria = {"activation_config": {"event": "purchase", "properties": []}}
+        experiment.save()
+        self._enable_precomputation()
+        runner = self._build_runner(experiment, precomputation_mode=PrecomputationMode.PRECOMPUTED)
+        # Activation-mode exposures can't be precomputed; the override must not force a build the
+        # exposure query builder refuses to produce.
+        assert runner._should_precompute() is False
+        assert runner._precompute_skip_reason() == "activation_config"
+
+    @freeze_time("2026-04-30T12:00:00Z")
     def test_team_disabled_skips_regardless_of_gate(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
