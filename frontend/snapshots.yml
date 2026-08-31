@@ -1828,6 +1828,10 @@ snapshots:
         hash: v1.k794b7964.4fa27c3231a20ff8e3d545a0979d1b86b1367e925d2db6ea67360941a9c10e23.bJBq_kK46OIZZXI05CslNdEuBIgjed2YSK3c5YAm4ww
     components-product-empty-state--mcp-analytics-without-wizard--light:
         hash: v1.k794b7964.8044fd4dc9bbf1559e453dd5a61a62c2aedc86a0d9e9cdbe32f29462a3c4096b.sAIpZsncmM_qxpuHF0Cq6PPIVJT412weeElI8Juz2XI
+    components-product-empty-state--metrics-needs-setup--dark:
+        hash: v1.k794b7964.f871f80c2e0437044742c14a0db2f29109168ec4dcb8ccec7e6fd814248bfc3f.GEM_Stq79cSU_62UY6840MfBQiGz-SJZ1u9dW5JG_pQ
+    components-product-empty-state--metrics-needs-setup--light:
+        hash: v1.k794b7964.508b62772da1dcd8700e677010732092b48e105cf837a8b074aa0bf5522abb9e.RySrCBS1xNDjeB8G8w7HObsdeP2ZssrvUNfm-We6Vpc
     components-product-empty-state--not-empty-with-action--dark:
         hash: v1.k794b7964.e344a03ab4fb6bbef2cf88d2b89c12bccfe1b5307e5e80051e47ad6adec22d93.w4TEddGy6INFXoaPeIr201fD_4xWA6jG0Uugfke9ytM
     components-product-empty-state--not-empty-with-action--light:
