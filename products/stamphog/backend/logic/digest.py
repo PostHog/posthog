@@ -83,11 +83,21 @@ _STYLE_RULES = (
     "- Prefer a plain verb to an -ing form.",
 )
 
-# A link the model wrote into the headline, in either a bare or a Slack-wrapped form. The channel
-# post is a paragraph a reader skims; the links belong on the change lines in the thread, where each
-# one is attached to the change it opens. A headline carrying one is rejected rather than repaired,
-# because cutting the URL out of a sentence leaves the punctuation around the hole behind.
-_HEADLINE_URL_RE = re.compile(r"https?://", re.IGNORECASE)
+# Link-shaped text in the channel lead, in the forms Slack renders as something to click: an
+# explicit scheme, a `www.` host, or an address. The channel post is a paragraph a reader skims,
+# and the links belong on the change lines in the thread, where each one is attached to the change
+# it opens. A lead carrying one is rejected rather than repaired, because cutting the URL out of a
+# sentence leaves the punctuation around the hole behind.
+#
+# Matching the scheme alone was not enough once a change line could be promoted here: Slack
+# autolinks a bare `www.` host too, and a line the model left without a summary falls back to the
+# contributor's own PR title.
+#
+# A bare host (`example.com`) is deliberately not matched. These summaries name files, and `.md`,
+# `.sh`, `.io` and `.co` are all live TLDs, so a pattern wide enough to catch a bare host also
+# rejects every lead that mentions a README. That trade runs the right way: a rejected lead falls
+# through to another line that says something true, and the links are one message below either way.
+_CHANNEL_LINK_RE = re.compile(r"[a-z][a-z0-9+.\-]*://|\bwww\.|\bmailto:|\S+@\S+\.\S", re.IGNORECASE)
 
 
 @frozen
@@ -423,7 +433,7 @@ def as_channel_paragraph(text: str) -> str:
     it, and the identical line one message below does not.
     """
     paragraph = " ".join(text.split())
-    return "" if _HEADLINE_URL_RE.search(paragraph) else paragraph
+    return "" if _CHANNEL_LINK_RE.search(paragraph) else paragraph
 
 
 def _headline(data: dict[str, Any]) -> str:

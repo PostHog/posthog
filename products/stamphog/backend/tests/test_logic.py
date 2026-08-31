@@ -317,6 +317,18 @@ class SlackDigestEscapingTests(SimpleTestCase):
                 "1 of 9 Stamphog-approved merges.",
             ),
             (
+                "a_scheme_less_host_slack_would_autolink_is_not_promoted",
+                True,
+                "See www.evil.example for the change.",
+                "1 of 9 Stamphog-approved merges.",
+            ),
+            (
+                "a_line_naming_a_file_is_still_promoted",
+                True,
+                "The runbook in README.md now covers the reaper.",
+                "The runbook in README.md now covers the reaper.",
+            ),
+            (
                 "a_line_written_as_bullets_collapses_into_prose",
                 True,
                 "- The widget opens.\n- It also logs.",
