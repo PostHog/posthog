@@ -83,6 +83,16 @@ function unwrapDestination(destination: string): string {
     return destination.startsWith('<') && destination.endsWith('>') ? destination.slice(1, -1) : destination
 }
 
+const HAS_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i
+const SAFE_SCHEME_RE = /^(https?|mailto):/i
+
+// Promotion writes the matched destination straight onto the href, so it must do its own scheme
+// check. The renderer blanks an unsafe href, but a card should not carry one that far. A
+// destination with no scheme is a relative path and stays allowed.
+function hasSafeScheme(href: string): boolean {
+    return !HAS_SCHEME_RE.test(href) || SAFE_SCHEME_RE.test(href)
+}
+
 function isCodeMarked(node: JSONContent): boolean {
     return node.type === 'text' && !!node.marks?.some((mark) => mark.type === 'code')
 }
@@ -110,7 +120,7 @@ function promoteCodeSpanLinks(converter: TiptapMarkdownConverter, doc: JSONConte
                 : BARE_URL_RE.test(node.text)
                   ? [node.text, node.text]
                   : []
-            if (href) {
+            if (href && hasSafeScheme(href)) {
                 const linkMark = linkMarkForHref(converter, href)
                 if (linkMark) {
                     // Keep the href we matched, not the parser's round-tripped copy. A bare URL that

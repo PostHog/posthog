@@ -247,6 +247,26 @@ describe('textCardMarkdown', () => {
         expect(textCardConverter.docToMarkdown(doc)).toBe('[`https://label.example`](https://target.example)')
     })
 
+    // Promotion writes the matched destination onto the href itself, so it cannot rely on the
+    // renderer to blank an unsafe scheme. Such a code span stays plain text with only a `code` mark.
+    it.each([
+        ['javascript', "`[click me](javascript:document.location='https://evil.example')`"],
+        ['data', '`[click me](data:text/html,hi)`'],
+        ['vbscript', '`[click me](vbscript:msgbox)`'],
+    ])('does not promote a code span link with a %s scheme', (_, markdown) => {
+        const doc = textCardConverter.markdownToDoc(markdown)
+        const textNode = doc.content?.[0]?.content?.[0]
+
+        expect(textNode?.marks?.map((m) => m.type)).toEqual(['code'])
+    })
+
+    it('promotes a code span link with a relative destination', () => {
+        const doc = textCardConverter.markdownToDoc('`[insights](/project/2/insights)`')
+        const textNode = doc.content?.[0]?.content?.[0]
+
+        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('/project/2/insights')
+    })
+
     it('leaves an ordinary code span untouched', () => {
         const doc = textCardConverter.markdownToDoc('`SELECT * FROM events`')
         const textNode = doc.content?.[0]?.content?.[0]
