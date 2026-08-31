@@ -3078,10 +3078,9 @@ export interface PaginatedTaskRunDetailDTOListApi {
  * * `local` - local
  * * `cloud` - cloud
  */
-export type TaskRunBootstrapCreateRequestEnvironmentEnumApi =
-    (typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi)[keyof typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi]
+export type RunEnvironmentEnumApi = (typeof RunEnvironmentEnumApi)[keyof typeof RunEnvironmentEnumApi]
 
-export const TaskRunBootstrapCreateRequestEnvironmentEnumApi = {
+export const RunEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
 } as const
@@ -3104,7 +3103,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      *
      * * `local` - local
      * * `cloud` - cloud */
-    environment?: TaskRunBootstrapCreateRequestEnvironmentEnumApi
+    environment?: RunEnvironmentEnumApi
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
