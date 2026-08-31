@@ -375,15 +375,13 @@ The entries below give the proposals that people repeat.
 
 ### Squash the Django migration history
 
-**Verdict: rejected** · Feb 2026 to Mar 2026 · [#48267](https://github.com/PostHog/posthog/pull/48267)
+**Verdict: landed on the third attempt** · Feb 2026 to Aug 2026 · [#48267](https://github.com/PostHog/posthog/pull/48267) · [#60518](https://github.com/PostHog/posthog/pull/60518)
 
-The PR added a squash planner, a policy for opaque operations, and 65 squashed migrations across the historical range. A zero-to-head migration on a fresh database was successful, and the schema comparison found no structural difference.
+Two designs failed first. [#48267](https://github.com/PostHog/posthog/pull/48267) used Django's optimizer per app; the effect was small because `RunPython`/`RunSQL` block the optimizer, and `state.clone()` runs per operation, so a squash only helps in proportion to the operation count it removes. [#60518](https://github.com/PostHog/posthog/pull/60518) rebuilt the final project state at a cutoff date from `CreateModel` operations; the approach was right but the trial went stale on CI blockers and a `replaces=` lineage flaw (it claimed names from its own never-merged predecessor, which no real database ever recorded).
 
-The problem is the value. The PR reports that the effect on the timing was small and noisy. The work to resolve each blocker is large, and the reviews are difficult.
+The third attempt reran the #60518 design with `tools/nextgensquash` (a package now) after fixing the lineage rule and a set of structural gaps: idempotent finalize operations so existing databases can apply the squash tail as no-ops, a stub `replaces=` claim so `check_consistent_history` passes on live databases without `--skip-checks`, and forwarding for raw-SQL indexes and composite foreign keys. A fresh database migrate dropped from roughly 20 minutes to about 4, existing databases stamp the squashes on their next migrate, and `makemigrations --check` reports zero drift against the squashed state.
 
-[#60518](https://github.com/PostHog/posthog/pull/60518) tried a second angle three months later. It took the final project state at a cutoff date and rebuilt it as one set of `CreateModel` operations. The PR says that per-app squashing "only nibbles at it because the dep graph is cross-app". That PR also did not merge.
-
-The migration replay in CI is a real cost. Two different squash designs did not decrease it enough. A different change must decrease it.
+To repeat with a newer cutoff: `python -m tools.nextgensquash emit` + `install`. The emit gate refuses young migrations that touch deferred foreign-key fields; bump the cutoff past them.
 
 _Also asked as:_ squash the migrations, compress the migration history, why are there so many migrations, speed up the migration replay, nextgensquash
 

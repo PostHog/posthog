@@ -59,6 +59,13 @@ class RiskAnalyzer:
         "RunPython": RunPythonAnalyzer(),
         "CreateModel": CreateModelAnalyzer(),
         "AlterUniqueTogether": AlterUniqueTogetherAnalyzer(),
+        # Idempotent squash variants (posthog/migration_helpers/squash_idempotent.py)
+        # behave like their parents on a fresh DB and no-op on existing ones —
+        # score them the same instead of taking the unknown-operation path.
+        "AddFieldIfMissing": AddFieldAnalyzer(),
+        "AddIndexIfMissing": AddIndexAnalyzer(),
+        "AddConstraintIfMissing": AddConstraintAnalyzer(),
+        "AlterUniqueTogetherIfMissing": AlterUniqueTogetherAnalyzer(),
         "AlterIndexTogether": AlterIndexTogetherAnalyzer(),
         "RemoveIndex": RemoveIndexAnalyzer(),
         "RemoveIndexConcurrently": RemoveIndexConcurrentlyAnalyzer(),
