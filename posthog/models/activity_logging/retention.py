@@ -3,15 +3,22 @@ from typing import TYPE_CHECKING, Optional
 
 from django.utils import timezone
 
+import structlog
+
 from posthog.constants import AvailableFeature
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
     from posthog.models.team.team import Team
 
-# Fallbacks need to be kept in sync with the smallest AUDIT_LOG feature limits in billing
-ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT = 2
-ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_UNIT = "months"
+# Smallest window billing sells: Boost gets 7 days, Scale 2 months, Enterprise 60 months. Only those
+# packages carry the feature at all, so this fallback is reached by an entitled organization whose
+# entitlement is malformed, never by one that bought no activity logs. Falling back to the smallest
+# window keeps such an organization inside what any plan grants rather than above it.
+ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT = 7
+ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_UNIT = "days"
 
 
 def _lookback_window(organization: "Organization") -> Optional[timedelta]:
@@ -25,6 +32,12 @@ def _lookback_window(organization: "Organization") -> Optional[timedelta]:
     unit = audit_log_feature.get("unit")
 
     if limit is None or unit is None:
+        logger.warning(
+            "activity_log_retention.entitlement_missing_window",
+            organization_id=str(organization.id),
+            limit=limit,
+            unit=unit,
+        )
         limit = ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT
         unit = ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_UNIT
 
@@ -36,7 +49,17 @@ def _lookback_window(organization: "Organization") -> Optional[timedelta]:
     elif unit_lower in ("year", "years"):
         return timedelta(days=limit * 365)
 
-    raise ValueError(f"Invalid unit: {unit}")
+    # Both surfaces that read this run outside HogQL's error handling — the printer and
+    # `HogQLQueryRunner.get_cache_payload` — so raising here would 500 every query naming
+    # system.activity_logs rather than surface a query error. Fall back to the smallest window
+    # instead: a unit billing has not used before must not widen what anyone can read.
+    logger.warning(
+        "activity_log_retention.entitlement_unknown_unit",
+        organization_id=str(organization.id),
+        limit=limit,
+        unit=unit,
+    )
+    return timedelta(days=ADVANCED_ACTIVITY_LOGS_LOOKBACK_FALLBACK_LIMIT)
 
 
 def get_activity_log_lookback_restriction(organization: "Organization") -> Optional[datetime]:
