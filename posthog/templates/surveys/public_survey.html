@@ -1,31 +1,40 @@
 <!DOCTYPE html>
-<html lang="{{ display_language|default:'en' }}"{% if embed_mode %} class="embed-mode"{% endif %}>
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    {% comment %}
+<html lang="{{ display_language|default:'en' }}"
+      {% if embed_mode %} class="embed-mode"{% endif %}>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        {% comment %}
         Asset URLs are absolute to the app origin (site_url): this page is also served through
         reverse-proxy domains, which route /static/* to the SDK asset CDN — Django staticfiles 404
         there. site_url is empty when SITE_URL isn't externally reachable, degrading to relative
         paths. Raw paths, not the static tag: frontend/public/ ships unhashed, so a manifest-hashed
         URL 404s. No webmanifest/mask-icon links: cross-origin manifest fetches need CORS headers
         we don't guarantee, and they add nothing to a hosted survey page.
-    {% endcomment %}
-    {% if site_url %}
-    <link rel="preconnect" href="{{ site_url }}">
-    <link rel="dns-prefetch" href="{{ site_url }}">
-    {% endif %}
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ site_url }}/static/icons/apple-touch-icon.png?v=2023-07-07">
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ site_url }}/static/icons/favicon-32x32.png?v=2023-07-07">
-    <link rel="icon" type="image/png" sizes="16x16" href="{{ site_url }}/static/icons/favicon-16x16.png?v=2023-07-07">
-    <link rel="stylesheet" href="{{ site_url }}/static/surveys/hosted-survey.css?v=1">
-    <meta name="apple-mobile-web-app-title" content="{{ name }}">
-    <meta name="application-name" content="{{ name }}">
-    <title>{{ name }}</title>
-    <meta name="description" content="{{ name }}">
-    {% if embed_mode %}
-    <script nonce="{{ request.csp_nonce }}">
+        {% endcomment %}
+        {% if site_url %}
+            <link rel="preconnect" href="{{ site_url }}">
+            <link rel="dns-prefetch" href="{{ site_url }}">
+        {% endif %}
+        <link rel="apple-touch-icon"
+              sizes="180x180"
+              href="{{ site_url }}/static/icons/apple-touch-icon.png?v=2023-07-07">
+        <link rel="icon"
+              type="image/png"
+              sizes="32x32"
+              href="{{ site_url }}/static/icons/favicon-32x32.png?v=2023-07-07">
+        <link rel="icon"
+              type="image/png"
+              sizes="16x16"
+              href="{{ site_url }}/static/icons/favicon-16x16.png?v=2023-07-07">
+        <link rel="stylesheet"
+              href="{{ site_url }}/static/surveys/hosted-survey.css?v=1">
+        <meta name="apple-mobile-web-app-title" content="{{ name }}">
+        <meta name="application-name" content="{{ name }}">
+        <title>{{ name }}</title>
+        <meta name="description" content="{{ name }}">
+        {% if embed_mode %}
+            <script nonce="{{ request.csp_nonce }}">
         document.addEventListener('DOMContentLoaded', function() {
             var container = document.querySelector('.main-container');
             if (!container) return;
@@ -37,41 +46,36 @@
                 }, '*');
             }).observe(container);
         });
-    </script>
-    {% endif %}
-</head>
-
-<body class="PostHogHostedSurvey">
-    <div class="main-container">
-        <div class="survey-progress-wrap">
-            <div
-                class="survey-progress-track"
-                id="survey-progress-track"
-                role="progressbar"
-                aria-label="Survey progress"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                aria-valuenow="0"
-            >
-                <span class="survey-progress-bar" id="survey-progress-bar"></span>
+            </script>
+        {% endif %}
+    </head>
+    <body class="PostHogHostedSurvey">
+        <div class="main-container">
+            <div class="survey-progress-wrap">
+                <div class="survey-progress-track"
+                     id="survey-progress-track"
+                     role="progressbar"
+                     aria-label="Survey progress"
+                     aria-valuemin="0"
+                     aria-valuemax="100"
+                     aria-valuenow="0">
+                    <span class="survey-progress-bar" id="survey-progress-bar"></span>
+                </div>
             </div>
-        </div>
-
-        <div class="survey-stage">
-            <div id="posthog-survey-container">
-                <div class="loading">
-                    <div class="loading-spinner"></div>
-                    <p class="loading-text">Loading…</p>
+            <div class="survey-stage">
+                <div id="posthog-survey-container">
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        <p class="loading-text">Loading…</p>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-
-    {{ survey_data|json_script:"survey-data" }}
-    {{ project_config|json_script:"project-config" }}
-    {{ display_language|json_script:"display-language" }}
-    {% include "surveys/_appearance_helpers.html" %}
-    <script nonce="{{ request.csp_nonce }}">
+        {{ survey_data|json_script:"survey-data" }}
+        {{ project_config|json_script:"project-config" }}
+        {{ display_language|json_script:"display-language" }}
+        {% include "surveys/_appearance_helpers.html" %}
+        <script nonce="{{ request.csp_nonce }}">
         const survey = JSON.parse(document.getElementById("survey-data").textContent);
         const projectConfig = JSON.parse(document.getElementById("project-config").textContent);
         const displayLanguage = JSON.parse(document.getElementById("display-language").textContent);
@@ -407,8 +411,8 @@
         applyPageAppearance(survey.appearance);
 
         document.addEventListener('DOMContentLoaded', setupSurveyShell)
-    </script>
-    <script nonce="{{ request.csp_nonce }}">
+        </script>
+        <script nonce="{{ request.csp_nonce }}">
         !function (t, e) { var o, n, p, r; e.__SV || (window.posthog = e, e._i = [], e.init = function (i, s, a) { function g(t, e) { var o = e.split("."); 2 == o.length && (t = t[o[0]], e = o[1]), t[e] = function () { t.push([e].concat(Array.prototype.slice.call(arguments, 0))) } } (p = t.createElement("script")).type = "text/javascript", p.crossOrigin = "anonymous", p.async = !0, p.src = s.api_host.replace(".i.posthog.com", "-assets.i.posthog.com") + "/static/array.full.js", (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r); var u = e; for (void 0 !== a ? u = e[a] = [] : a = "posthog", u.people = u.people || [], u.toString = function (t) { var e = "posthog"; return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e }, u.people.toString = function () { return u.toString(1) + ".people (stub)" }, o = "init Ie Ts Ms Ee Es Rs capture Ge calculateEventProperties Os register register_once register_for_session unregister unregister_for_session js getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey canRenderSurveyAsync identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty Ds Fs createPersonProfile Ls Ps opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing Cs debug I As getPageViewId captureTraceFeedback captureTraceMetric".split(" "), n = 0; n < o.length; n++)g(u, o[n]); e._i.push([i, s, a]) }, e.__SV = 1) }(document, window.posthog || []);
 
         const searchParams = new URLSearchParams(window.location.search);
@@ -486,7 +490,6 @@
             }
         });
 
-    </script>
-</body>
-
+        </script>
+    </body>
 </html>
