@@ -53,6 +53,10 @@ from products.ai_observability.backend.api.personal_spend import PersonalSpendEU
 from products.canvas.backend.artifacts import canvas_artifact
 from products.cdp.backend.api import hog_function_template
 from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
+from products.customer_analytics.backend.presentation.views.internal import (
+    InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
+    InternalAccountView as CustomerAnalyticsInternalAccountView,
+)
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
@@ -631,6 +635,15 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>",
         csrf_exempt(ConversationsInternalTicketView.as_view()),
+    ),
+    # Account routes for the CDP worker's workflow actions (auth: scoped service JWT)
+    path(
+        "api/projects/<str:team_id>/internal/customer_analytics/account",
+        csrf_exempt(CustomerAnalyticsInternalAccountView.as_view()),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/customer_analytics/account/custom_property_values",
+        csrf_exempt(CustomerAnalyticsInternalAccountCustomPropertiesView.as_view()),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
