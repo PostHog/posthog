@@ -156,7 +156,7 @@ function deriveCreateTaskFields(actions: WorkflowSchemas.HogFlowAction[]): {
 } {
   const inputs = findCreateTaskAction(actions)?.config.inputs;
   return {
-    instructions: inputs?.prompt.value ?? "",
+    instructions: inputs?.prompt?.value ?? "",
     model: inputs?.model?.value.model ?? "",
     reasoningEffort:
       (inputs?.model?.value
@@ -184,7 +184,7 @@ export function hogFlowMinimalToLoop(
   return {
     id: flow.id,
     team_id: 0,
-    created_by_id: flow.created_by.id,
+    created_by_id: flow.created_by?.id ?? null,
     name: flow.name ?? "",
     description: flow.description,
     visibility: "team",
@@ -230,7 +230,7 @@ export function hogFlowToLoop(
   return {
     id: flow.id,
     team_id: 0,
-    created_by_id: flow.created_by.id,
+    created_by_id: flow.created_by?.id ?? null,
     name: flow.name ?? "",
     description: flow.description,
     visibility: "team",
@@ -271,20 +271,23 @@ export function hogFlowToLoop(
   };
 }
 
-/** True once every part of the flow this feature didn't explicitly write has been checked:
- * the action/edge shape (see `isLoopShapedHogFlow`) and, separately, whether its schedule's
- * RRULE is one the form's picker would have produced. A flow failing either check was built or
- * edited outside this feature and should render read-only — see `LoopDetailView`. */
+/** True once every part of the flow this feature didn't explicitly write has been checked: the
+ * action/edge shape (see `isLoopShapedHogFlow`), that the flow isn't archived, that it carries
+ * exactly one schedule (HogFlows support several; this feature only ever writes one, and picking
+ * an arbitrary one of several would silently mistarget edits), and that the schedule's RRULE is
+ * one the form's picker would have produced. A flow failing any check was built or edited outside
+ * this feature — callers should treat it as not-a-loop rather than force-fit it into the form. */
 export function isDecompilableLoopHogFlow(
-  flow: Pick<WorkflowSchemas.HogFlow, "actions" | "edges">,
-  schedule: Pick<
+  flow: Pick<WorkflowSchemas.HogFlow, "actions" | "edges" | "status">,
+  schedules: Pick<
     WorkflowSchemas.HogFlowSchedule,
     "rrule" | "starts_at" | "timezone"
-  > | null,
+  >[],
 ): boolean {
   if (!isLoopShapedHogFlow(flow)) return false;
-  if (!schedule) return false;
-  return rruleScheduleToLoopTriggerConfig(schedule) !== null;
+  if (flow.status === "archived") return false;
+  if (schedules.length !== 1) return false;
+  return rruleScheduleToLoopTriggerConfig(schedules[0]) !== null;
 }
 
 export function hogFlowToFormValues(

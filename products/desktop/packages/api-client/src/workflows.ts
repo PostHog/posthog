@@ -116,7 +116,9 @@ export namespace WorkflowSchemas {
     version: number;
     status: HogFlowStatus;
     created_at: string;
-    created_by: UserBasic;
+    /** Null once the creating user's row is gone (e.g. SCIM deprovisioning hard-deletes the
+     * user) — the backend FK is `on_delete=SET_NULL`. */
+    created_by: UserBasic | null;
     updated_at: string;
     trigger: HogFlowTrigger;
     edges: HogFlowEdge[];
@@ -134,7 +136,7 @@ export namespace WorkflowSchemas {
     version: number;
     status: HogFlowStatus;
     created_at: string;
-    created_by: UserBasic;
+    created_by: UserBasic | null;
     updated_at: string;
     trigger: HogFlowTrigger;
     edges: HogFlowEdge[];

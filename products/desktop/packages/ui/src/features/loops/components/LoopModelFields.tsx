@@ -38,6 +38,9 @@ interface LoopModelFieldsProps {
     effort: LoopSchemas.LoopReasoningEffortEnum | null,
   ) => void;
   disabled?: boolean;
+  /** Hides the adapter picker: the hog_flows-backed create-task action has no field for it, so
+   * every run uses Claude regardless of what's selected here — see `formValuesToHogFlowWrite`. */
+  hideAdapter?: boolean;
 }
 
 /**
@@ -58,6 +61,7 @@ export function LoopModelFields({
   onModelChange,
   onReasoningEffortChange,
   disabled,
+  hideAdapter,
 }: LoopModelFieldsProps) {
   const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
   const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
@@ -133,16 +137,18 @@ export function LoopModelFields({
       </Field>
 
       <Flex gap="4" wrap="wrap">
-        <Field label="Adapter" className="min-w-[180px] flex-1">
-          <SettingsOptionSelect
-            value={adapter}
-            options={ADAPTER_OPTIONS}
-            onValueChange={handleAdapterChange}
-            disabled={disabled}
-            size="lg"
-            ariaLabel="Adapter"
-          />
-        </Field>
+        {hideAdapter ? null : (
+          <Field label="Adapter" className="min-w-[180px] flex-1">
+            <SettingsOptionSelect
+              value={adapter}
+              options={ADAPTER_OPTIONS}
+              onValueChange={handleAdapterChange}
+              disabled={disabled}
+              size="lg"
+              ariaLabel="Adapter"
+            />
+          </Field>
+        )}
 
         <Field label="Reasoning effort" className="min-w-[180px] flex-1">
           <SettingsOptionSelect

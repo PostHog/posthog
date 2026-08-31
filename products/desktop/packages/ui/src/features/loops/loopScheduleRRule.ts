@@ -70,15 +70,17 @@ const RRULE_TO_RECURRING: Record<
 };
 
 /** Reverses `loopScheduleTriggerConfigToRRuleWrite` for exactly the RRULE shapes it writes.
- * Returns null for a "once" schedule (`rrule` is a marker, not real recurrence — the caller
- * should read `run_at`-style timing off `starts_at` directly instead) or an RRULE this feature
- * didn't author, e.g. one edited through the main-app workflow schedule UI. */
+ * Returns null for an RRULE this feature didn't author, e.g. one edited through the main-app
+ * workflow schedule UI. */
 export function rruleScheduleToLoopTriggerConfig(
   schedule: Pick<
     WorkflowSchemas.HogFlowSchedule,
     "rrule" | "starts_at" | "timezone"
   >,
-): { cron_expression: string; timezone: string } | null {
+): { cron_expression: string; timezone: string } | { run_at: string } | null {
+  if (isOnceOffSchedule(schedule.rrule)) {
+    return { run_at: schedule.starts_at };
+  }
   const recurring = RRULE_TO_RECURRING[schedule.rrule];
   if (recurring) {
     const time = isoTimeInZone(schedule.starts_at, schedule.timezone);

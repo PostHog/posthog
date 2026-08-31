@@ -4,7 +4,10 @@ import { LOOPS_HOG_FLOWS_FLAG } from "@posthog/shared";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useQuery } from "@tanstack/react-query";
-import { hogFlowToLoop } from "../loopHogFlowMapping";
+import {
+  hogFlowToLoop,
+  isDecompilableLoopHogFlow,
+} from "../loopHogFlowMapping";
 import { loopsKeys } from "./loopsKeys";
 import { useLoopsClient } from "./useLoopsClient";
 import { useWorkflowsClient } from "./useWorkflowsClient";
@@ -43,6 +46,12 @@ export function useLoop(loopId: string | undefined) {
         workflowsClient.projectId,
         loopId,
       );
+      // A workflow this feature didn't build (or hand-edited elsewhere since) isn't a loop this
+      // feature can show or edit safely — failing here keeps Save/Delete from acting on a
+      // resource whose real shape they'd silently destroy. See `isDecompilableLoopHogFlow`.
+      if (!isDecompilableLoopHogFlow(flow, flow.schedules)) {
+        throw new Error("This workflow isn't editable as a loop.");
+      }
       return hogFlowToLoop(flow, flow.schedules[0] ?? null);
     },
     enabled: hogFlowsEnabled && !!workflowsClient && !!loopId,

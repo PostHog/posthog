@@ -5,6 +5,7 @@ import {
   Check,
 } from "@phosphor-icons/react";
 import { type LoopSchemas, LoopsApiError } from "@posthog/api-client/loops";
+import { WorkflowsApiError } from "@posthog/api-client/workflows";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { ANALYTICS_EVENTS, LOOPS_HOG_FLOWS_FLAG } from "@posthog/shared";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -86,6 +87,7 @@ type LoopFormBaseline = {
   updatedAt: string;
   values: LoopFormValues;
   serialized: string;
+  source: "loop" | "hogFlow";
 };
 
 function buildLoopFormBaseline(
@@ -99,6 +101,10 @@ function buildLoopFormBaseline(
     updatedAt: loop.updated_at,
     values,
     serialized: JSON.stringify(values),
+    // The `Loop` facade and the raw HogFlow report the same `updatedAt` for the same `loop`, so
+    // `updatedAt` equality alone can't distinguish "nothing changed" from "the hog_flows
+    // skillNames correction just arrived" — the sync effect needs this to tell them apart.
+    source: overrideValues ? "hogFlow" : "loop",
   };
 }
 
@@ -134,11 +140,30 @@ export function LoopForm({
       : undefined;
   const [values, setValues] = useState<LoopFormValues>(() => {
     if (loop) return normalizeLoopFormValues(loopToFormValues(loop));
-    if (hogFlowsEnabled) return emptyHogFlowLoopFormValues();
     // One-shot prefill from the landing prompt or a template; merged over the
     // blank defaults. Read (not consumed) here, then cleared in the effect
     // below so the manual "New loop" button always opens a blank form.
     const prefill = useLoopDraftStore.getState().prefill;
+    if (hogFlowsEnabled) {
+      const base = emptyHogFlowLoopFormValues();
+      if (!prefill) return base;
+      // Only the fields the hog_flows compiler round-trips: name/description/instructions and a
+      // schedule trigger (capped to one — see the trigger-cardinality fix above). Fields the
+      // prefill can carry that hogFlows has no counterpart for (skill, contextTarget, a
+      // github/api trigger) are dropped instead of producing an uneditable, unsavable draft.
+      const scheduleTrigger = prefill.triggers?.find(
+        (t) => t.type === "schedule",
+      );
+      return normalizeLoopFormValues({
+        ...base,
+        ...prefill,
+        skill: null,
+        skillContext: "",
+        skillNames: base.skillNames,
+        contextTarget: null,
+        triggers: scheduleTrigger ? [scheduleTrigger] : base.triggers,
+      });
+    }
     return normalizeLoopFormValues({
       ...emptyLoopFormValues(),
       ...(prefill ?? {}),
@@ -175,7 +200,15 @@ export function LoopForm({
       return;
     }
 
-    if (nextBaseline.updatedAt === baseline.updatedAt) return;
+    // The lossy `Loop` facade and the raw HogFlow report the same `updatedAt`, so this is not a
+    // genuine remote update — it's the hog_flows skillNames correction becoming available. Don't
+    // skip it just because `updatedAt` looks unchanged.
+    const isHogFlowCorrection =
+      baseline.source === "loop" && nextBaseline.source === "hogFlow";
+
+    if (nextBaseline.updatedAt === baseline.updatedAt && !isHogFlowCorrection) {
+      return;
+    }
 
     if (isDirty) {
       setHasRemoteUpdate(true);
@@ -235,7 +268,13 @@ export function LoopForm({
   const formIsValid = hogFlowsEnabled
     ? isHogFlowLoopFormValid(values)
     : isLoopFormValid(values);
-  const canSubmit = formIsValid && !isSubmitting && !hasRemoteUpdate;
+  // Blocks saving until the raw HogFlow (and its real skillNames) has loaded, or if it failed to
+  // load — otherwise a save would write back the still-uncorrected empty skillNames and silently
+  // strip the loop's attached skills. See `hogFlow` above and the sync effect below.
+  const hogFlowDataPending =
+    hogFlowsEnabled && isEdit && (hogFlow.isLoading || hogFlow.isError);
+  const canSubmit =
+    formIsValid && !isSubmitting && !hasRemoteUpdate && !hogFlowDataPending;
 
   // Per-step gate for the Next button. The final Create button is gated on the
   // whole form being valid, so jumping between steps can't submit a bad loop.
@@ -318,7 +357,12 @@ export function LoopForm({
         }
       } catch (error) {
         toast.error(isEdit ? "Failed to save loop" : "Failed to create loop", {
-          description: error instanceof Error ? error.message : undefined,
+          description:
+            error instanceof WorkflowsApiError
+              ? (error.detail ?? error.message)
+              : error instanceof Error
+                ? error.message
+                : undefined,
         });
       }
       return;
@@ -469,7 +513,14 @@ export function LoopForm({
             triggers={values.triggers}
             triggerEndpointPath={triggerEndpointPath}
             disabled={isSubmitting}
-            availableTriggerTypes={hogFlowsEnabled ? ["schedule"] : undefined}
+            availableTriggerTypes={
+              hogFlowsEnabled
+                ? values.triggers.length === 0
+                  ? ["schedule"]
+                  : []
+                : undefined
+            }
+            minTriggers={hogFlowsEnabled ? 1 : undefined}
             onChange={(triggers) => patch({ triggers })}
           />
         </Step>
@@ -478,30 +529,36 @@ export function LoopForm({
 
         <Step
           title="Options"
-          description="Visibility, working context, and notifications."
+          description={
+            hogFlowsEnabled
+              ? "Base repository."
+              : "Visibility, working context, and notifications."
+          }
         >
           <div className="grid gap-4 md:grid-cols-2">
-            <Field
-              label="Visibility"
-              hint={
-                values.contextTarget
-                  ? "Channel loops are team-visible."
-                  : undefined
-              }
-            >
-              <SettingsOptionSelect
-                value={values.visibility}
-                options={VISIBILITY_OPTIONS}
-                disabled={isSubmitting || !!values.contextTarget}
-                size="lg"
-                ariaLabel="Visibility"
-                onValueChange={(value) =>
-                  patch({
-                    visibility: value as LoopSchemas.LoopVisibilityEnum,
-                  })
+            {hogFlowsEnabled ? null : (
+              <Field
+                label="Visibility"
+                hint={
+                  values.contextTarget
+                    ? "Channel loops are team-visible."
+                    : undefined
                 }
-              />
-            </Field>
+              >
+                <SettingsOptionSelect
+                  value={values.visibility}
+                  options={VISIBILITY_OPTIONS}
+                  disabled={isSubmitting || !!values.contextTarget}
+                  size="lg"
+                  ariaLabel="Visibility"
+                  onValueChange={(value) =>
+                    patch({
+                      visibility: value as LoopSchemas.LoopVisibilityEnum,
+                    })
+                  }
+                />
+              </Field>
+            )}
 
             <Field
               label="Base repository"
@@ -525,27 +582,29 @@ export function LoopForm({
               />
             </Field>
 
-            <Field
-              label="Sandbox environment"
-              hint="Applies its environment variables, network access, and image to every run."
-            >
-              <SettingsOptionSelect
-                value={values.sandboxEnvironmentId ?? ""}
-                options={sandboxEnvironmentOptions}
-                disabled={isSubmitting || environmentsLoading}
-                size="lg"
-                ariaLabel="Sandbox environment"
-                placeholder={
-                  environmentsLoading ? "Loading environments…" : undefined
-                }
-                onValueChange={(value) =>
-                  patch({ sandboxEnvironmentId: value || null })
-                }
-              />
-            </Field>
+            {hogFlowsEnabled ? null : (
+              <Field
+                label="Sandbox environment"
+                hint="Applies its environment variables, network access, and image to every run."
+              >
+                <SettingsOptionSelect
+                  value={values.sandboxEnvironmentId ?? ""}
+                  options={sandboxEnvironmentOptions}
+                  disabled={isSubmitting || environmentsLoading}
+                  size="lg"
+                  ariaLabel="Sandbox environment"
+                  placeholder={
+                    environmentsLoading ? "Loading environments…" : undefined
+                  }
+                  onValueChange={(value) =>
+                    patch({ sandboxEnvironmentId: value || null })
+                  }
+                />
+              </Field>
+            )}
           </div>
 
-          {showContextField ? (
+          {showContextField && !hogFlowsEnabled ? (
             <Field label="Context" hint="Attach runs to a sidebar channel.">
               <LoopContextFields
                 value={values.contextTarget}
@@ -561,30 +620,42 @@ export function LoopForm({
             </Field>
           ) : null}
 
-          <Field label="Notifications">
-            <LoopNotificationsFields
-              notifications={values.notifications}
-              disabled={isSubmitting}
-              onChange={(notifications) => patch({ notifications })}
-            />
-          </Field>
+          {hogFlowsEnabled ? null : (
+            <Field label="Notifications">
+              <LoopNotificationsFields
+                notifications={values.notifications}
+                disabled={isSubmitting}
+                onChange={(notifications) => patch({ notifications })}
+              />
+            </Field>
+          )}
         </Step>
 
         <Divider />
 
-        <Step title="Advanced" description="Behavior, model, and reasoning.">
-          <Field label="Behavior">
-            <LoopBehaviorFields
-              behaviors={values.behaviors}
-              disabled={isSubmitting}
-              onChange={(behaviors) => patch({ behaviors })}
-            />
-          </Field>
+        <Step
+          title="Advanced"
+          description={
+            hogFlowsEnabled
+              ? "Model and reasoning."
+              : "Behavior, model, and reasoning."
+          }
+        >
+          {hogFlowsEnabled ? null : (
+            <Field label="Behavior">
+              <LoopBehaviorFields
+                behaviors={values.behaviors}
+                disabled={isSubmitting}
+                onChange={(behaviors) => patch({ behaviors })}
+              />
+            </Field>
+          )}
           <LoopModelFields
             adapter={values.runtimeAdapter}
             model={values.model}
             reasoningEffort={values.reasoningEffort}
             disabled={isSubmitting}
+            hideAdapter={hogFlowsEnabled}
             onAdapterChange={(runtimeAdapter) => patch({ runtimeAdapter })}
             onModelChange={(model) => patch({ model })}
             onReasoningEffortChange={(reasoningEffort) =>
@@ -692,15 +763,24 @@ export function LoopForm({
           {step === 1 ? (
             <Step
               title="When should it run?"
-              description="A loop can have several triggers, and any one of them starts a run. With no triggers, you run it yourself from the loop's page."
+              description={
+                hogFlowsEnabled
+                  ? "Set a schedule, or leave this manual-only."
+                  : "A loop can have several triggers, and any one of them starts a run. With no triggers, you run it yourself from the loop's page."
+              }
             >
               <LoopTriggerEditor
                 triggers={values.triggers}
                 triggerEndpointPath={triggerEndpointPath}
                 disabled={isSubmitting}
                 availableTriggerTypes={
-                  hogFlowsEnabled ? ["schedule"] : undefined
+                  hogFlowsEnabled
+                    ? values.triggers.length === 0
+                      ? ["schedule"]
+                      : []
+                    : undefined
                 }
+                minTriggers={hogFlowsEnabled ? 1 : undefined}
                 onChange={(triggers) => patch({ triggers })}
               />
             </Step>
@@ -709,34 +789,42 @@ export function LoopForm({
           {step === 2 ? (
             <Step
               title="Options"
-              description="Who can see it and how you hear about runs."
+              description={
+                hogFlowsEnabled
+                  ? "Base repository, model, and reasoning."
+                  : "Who can see it and how you hear about runs."
+              }
             >
-              <Field
-                label="Visibility"
-                className="max-w-[340px]"
-                hint={
-                  values.contextTarget
-                    ? "Loops attached to a channel post runs to its shared feed, so they're visible to everyone on the project."
-                    : undefined
-                }
-              >
-                <SettingsOptionSelect
-                  value={values.visibility}
-                  options={VISIBILITY_OPTIONS}
-                  disabled={isSubmitting || !!values.contextTarget}
-                  size="lg"
-                  ariaLabel="Visibility"
-                  onValueChange={(value) =>
-                    patch({
-                      visibility: value as LoopSchemas.LoopVisibilityEnum,
-                    })
-                  }
-                />
-              </Field>
+              {hogFlowsEnabled ? null : (
+                <>
+                  <Field
+                    label="Visibility"
+                    className="max-w-[340px]"
+                    hint={
+                      values.contextTarget
+                        ? "Loops attached to a channel post runs to its shared feed, so they're visible to everyone on the project."
+                        : undefined
+                    }
+                  >
+                    <SettingsOptionSelect
+                      value={values.visibility}
+                      options={VISIBILITY_OPTIONS}
+                      disabled={isSubmitting || !!values.contextTarget}
+                      size="lg"
+                      ariaLabel="Visibility"
+                      onValueChange={(value) =>
+                        patch({
+                          visibility: value as LoopSchemas.LoopVisibilityEnum,
+                        })
+                      }
+                    />
+                  </Field>
 
-              <Divider />
+                  <Divider />
+                </>
+              )}
 
-              {showContextField ? (
+              {showContextField && !hogFlowsEnabled ? (
                 <>
                   <Field
                     label="Context"
@@ -787,60 +875,79 @@ export function LoopForm({
 
               <Divider />
 
-              <Field label="Notifications">
-                <LoopNotificationsFields
-                  notifications={values.notifications}
+              {hogFlowsEnabled ? (
+                <LoopModelFields
+                  adapter={values.runtimeAdapter}
+                  model={values.model}
+                  reasoningEffort={values.reasoningEffort}
                   disabled={isSubmitting}
-                  onChange={(notifications) => patch({ notifications })}
+                  hideAdapter
+                  onAdapterChange={(runtimeAdapter) =>
+                    patch({ runtimeAdapter })
+                  }
+                  onModelChange={(model) => patch({ model })}
+                  onReasoningEffortChange={(reasoningEffort) =>
+                    patch({ reasoningEffort })
+                  }
                 />
-              </Field>
-
-              <Divider />
-
-              <Flex direction="column" gap="4">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvanced((open) => !open)}
-                  className="flex items-center gap-1.5 text-left"
-                >
-                  <CaretRight
-                    size={12}
-                    className={`text-gray-10 transition-transform ${
-                      showAdvanced ? "rotate-90" : ""
-                    }`}
-                  />
-                  <Text className="font-medium text-[12.5px] text-gray-11">
-                    Advanced
-                  </Text>
-                  <Text className="text-[11.5px] text-gray-9">
-                    Behavior, model and reasoning
-                  </Text>
-                </button>
-                {showAdvanced ? (
-                  <Flex direction="column" gap="4">
-                    <Field label="Behavior">
-                      <LoopBehaviorFields
-                        behaviors={values.behaviors}
-                        disabled={isSubmitting}
-                        onChange={(behaviors) => patch({ behaviors })}
-                      />
-                    </Field>
-                    <LoopModelFields
-                      adapter={values.runtimeAdapter}
-                      model={values.model}
-                      reasoningEffort={values.reasoningEffort}
+              ) : (
+                <>
+                  <Field label="Notifications">
+                    <LoopNotificationsFields
+                      notifications={values.notifications}
                       disabled={isSubmitting}
-                      onAdapterChange={(runtimeAdapter) =>
-                        patch({ runtimeAdapter })
-                      }
-                      onModelChange={(model) => patch({ model })}
-                      onReasoningEffortChange={(reasoningEffort) =>
-                        patch({ reasoningEffort })
-                      }
+                      onChange={(notifications) => patch({ notifications })}
                     />
+                  </Field>
+
+                  <Divider />
+
+                  <Flex direction="column" gap="4">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvanced((open) => !open)}
+                      className="flex items-center gap-1.5 text-left"
+                    >
+                      <CaretRight
+                        size={12}
+                        className={`text-gray-10 transition-transform ${
+                          showAdvanced ? "rotate-90" : ""
+                        }`}
+                      />
+                      <Text className="font-medium text-[12.5px] text-gray-11">
+                        Advanced
+                      </Text>
+                      <Text className="text-[11.5px] text-gray-9">
+                        Behavior, model and reasoning
+                      </Text>
+                    </button>
+                    {showAdvanced ? (
+                      <Flex direction="column" gap="4">
+                        <Field label="Behavior">
+                          <LoopBehaviorFields
+                            behaviors={values.behaviors}
+                            disabled={isSubmitting}
+                            onChange={(behaviors) => patch({ behaviors })}
+                          />
+                        </Field>
+                        <LoopModelFields
+                          adapter={values.runtimeAdapter}
+                          model={values.model}
+                          reasoningEffort={values.reasoningEffort}
+                          disabled={isSubmitting}
+                          onAdapterChange={(runtimeAdapter) =>
+                            patch({ runtimeAdapter })
+                          }
+                          onModelChange={(model) => patch({ model })}
+                          onReasoningEffortChange={(reasoningEffort) =>
+                            patch({ reasoningEffort })
+                          }
+                        />
+                      </Flex>
+                    ) : null}
                   </Flex>
-                ) : null}
-              </Flex>
+                </>
+              )}
             </Step>
           ) : null}
 
@@ -849,7 +956,11 @@ export function LoopForm({
               title="Review"
               description="Check everything before you create the loop."
             >
-              <ReviewList values={values} showContext={showContextField} />
+              <ReviewList
+                values={values}
+                showContext={showContextField}
+                hogFlowsEnabled={hogFlowsEnabled}
+              />
             </Step>
           ) : null}
         </Box>
@@ -1000,9 +1111,11 @@ function Divider() {
 function ReviewList({
   values,
   showContext,
+  hogFlowsEnabled,
 }: {
   values: LoopFormValues;
   showContext: boolean;
+  hogFlowsEnabled: boolean;
 }) {
   const reasoning = values.reasoningEffort ?? "auto";
   const channels = (["push", "email", "slack"] as const).filter(
@@ -1015,10 +1128,12 @@ function ReviewList({
       className="divide-y divide-(--gray-4) rounded-(--radius-3) border border-border"
     >
       <ReviewRow label="Name" value={values.name || "Not set"} />
-      <ReviewRow
-        label="Visibility"
-        value={values.visibility === "team" ? "Team" : "Personal"}
-      />
+      {hogFlowsEnabled ? null : (
+        <ReviewRow
+          label="Visibility"
+          value={values.visibility === "team" ? "Team" : "Personal"}
+        />
+      )}
       <ReviewRow
         label="Prompt"
         value={
@@ -1030,12 +1145,16 @@ function ReviewList({
       />
       <ReviewRow
         label="Model"
-        value={`${ADAPTER_LABELS[values.runtimeAdapter]} · ${formatLoopModel(
-          values.runtimeAdapter,
-          values.model,
-        )} · ${reasoning} reasoning`}
+        value={
+          hogFlowsEnabled
+            ? `${formatLoopModel(values.runtimeAdapter, values.model)} · ${reasoning} reasoning`
+            : `${ADAPTER_LABELS[values.runtimeAdapter]} · ${formatLoopModel(
+                values.runtimeAdapter,
+                values.model,
+              )} · ${reasoning} reasoning`
+        }
       />
-      {showContext ? (
+      {showContext && !hogFlowsEnabled ? (
         <ReviewRow
           label="Context"
           value={describeContext(values.contextTarget)}
@@ -1057,14 +1176,18 @@ function ReviewList({
             : values.triggers.map(summarizeTrigger).join(", ")
         }
       />
-      <ReviewRow
-        label="Auto-fix PRs"
-        value={isAutoFixEnabled(values.behaviors) ? "On" : "Off"}
-      />
-      <ReviewRow
-        label="Notifications"
-        value={channels.length === 0 ? "None" : channels.join(", ")}
-      />
+      {hogFlowsEnabled ? null : (
+        <>
+          <ReviewRow
+            label="Auto-fix PRs"
+            value={isAutoFixEnabled(values.behaviors) ? "On" : "Off"}
+          />
+          <ReviewRow
+            label="Notifications"
+            value={channels.length === 0 ? "None" : channels.join(", ")}
+          />
+        </>
+      )}
     </Flex>
   );
 }

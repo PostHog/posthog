@@ -21,6 +21,7 @@ import {
   Badge,
   Button,
 } from "@posthog/quill";
+import { LOOPS_HOG_FLOWS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { assertCloudUsageAvailable } from "@posthog/ui/features/billing/preflightCloudUsage";
@@ -28,6 +29,7 @@ import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Button as ActionButton } from "@posthog/ui/primitives/Button";
 import { TimezoneTimestamp } from "@posthog/ui/primitives/TimezoneTimestamp";
@@ -59,6 +61,7 @@ import {
   buildLoopViewedProps,
 } from "../loopAnalytics";
 import {
+  deriveHogFlowRunHealth,
   describeTrigger,
   loopFireBlockedMessage,
   loopPausedDescription,
@@ -93,6 +96,7 @@ export function LoopDetailView({
   const hasLoopListOrigin = useLocation({
     select: (location) => location.state.loopListOrigin === true,
   });
+  const hogFlowsEnabled = useFeatureFlag(LOOPS_HOG_FLOWS_FLAG);
   const { data: loop, isLoading, isError } = useLoop(loopId);
   const updateLoop = useUpdateLoop(loopId);
   const deleteLoop = useDeleteLoop();
@@ -360,6 +364,17 @@ export function LoopDetailView({
     return <LoopLoadError />;
   }
 
+  // hog_flows-backed loops carry no backend-computed run health (see `hogFlowToLoop`) — derive
+  // it from the run history already loaded above so the status badge isn't stuck on "Active".
+  const runHealth = hogFlowsEnabled ? deriveHogFlowRunHealth(runs) : null;
+  const displayLoop = runHealth
+    ? {
+        ...loop,
+        last_run_status: runHealth.lastRunStatus,
+        consecutive_failures: runHealth.consecutiveFailures,
+      }
+    : loop;
+
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       <Flex
@@ -386,8 +401,8 @@ export function LoopDetailView({
               >
                 {loop.name}
               </Text>
-              <Badge variant={loopStatusBadgeVariant(loop)}>
-                {loopStatusLabel(loop)}
+              <Badge variant={loopStatusBadgeVariant(displayLoop)}>
+                {loopStatusLabel(displayLoop)}
               </Badge>
               <Badge>{formatVisibility(loop.visibility)}</Badge>
             </Flex>

@@ -210,23 +210,42 @@ describe("hogFlowToFormValues", () => {
     );
     expect(values.triggers[0].enabled).toBe(false);
   });
+
+  it("decompiles a once-off schedule to run_at instead of dropping its timing", () => {
+    const values = hogFlowToFormValues(flow(), {
+      ...DAILY_SCHEDULE,
+      rrule: "FREQ=DAILY;COUNT=1",
+      starts_at: "2026-02-01T09:00:00.000Z",
+    });
+    expect(values.triggers[0].config).toEqual({
+      run_at: "2026-02-01T09:00:00.000Z",
+    });
+  });
 });
 
 describe("isDecompilableLoopHogFlow", () => {
-  it("is true for a canonical loop shape with a recognized schedule", () => {
-    expect(isDecompilableLoopHogFlow(flow(), DAILY_SCHEDULE)).toBe(true);
+  it("is true for a canonical loop shape with exactly one recognized schedule", () => {
+    expect(isDecompilableLoopHogFlow(flow(), [DAILY_SCHEDULE])).toBe(true);
   });
 
   it("is false with no schedule", () => {
-    expect(isDecompilableLoopHogFlow(flow(), null)).toBe(false);
+    expect(isDecompilableLoopHogFlow(flow(), [])).toBe(false);
+  });
+
+  it("is false with more than one schedule (this feature never writes a second; picking one would silently mistarget edits)", () => {
+    expect(
+      isDecompilableLoopHogFlow(flow(), [
+        DAILY_SCHEDULE,
+        { ...DAILY_SCHEDULE, id: "sched-2" },
+      ]),
+    ).toBe(false);
   });
 
   it("is false for an rrule this feature didn't author", () => {
     expect(
-      isDecompilableLoopHogFlow(flow(), {
-        ...DAILY_SCHEDULE,
-        rrule: "FREQ=MONTHLY;BYMONTHDAY=1",
-      }),
+      isDecompilableLoopHogFlow(flow(), [
+        { ...DAILY_SCHEDULE, rrule: "FREQ=MONTHLY;BYMONTHDAY=1" },
+      ]),
     ).toBe(false);
   });
 
@@ -240,8 +259,14 @@ describe("isDecompilableLoopHogFlow", () => {
     expect(
       isDecompilableLoopHogFlow(
         flow({ actions: [TRIGGER_ACTION, taskAction(), extraAction] }),
-        DAILY_SCHEDULE,
+        [DAILY_SCHEDULE],
       ),
+    ).toBe(false);
+  });
+
+  it("is false for an archived flow (Save/Resume must not resurrect it)", () => {
+    expect(
+      isDecompilableLoopHogFlow(flow({ status: "archived" }), [DAILY_SCHEDULE]),
     ).toBe(false);
   });
 });

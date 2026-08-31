@@ -1,5 +1,4 @@
-import { Text, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
-import { TextArea } from "@radix-ui/themes";
+import { Text, Textarea, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
 import { useTeamSkills } from "../../skills/useTeamSkills";
 import type { LoopFormValues } from "../loopFormTypes";
 import { Field } from "./LoopFormPrimitives";
@@ -19,7 +18,7 @@ export function LoopTeamSkillsFields({
   disabled: boolean;
   onPatch: (next: Partial<LoopFormValues>) => void;
 }) {
-  const { data, isLoading } = useTeamSkills([]);
+  const { data, isLoading, isError } = useTeamSkills([]);
   const skillNames = data?.skills.map((skill) => skill.name) ?? [];
   // A previously-attached skill that's since been archived still needs to render, so it can be
   // seen and removed.
@@ -28,7 +27,7 @@ export function LoopTeamSkillsFields({
   return (
     <div className="flex flex-col gap-3">
       <Field label="Instructions">
-        <TextArea
+        <Textarea
           value={values.instructions}
           placeholder="What should the agent do?"
           disabled={disabled}
@@ -40,6 +39,10 @@ export function LoopTeamSkillsFields({
       <Field label="Skills">
         {isLoading ? (
           <Text className="text-[12px] text-gray-10">Loading skills…</Text>
+        ) : isError ? (
+          <Text className="text-[12px] text-gray-10">
+            Couldn't load team skills. Try again later.
+          </Text>
         ) : options.length === 0 ? (
           <Text className="text-[12px] text-gray-10">No team skills yet.</Text>
         ) : (

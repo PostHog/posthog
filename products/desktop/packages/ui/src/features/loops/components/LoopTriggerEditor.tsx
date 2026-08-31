@@ -124,6 +124,11 @@ interface LoopTriggerEditorProps {
    * variant of this feature passes `["schedule"]` — HogFlow triggers other than schedule aren't
    * supported here yet. */
   availableTriggerTypes?: LoopSchemas.LoopTriggerTypeEnum[];
+  /** Floor below which "Remove trigger" is hidden. The hog_flows-backed variant of this feature
+   * always writes exactly one trigger — HogFlow has nowhere to store a manual-only loop's "no
+   * trigger" state — so removing the last one there would show a "Manual only" review row the
+   * form can never actually save. Defaults to 0 (Loop-backed forms genuinely support zero). */
+  minTriggers?: number;
 }
 
 export function LoopTriggerEditor({
@@ -132,6 +137,7 @@ export function LoopTriggerEditor({
   triggerEndpointPath,
   disabled,
   availableTriggerTypes = ALL_TRIGGER_TYPES,
+  minTriggers = 0,
 }: LoopTriggerEditorProps) {
   const updateTrigger = (key: string, patch: Partial<LoopTriggerDraft>) => {
     onChange(
@@ -148,6 +154,8 @@ export function LoopTriggerEditor({
   const addTrigger = (type: LoopSchemas.LoopTriggerTypeEnum) => {
     onChange([...triggers, defaultLoopTriggerOfType(type)]);
   };
+
+  const canRemove = triggers.length > minTriggers;
 
   return (
     <Flex direction="column" gap="3">
@@ -171,6 +179,7 @@ export function LoopTriggerEditor({
             trigger={trigger}
             triggerEndpointPath={triggerEndpointPath}
             disabled={disabled}
+            canRemove={canRemove}
             onChange={(patch) => updateTrigger(trigger.key, patch)}
             onRemove={() => removeTrigger(trigger.key)}
           />
@@ -250,12 +259,14 @@ function TriggerCard({
   trigger,
   triggerEndpointPath,
   disabled,
+  canRemove,
   onChange,
   onRemove,
 }: {
   trigger: LoopTriggerDraft;
   triggerEndpointPath: string | null;
   disabled?: boolean;
+  canRemove: boolean;
   onChange: (patch: Partial<LoopTriggerDraft>) => void;
   onRemove: () => void;
 }) {
@@ -296,37 +307,39 @@ function TriggerCard({
           disabled={disabled}
           aria-label={trigger.enabled ? "Disable trigger" : "Enable trigger"}
         />
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                type="button"
-                variant="link-muted"
-                size="sm"
-                disabled={disabled}
-                aria-label="Trigger actions"
-                className="text-gray-10"
-              >
-                <DotsThreeVertical size={16} weight="bold" />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
-            <DropdownMenuItem
-              onClick={onRemove}
+        {canRemove ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
               render={
-                <ItemMenuItem size="xs" className="w-full text-(--red-11)">
-                  <ItemMedia variant="icon" className="mt-2 ml-2">
-                    <Trash size={15} />
-                  </ItemMedia>
-                  <ItemContent variant="menuItem">
-                    <ItemTitle>Remove trigger</ItemTitle>
-                  </ItemContent>
-                </ItemMenuItem>
+                <Button
+                  type="button"
+                  variant="link-muted"
+                  size="sm"
+                  disabled={disabled}
+                  aria-label="Trigger actions"
+                  className="text-gray-10"
+                >
+                  <DotsThreeVertical size={16} weight="bold" />
+                </Button>
               }
             />
-          </DropdownMenuContent>
-        </DropdownMenu>
+            <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+              <DropdownMenuItem
+                onClick={onRemove}
+                render={
+                  <ItemMenuItem size="xs" className="w-full text-(--red-11)">
+                    <ItemMedia variant="icon" className="mt-2 ml-2">
+                      <Trash size={15} />
+                    </ItemMedia>
+                    <ItemContent variant="menuItem">
+                      <ItemTitle>Remove trigger</ItemTitle>
+                    </ItemContent>
+                  </ItemMenuItem>
+                }
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </Flex>
 
       <Box

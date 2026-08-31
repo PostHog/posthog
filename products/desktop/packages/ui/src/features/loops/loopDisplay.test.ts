@@ -1,5 +1,7 @@
+import type { LoopSchemas } from "@posthog/api-client/loops";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  deriveHogFlowRunHealth,
   describeTrigger,
   loopFireBlockedMessage,
   loopPausedDescription,
@@ -9,6 +11,22 @@ import {
   summarizeNotificationDestinations,
   summarizeTrigger,
 } from "./loopDisplay";
+
+const run = (
+  status: LoopSchemas.LoopRunStatusEnum,
+  created_at: string,
+): LoopSchemas.LoopRun => ({
+  id: created_at,
+  task_id: "task-1",
+  loop_trigger_id: null,
+  status,
+  environment: "cloud",
+  branch: null,
+  error_message: null,
+  output: null,
+  created_at,
+  completed_at: null,
+});
 
 const statusFields = (
   overrides: Partial<{
@@ -213,6 +231,40 @@ describe("nextScheduleRun", () => {
         new Date("2026-07-24T10:00:00.000Z"),
       )?.toISOString(),
     ).toBe("2026-07-27T09:00:00.000Z");
+  });
+});
+
+describe("deriveHogFlowRunHealth", () => {
+  it("returns no status and zero failures with no run history", () => {
+    expect(deriveHogFlowRunHealth([])).toEqual({
+      lastRunStatus: null,
+      consecutiveFailures: 0,
+    });
+  });
+
+  it("reads the latest run regardless of input order", () => {
+    const runs = [
+      run("failed", "2026-01-01T00:00:00.000Z"),
+      run("completed", "2026-01-03T00:00:00.000Z"),
+      run("failed", "2026-01-02T00:00:00.000Z"),
+    ];
+    expect(deriveHogFlowRunHealth(runs)).toEqual({
+      lastRunStatus: "completed",
+      consecutiveFailures: 0,
+    });
+  });
+
+  it("counts only the unbroken streak of failures since the latest run", () => {
+    const runs = [
+      run("completed", "2026-01-01T00:00:00.000Z"),
+      run("failed", "2026-01-04T00:00:00.000Z"),
+      run("failed", "2026-01-03T00:00:00.000Z"),
+      run("completed", "2026-01-02T00:00:00.000Z"),
+    ];
+    expect(deriveHogFlowRunHealth(runs)).toEqual({
+      lastRunStatus: "failed",
+      consecutiveFailures: 2,
+    });
   });
 });
 

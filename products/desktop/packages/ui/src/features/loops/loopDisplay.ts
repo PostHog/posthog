@@ -90,6 +90,25 @@ export function loopStatusLabel(loop: LoopStatusFields): string {
   return "Active";
 }
 
+/** hog_flows-backed loops carry no backend-computed `last_run_status`/`consecutive_failures`
+ * (see `hogFlowToLoop`) — this derives the same fields from the run history the detail view
+ * already loads, so the status badge reflects real failures instead of always reading "Active". */
+export function deriveHogFlowRunHealth(runs: LoopSchemas.LoopRun[]): {
+  lastRunStatus: LoopSchemas.LoopRun["status"] | null;
+  consecutiveFailures: number;
+} {
+  const sorted = [...runs].sort(
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+  let consecutiveFailures = 0;
+  for (const run of sorted) {
+    if (run.status !== "failed") break;
+    consecutiveFailures++;
+  }
+  return { lastRunStatus: sorted[0]?.status ?? null, consecutiveFailures };
+}
+
 const PAUSED_DESCRIPTIONS: Record<string, string> = {
   usage_limited:
     "Paused automatically: your organization reached its usage limit. Upgrade or wait for the limit to reset, then re-enable the loop.",

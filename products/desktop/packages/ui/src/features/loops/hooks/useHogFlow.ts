@@ -4,6 +4,7 @@ import {
 } from "@posthog/api-client/workflows";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useQuery } from "@tanstack/react-query";
+import { isDecompilableLoopHogFlow } from "../loopHogFlowMapping";
 import { useWorkflowsClient } from "./useWorkflowsClient";
 
 /**
@@ -32,6 +33,9 @@ export function useHogFlow(loopId: string | undefined, enabled: boolean) {
         workflowsClient.projectId,
         loopId,
       );
+      if (!isDecompilableLoopHogFlow(flow, flow.schedules)) {
+        throw new Error("This workflow isn't editable as a loop.");
+      }
       return { flow, schedule: flow.schedules[0] ?? null };
     },
     enabled: enabled && !!workflowsClient && !!loopId,

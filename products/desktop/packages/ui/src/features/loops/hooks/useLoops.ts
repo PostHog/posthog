@@ -60,7 +60,11 @@ function hogFlowLoopsQueryOptions(
           limit: LOOPS_LIST_LIMIT,
         },
       );
-      return page.results.filter(isLoopShapedHogFlow).map(hogFlowMinimalToLoop);
+      return page.results
+        .filter(
+          (flow) => isLoopShapedHogFlow(flow) && flow.status !== "archived",
+        )
+        .map(hogFlowMinimalToLoop);
     },
     enabled: enabled && !!workflowsClient,
     staleTime: 30_000,

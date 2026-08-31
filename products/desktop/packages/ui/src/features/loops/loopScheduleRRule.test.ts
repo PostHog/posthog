@@ -100,14 +100,14 @@ describe("rruleScheduleToLoopTriggerConfig / loopScheduleTriggerConfigToRRuleWri
     ).toBeNull();
   });
 
-  it("returns null for the once-off marker rrule (callers should read timing off starts_at)", () => {
+  it("maps the once-off marker rrule back to a run_at, not a recurring cron", () => {
     expect(
       rruleScheduleToLoopTriggerConfig({
         rrule: "FREQ=DAILY;COUNT=1",
         starts_at: NOW.toISOString(),
         timezone: "UTC",
       }),
-    ).toBeNull();
+    ).toEqual({ run_at: NOW.toISOString() });
   });
 });
 
