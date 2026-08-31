@@ -81,7 +81,6 @@ export interface aiFirstHomepageLogicValues {
     pinnedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[] // dashboardsModel
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
     conversationId: string | null // maxLogic
-    threadLogicKey: string // maxLogic
     cachedStarred: FileSystemEntry[] // projectTreeDataLogic
     shortcutDataHasLoaded: boolean // projectTreeDataLogic
     cachedRecents: FileSystemEntry[] // recentItemsModel
@@ -194,7 +193,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     connect(() => ({
         values: [
             maxLogic({ panelId: HOMEPAGE_TAB_ID }),
-            ['threadLogicKey', 'conversationId'],
+            ['conversationId'],
             teamLogic,
             ['currentTeam'],
             sceneLogic,
@@ -384,20 +383,34 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             // resurrect it as "unsent input" the next time the homepage is mounted.
             actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')
 
-            // The homepage chat only drives the legacy runtime, so on the new PostHog AI surface a prompt
-            // submitted here would start a LangGraph conversation that surface never shows. Hand it to
-            // /ai instead, which seeds its composer from `ask` and submits it. An AI submit with no
-            // prompt is a chat being restored from `?mode=ai&chat=…` — that still opens here.
-            if (mode === 'ai' && values.effectivePhaiView === 'new' && values.query.trim()) {
-                router.actions.push(urls.ai(undefined, values.query))
-                // Undo the mode flip the reducers just made, so the legacy homepage thread never mounts
-                // and fires a second, competing send while the route change lands.
-                actions.returnToIdle()
-                return
-            }
+            // Route the submit from a single read of `effectivePhaiView`, and own every route write
+            // here. Splitting the decision between this listener and `actionToUrl` let the two branch
+            // on the value at different moments and both fire, thrashing the URL and landing the user
+            // on a blank chat.
+            const isNewPhaiSurface = values.effectivePhaiView === 'new'
 
-            if (mode === 'ai' && !values.conversationId) {
-                actions.startNewConversation()
+            if (mode === 'ai' && isNewPhaiSurface) {
+                // The homepage chat only drives the legacy runtime, so a prompt submitted on the new
+                // PostHog AI surface would start a LangGraph conversation that surface never shows.
+                // Hand it to /ai instead, which seeds its composer from `ask` and submits it.
+                if (values.query.trim()) {
+                    router.actions.push(urls.ai(undefined, values.query))
+                    // Undo the mode flip the reducers just made, so the legacy homepage thread never
+                    // mounts and fires a second, competing send while the route change lands.
+                    actions.returnToIdle()
+                    return
+                }
+                // A submit with no prompt is a chat being restored from `?mode=ai&chat=…` — it already
+                // arrived on this URL, so leave the route alone.
+            } else if (mode === 'ai') {
+                if (!values.conversationId) {
+                    actions.startNewConversation()
+                }
+                // Only a persisted conversation id belongs in `chat`. `threadLogicKey` falls back to the
+                // frontend-generated id, which has no server row yet and 404s when it is fetched.
+                router.actions.push(urls.projectHomepage(), { mode, chat: values.conversationId || undefined })
+            } else {
+                router.actions.push(urls.projectHomepage(), { mode, q: values.query || undefined })
             }
 
             // Reducer kept phase as 'content' for same-mode re-submits — nothing to animate
@@ -445,26 +458,9 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => ({
-        submitQuery: ({ mode: submittedMode }) => {
-            const { mode, query } = values
-            // On the new PostHog AI surface the homepage never owns an AI route: a submit with a prompt
-            // is navigated to /ai by the listener (which reads the query before clearing it), and one
-            // without is a restore that arrived on this URL already. Keyed off the submitted mode rather
-            // than `values.mode`, which the listener may already have reset.
-            if (submittedMode === 'ai' && values.effectivePhaiView === 'new') {
-                return undefined
-            }
-            if (mode === 'ai') {
-                return [
-                    urls.projectHomepage(),
-                    { mode, chat: values.threadLogicKey || undefined },
-                    undefined,
-                    { replace: false },
-                ]
-            }
-            return [urls.projectHomepage(), { mode, q: query || undefined }, undefined, { replace: false }]
-        },
+    actionToUrl(() => ({
+        // `submitQuery` writes its route from the listener, which reads `effectivePhaiView` once — see
+        // the note there. Keeping a second branch here would let the two disagree and both fire.
         enterAiMode: () => {
             return [urls.projectHomepage(), { mode: 'ai' }, undefined, { replace: false }]
         },

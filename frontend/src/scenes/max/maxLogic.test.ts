@@ -220,13 +220,15 @@ describe('maxLogic', () => {
 
         // Now simulate the race condition: when pollConversation is called from loadConversationHistorySuccess,
         // it will get a 404 for the conversation that doesn't exist yet on the backend
-        // but is being generated on the frontend
+        // but is being generated on the frontend. A 404 must not reset the conversation, but it must
+        // keep polling so the thread appears once the backend writes the row — not give up silently.
         await expectLogic(logic, () => {
             logic.actions.pollConversation(mockConversationId, 0, 0)
-        }).toFinishAllListeners()
-
-        // Wait a bit for any async operations
-        await expectLogic(logic).delay(50)
+        })
+            // The initial poll, then a scheduled retry after the 404 — the silent-give-up regression
+            // would dispatch pollConversation only once.
+            .toDispatchActions(['pollConversation', 'pollConversation'])
+            .toNotHaveDispatchedActions(['startNewConversation'])
 
         // The conversation should NOT be reset - conversationId should still be set
         await expectLogic(logic).toMatchValues({

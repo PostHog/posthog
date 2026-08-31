@@ -79,6 +79,9 @@ describe('aiFirstHomepageLogic', () => {
         expect(logic.values.mode).toEqual(expectedMode)
         // The prompt rides along as `ask`, which the new surface's composer seeds and submits.
         expect(router.values.searchParams.ask).toEqual(sandboxFlagOn ? 'what is my dau' : undefined)
+        // A new conversation has no persisted id yet, so `chat` must stay empty. Writing the
+        // frontend-generated id here made a later fetch 404 and the chat render blank.
+        expect(router.values.searchParams.chat).toBeUndefined()
     })
 
     it('shows up to eight pinned dashboards, recents, and starred items', () => {
