@@ -1162,8 +1162,13 @@ class TestReportVariants:
     )
     def test_series_reports_key_on_the_time_bucket(self, endpoint: str) -> None:
         # Without date_time in the primary key, the ~52 weekly rows per grouping collapse to one on
-        # merge, silently discarding the whole time series.
-        assert "date_time" in KLAVIYO_ENDPOINTS[endpoint].primary_keys
+        # merge, silently discarding the whole time series. Without date_time as a cursor the table
+        # syncs full refresh, so every sync rebuilds it from Klaviyo's rolling 365-day window and
+        # drops the weeks that have since left it, which no later sync can fetch again.
+        config = KLAVIYO_ENDPOINTS[endpoint]
+        assert "date_time" in config.primary_keys
+        assert [f["field"] for f in config.incremental_fields] == ["date_time"]
+        assert config.default_incremental_field == "date_time"
 
 
 class TestEndpointRequestParams:
@@ -1262,9 +1267,20 @@ class TestNewSchemas:
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].should_sync_default is expected_default
 
-    @parameterized.expand([("segment_profiles",), ("flow_actions",), ("flow_messages",)])
-    def test_lookback_endpoints_are_merge_only(self, endpoint: str) -> None:
-        # Append mode would materialize the intentional lookback re-pulls as duplicate rows.
+    @parameterized.expand(
+        [
+            ("segment_profiles",),
+            ("flow_actions",),
+            ("flow_messages",),
+            ("campaign_values_reports",),
+            ("flow_series_reports",),
+            ("form_series_reports",),
+            ("segment_series_reports",),
+        ]
+    )
+    def test_endpoints_that_re_pull_a_window_are_merge_only(self, endpoint: str) -> None:
+        # Append mode would materialize the intentional re-pulls as duplicate rows. A lookback
+        # endpoint re-pulls a window of rows each run, and a report re-posts its whole window.
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].supports_append is False
 

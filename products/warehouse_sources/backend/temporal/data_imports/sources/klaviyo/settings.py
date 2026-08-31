@@ -125,6 +125,19 @@ VALUES_REPORT_TIMEFRAME_KEY = "last_365_days"
 # per grouping).
 SERIES_REPORT_INTERVAL = "weekly"
 
+# A series row is one time bucket, so date_time is a real per-row cursor even though the request
+# always asks for the whole window. Selecting it makes the sync merge on the primary key rather than
+# replace the table, so buckets that age out of Klaviyo's 365-day window stay in the warehouse while
+# the buckets still inside it keep getting corrected.
+SERIES_REPORT_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "date_time",
+        "type": IncrementalFieldType.DateTime,
+        "field": "date_time",
+        "field_type": IncrementalFieldType.DateTime,
+    }
+]
+
 # Form reports report on signup-form performance and take their own statistic set, which does not
 # overlap the campaign/flow set and carries no conversion metric.
 FORM_REPORT_STATISTICS = [
@@ -495,10 +508,14 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
     # the year instead of collapsed to a single total. They are opt-in because one row per grouping
     # per week is ~52x the row count of the equivalent values report. Klaviyo exposes series variants
     # for flows, forms, and segments only; campaigns have a values report but no series report.
+    # Each request asks for the whole window, so the sync merges on the primary key instead of
+    # replacing the table. A week Klaviyo no longer returns keeps the value captured while it was
+    # still in range, which is the only way to hold history past Klaviyo's one-year limit.
     "flow_series_reports": KlaviyoEndpointConfig(
         name="flow_series_reports",
         path="/flow-series-reports",
-        incremental_fields=[],
+        incremental_fields=SERIES_REPORT_INCREMENTAL_FIELDS,
+        default_incremental_field="date_time",
         primary_keys=["flow_id", "flow_message_id", "send_channel", "date_time"],
         should_sync_default=False,
         values_report=KlaviyoValuesReportConfig(
@@ -510,7 +527,8 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own flow-message performance statistics bucketed by week over the last 365 "
-            "days, one row per flow message per week. Replaced in full on every sync"
+            "days, one row per flow message per week. Weeks stay in the table after Klaviyo stops "
+            "returning them"
         ),
     ),
     # Form and segment reports need no conversion metric, so they sync even for keys scoped only to
@@ -553,7 +571,8 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
     "form_series_reports": KlaviyoEndpointConfig(
         name="form_series_reports",
         path="/form-series-reports",
-        incremental_fields=[],
+        incremental_fields=SERIES_REPORT_INCREMENTAL_FIELDS,
+        default_incremental_field="date_time",
         primary_keys=["form_id", "date_time"],
         should_sync_default=False,
         values_report=KlaviyoValuesReportConfig(
@@ -566,13 +585,15 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own signup-form performance statistics bucketed by week over the last 365 "
-            "days, one row per form per week. Replaced in full on every sync"
+            "days, one row per form per week. Weeks stay in the table after Klaviyo stops returning "
+            "them"
         ),
     ),
     "segment_series_reports": KlaviyoEndpointConfig(
         name="segment_series_reports",
         path="/segment-series-reports",
-        incremental_fields=[],
+        incremental_fields=SERIES_REPORT_INCREMENTAL_FIELDS,
+        default_incremental_field="date_time",
         primary_keys=["segment_id", "date_time"],
         should_sync_default=False,
         values_report=KlaviyoValuesReportConfig(
@@ -585,7 +606,8 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own segment membership statistics bucketed by week over the last 365 days, "
-            "one row per segment per week. Replaced in full on every sync"
+            "one row per segment per week. Weeks stay in the table after Klaviyo stops returning "
+            "them"
         ),
     ),
     "templates": KlaviyoEndpointConfig(

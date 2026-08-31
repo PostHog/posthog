@@ -488,9 +488,13 @@ def _get_values_report_rows(
 ) -> Iterator[Any]:
     """Post a Klaviyo reporting query and flatten each grouping's statistics into rows.
 
-    The report is an aggregate over a rolling window rather than a resource collection, so there is
-    no cursor to advance — the table is replaced in full on every sync. A values report yields one
+    The report is an aggregate over a rolling window rather than a resource collection, so every
+    request asks for the whole window and there is no cursor to send. A values report yields one
     scalar row per grouping; a series report yields one row per grouping per time bucket.
+
+    A series table still syncs incrementally, because date_time identifies the bucket a row belongs
+    to. The write merges on the primary key, so re-posting the window corrects the buckets Klaviyo
+    still returns and leaves the ones it has dropped in place.
     """
     report = config.values_report
     assert report is not None
@@ -520,7 +524,7 @@ def _get_values_report_rows(
     post_headers = {**headers, "Content-Type": "application/vnd.api+json"}
     url = f"{KLAVIYO_BASE_URL}{config.path}"
 
-    # Tagged onto every row so the full-refresh snapshot records the window (and conversion metric)
+    # Tagged onto every row so each row records the window (and conversion metric)
     # it was computed over.
     common: dict[str, Any] = {"timeframe_key": report.timeframe_key}
     if metric_id:
