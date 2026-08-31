@@ -252,6 +252,19 @@ impl PinnedRun {
         })
     }
 
+    /// The one cohort every surviving condition belongs to, or `None` when the run spans several.
+    ///
+    /// A save-triggered run carries exactly one cohort, and naming it lets `query_log_archive`
+    /// attribute the scan's cost to that cohort. A team-enablement run spans the team's cohorts,
+    /// where any single id would be a misattribution rather than a partial one.
+    pub fn sole_cohort_id(&self) -> Option<CohortId> {
+        let mut cohort_ids = self.conditions.iter().map(|condition| condition.cohort_id);
+        let first = cohort_ids.next()?;
+        cohort_ids
+            .all(|cohort_id| cohort_id == first)
+            .then_some(first)
+    }
+
     /// The seed domain for a claimed chunk, after proving the chunk belongs to this run/team. Named
     /// here (not in the store) so the store never references a scan/ClickHouse type — cycle break.
     pub fn domain_for(&self, spec: &ChunkSpec) -> Result<SeedDomain, ChunkDomainError> {
@@ -831,6 +844,77 @@ mod tests {
         // Cohort 1's surviving condition would satisfy a run-wide check while cohort 2 gets nothing.
         assert_eq!(validated.run.conditions.len(), 1);
         assert_eq!(validated.uncovered_cohorts, vec![CohortId(2)]);
+        // A dropped condition does not make its cohort a second claimant on the scan's cost.
+        assert_eq!(validated.run.sole_cohort_id(), Some(CohortId(1)));
+    }
+
+    /// A validated run carrying one 7-day `performed_event` condition per `(cohort, event)` pair,
+    /// every named cohort active.
+    fn run_over(conditions: &[(i32, &str)]) -> PinnedRun {
+        let mut payload_conditions = Vec::new();
+        let mut values_by_cohort: HashMap<i32, Vec<Value>> = HashMap::new();
+        for (cohort_id, event_name) in conditions {
+            let hash = format!("{event_name:0<16}");
+            let mut raw = condition(*cohort_id, &hash, "performed_event", Some(event_name), 7);
+            raw["time_value"] = json!(7);
+            raw["time_interval"] = json!("day");
+            payload_conditions.push(raw);
+            values_by_cohort.entry(*cohort_id).or_default().push(json!({
+                "type": "behavioral",
+                "value": "performed_event",
+                "key": event_name,
+                "conditionHash": hash,
+                "time_value": 7,
+                "time_interval": "day",
+                "bytecode": bytecode(event_name),
+            }));
+        }
+        let participations = values_by_cohort
+            .into_iter()
+            .map(|(cohort_id, values)| PinnedParticipation {
+                cohort_id: CohortId(cohort_id),
+                pinned_filters: json!({ "properties": { "type": "AND", "values": values } }),
+                state: PinnedParticipationState::Active,
+            })
+            .collect();
+        let event_names = conditions
+            .iter()
+            .map(|(_, event_name)| *event_name)
+            .collect::<Vec<_>>();
+        PinnedRun::validate(snapshot(
+            json!({
+                "schema_version": 1,
+                "conditions": payload_conditions,
+                "event_names": event_names,
+            }),
+            participations,
+        ))
+        .expect("the fixture run validates")
+        .run
+    }
+
+    /// `sole_cohort_id` picks the cohort a scan's `log_comment` is charged to, so it must name one
+    /// only when every surviving condition agrees. Naming a cohort on a run that spans two would
+    /// charge one cohort for the other's scan cost in `query_log_archive`.
+    #[test]
+    fn a_cohort_is_named_only_when_every_surviving_condition_shares_it() {
+        assert_eq!(
+            run_over(&[(1, "alpha"), (1, "beta")]).sole_cohort_id(),
+            Some(CohortId(1)),
+            "several conditions on one cohort still name that cohort"
+        );
+        assert_eq!(
+            run_over(&[(1, "alpha"), (2, "beta")]).sole_cohort_id(),
+            None,
+            "a run spanning two cohorts must name neither"
+        );
+        // A run with nothing left to scan attributes to no cohort. This falls out of `next()?` on
+        // an empty iterator rather than from a branch, so it is pinned here on purpose.
+        assert_eq!(
+            run_over(&[]).sole_cohort_id(),
+            None,
+            "a run with no surviving conditions must name no cohort"
+        );
     }
 
     #[test]

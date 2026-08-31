@@ -8,6 +8,7 @@
 //! `cohort_core::seed` — shared with the processor — and is re-exported here.
 
 pub mod aggregate;
+pub mod backoff;
 pub mod chunk;
 pub mod completion;
 pub mod condition;
@@ -22,10 +23,11 @@ pub mod window;
 pub use aggregate::{
     AggregateError, ChunkAccumulator, OutcomeKind, RecordOutcome, RecordStats, VmFailureCounts,
 };
+pub use backoff::{AttemptCount, BackoffPolicyError, RetryBackoffPolicy};
 pub use chunk::{
     BandSpec, BandSpecError, CancelCause, ChunkDomainError, ChunkLease, ChunkSpec, ChunkStatus,
     ClaimKind, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, ProduceHwms, ProducedChunk,
-    ScannedChunk, StreamedChunk, UnknownChunkStatus,
+    ScanVolume, ScannedChunk, StreamedChunk, UnknownChunkStatus,
 };
 pub use cohort_core::seed::{
     BehavioralShapeHash, PersonSeed, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope,
