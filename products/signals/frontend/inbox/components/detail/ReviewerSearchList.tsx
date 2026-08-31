@@ -38,7 +38,12 @@ export function removeSuggestedReviewer({
         report,
         actionType: 'remove_suggested_reviewer',
         surface,
-        extra: { suggested_reviewer_login: target.github_login || undefined },
+        // Match the shared cross-client contract: the real GitHub login when known, plus the user
+        // uuid desktop always sends, so a breakdown by either property lines web up with desktop.
+        extra: {
+            suggested_reviewer_login: target.github_login || undefined,
+            suggested_reviewer_uuid: target.user?.uuid,
+        },
     })
     const next = reviewers.filter((r) => r !== target)
     updateReviewers(reviewersToWriteContent(next), next)
@@ -95,7 +100,9 @@ export function ReviewerSearchList({
             report,
             actionType: 'add_suggested_reviewer',
             surface,
-            extra: { suggested_reviewer_login: option.user_uuid },
+            // The web option carries only the PostHog user uuid, never a GitHub login, so record it
+            // under suggested_reviewer_uuid to match the shared cross-client event contract.
+            extra: { suggested_reviewer_uuid: option.user_uuid },
         })
         updateReviewers([...reviewersToWriteContent(baseReviewers), { user_uuid: option.user_uuid }], next)
     }
