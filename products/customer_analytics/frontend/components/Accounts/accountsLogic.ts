@@ -175,6 +175,7 @@ export interface accountsLogicValues {
     allRolesUnassigned: boolean
     assignedToCurrentUser: boolean
     assignedToFilter: RoleFilterValue
+    awaitingSavedView: boolean
     canSortClientSide: boolean
     currentUserId: number | null
     customPropertyOverrides: Record<string, CustomPropertyValueWriteApi['value']>
@@ -402,6 +403,9 @@ export interface accountsLogicActions {
     }
     setAssignedToFilter: (value: RoleFilterValue) => {
         value: RoleFilterValue
+    }
+    setAwaitingSavedView: (awaiting: boolean) => {
+        awaiting: boolean
     }
     setCustomPropertyOverride: (
         accountId: string,
@@ -671,6 +675,10 @@ export const accountsLogic = kea<accountsLogicType>([
         // Restrict the list to a single account by id — drives the `/accounts/:accountId/:tab`
         // path route. null clears it (back to the full list).
         setAccountIdFilter: (accountId: string | null) => ({ accountId }),
+        // accountsViewsLogic holds this true from mount until the persisted view is applied,
+        // so the first fetch runs once with the view's inputs instead of once before and once
+        // after the view lands.
+        setAwaitingSavedView: (awaiting: boolean) => ({ awaiting }),
     }),
     reducers({
         searchInput: [
@@ -714,6 +722,12 @@ export const accountsLogic = kea<accountsLogicType>([
             null as string | null,
             {
                 setAccountIdFilter: (_, { accountId }) => accountId,
+            },
+        ],
+        awaitingSavedView: [
+            false,
+            {
+                setAwaitingSavedView: (_, { awaiting }) => awaiting,
             },
         ],
         sortOrder: [
@@ -991,11 +1005,13 @@ export const accountsLogic = kea<accountsLogicType>([
             (input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan => buildAccountsTableQueryPlan(input),
         ],
         accountsQuerySource: [
-            (s) => [s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded],
+            (s) => [s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded, s.awaitingSavedView],
             (
                 accountsTableQueryPlan: AccountsTableQueryPlan,
-                relationshipDefinitionsLoaded: boolean
-            ): AccountsTableQuery | null => (relationshipDefinitionsLoaded ? accountsTableQueryPlan.query : null),
+                relationshipDefinitionsLoaded: boolean,
+                awaitingSavedView: boolean
+            ): AccountsTableQuery | null =>
+                relationshipDefinitionsLoaded && !awaitingSavedView ? accountsTableQueryPlan.query : null,
         ],
         accountsDataTableQuery: [
             (s) => [s.accountsTableQueryPlan, s.accountsQuerySource],
@@ -1011,13 +1027,14 @@ export const accountsLogic = kea<accountsLogicType>([
             }),
         ],
         metricsQuery: [
-            (s) => [s.overviewMetrics, s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded],
+            (s) => [s.overviewMetrics, s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded, s.awaitingSavedView],
             (
                 overviewMetrics: AccountsTableMetric[],
                 accountsTableQueryPlan: AccountsTableQueryPlan,
-                relationshipDefinitionsLoaded: boolean
+                relationshipDefinitionsLoaded: boolean,
+                awaitingSavedView: boolean
             ): AccountsTableQuery | null => {
-                if (overviewMetrics.length === 0 || !relationshipDefinitionsLoaded) {
+                if (overviewMetrics.length === 0 || !relationshipDefinitionsLoaded || awaitingSavedView) {
                     return null
                 }
                 return {
