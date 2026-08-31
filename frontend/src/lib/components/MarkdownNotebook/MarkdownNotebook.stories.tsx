@@ -6,6 +6,8 @@ import { useState } from 'react'
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { fn } from 'storybook/test'
+
 import { MarkdownNotebook, MarkdownNotebookProps } from './MarkdownNotebook'
 import { NotebookCollaborationConflict } from './types'
 
@@ -114,6 +116,7 @@ const meta: Meta<StoryArgs> = {
     args: {
         showDebug: true,
         onInteractionStateChange: () => {},
+        onCaretChange: fn(),
     },
     render: (props) => <ControlledNotebook {...props} />,
 }
@@ -302,12 +305,9 @@ export const MermaidDiagramEditor: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const diagram = canvasElement.querySelector<HTMLElement>('.MarkdownNotebook__mermaid-block')
-        if (!diagram) {
-            throw new Error('Mermaid diagram block not found')
-        }
-        await userEvent.hover(diagram)
-        await userEvent.click(await canvas.findByLabelText('Edit diagram'))
+        const editButton = await canvas.findByLabelText('Edit diagram')
+        editButton.focus()
+        await userEvent.keyboard('{Enter}')
         await screen.findByLabelText('Mermaid definition')
     },
 }
