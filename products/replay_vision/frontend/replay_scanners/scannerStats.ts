@@ -122,18 +122,25 @@ const FIRST_RESULTS_MAX_AGE_MINUTES = 60
  * True while a just-created scanner has no results to chart yet: its first scheduled scan is still
  * running or its first observations are still processing.
  *
- * The scanner itself (enabled + age) is the source of truth, so a stats call that is slow, failing,
- * or not yet loaded can't flash the generic "no matching events" empty state during the activation
- * moment. Stats only clears the pending state, once it positively reports a settled observation;
- * until then a young enabled scanner stays pending.
+ * The scanner itself (enabled + able to scan + age) is the source of truth, so a stats call that is
+ * slow, failing, or not yet loaded can't flash the generic "no matching events" empty state during
+ * the activation moment. Stats only clears the pending state, once it positively reports a settled
+ * observation; until then a young enabled scanner stays pending. A scanner that cannot scan — its
+ * credit cap is already reached, or sampling is paused at 0 — is never pending, so the panel never
+ * promises a first scan that can never run.
  */
 export function isAwaitingFirstResults(
     stats: ObservationStatsApi | null,
-    scanner: Pick<ReplayScanner, 'enabled' | 'created_at'> | null,
+    scanner: Pick<ReplayScanner, 'enabled' | 'created_at' | 'limit_reached' | 'sampling_rate'> | null,
     now: Dayjs = dayjs()
 ): boolean {
     // The wizard's unsaved form lacks the timestamp, so it can never read as pending.
     if (!scanner?.enabled || !scanner.created_at) {
+        return false
+    }
+    // A capped or paused scanner runs no scans, so it never awaits a first result — same eligibility
+    // rule as the scan-drought banner (scanDrought.ts).
+    if (scanner.limit_reached || scanner.sampling_rate === 0) {
         return false
     }
     // Minutes rather than hours, since dayjs truncates diffs to whole units.

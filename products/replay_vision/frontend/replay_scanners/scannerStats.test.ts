@@ -34,12 +34,19 @@ describe('isAwaitingFirstResults', () => {
         status_counts: { ...emptyStats.status_counts, ...counts },
     })
 
-    // Mirrors a fresh scanner: enabled and created moments ago.
+    // Mirrors a fresh scanner: enabled, able to scan, and created moments ago.
     const scannerWith = (
-        overrides: Partial<{ enabled: boolean; created_at: string }> = {}
+        overrides: Partial<{
+            enabled: boolean
+            created_at: string
+            limit_reached: boolean
+            sampling_rate: number
+        }> = {}
     ): Parameters<typeof isAwaitingFirstResults>[1] => ({
         enabled: true,
         created_at: NOW.subtract(2, 'minute').toISOString(),
+        limit_reached: false,
+        sampling_rate: 1,
         ...overrides,
     })
 
@@ -51,6 +58,10 @@ describe('isAwaitingFirstResults', () => {
         ['first observations still processing', statsWith({ total: 2, in_flight: 2 }), scannerWith(), true],
         ['settled observations exist', statsWith({ total: 1, succeeded: 1 }), scannerWith(), false],
         ['scanner disabled', statsWith({}), scannerWith({ enabled: false }), false],
+        // A cap below one observation's cost, or a sampling-rate pause, blocks scans from the first
+        // second, so the panel must not promise a first scan that can never run.
+        ['credit limit already reached', statsWith({}), scannerWith({ limit_reached: true }), false],
+        ['sampling paused at 0', statsWith({}), scannerWith({ sampling_rate: 0 }), false],
         [
             'past the first hour degrades to the normal empty state',
             statsWith({}),
