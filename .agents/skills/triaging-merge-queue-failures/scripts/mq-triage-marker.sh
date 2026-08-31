@@ -7,6 +7,9 @@
 # can otherwise plant a marker to spoof "already triaged" and skip a PR. Fail closed: with
 # the login unset, `get` returns nothing and `set` always creates, so a fuzzy match never
 # trusts or overwrites another author's comment.
+#
+# A failed GitHub read exits 5. "No marker" and "could not look" must not print the same thing:
+# the first means triage this PR, the second means the sweep is blind and has to stop.
 set -euo pipefail
 
 MARKER_RE='<!-- mq-triage:[0-9a-f]{40}:[0-9]+ -->'
@@ -17,7 +20,59 @@ usage() {
     echo "       $0 set <owner/repo> <pr_number> <head_oid> <attempt_pr> < body.md" >&2
     echo "       $0 verify <owner/repo>" >&2
     echo "requires MQ_TRIAGE_BOT_LOGIN (the login the sweep's comments are authored by)" >&2
+    echo "exit codes: 2 usage, 3 marker from a foreign login, 4 author mismatch, 5 read failed" >&2
     exit 2
+}
+
+fail() {
+    echo "mq-triage-marker.sh: $1" >&2
+    exit 5
+}
+
+# The routine sandbox has no `gh`, and `gh api --paginate` breaks there even where it exists:
+# GitHub's Link header points at repositories/{id}/..., which the sandbox proxy refuses. So
+# mirror mq-queue-state.sh — fall back to curl, page by hand, and never let a failed request
+# read as an empty page.
+api_json() {
+    local path=$1 method=${2:-GET} body=${3:-} out
+    if command -v gh >/dev/null 2>&1; then
+        if [ -n "$body" ]; then
+            out=$(gh api -X "$method" "$path" -f body="$body" 2>/dev/null) || return 1
+        else
+            out=$(gh api -X "$method" "$path" 2>/dev/null) || return 1
+        fi
+    elif [ -n "$body" ]; then
+        out=$(jq -n --arg body "$body" '{body: $body}' |
+            curl -sS --fail -X "$method" --data-binary @- \
+                -H "Authorization: Bearer ${GITHUB_TOKEN:-${GH_TOKEN:-}}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "Content-Type: application/json" \
+                "https://api.github.com/$path" 2>/dev/null) || return 1
+    else
+        out=$(curl -sS --fail -X "$method" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN:-${GH_TOKEN:-}}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/$path" 2>/dev/null) || return 1
+    fi
+    printf '%s' "$out" | jq -e . >/dev/null 2>&1 || return 1
+    printf '%s' "$out"
+}
+
+# Collect every page of a comment list into $TMP/pages, one JSON array per line. Readers slurp
+# the file with `jq -s`, so a marker on page two counts the same as one on page one.
+comment_pages() {
+    local path=$1 extra=${2:-} pg=1 url out
+    : >"$TMP/pages"
+    while :; do
+        url="$path?per_page=100&page=$pg"
+        [ -z "$extra" ] || url="$url&$extra"
+        out=$(api_json "$url") || return 1
+        printf '%s' "$out" | jq -e 'type == "array"' >/dev/null 2>&1 || return 1
+        printf '%s\n' "$out" >>"$TMP/pages"
+        printf '%s' "$out" | jq -e 'length == 100' >/dev/null 2>&1 || break
+        pg=$((pg + 1))
+        [ "$pg" -gt 10 ] && break
+    done
 }
 
 # The second marker field identifies the queue attempt. It used to be a check run id; Trunk
@@ -31,12 +86,15 @@ usage() {
 #
 # So verify observes instead of inferring: it finds markers this sweep already wrote and reports
 # who actually authored them. Before the first comment exists there is nothing to observe, and
-# it says so rather than inventing a verdict.
+# it says so rather than inventing a verdict. A failed read is not that case — it exits 5 — so a
+# sandbox that cannot reach GitHub never passes itself off as a clean first run.
 verify_identity() {
     local authors
-    authors=$(BOT_LOGIN="$BOT_LOGIN" gh api "repos/$repo/issues/comments?sort=updated&direction=desc&per_page=100" \
-        --jq '[.[] | select(.body | test("<!-- mq-triage:[0-9a-f]{40}:[0-9]+ -->")) | .user.login]
-              | unique | join(", ")' 2>/dev/null || true)
+    comment_pages "repos/$repo/issues/comments" "sort=updated&direction=desc" ||
+        fail "GitHub read failed: repository issue comments"
+    authors=$(jq -s -r --arg re "$MARKER_RE" \
+        '[.[][] | select(.body | test($re)) | .user.login] | unique | join(", ")' \
+        "$TMP/pages") || fail "unreadable repository issue comments"
     if [ -z "$authors" ]; then
         echo "identity: MQ_TRIAGE_BOT_LOGIN=$BOT_LOGIN, no existing marker to confirm it against."
         echo "identity: unverified until the first verdict comment lands. Check that comment's"
@@ -57,6 +115,10 @@ cmd=${1:-}
 repo=${2:-}
 pr=${3:-}
 [ -n "$BOT_LOGIN" ] || usage
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
 if [ "$cmd" = "verify" ]; then
     [ -n "$repo" ] || usage
     case "$repo" in
@@ -75,10 +137,14 @@ case "$pr" in
     '' | *[!0-9]*) usage ;;
 esac
 
+load_pr_comments() {
+    comment_pages "repos/$repo/issues/$pr/comments" || fail "GitHub read failed: comments of PR $pr"
+}
+
 # Bodies of this PR's comments authored by our own identity only.
 own_comment_bodies() {
-    gh api "repos/$repo/issues/$pr/comments" --paginate \
-        --jq '.[] | select(.user.login == env.BOT_LOGIN) | .body' 2>/dev/null
+    jq -s -r --arg login "$BOT_LOGIN" '.[][] | select(.user.login == $login) | .body' \
+        "$TMP/pages" || fail "unreadable comments of PR $pr"
 }
 
 # A marker written under a different login is invisible to `get` and unreachable by the
@@ -87,21 +153,22 @@ own_comment_bodies() {
 #
 # Only another App identity can mean that, so match bot authors and a complete marker. A human
 # who pastes marker-shaped text would otherwise halt every sweep that reaches their PR.
-warn_on_foreign_marker() {
-    gh api "repos/$repo/issues/$pr/comments" --paginate \
-        --jq '[.[] | select(.user.login != env.BOT_LOGIN) | select(.user.type == "Bot")
-                   | select(.body | test("<!-- mq-triage:[0-9a-f]{40}:[0-9]+ -->"))
-                   | .user.login] | unique | join(", ")' 2>/dev/null
+foreign_marker_authors() {
+    jq -s -r --arg login "$BOT_LOGIN" --arg re "$MARKER_RE" \
+        '[.[][] | select(.user.login != $login) | select(.user.type == "Bot")
+                | select(.body | test($re)) | .user.login] | unique | join(", ")' \
+        "$TMP/pages" || fail "unreadable comments of PR $pr"
 }
 
 case "$cmd" in
     get)
-        found=$(BOT_LOGIN="$BOT_LOGIN" own_comment_bodies |
-            grep -oE "$MARKER_RE" |
+        load_pr_comments
+        own_comment_bodies >"$TMP/own"
+        found=$(grep -oE "$MARKER_RE" "$TMP/own" |
             tail -1 |
             grep -oE '[0-9a-f]{40}:[0-9]+' || true)
         if [ -z "$found" ]; then
-            others=$(BOT_LOGIN="$BOT_LOGIN" warn_on_foreign_marker)
+            others=$(foreign_marker_authors) || exit $?
             if [ -n "$others" ]; then
                 echo "MQ_TRIAGE_BOT_LOGIN=$BOT_LOGIN found no marker, but one exists from: $others" >&2
                 echo "Set MQ_TRIAGE_BOT_LOGIN to the login that authors this sweep's comments." >&2
@@ -114,23 +181,25 @@ case "$cmd" in
         ;;
     set)
         head_oid=${4:-}
-        check_run_id=${5:-}
+        attempt_pr=${5:-}
         printf '%s' "$head_oid" | grep -qE '^[0-9a-f]{40}$' || usage
-        printf '%s' "$check_run_id" | grep -qE '^[0-9]+$' || usage
+        printf '%s' "$attempt_pr" | grep -qE '^[0-9]+$' || usage
         body="$(cat)
 
-<!-- mq-triage:${head_oid}:${check_run_id} -->"
-        existing_id=$(BOT_LOGIN="$BOT_LOGIN" gh api "repos/$repo/issues/$pr/comments" --paginate \
-            --jq '[.[] | select(.user.login == env.BOT_LOGIN)
-                       | select(.body | test("<!-- mq-triage:[0-9a-f]{40}:[0-9]+ -->"))
-                       | .id] | last // empty')
+<!-- mq-triage:${head_oid}:${attempt_pr} -->"
+        load_pr_comments
+        existing_id=$(jq -s -r --arg login "$BOT_LOGIN" --arg re "$MARKER_RE" \
+            '[.[][] | select(.user.login == $login) | select(.body | test($re)) | .id]
+             | last // empty' "$TMP/pages") || fail "unreadable comments of PR $pr"
         case "$existing_id" in
             '' | *[!0-9]*) existing_id='' ;;
         esac
         if [ -n "$existing_id" ]; then
-            gh api -X PATCH "repos/$repo/issues/comments/$existing_id" -f body="$body" --jq .id >/dev/null
+            api_json "repos/$repo/issues/comments/$existing_id" PATCH "$body" >/dev/null ||
+                fail "could not update comment $existing_id on PR $pr"
         else
-            gh api -X POST "repos/$repo/issues/$pr/comments" -f body="$body" --jq .id >/dev/null
+            api_json "repos/$repo/issues/$pr/comments" POST "$body" >/dev/null ||
+                fail "could not comment on PR $pr"
         fi
         ;;
     *)

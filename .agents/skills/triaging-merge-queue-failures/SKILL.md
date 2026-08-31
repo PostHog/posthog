@@ -39,10 +39,16 @@ Both helpers live in `scripts/` next to this file:
 
 ```bash
 Q=.agents/skills/triaging-merge-queue-failures/scripts/mq-queue-state.sh
-bash $Q recent PostHog/posthog 2   # <pr> <attempt_pr> <kind> <attempt_count>, newest first
+bash $Q recent PostHog/posthog 2   # <pr> <attempt_pr> <kind> <attempts_seen>, newest first
 bash $Q state  PostHog/posthog <n> # state= [check=] [job_url=] [testing_pr=]
-bash $Q attempts PostHog/posthog <n>  # <attempt_pr> <sha> <kind> <created_at>
+bash $Q attempts PostHog/posthog <n> [head_oid]  # <attempt_pr> <sha> <kind> <created_at> <source_head>
 ```
+
+An attempt tests one revision of the PR, and `source_head` is that revision: the shadow head is a merge commit of the queue base and the PR head, so its last parent names the head under test. Give `attempts` a head OID and it keeps only that revision's attempts.
+
+`attempts_seen` from `recent` counts every attempt on the PR over all of its revisions, so treat it as an upper bound. A PR that was pushed to and re-enqueued shows 2 while its current head has only been tried once. Any per-head decision — the retry gate above all — reads `attempts $REPO <n> <head_oid>` and counts lines.
+
+**A helper that exits 5 means a GitHub read failed, not that there is nothing there.** Stop the sweep and report it. Both helpers refuse to turn an auth error, a rate limit or a proxy rejection into an empty result, because that is what let the first scheduled run report success while seeing nothing at all.
 
 `state` returns exactly one of:
 
@@ -50,7 +56,9 @@ bash $Q attempts PostHog/posthog <n>  # <attempt_pr> <sha> <kind> <created_at>
 | -------------------------------- | ------------------------------------------------------- | --------------------- |
 | `none`                           | Trunk has never commented; PR was never enqueued        | not a kick            |
 | `idle`                           | not submitted to the queue                              | not a kick            |
+| `submitted`                      | submitted to Merge, not in the queue yet                | wait, skip this sweep |
 | `queued` / `testing` / `batched` | attempt in flight                                       | wait, skip this sweep |
+| `passing`                        | tests passed, Trunk will merge it shortly               | wait, skip this sweep |
 | `merged`                         | landed, on its own or as part of a stack                | not a kick            |
 | `superseded`                     | removed from the queue because the branch was pushed to | 1                     |
 | `conflict`                       | could not start testing, merge conflict                 | 2                     |
@@ -82,7 +90,7 @@ A `state=unknown` on a PR that clearly failed means Trunk changed its wording. R
 
 The routine sandbox is more restricted than a laptop. All four of these were observed, and each one silently produces wrong or empty results rather than an obvious error:
 
-- **`gh` is not installed.** The helpers fall back to `curl` with `$GITHUB_TOKEN`, so prefer them. For anything else, either use `curl` against `https://api.github.com/...` directly or install `gh` first.
+- **`gh` is not installed.** Both helpers fall back to `curl` with `$GITHUB_TOKEN` and page by hand, so prefer them for everything they cover — reads, and the verdict comment. For anything else, either use `curl` against `https://api.github.com/...` directly or install `gh` first.
 - **GraphQL is refused** (`HTTP 403: only the pinned set of PR-review operations is served`). So `gh pr view`, `gh pr list`, and `gh repo view --json` do not work. Use REST: `gh api repos/{owner}/{repo}/pulls/<n>`.
 - **`gh api --paginate` breaks.** GitHub's `Link` header points at `repositories/{id}/...`, and the proxy rejects numeric-ID paths. Page by hand with `&page=<n>` and stop when a page returns fewer than `per_page` items.
 - **The API is repo-scoped.** `repos/{owner}/{repo}/...` and `/user` work; `/users/{login}` returns 403. Do not try to look a bot login up.
@@ -96,8 +104,9 @@ The routine sandbox is more restricted than a laptop. All four of these were obs
 ```bash
 Q=.agents/skills/triaging-merge-queue-failures/scripts/mq-queue-state.sh
 bash $Q state $REPO <n>
-bash $Q attempts $REPO <n>
 gh api "repos/$REPO/pulls/<n>" --jq '{state, draft, mergeable, mergeable_state, merged_at, head: .head.sha}'
+HEAD_OID=<head from the line above>
+bash $Q attempts $REPO <n> "$HEAD_OID"   # this revision's attempts; drop the OID to see them all
 ```
 
 Then read the failing attempt's CI. `state`'s `job_url` is the check Trunk gated on; the attempt's head SHA carries the full picture:
@@ -113,7 +122,7 @@ done
 
 Filter on `conclusion == "failure"`. A queue attempt that fails gets torn down, so it is littered with `cancelled` jobs that are collateral, not causes. `/debugging-ci-failures` covers reading the runs behind those links.
 
-A `state=` of `queued`, `testing`, or `batched` means the attempt is still running and there is nothing to triage yet: wait (unattended, skip the PR this sweep).
+A `state=` of `submitted`, `queued`, `testing`, `batched`, or `passing` means the queue has not finished with this PR and there is nothing to triage yet: wait (unattended, skip the PR this sweep).
 
 ## The decision chart
 
@@ -143,7 +152,7 @@ Two traps from `/debugging-ci-failures`, both sharpened by how Trunk batches her
 
 A known flaky test (Trunk Flaky Tests via the `trunk` MCP server, or `hogli ci:insights`), a runner falling over, a timeout in a job untouched by this PR — and it is not currently failing across other PRs or `master`.
 
-**Verdict: requeue once.** Check `attempt_count` from `recent` (or count the `attempts` output) first: more than one attempt on this head means a retry already happened, whether Trunk's anti-flake protection did it or a person did, so don't add your own. If the same head fails again after a requeue, escalate to verdict 5 or 6 instead of retrying. Route the flake itself to `/fixing-flaky-tests`.
+**Verdict: requeue once.** Count this head's attempts first with `attempts $REPO <n> <head_oid>`: more than one means a retry already happened, whether Trunk's anti-flake protection did it or a person did, so don't add your own. Do not read that count off `recent` — its `attempts_seen` spans every revision of the PR, so a PR that was pushed to and re-enqueued looks retried when its current head has been tried once. If the same head fails again after a requeue, escalate to verdict 5 or 6 instead of retrying. Route the flake itself to `/fixing-flaky-tests`.
 
 ### 5. Is the same flaky test or infra issue hitting multiple PRs?
 
@@ -165,12 +174,12 @@ The same failing check name appears on other PRs' recent attempts or on `master`
 
 One fire is one sweep. The trigger is a schedule; discover the work list yourself:
 
-1. Preflight: one REST read of `repos/PostHog/posthog` to confirm the token works, and `bash scripts/mq-triage-marker.sh verify PostHog/posthog`. Stop and report on a token failure or a marker author mismatch (exit 4). An "unverified" report means no marker exists yet, which is normal on a first run: continue.
+1. Preflight: one REST read of `repos/PostHog/posthog` to confirm the token works, and `bash scripts/mq-triage-marker.sh verify PostHog/posthog`. Stop and report on a token failure, a marker author mismatch (exit 4), or a failed GitHub read (exit 5). An "unverified" report means no marker exists yet, which is normal on a first run: continue.
 2. Candidates: `bash scripts/mq-queue-state.sh recent PostHog/posthog 2`. That is one pass over the shadow PR list and yields only PRs that actually entered the queue, newest first, with their latest attempt and attempt count. Do not scan all open PRs — most were never enqueued.
-3. Per candidate, run `state`. Keep `kicked_failed`, `failed`, `superseded`, `conflict`, `blocked`, `removed`, and `unknown`. Skip `queued`, `testing`, `batched` (attempt in flight), and `none`, `idle`, `merged` (nothing to triage). Stop once 10 have a verdict.
+3. Per candidate, run `state`. Keep `kicked_failed`, `failed`, `superseded`, `conflict`, `blocked`, `removed`, and `unknown`. Skip `submitted`, `queued`, `testing`, `batched`, `passing` (the queue is not done with it), and `none`, `idle`, `merged` (nothing to triage). Stop once 10 have a verdict.
 4. Skip any PR whose marker matches the current state: `mq-triage-marker.sh get $REPO <n>` returns the last triaged `<head_oid>:<attempt_pr>`; if it equals the current pair, this kick is already triaged.
 5. Walk the chart and upsert the verdict comment via `mq-triage-marker.sh set $REPO <n> <head_oid> <attempt_pr>` with the body on stdin (the helper appends the marker). One sticky comment per PR.
-6. Requeue only when all of these hold: `verify` reported no mismatch, `MQ_TRIAGE_ALLOW_REQUEUE=1` is set, the verdict is 4 or 6, the PR is mergeable with green checks and approval, the marker's `head_oid` differs from the current head OID (a matching `head_oid` with any attempt means this head was already triaged — a repeat, so escalate), and this head carries exactly one attempt (more means someone or something already retried).
+6. Requeue only when all of these hold: `verify` reported no mismatch, `MQ_TRIAGE_ALLOW_REQUEUE=1` is set, the verdict is 4 or 6, the PR is mergeable with green checks and approval, the marker's `head_oid` differs from the current head OID (a matching `head_oid` with any attempt means this head was already triaged — a repeat, so escalate), and this head carries exactly one attempt — `attempts $REPO <n> <head_oid>` returns one line (more means someone or something already retried; `recent`'s `attempts_seen` cannot answer this, it counts older revisions too).
 
 The marker's second field is the attempt's shadow PR number. It used to be a check run id; both are bare integers, so old markers still parse and still dedupe.
 
@@ -192,4 +201,4 @@ When the sweep requeued (verdict 4 or 6 with requeue enabled), say so explicitly
 
 End every run with a scannable summary: PRs checked, verdicts issued (PR number + verdict), requeues performed, wider issues found (these lead), and anything skipped (already triaged, over the cap). On an unattended run this summary is the loop's report.
 
-Report these separately, because each one means the sweep is broken rather than idle: a failed `verify`, any `state=unknown`, and a `recent` that returns nothing at all.
+Report these separately, because each one means the sweep is broken rather than idle: any helper exiting 5 (a GitHub read failed), a failed `verify`, any `state=unknown`, and a `recent` that returns nothing at all.

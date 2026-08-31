@@ -35,7 +35,10 @@ The sweep reads the `trunk-io[bot]` sticky comment and the per-attempt shadow PR
 `SKILL.md` documents the state vocabulary; if Trunk changes its wording, a `state=unknown` shows up in the run report and the fix is one pattern in that script.
 
 The sandbox is also more restricted than a laptop, and each limit fails quietly rather than loudly: no `gh` binary, no GraphQL, no working `gh api --paginate`, and repo-scoped REST only.
-`SKILL.md` has the details under "Sandbox constraints"; the helpers already fall back to `curl` and page by hand.
+`SKILL.md` has the details under "Sandbox constraints"; both helpers fall back to `curl` and page by hand.
+
+Neither helper reports a failed GitHub read as an empty result: an auth error, a rate limit or a proxy rejection exits 5, and the sweep stops and says so.
+That distinction is the whole point of this change — a read that returns "nothing here" instead of "I could not look" is how the first scheduled run reported success while issuing no verdicts.
 
 ## Create the routine
 
