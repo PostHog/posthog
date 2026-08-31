@@ -1682,6 +1682,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id
         self.workload = workload
         self.ch_user = ch_user
+        self._modifiers_override_provided = modifiers is not None
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -2976,6 +2977,12 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     def _on_user_changed(self) -> None:
         super()._on_user_changed()
+        if (
+            self._user_access_control is not None
+            and isinstance(self.user, User)
+            and self._user_access_control.user.pk == self.user.pk
+        ):
+            return
         self._user_access_control = None
 
     @property

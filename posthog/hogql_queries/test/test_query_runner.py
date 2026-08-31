@@ -73,6 +73,7 @@ from posthog.hogql_queries.query_runner import (
     QueryRunner,
     QueryRunnerWithHogQLContext,
     get_query_runner,
+    get_query_runner_or_none,
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -272,7 +273,14 @@ class TestQueryRunner(BaseTest):
 
     def test_actors_run_rebuilds_shared_state_on_user_change(self):
         other_user = User.objects.create_and_join(self.organization, "other-user@example.com", None)
-        runner = ActorsQueryRunner(query=ActorsQuery(select=["properties.email"]), team=self.team)
+        preloaded_snapshot = UserAccessControl(user=self.user, team=self.team)
+        runner = get_query_runner_or_none(
+            query=ActorsQuery(select=["properties.email"]),
+            team=self.team,
+            user=self.user,
+            user_access_control=preloaded_snapshot,
+        )
+        assert isinstance(runner, ActorsQueryRunner)
         seen: list[tuple[Any, Any]] = []
 
         def capture(self_runner: ActorsQueryRunner) -> ActorsQueryResponse:
@@ -285,6 +293,7 @@ class TestQueryRunner(BaseTest):
 
         (first_database, first_snapshot), (second_database, second_snapshot) = seen
         assert first_database is not second_database
+        assert first_snapshot is preloaded_snapshot
         assert first_snapshot is not second_snapshot
         assert second_database.user_access_control is second_snapshot
 

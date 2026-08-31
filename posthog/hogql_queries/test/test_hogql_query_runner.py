@@ -99,6 +99,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse == baseline.clickhouse
         assert response.modifiers is not None
         assert response.modifiers.sessionTableVersion == SessionTableVersion.V1
+        assert runner.get_cache_payload()["hogql_modifier_precedence"] == "runner"
 
     def test_default_hogql_query(self):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))

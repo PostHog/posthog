@@ -85,6 +85,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         payload = super().get_cache_payload()
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
+        if self._modifiers_override_provided and self.query.modifiers is not None:
+            # Old workers preferred query modifiers while new workers prefer the constructor override.
+            # Keep their cached results apart during a rolling deploy.
+            payload["hogql_modifier_precedence"] = "runner"
         return payload
 
     def query_status_labels(self) -> list[str] | None:
