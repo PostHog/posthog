@@ -157,6 +157,17 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
         return
     }
 
+    // One known side is not a total: $ai_total_cost_usd reads downstream as the
+    // whole cost, so a call whose input and output sides are unequally known
+    // sends its components without one, mirroring how token counts are omitted
+    // when unknown. Gated on the cost properties rather than the token counts,
+    // so a side the client priced directly still counts as known.
+    const inputCostKnown = typeof event.properties['$ai_input_cost_usd'] === 'number'
+    const outputCostKnown = typeof event.properties['$ai_output_cost_usd'] === 'number'
+    if (inputCostKnown !== outputCostKnown) {
+        return
+    }
+
     // A sum over the known components is still a known total; the unset ones
     // stay unset rather than contributing a zero they never asserted.
     let total = '0'
