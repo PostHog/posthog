@@ -497,6 +497,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             user=self.user,
+            context=self.build_hogql_context(),
         )
 
         # Convert star field from tuple to dict in each result
@@ -705,6 +706,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             query_type="EventsQuerySessionRecordingsCheck",
             timings=self.timings,
             modifiers=self.modifiers,
+            context=self.build_hogql_context(),
         )
 
         # Return set of session IDs that exist
