@@ -51,6 +51,7 @@ class ParsedEmail:
     capture_address: str
     attachments: tuple[UploadedFile, ...]
     forwarding_challenge_tokens: tuple[str, ...] = ()
+    auto_generated: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
