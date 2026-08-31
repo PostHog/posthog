@@ -194,6 +194,13 @@ export interface accountsLogicActions {
         customPropertyDefinitions: CustomPropertyDefinitionApi[]
         payload?: any
     } // accountsColumnConfigLogic
+    loadRelationshipDefinitionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // accountsColumnConfigLogic
     loadRelationshipDefinitionsSuccess: (
         relationshipDefinitions: AccountRelationshipDefinitionApi[],
         payload?: any
@@ -484,6 +491,7 @@ export const accountsLogic = kea<accountsLogicType>([
             [
                 'loadCustomPropertyDefinitionsSuccess',
                 'loadRelationshipDefinitionsSuccess',
+                'loadRelationshipDefinitionsFailure',
                 'setSelectColumns',
                 'selectColumn',
                 'unselectColumn',
@@ -906,6 +914,10 @@ export const accountsLogic = kea<accountsLogicType>([
             if (!objectsEqual(supportedFilters, values.accountFilters)) {
                 actions.setAccountFilters(supportedFilters)
             }
+        },
+        loadRelationshipDefinitionsFailure: () => {
+            cache.relationshipDefinitionsLoaded = true
+            actions.setAccountFilters(values.accountFilters)
         },
         setAccountFilters: ({ filters }) => {
             if (!cache.customPropertyDefinitionsLoaded || !cache.relationshipDefinitionsLoaded) {
