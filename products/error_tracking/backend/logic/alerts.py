@@ -206,8 +206,11 @@ def _validate_destination(team_id: int, destination: dict[str, Any]) -> None:
     if channel_type == ErrorTrackingAlertDestination.ChannelType.SLACK:
         if integration_id is None:
             raise AlertValidationError("Slack destinations require an integration.")
+        # Integrations are stored on environment teams while alert rows live on the
+        # canonical team, so accept any integration in the same project.
+        project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
         if not Integration.objects.filter(
-            team_id=team_id, id=integration_id, kind=Integration.IntegrationKind.SLACK
+            team__project_id=project_id, id=integration_id, kind=Integration.IntegrationKind.SLACK
         ).exists():
             raise AlertValidationError("Slack integration not found for this project.")
         channel = config.get("channel")

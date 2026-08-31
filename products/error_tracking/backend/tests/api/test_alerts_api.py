@@ -5,6 +5,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
+from posthog.models.team.team import Team
 
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
 
@@ -252,6 +253,14 @@ class TestErrorTrackingAlerts(APIBaseTest):
         # Fields omitted from a PUT reset to their defaults instead of keeping current values.
         assert body["enabled"] is True
         assert body["throttle_seconds"] == 0
+
+    def test_alert_accepts_integration_from_sibling_environment(self):
+        env_team = Team.objects.create(organization=self.organization, project=self.team.project, name="env")
+        integration = self._create_slack_integration(team=env_team)
+
+        created = self._create_alert(integration)
+
+        assert created["destinations"][0]["integration_id"] == integration.id
 
     def test_alert_create_rejects_other_teams_integration(self):
         other_team = self.create_team_with_organization(organization=self.organization)
