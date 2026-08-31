@@ -110,7 +110,7 @@ def _cap_override(raw: str, key: str, setting_name: str) -> str | None:
     try:
         override = json.loads(raw).get(key)
     except (ValueError, AttributeError):
-        logger.warning("ai_gateway_token: %s is not a JSON object; ignoring it", setting_name)
+        logger.warning("Ignoring invalid JSON object for %s", setting_name)
         return None
     return str(override) if override is not None else None
 
