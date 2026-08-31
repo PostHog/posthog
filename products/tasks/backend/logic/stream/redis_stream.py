@@ -19,10 +19,6 @@ logger = structlog.get_logger(__name__)
 TASK_RUN_STREAM_MAX_LENGTH = 5_000
 TASK_RUN_STREAM_TIMEOUT = SANDBOX_TTL_SECONDS
 TASK_RUN_STREAM_SEQUENCE_TIMEOUT = int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds())
-# Completed runs render from persisted logs (S3 + Postgres), and a restart deletes the
-# stream before reading anything, so after the completion sentinel the stream only serves
-# viewers who opened the run just before it finished. Keep it for a short grace window
-# instead of the full sandbox TTL.
 TASK_RUN_STREAM_COMPLETED_TTL_SECONDS = 30 * 60
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
 TASK_RUN_STREAM_READ_COUNT = 16
@@ -648,13 +644,7 @@ def publish_task_run_stream_event(run_id: str, event: dict, use_dedicated: bool 
 
 
 def publish_task_run_stream_complete(run_id: str, use_dedicated: bool = False) -> bool:
-    """Synchronously publish a completion sentinel for a task-run stream.
-
-    Also drops the stream key's TTL to the completion grace window, including
-    when the sentinel was already written by another path (the agent-proxy or
-    the ingest handler), so completed streams never linger for the full
-    sandbox TTL.
-    """
+    """Synchronously publish a completion sentinel for a task-run stream."""
     stream_key = get_task_run_stream_key(run_id)
     completed_key = get_task_run_stream_completed_key(stream_key)
     client = get_tasks_stream_redis_sync(use_dedicated)
