@@ -272,23 +272,31 @@ export interface notebookKernelInfoLogicMeta {
         hasActionInFlight: (actionInFlight: KernelActionInFlight) => boolean
         isModalKernel: (kernelInfo: NotebookKernelInfo | null) => boolean
         localFrames: (kernelInfo: NotebookKernelInfo | null) => NotebookKernelFrame[]
-        cpuOptions: (computeOptions: any) => number[]
-        memoryOptions: (computeOptions: any) => number[]
-        computePresets: (computeOptions: any) => NotebookComputePresetApi[]
-        cpuIndex: (cpuOptions: any, selectedCpu: number) => number
-        memoryIndex: (memoryOptions: any, selectedMemory: number) => number
-        currentCpu: (kernelInfo: NotebookKernelInfo | null, selectedCpu: number) => number | null
-        currentMemory: (kernelInfo: NotebookKernelInfo | null, selectedMemory: number) => number | null
-        selectedHourlyPrice: (computeOptions: any, selectedCpu: number, selectedMemory: number) => number | null
-        selectedPresetKey: (computePresets: any, selectedCpu: number, selectedMemory: number) => string | null
+        cpuOptions: (computeOptions: NotebookComputeOptionsResponseApi | null) => number[]
+        memoryOptions: (computeOptions: NotebookComputeOptionsResponseApi | null) => number[]
+        computePresets: (computeOptions: NotebookComputeOptionsResponseApi | null) => NotebookComputePresetApi[]
+        cpuIndex: (cpuOptions: number[], selectedCpu: number | null) => number
+        memoryIndex: (memoryOptions: number[], selectedMemory: number | null) => number
+        currentCpu: (kernelInfo: NotebookKernelInfo | null, selectedCpu: number | null) => number | null
+        currentMemory: (kernelInfo: NotebookKernelInfo | null, selectedMemory: number | null) => number | null
+        selectedHourlyPrice: (
+            computeOptions: NotebookComputeOptionsResponseApi | null,
+            selectedCpu: number | null,
+            selectedMemory: number | null
+        ) => number | null
+        selectedPresetKey: (
+            computePresets: NotebookComputePresetApi[],
+            selectedCpu: number | null,
+            selectedMemory: number | null
+        ) => string | null
         currentIdleTimeout: (kernelInfo: NotebookKernelInfo | null) => number
         hasConfigChanges: (
             kernelInfo: NotebookKernelInfo | null,
-            selectedCpu: number,
-            selectedMemory: number,
+            selectedCpu: number | null,
+            selectedMemory: number | null,
             idleTimeoutSeconds: number,
-            currentCpu: number,
-            currentMemory: number,
+            currentCpu: number | null,
+            currentMemory: number | null,
             currentIdleTimeout: number
         ) => boolean
     }
