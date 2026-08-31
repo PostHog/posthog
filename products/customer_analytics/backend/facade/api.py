@@ -1770,24 +1770,25 @@ def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[
     return cleaned
 
 
-def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
-    """Dispatch the sync task by name. Enqueue failure must not fail the originating write, so it's swallowed."""
+def _send_initial_account_property_sync(team_id: int, saved_query_id: str) -> None:
     try:
         current_app.send_task(
             "customer_analytics.process_custom_property_sync",
             kwargs={"team_id": team_id, "saved_query_id": saved_query_id},
         )
-    except Exception as e:
-        capture_exception(e)
+    except Exception as error:
+        capture_exception(error)
 
 
-def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
-    """Run an initial sync after the source is saved so its values populate immediately rather than
-    waiting for the next materialization. Skips disabled sources and ones whose view was deleted."""
-    if not source.is_enabled or source.saved_query_id is None:
+def _enqueue_initial_account_property_sync(source: CustomPropertySource) -> None:
+    if (
+        not source.is_enabled
+        or source.saved_query_id is None
+        or source.definition.target_type != TargetType.ACCOUNT.value
+    ):
         return
     team_id, saved_query_id = source.team_id, str(source.saved_query_id)
-    transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
+    transaction.on_commit(lambda: _send_initial_account_property_sync(team_id, saved_query_id))
 
 
 # Targets fed by the warehouse staging/sync pipeline (person + group), as opposed to the account
@@ -2194,7 +2195,7 @@ def create_custom_property_source(
         if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
             raise
         raise CustomPropertySourceValidationError("This custom property already has a source.")
-    _enqueue_sync_if_enabled(source)
+    _enqueue_initial_account_property_sync(source)
     _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
@@ -2229,7 +2230,7 @@ def update_custom_property_source(
     source.save()
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
-        _enqueue_sync_if_enabled(source)
+        _enqueue_initial_account_property_sync(source)
         _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
