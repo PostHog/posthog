@@ -804,6 +804,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
         # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
         "facet_settings",
+        # Same fail-closed manager, on the two WorkflowProposal relations a user can author or resolve.
+        "workflowproposal_set",
+        "resolved_workflow_proposals",
     ],
     "AlertConfiguration": [
         "last_checked_at",
