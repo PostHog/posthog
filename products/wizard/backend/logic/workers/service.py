@@ -29,6 +29,7 @@ from products.wizard.backend.logic.workers.commands import (
     build_git_diff_command,
     build_local_wizard_preparation_command,
     build_read_handoff_command,
+    build_sanitize_repository_remote_command,
     build_wizard_command,
     pull_request_branch,
     wizard_handoff_output_path,
@@ -157,7 +158,20 @@ def clone_repository(request: GitRepositoryCloneRequest) -> str:
         sensitive_values=(github_token,),
     )
 
-    return sandbox_repo_path(request.repository)
+    workspace_path = sandbox_repo_path(request.repository)
+    sanitize_result = sandbox.execute(
+        build_sanitize_repository_remote_command(workspace_path, request.repository),
+        timeout_seconds=60,
+    )
+    _raise_for_failure(
+        "repository credential cleanup",
+        sanitize_result.exit_code,
+        stdout=sanitize_result.stdout,
+        stderr=sanitize_result.stderr,
+        sensitive_values=(github_token,),
+    )
+
+    return workspace_path
 
 
 def prepare_local_wizard(sandbox_id: str, source_root: Path) -> None:
