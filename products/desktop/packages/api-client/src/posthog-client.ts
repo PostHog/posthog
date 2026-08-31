@@ -383,7 +383,7 @@ export interface LlmSkillCreatedBy {
   last_name?: string | null;
 }
 
-export interface LlmSkillFileManifest {
+interface LlmSkillFileManifest {
   path: string;
   content_type: string;
 }
@@ -646,7 +646,7 @@ export interface IntegrationAccount {
   secondary_text: string | null;
 }
 
-export interface SourceFieldSelectConfigOption {
+interface SourceFieldSelectConfigOption {
   label: string;
   value: string;
   fields?: SourceFieldConfig[];
@@ -762,6 +762,39 @@ export interface ChannelContextWikiPage {
   path: string;
 }
 
+export interface ContextWikiDreamRun {
+  sha: string;
+  date: string;
+  committed_at: string;
+  summary: string;
+  pages_added: number;
+  pages_modified: number;
+  pages_deleted: number;
+}
+
+export interface ContextWikiActiveDreamRun {
+  run_status: "not_started" | "queued" | "in_progress";
+  started_at: string;
+}
+
+export interface ContextWikiDreamList {
+  head_sha: string;
+  active_run: ContextWikiActiveDreamRun | null;
+  dreams: ContextWikiDreamRun[];
+}
+
+export interface ContextWikiDreamFile {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  patch: string;
+  truncated: boolean;
+}
+
+export interface ContextWikiDreamDetail {
+  run: ContextWikiDreamRun;
+  files: ContextWikiDreamFile[];
+}
+
 // Thrown when PUT /context_layer/pages/ rejects a write because the caller's
 // `base_head` is older than the wiki's current head. `currentHead` is the head
 // to re-read against before retrying.
@@ -829,7 +862,7 @@ export interface TaskArtifactUploadRequest {
   metadata?: TaskRunArtifactMetadata;
 }
 
-export interface DirectUploadPresignedPost {
+interface DirectUploadPresignedPost {
   url: string;
   fields: Record<string, string>;
 }
@@ -3181,6 +3214,20 @@ export class PostHogAPIClient {
     );
   }
 
+  async getContextWikiDreams(): Promise<ContextWikiDreamList | null> {
+    return this.getContextWikiResource<ContextWikiDreamList>(
+      `/api/organizations/@current/context_layer/dreams/`,
+    );
+  }
+
+  async getContextWikiDream(
+    sha: string,
+  ): Promise<ContextWikiDreamDetail | null> {
+    return this.getContextWikiResource<ContextWikiDreamDetail>(
+      `/api/organizations/@current/context_layer/dreams/${encodeURIComponent(sha)}/`,
+    );
+  }
+
   /**
    * Full-content page write guarded by `baseHead` optimistic concurrency.
    * The server holds a per-org writer lock shared with agent commit landings;
@@ -4760,6 +4807,9 @@ export class PostHogAPIClient {
     }
     if (params?.priority) {
       url.searchParams.set("priority", params.priority);
+    }
+    if (params?.count_only != null) {
+      url.searchParams.set("count_only", String(params.count_only));
     }
     if (params?.has_implementation_pr != null) {
       url.searchParams.set(

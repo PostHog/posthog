@@ -22,7 +22,7 @@ import type { CodeToolKind, ToolCall, ToolCallContent } from "../../types";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 
 /** Tool icon by `ToolCall.kind`. Shared by the per-tool views and the tool-group icon strip. */
-export const kindIcons: Record<CodeToolKind, Icon> = {
+const kindIcons: Record<CodeToolKind, Icon> = {
   read: FileText,
   edit: PencilSimple,
   delete: Trash,
@@ -37,7 +37,7 @@ export const kindIcons: Record<CodeToolKind, Icon> = {
 };
 
 /** Tool icon by agent tool name, for tools without a generic `kind`. */
-export const toolNameIcons: Record<string, Icon> = {
+const toolNameIcons: Record<string, Icon> = {
   ToolSearch: MagnifyingGlass,
   Skill: Command,
 };
@@ -161,11 +161,6 @@ export function getReadToolContent(
   text = text.trim();
 
   return text || undefined;
-}
-
-export function getLineCount(content: ToolCall["content"]): number | null {
-  const text = getContentText(content);
-  return text ? text.split("\n").length : null;
 }
 
 const INPUT_PREVIEW_MAX_LENGTH = 60;
@@ -322,18 +317,6 @@ export function ContentPre({ children }: { children: React.ReactNode }) {
           {children}
         </pre>
       </Text>
-    </Box>
-  );
-}
-
-export function ExpandedContentBox({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <Box className="mt-2 ml-5 max-w-4xl overflow-hidden rounded-lg border border-gray-6">
-      <ContentPre>{children}</ContentPre>
     </Box>
   );
 }
