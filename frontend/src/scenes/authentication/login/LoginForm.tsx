@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { combineUrl } from 'kea-router'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
@@ -54,6 +55,7 @@ export function LoginForm(): JSX.Element {
         hasNoConfiguredLoginMethod,
         restrictToProviders,
         autoRedirectingToProvider,
+        isStripeMarketplaceInstall,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -106,6 +108,21 @@ export function LoginForm(): JSX.Element {
                     sub={isCodeSent ? undefined : "Welcome back. Let's go ship something."}
                 />
                 <SessionRiskBanner className="mb-4" />
+                {isStripeMarketplaceInstall && (
+                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-primary-highlight border border-primary rounded">
+                        <span>To connect Stripe you need a PostHog account. Log in below, or</span>{' '}
+                        <Link
+                            // A string target gives the anchor a real href, so cmd/middle-click
+                            // opens signup in a new tab instead of the `#` an array target renders.
+                            to={combineUrl(signupUrl, { email: login.email }).url}
+                            data-attr="stripe-install-signup"
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                        >
+                            create one first
+                        </Link>
+                        <span>. We'll bring you back to finish the install.</span>
+                    </div>
+                )}
                 {generalError && (
                     <div
                         className={twMerge(

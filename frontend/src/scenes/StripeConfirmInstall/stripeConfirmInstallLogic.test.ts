@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import apiReal from 'lib/api'
 
@@ -104,6 +105,45 @@ describe('stripeConfirmInstallLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.isSubmitting).toBe(false)
+        })
+    })
+
+    describe('funnel instrumentation', () => {
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        })
+
+        it('captures the connected event once the install succeeds', async () => {
+            router.actions.push(
+                '/integrations/stripe/confirm-install?code=ac_123&stripe_user_id=acct_456&account_id=acc_789&user_id=usr_1'
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.confirmInstall()
+            }).toFinishAllListeners()
+
+            expect(captureSpy).toHaveBeenCalledWith('stripe marketplace install viewed', {
+                has_required_params: true,
+            })
+            expect(captureSpy).toHaveBeenCalledWith('stripe marketplace install confirmed')
+            expect(captureSpy).toHaveBeenCalledWith('stripe marketplace install connected')
+        })
+
+        it('captures the failed event when the install errors', async () => {
+            createSpy.mockRejectedValueOnce(new Error('boom'))
+            router.actions.push(
+                '/integrations/stripe/confirm-install?code=ac_123&stripe_user_id=acct_456&account_id=acc_789&user_id=usr_1'
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.confirmInstall()
+            }).toFinishAllListeners()
+
+            expect(captureSpy).toHaveBeenCalledWith('stripe marketplace install failed', expect.any(Object))
         })
     })
 

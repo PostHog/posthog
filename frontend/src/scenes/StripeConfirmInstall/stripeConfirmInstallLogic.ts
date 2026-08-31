@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -101,6 +102,7 @@ export const stripeConfirmInstallLogic = kea<stripeConfirmInstallLogicType>([
                 return
             }
             actions.setSubmitting(true)
+            posthog.capture('stripe marketplace install confirmed')
             const { code, stripe_user_id, account_id, user_id } = values.params
             try {
                 const integration = await api.integrations.create({
@@ -108,29 +110,35 @@ export const stripeConfirmInstallLogic = kea<stripeConfirmInstallLogicType>([
                     config: { code, stripe_user_id, account_id, user_id },
                 })
                 actions.loadIntegrations()
+                posthog.capture('stripe marketplace install connected')
                 lemonToast.success('Stripe integration connected.')
                 const redirectUrl = new URL(urls.settings('project-integrations'), window.location.origin)
                 redirectUrl.searchParams.set('integration_id', String(integration.id))
                 router.actions.replace(redirectUrl.pathname + redirectUrl.search)
             } catch (e) {
                 const detail = e instanceof ApiError ? e.detail : null
+                posthog.capture('stripe marketplace install failed', { detail })
                 lemonToast.error(detail || 'Failed to connect Stripe. The install link may have expired.')
                 actions.setSubmitting(false)
             }
         },
         cancelInstall: () => {
+            posthog.capture('stripe marketplace install cancelled')
             lemonToast.info('Stripe install cancelled.')
             router.actions.replace(urls.settings('project-integrations'))
         },
     })),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.stripeConfirmInstall()]: (_, searchParams) => {
             actions.setParams({
                 code: searchParams.code ?? null,
                 stripe_user_id: searchParams.stripe_user_id ?? null,
                 account_id: searchParams.account_id ?? null,
                 user_id: searchParams.user_id ?? null,
+            })
+            posthog.capture('stripe marketplace install viewed', {
+                has_required_params: values.hasRequiredParams,
             })
         },
     })),

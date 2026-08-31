@@ -170,6 +170,7 @@ export interface loginLogicValues {
     isLoginSubmitting: boolean
     isLoginValid: boolean
     isPasswordLoginUnavailable: boolean
+    isStripeMarketplaceInstall: boolean
     login: LoginForm
     loginAllErrors: Record<string, any>
     loginChanged: boolean
@@ -355,6 +356,7 @@ export interface loginLogicMeta {
         ) => SSOProvider[] | null
         signupUrl: (searchParams: Record<string, any>) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
+        isStripeMarketplaceInstall: (searchParams: Record<string, any>) => boolean
     }
 }
 
@@ -539,6 +541,32 @@ export const loginLogic = kea<loginLogicType>([
         wasSignedOutForSessionRisk: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>): boolean => searchParams['reason'] === 'session_risk',
+        ],
+        isStripeMarketplaceInstall: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): boolean => {
+                const nextParam = getRelativeNextPath(searchParams['next'], location)
+                if (!nextParam) {
+                    return false
+                }
+                // The confirm page is reached client-side only after auth, but a session that dies
+                // between the callback and confirm hops can still land a logged-out user on login
+                // with it as `next`.
+                if (nextParam.startsWith(urls.stripeConfirmInstall())) {
+                    return true
+                }
+                // A logged-out marketplace visitor first hits /integrations/stripe/callback, so
+                // Django bounces them to login with that raw callback URL as `next`. Recognize it
+                // the same way the OAuth callback handler does: stripe callback carrying `code` and
+                // `stripe_user_id` with no PostHog-minted `state`.
+                const nextUrl = new URL(nextParam, location.origin)
+                return (
+                    nextUrl.pathname === urls.integrationsRedirect('stripe') &&
+                    !!nextUrl.searchParams.get('code') &&
+                    !!nextUrl.searchParams.get('stripe_user_id') &&
+                    !nextUrl.searchParams.get('state')
+                )
+            },
         ],
     })),
     forms(({ actions, values }) => ({
