@@ -1,6 +1,7 @@
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { dashboardsList } from '../generated/api'
@@ -18,4 +19,8 @@ export const dashboardsSetupLogic = createSetupDetectionLogic({
         const response = await dashboardsList(projectId, { limit: 1 })
         return response.count > 0 ? 'has-data' : 'needs-setup'
     },
+    // The empty state creates the first dashboard in a modal, and its "open after
+    // creation" field defaults to off, so the usual path leaves the user on this scene
+    // with no remount to re-run detection.
+    recheckActionTypes: () => [dashboardsModel.actionTypes.addDashboardSuccess],
 })
