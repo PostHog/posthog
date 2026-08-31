@@ -1,8 +1,4 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import posthog from 'posthog-js'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 
 import { FeedbackPromptRating, FeedbackPromptTrigger, RunRef, capturePromptFeedback } from '../utils/feedbackEvents'
 import { computeTurnTrailers } from '../utils/turnTrailers'
@@ -13,6 +9,15 @@ export interface FeedbackPromptConfig {
     messageInterval: number
     samplingRate: number
     cancelThreshold: number
+}
+
+// Fixed feedback prompt configuration. Was a feature-flag payload; the flag stayed at 100% with this
+// payload, so the values are inlined here. The retry trigger has no sandbox equivalent.
+const FEEDBACK_CONFIG: FeedbackPromptConfig = {
+    cooldownMs: 864000000,
+    messageInterval: 10,
+    samplingRate: 0.05,
+    cancelThreshold: 3,
 }
 
 // Shared with the legacy prompt on purpose: one cooldown per browser, whichever runtime showed it.
@@ -54,7 +59,6 @@ export interface feedbackPromptLogicValues {
     canShowPrompt: boolean
     cancelCount: number
     currentTriggerType: FeedbackPromptTrigger
-    feedbackConfig: FeedbackPromptConfig | null
     isDetailedFeedbackVisible: boolean
     isPromptVisible: boolean
     isThankYouVisible: boolean
@@ -127,8 +131,8 @@ export interface feedbackPromptLogicActions {
 export interface feedbackPromptLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        canShowPrompt: (feedbackConfig: FeedbackPromptConfig | null) => boolean
-        messageInterval: (feedbackConfig: FeedbackPromptConfig | null) => number
+        canShowPrompt: () => boolean
+        messageInterval: () => number
     }
 }
 
@@ -140,8 +144,8 @@ export type feedbackPromptLogicType = MakeLogicType<
 >
 
 /**
- * The periodic "how is PostHog AI doing?" prompt for the sandbox runtime. Same trigger rules and flag
- * config as the legacy Max prompt: every Nth human message, a random sample, or a run of
+ * The periodic "how is PostHog AI doing?" prompt for the sandbox runtime. Same trigger rules and config
+ * as the legacy Max prompt: every Nth human message, a random sample, or a run of
  * cancelled turns, throttled by a per-browser cooldown. The retry trigger has no sandbox equivalent.
  */
 export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
@@ -223,42 +227,17 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
     }),
 
     selectors({
-        feedbackConfig: [
-            () => [],
-            (): FeedbackPromptConfig | null => {
-                const payload = getFeatureFlagPayload(FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG)
-                if (!payload || typeof payload !== 'object') {
-                    posthog.captureException(
-                        new Error('POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG feature flag is not set'),
-                        { tags: { product: 'max_ai' } }
-                    )
-                    return null
-                }
-                return {
-                    cooldownMs: payload.cooldownMs,
-                    messageInterval: payload.messageInterval,
-                    samplingRate: payload.samplingRate,
-                    cancelThreshold: payload.cancelThreshold,
-                }
-            },
-        ],
         canShowPrompt: [
-            (s) => [s.feedbackConfig],
-            (feedbackConfig: FeedbackPromptConfig | null): boolean => {
-                if (!feedbackConfig) {
-                    return false
-                }
+            () => [],
+            (): boolean => {
                 const lastShown = localStorage.getItem(LAST_SHOWN_STORAGE_KEY)
                 if (!lastShown) {
                     return true
                 }
-                return Date.now() - parseInt(lastShown, 10) > feedbackConfig.cooldownMs
+                return Date.now() - parseInt(lastShown, 10) > FEEDBACK_CONFIG.cooldownMs
             },
         ],
-        messageInterval: [
-            (s) => [s.feedbackConfig],
-            (feedbackConfig: FeedbackPromptConfig | null): number => feedbackConfig?.messageInterval ?? 10,
-        ],
+        messageInterval: [() => [], (): number => FEEDBACK_CONFIG.messageInterval],
     }),
 
     listeners(({ actions, values, props, cache }) => ({
@@ -311,24 +290,23 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
         },
 
         checkShouldShowPrompt: ({ messageCount }) => {
-            const { feedbackConfig } = values
-            if (!feedbackConfig || values.isPromptVisible) {
+            if (values.isPromptVisible) {
                 return
             }
 
             // Read the cooldown directly: the selector is not reactive to localStorage.
             const lastShown = localStorage.getItem(LAST_SHOWN_STORAGE_KEY)
-            if (lastShown && Date.now() - parseInt(lastShown, 10) < feedbackConfig.cooldownMs) {
+            if (lastShown && Date.now() - parseInt(lastShown, 10) < FEEDBACK_CONFIG.cooldownMs) {
                 return
             }
 
-            if (values.cancelCount >= feedbackConfig.cancelThreshold) {
+            if (values.cancelCount >= FEEDBACK_CONFIG.cancelThreshold) {
                 actions.showPrompt('cancel')
                 return
             }
 
-            if (messageCount > 0 && messageCount % feedbackConfig.messageInterval === 0) {
-                const currentIntervalIndex = Math.floor(messageCount / feedbackConfig.messageInterval)
+            if (messageCount > 0 && messageCount % FEEDBACK_CONFIG.messageInterval === 0) {
+                const currentIntervalIndex = Math.floor(messageCount / FEEDBACK_CONFIG.messageInterval)
                 if (currentIntervalIndex > values.lastTriggeredIntervalIndex) {
                     actions.setLastTriggeredIntervalIndex(currentIntervalIndex)
                     actions.showPrompt('message_interval')
@@ -336,7 +314,7 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
                 }
             }
 
-            if (Math.random() < feedbackConfig.samplingRate) {
+            if (Math.random() < FEEDBACK_CONFIG.samplingRate) {
                 actions.showPrompt('random_sample')
             }
         },

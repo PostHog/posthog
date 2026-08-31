@@ -1,8 +1,4 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import posthog from 'posthog-js'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 
 import { maxThreadLogic } from './maxThreadLogic'
 import { FeedbackRating, FeedbackTriggerType, captureFeedback } from './utils'
@@ -34,6 +30,16 @@ export interface FeedbackConfig {
     cancelThreshold: number
 }
 
+// Fixed feedback prompt configuration. Was a feature-flag payload; the flag stayed at 100% with this
+// payload, so the values are inlined here.
+const FEEDBACK_CONFIG: FeedbackConfig = {
+    cooldownMs: 864000000,
+    messageInterval: 10,
+    samplingRate: 0.05,
+    retryThreshold: 2,
+    cancelThreshold: 3,
+}
+
 const STORAGE_KEY = 'posthog_ai_feedback_last_shown'
 
 export interface FeedbackPromptLogicProps {
@@ -44,7 +50,6 @@ export interface FeedbackPromptLogicProps {
 export interface feedbackPromptLogicValues {
     canShowPrompt: boolean
     currentTriggerType: FeedbackTriggerType
-    feedbackConfig: FeedbackConfig | null
     isDetailedFeedbackVisible: boolean
     isPromptVisible: boolean
     isThankYouVisible: boolean
@@ -105,8 +110,8 @@ export interface feedbackPromptLogicActions {
 export interface feedbackPromptLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        canShowPrompt: (feedbackConfig: FeedbackConfig | null) => boolean
-        messageInterval: (feedbackConfig: FeedbackConfig | null) => number
+        canShowPrompt: () => boolean
+        messageInterval: () => number
     }
 }
 
@@ -189,43 +194,17 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
     }),
 
     selectors({
-        feedbackConfig: [
-            () => [],
-            (): FeedbackConfig | null => {
-                const payload = getFeatureFlagPayload(FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG)
-                if (!payload || typeof payload !== 'object') {
-                    posthog.captureException(
-                        new Error('POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG feature flag is not set'),
-                        { tags: { product: 'max_ai' } }
-                    )
-                    return null
-                }
-                return {
-                    cooldownMs: payload.cooldownMs,
-                    messageInterval: payload.messageInterval,
-                    samplingRate: payload.samplingRate,
-                    retryThreshold: payload.retryThreshold,
-                    cancelThreshold: payload.cancelThreshold,
-                }
-            },
-        ],
         canShowPrompt: [
-            (s) => [s.feedbackConfig],
-            (feedbackConfig: FeedbackConfig | null): boolean => {
-                if (!feedbackConfig) {
-                    return false
-                }
+            () => [],
+            (): boolean => {
                 const lastShown = localStorage.getItem(STORAGE_KEY)
                 if (!lastShown) {
                     return true
                 }
-                return Date.now() - parseInt(lastShown, 10) > feedbackConfig.cooldownMs
+                return Date.now() - parseInt(lastShown, 10) > FEEDBACK_CONFIG.cooldownMs
             },
         ],
-        messageInterval: [
-            (s) => [s.feedbackConfig],
-            (feedbackConfig: FeedbackConfig | null): number => feedbackConfig?.messageInterval ?? 10,
-        ],
+        messageInterval: [() => [], (): number => FEEDBACK_CONFIG.messageInterval],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -259,36 +238,31 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
         },
 
         checkShouldShowPrompt: ({ messageCount, retryCount, cancelCount }) => {
-            const { feedbackConfig } = values
-            if (!feedbackConfig) {
-                return
-            }
-
             if (values.isPromptVisible) {
                 return
             }
 
             // Check cooldown directly (selector isn't reactive)
             const lastShown = localStorage.getItem(STORAGE_KEY)
-            if (lastShown && Date.now() - parseInt(lastShown, 10) < feedbackConfig.cooldownMs) {
+            if (lastShown && Date.now() - parseInt(lastShown, 10) < FEEDBACK_CONFIG.cooldownMs) {
                 return
             }
 
             // Retry threshold - high priority signal
-            if (retryCount >= feedbackConfig.retryThreshold) {
+            if (retryCount >= FEEDBACK_CONFIG.retryThreshold) {
                 actions.showPrompt('retry')
                 return
             }
 
             // Cancel threshold - high priority signal
-            if (cancelCount >= feedbackConfig.cancelThreshold) {
+            if (cancelCount >= FEEDBACK_CONFIG.cancelThreshold) {
                 actions.showPrompt('cancel')
                 return
             }
 
             // Message interval - only trigger once per interval
-            if (messageCount > 0 && messageCount % feedbackConfig.messageInterval === 0) {
-                const currentIntervalIndex = Math.floor(messageCount / feedbackConfig.messageInterval)
+            if (messageCount > 0 && messageCount % FEEDBACK_CONFIG.messageInterval === 0) {
+                const currentIntervalIndex = Math.floor(messageCount / FEEDBACK_CONFIG.messageInterval)
                 if (currentIntervalIndex > values.lastTriggeredIntervalIndex) {
                     actions.setLastTriggeredIntervalIndex(currentIntervalIndex)
                     actions.showPrompt('message_interval')
@@ -297,7 +271,7 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
             }
 
             // Random sampling
-            if (Math.random() < feedbackConfig.samplingRate) {
+            if (Math.random() < FEEDBACK_CONFIG.samplingRate) {
                 actions.showPrompt('random_sample')
             }
         },

@@ -1,20 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
-import * as featureFlagLogic from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import { feedbackPromptLogic } from './feedbackPromptLogic'
 
 const MOCK_CONVERSATION_ID = 'test-conversation-123'
 
-const DEFAULT_CONFIG = {
-    cooldownMs: 86400000, // 24 hours
-    messageInterval: 10,
-    samplingRate: 0.05,
-    retryThreshold: 2,
-    cancelThreshold: 3,
-}
+const COOLDOWN_MS = 864000000 // 10 days
 
 describe('feedbackPromptLogic', () => {
     let logic: ReturnType<typeof feedbackPromptLogic.build>
@@ -22,9 +14,6 @@ describe('feedbackPromptLogic', () => {
     beforeEach(() => {
         initKeaTests()
         localStorage.clear()
-
-        // Mock the feature flag payload
-        jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue(DEFAULT_CONFIG)
 
         logic = feedbackPromptLogic({ conversationId: MOCK_CONVERSATION_ID })
         logic.mount()
@@ -37,16 +26,6 @@ describe('feedbackPromptLogic', () => {
     })
 
     describe('checkShouldShowPrompt', () => {
-        it('does not show prompt when config is not available', async () => {
-            jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue(null)
-
-            await expectLogic(logic, () => {
-                logic.actions.checkShouldShowPrompt(10, 0, 0)
-            }).toMatchValues({
-                isPromptVisible: false,
-            })
-        })
-
         it('does not show prompt when already visible', async () => {
             logic.actions.showPrompt('manual')
 
@@ -203,19 +182,8 @@ describe('feedbackPromptLogic', () => {
     })
 
     describe('messageInterval selector', () => {
-        it('returns messageInterval from config', () => {
+        it('returns the fixed message interval', () => {
             expect(logic.values.messageInterval).toBe(10)
-        })
-
-        it('returns default value when config is null', () => {
-            jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue(null)
-
-            // Need to remount to pick up the new mock
-            logic.unmount()
-            logic = feedbackPromptLogic({ conversationId: MOCK_CONVERSATION_ID })
-            logic.mount()
-
-            expect(logic.values.messageInterval).toBe(10) // default fallback
         })
     })
 
@@ -236,8 +204,7 @@ describe('feedbackPromptLogic', () => {
         })
 
         it('returns true when cooldown has expired', () => {
-            // Set cooldown to 25 hours ago (longer than 24 hour cooldown)
-            const expiredTime = Date.now() - 25 * 60 * 60 * 1000
+            const expiredTime = Date.now() - COOLDOWN_MS - 60 * 60 * 1000
             localStorage.setItem('posthog_ai_feedback_last_shown', expiredTime.toString())
 
             logic.unmount()
@@ -245,16 +212,6 @@ describe('feedbackPromptLogic', () => {
             logic.mount()
 
             expect(logic.values.canShowPrompt).toBe(true)
-        })
-
-        it('returns false when config is not available', () => {
-            jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue(null)
-
-            logic.unmount()
-            logic = feedbackPromptLogic({ conversationId: MOCK_CONVERSATION_ID })
-            logic.mount()
-
-            expect(logic.values.canShowPrompt).toBe(false)
         })
     })
 
