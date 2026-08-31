@@ -5965,7 +5965,7 @@ requires-dist = [
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.3.1" },
     { name = "posthog-owners", editable = "tools/owners" },
-    { name = "posthoganalytics", specifier = "==7.44.2" },
+    { name = "posthoganalytics", specifier = "==7.45.0" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6140,7 +6140,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.44.2"
+version = "7.45.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6148,9 +6148,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/db/b3/7b3d97db7e11bcc72fff1b3e545a60472f6ff51a782daf7e37f1bea2b380/posthoganalytics-7.44.2.tar.gz", hash = "sha256:e9b9f0df075e158639a0c4fed1cd357b59fc41f5108289f2b64ddb327cdc3cd6", size = 480080, upload-time = "2026-08-27T08:07:44.875Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/19/6c9242b5a1579dca1762be4502ffb0688efdd312f7d78a30abf88e41a1cb/posthoganalytics-7.45.0.tar.gz", hash = "sha256:42fb95e1afd4fddf5efc0aaa5b4968d2b5aa8338a9be7a4b093a764f1f01c857", size = 502104, upload-time = "2026-08-31T06:36:41.683Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/83/7a/dbf3959ecd2aa61a8ef3ce74c78dbba9626a210ff34726abe6ee7f568b5d/posthoganalytics-7.44.2-py3-none-any.whl", hash = "sha256:83c01961f803060fd1eafd1b7b6b44e87614ac2f8355d668854b299ed81b31f6", size = 571495, upload-time = "2026-08-27T08:07:43.078Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/56/b3e543b0260af00cce1b1f62a21a0d4f81960df801d7050d2c2dc0fa117c/posthoganalytics-7.45.0-py3-none-any.whl", hash = "sha256:470d39db8605c026ec5ada7b23d9b26d4ab161bc6f41672cc0474f8e9e61dba3", size = 597502, upload-time = "2026-08-31T06:36:39.944Z" },
 ]
 
 [[package]]
