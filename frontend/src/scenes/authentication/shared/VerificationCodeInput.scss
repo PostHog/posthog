@@ -1,7 +1,7 @@
-// Border color and its states live here rather than in Tailwind classes: the error state has
-// to react to .Field--error, which LemonField sets on its wrapper only, and a parent-selector
-// override cannot beat the !important the compiled border utilities carry. Layout and
-// typography stay as Tailwind classes on the component.
+// Border color and its states live here rather than in Tailwind classes.
+// The error state must react to .Field--error, and LemonField sets that class only on its wrapper.
+// A parent-selector rule cannot be a Tailwind class. The compiled border utilities also carry
+// !important, so a plain SCSS override cannot win against them.
 .VerificationCodeInput {
     .VerificationCodeInput__slot {
         border-color: var(--color-border-primary);
@@ -15,7 +15,7 @@
         }
     }
 
-    // Last so the error border wins over the hover and focus states above
+    // This rule is last, so the error border wins over the hover and focus states above
     &.VerificationCodeInput--danger .VerificationCodeInput__slot,
     .Field--error & .VerificationCodeInput__slot {
         border-color: var(--danger);

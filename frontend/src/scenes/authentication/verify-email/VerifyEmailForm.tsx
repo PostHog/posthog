@@ -114,8 +114,8 @@ function VerificationCodeEntry(): JSX.Element {
     return (
         <form
             className="flex w-full flex-col gap-2.5"
-            // The code input renders a hidden \d{6} pattern input; without noValidate the browser
-            // silently blocks an Enter-key submit on a partial code
+            // The code input renders a hidden input with a \d{6} pattern. Without noValidate,
+            // the browser blocks an Enter-key submit on a partial code and shows no feedback.
             noValidate
             onSubmit={(e) => {
                 e.preventDefault()
@@ -165,8 +165,8 @@ export function VerifyEmailForm(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
     const notes = NOTES[view ?? 'pending'] ?? NOTES.pending
-    // The address the code went to: the new address while an email change is pending, else the account's.
-    // Unset when the visitor has no session, e.g. redirected here after a login attempt on an unverified account.
+    // The address that received the code: the new address if an email change is pending, else the account address.
+    // It is undefined when the visitor has no session, for example after a login attempt on an unverified account.
     const verificationEmail = user?.pending_email ?? user?.email
 
     if (view === 'success') {
