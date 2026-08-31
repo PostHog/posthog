@@ -338,11 +338,11 @@ function MultiAccountFieldWithOptions({
     const { accounts, accountsLoading, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
-    const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { loadIntegrationAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
 
     useEffect(() => {
-        loadAccounts()
-    }, [loadAccounts])
+        loadIntegrationAccounts()
+    }, [loadIntegrationAccounts])
 
     const options = useMemo<LemonInputSelectOption[]>(() => {
         const sorted = [...accounts].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
@@ -439,11 +439,11 @@ function IntegrationAccountFieldWithDropdown({
     const { accounts, accountsLoading, accountsLoaded, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
-    const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { loadIntegrationAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
 
     useEffect(() => {
-        loadAccounts()
-    }, [loadAccounts])
+        loadIntegrationAccounts()
+    }, [loadIntegrationAccounts])
 
     const suggestions = useMemo<InputSuggestion[]>(() => {
         const sorted = [...accounts].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
