@@ -42220,6 +42220,23 @@ export namespace Schemas {
     }
 
     /**
+     * Variable value overrides, merged with the workflow's own variable defaults for this run only.
+     */
+    export type HogFlowRunRequestVariables = {[key: string]: unknown};
+
+    export interface HogFlowRunRequest {
+      /** Variable value overrides, merged with the workflow's own variable defaults for this run only. */
+      variables?: HogFlowRunRequestVariables;
+    }
+
+    export interface HogFlowRunResponse {
+      /** 'queued' once the invocation has been queued for execution. */
+      status: string;
+      /** ID of the queued hog flow invocation. */
+      invocation_id: string;
+    }
+
+    /**
      * @nullable
      */
     export type HogFlowTemplateCreatedBy = { [key: string]: unknown } | null;
@@ -98179,6 +98196,10 @@ export namespace Schemas {
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
+    /**
+     * Filter tasks to the runs spawned by this workflow's 'Create AI task' action.
+     */
+    hog_flow_id?: string;
     /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *
