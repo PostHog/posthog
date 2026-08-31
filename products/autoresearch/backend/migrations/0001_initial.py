@@ -13,7 +13,9 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "1329_drop_cimd_metadata_url"),
+        # Anchored below posthog.1316: pulling that rename into a fresh-DB plan ahead of
+        # ee.0058 breaks its backfill, which still queries the pre-rename field name.
+        ("posthog", "1310_provisioning_rate_limit_overrides"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

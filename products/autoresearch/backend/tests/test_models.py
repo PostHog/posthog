@@ -7,6 +7,7 @@ from django.test import RequestFactory
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
+from products.autoresearch.backend import admin as admin_module
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -69,7 +70,13 @@ class TestAutoresearchModels(BaseTest):
         )
         request = RequestFactory().get("/admin/")
         request.user = self.user
-        for model in (AutoresearchPipeline, AutoresearchTrainingRun, AutoresearchModel, AutoresearchRun):
-            model_admin = django_admin.site._registry[model]
+        admins = (
+            (AutoresearchPipeline, admin_module.AutoresearchPipelineAdmin),
+            (AutoresearchTrainingRun, admin_module.AutoresearchTrainingRunAdmin),
+            (AutoresearchModel, admin_module.AutoresearchModelAdmin),
+            (AutoresearchRun, admin_module.AutoresearchRunAdmin),
+        )
+        for model, admin_class in admins:
+            model_admin = admin_class(model, django_admin.site)
             list(model_admin.get_queryset(request))
             model_admin.get_form(request)()
