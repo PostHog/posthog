@@ -9,6 +9,7 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.aircall import (
     AircallResumeConfig,
+    AircallTruncationError,
     _build_params,
     _build_url,
     _reaches_record_cap,
@@ -286,25 +287,26 @@ class TestPagination:
         assert "from=10000" in requests_seen[200]["url"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_a_capped_window_cursor_cannot_advance(self, MockSession):
+    def test_raises_when_a_capped_window_cursor_cannot_advance(self, MockSession):
         # Every record in the capped window shares the boundary timestamp, so a re-anchored
-        # window would repeat the same query forever. Truncate instead of looping.
+        # window would repeat the same query forever and the rest of the window is unreachable.
+        # Raise so the run fails visibly instead of finalizing as complete with missing data.
         session = MockSession.return_value
         over_cap_link = "https://api.aircall.io/v1/contacts?order=asc&per_page=50&page=201"
-        requests_seen = _wire(session, [_response("contacts", [{"id": 1, "created_at": 200}], over_cap_link)])
+        _wire(session, [_response("contacts", [{"id": 1, "created_at": 200}], over_cap_link)])
 
         manager = _make_manager()
-        _rows(
-            _source(
-                "contacts",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=200,
-                incremental_field="created_at",
+        with pytest.raises(AircallTruncationError):
+            _rows(
+                _source(
+                    "contacts",
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=200,
+                    incremental_field="created_at",
+                )
             )
-        )
 
-        assert len(requests_seen) == 1
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)

@@ -269,6 +269,9 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
+/**
+ * Trigger a sync for the schema. This keeps the existing warehouse table and adds or merges new rows. To drop the table and re-import every row from scratch, use resync.
+ */
 export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
@@ -278,6 +281,9 @@ export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
+/**
+ * Fully resync the schema. This drops the warehouse table and re-imports every row from the source, so existing data is deleted first. To keep existing data and only add new rows, use reload instead.
+ */
 export const ExternalDataSchemasResyncCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod

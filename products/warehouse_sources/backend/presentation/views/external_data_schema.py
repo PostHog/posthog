@@ -1587,6 +1587,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
+        description=(
+            "Trigger a sync for the schema. This keeps the existing warehouse table and adds or "
+            "merges new rows. To drop the table and re-import every row from scratch, use resync."
+        ),
         responses={
             200: OpenApiResponse(description="The sync was triggered."),
             400: OpenApiResponse(
@@ -1628,6 +1632,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
+        description=(
+            "Fully resync the schema. This drops the warehouse table and re-imports every row "
+            "from the source, so existing data is deleted first. To keep existing data and only "
+            "add new rows, use reload instead."
+        ),
         responses={
             200: OpenApiResponse(description="The full resync was triggered."),
             400: OpenApiResponse(
