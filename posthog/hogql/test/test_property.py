@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_mate
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -450,7 +451,9 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("ifNull(multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']), 0) = 0"),
+            self._parse_expr(
+                "(multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0 OR isNull(properties.a))"
+            ),
         )
         a = self._property_to_expr(
             {
@@ -611,7 +614,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> ifNull(multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']), 0) = 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "arrayExists(v -> (multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) = 0 OR isNull(v)), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
 
@@ -2527,3 +2530,65 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
     )
     def test_negative_operator_keeps_row_when_property_is_missing(self, _name: str, filter: dict, expected_count: int):
         assert self._count(filter) == expected_count
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
+    """$active_feature_flags is a native Array(String) subcolumn on the new events schema, so its
+    negative multi-value filters compile through the arrayExists optimizer rather than a scalar
+    comparison. These execute against ClickHouse to prove the optimized array path returns the right
+    rows, not only the right SQL: a row whose array holds the value is dropped, a row whose array
+    lacks it is kept, and a row missing the property is kept.
+    """
+
+    EVENT = "purchase"
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        _create_event(
+            team=cls.team,
+            event=cls.EVENT,
+            distinct_id="has_alpha",
+            properties={"$active_feature_flags": ["alpha", "gamma"]},
+        )
+        _create_event(
+            team=cls.team,
+            event=cls.EVENT,
+            distinct_id="no_alpha",
+            properties={"$active_feature_flags": ["beta", "gamma"]},
+        )
+        _create_event(team=cls.team, event=cls.EVENT, distinct_id="missing", properties={})
+
+    def _count(self, filter: dict) -> int:
+        expr = property_to_expr(filter, team=self.team, scope="event")
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=self.EVENT),
+                    ),
+                    expr,
+                ]
+            ),
+        )
+        return execute_hogql_query(team=self.team, query=query_ast).results[0][0]
+
+    @parameterized.expand(
+        [
+            # not_icontains_multi: has_alpha dropped, no_alpha kept, missing kept
+            ("not_icontains_multi", {"value": ["alpha"], "operator": "not_icontains_multi"}, 2),
+            # A needle that spans two array elements once the array is serialized to '["alpha","gamma"]'
+            # matches the JSON text but no single element, so the element-wise scan keeps all three rows.
+            # The de-optimized serialized-text search would find it and drop has_alpha, returning 2.
+            ("not_icontains_multi_json_separator", {"value": ['pha","gam'], "operator": "not_icontains_multi"}, 3),
+            # positive baseline proving the array subcolumn is populated and queryable: only has_alpha matches
+            ("icontains_multi_baseline", {"value": ["alpha"], "operator": "icontains_multi"}, 1),
+        ]
+    )
+    def test_array_operator_row_counts(self, _name: str, filter_fields: dict, expected_count: int):
+        assert self._count({"type": "event", "key": "$active_feature_flags", **filter_fields}) == expected_count

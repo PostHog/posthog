@@ -36,6 +36,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.property_planner import (
     PropertyComparisonPlan,
@@ -166,6 +167,32 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         assert "events.properties.`$active_feature_flags`" in printed, printed
         assert "toString(events.properties.`$active_feature_flags`)" not in printed, printed
         assert "JSONHas(events.properties" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_negative_multi_icontains_array_property_stays_optimized(self) -> None:
+        where = property_to_expr(
+            {
+                "type": "event",
+                "key": "$active_feature_flags",
+                "value": ["alpha", "beta"],
+                "operator": "not_icontains_multi",
+            },
+            team=Team(id=1, project_id=1),
+            scope="event",
+        )
+        select = cast(ast.SelectQuery, parse_select("select count() from events"))
+        select.where = where
+        context = self._context()
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            query, _ = prepare_and_print_ast(select, context, "clickhouse")
+        printed = pretty_print_in_tests(query, 1)
+
+        # Wrapping the search call in ifNull hides the bare multiSearchAnyCaseInsensitive call from the
+        # array optimizer, which then falls back to multiSearchAnyCaseInsensitive(toString(…)) over the
+        # array serialized to JSON text instead of an element-wise arrayExists scan.
+        assert "arrayExists" in printed, printed
+        assert "events.properties.`$active_feature_flags`" in printed, printed
+        assert "multiSearchAnyCaseInsensitive(toString(" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_exception_types_use_array_subcolumn(self) -> None:
