@@ -69,14 +69,14 @@ class TestQueriedAccessControlledResources(BaseTest):
             (
                 "account_email_threads_lazy_join",
                 "select accounts.email_threads.count from system.accounts as accounts",
-                {"account", "ticket"},
+                {"ticket"},
             ),
             (
                 "account_support_tickets_lazy_join",
                 "select support_tickets.recent from system.accounts",
-                {"account", "ticket"},
+                {"ticket"},
             ),
-            ("account_non_communication_lazy_join", "select meetings.count from system.accounts", {"account"}),
+            ("account_non_communication_lazy_join", "select meetings.count from system.accounts", set()),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
             # Catalog-enriched information_schema tables partition the cache by data_catalog access AND

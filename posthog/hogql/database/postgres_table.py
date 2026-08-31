@@ -87,8 +87,6 @@ class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
     access_scope: Optional[APIScopeObject] = None
-    # Real users and trusted userless jobs can read this table, while synthetic principals still need access_scope.
-    rbac_unrestricted_read: bool = False
     # Billing entitlement required to query this table, mirroring `premium_feature_on_cloud` on the
     # REST viewsets: enforced on Cloud only, self-hosted stays ungated. Holds an `AvailableFeature`
     # value as a plain string so this module keeps the ORM off its import path.

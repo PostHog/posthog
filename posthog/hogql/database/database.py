@@ -560,12 +560,9 @@ def _compute_system_table_access_decision(
     # have cannot be granted by a role.
     unentitled = _unentitled_system_tables(team)
 
-    if user is None:
-        return None, unentitled | {name for name, table in scoped_tables.items() if not table.rbac_unrestricted_read}
-
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
-    if isinstance(user, SyntheticUser | SharedLinkUser):
-        readable_scopes = user.readable_system_table_access_scopes()
+    if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
+        readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
         return None, unentitled | {
             name for name, table in scoped_tables.items() if table.access_scope not in readable_scopes
         }
@@ -583,8 +580,6 @@ def _compute_system_table_access_decision(
 
     denied: set[str] = set(unentitled)
     for name, table in scoped_tables.items():
-        if table.rbac_unrestricted_read and user_access_control._organization_membership is not None:
-            continue
         access_scope = cast(APIScopeObject, table.access_scope)
         access = user_access_control.access_level_for_resource(access_scope)
         if access and access.access_level != NO_ACCESS_LEVEL:

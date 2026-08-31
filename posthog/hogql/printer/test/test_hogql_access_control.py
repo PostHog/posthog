@@ -95,12 +95,14 @@ class TestAccessControlSystemTables(BaseTest):
         assert "cohorts" in system_node.children
         assert "teams" in system_node.children
 
-    def test_unrestricted_account_tables_still_require_organization_membership(self):
+    def test_unscoped_account_tables_are_available_without_organization_membership(self):
         outsider = User.objects.create_user("outsider@example.com", "testtest", "")
 
         database = Database.create_for(team=self.team, user=outsider)
 
-        assert "system.accounts" in database._denied_tables
+        system_node = database.tables.children.get("system")
+        assert system_node is not None
+        assert "accounts" in system_node.children
 
     def test_bypass_warehouse_access_control_still_applies_system_table_acl(self):
         """bypass_warehouse_access_control only relaxes warehouse tables/views; scoped system tables
@@ -1075,8 +1077,8 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
         # Shared links carry no system-table resource scopes.
-        assert "system.accounts" in database._denied_tables
         assert "system.dashboards" in database._denied_tables
+        assert "system.accounts" not in database._denied_tables
 
     def test_shared_link_user_requires_enabled_configuration(self):
         with self.assertRaises(ValueError):
@@ -1104,7 +1106,7 @@ class TestWarehouseViewAccessControl(BaseTest):
             == get_query_runner(events_query, self.team, user=self.user).get_cache_key()
         )
 
-    def test_synthetic_principal_skips_warehouse_view_acl_but_needs_account_scope(self):
+    def test_synthetic_principal_skips_warehouse_view_acl_and_reads_unscoped_accounts(self):
         self._create_ac(
             resource="warehouse_view",
             resource_id=str(self.denied_view.id),
@@ -1116,15 +1118,8 @@ class TestWarehouseViewAccessControl(BaseTest):
 
         # Service-token principals bypass warehouse access control by design (see Database.create_for).
         assert "denied_view" not in database._denied_tables
-        assert "system.accounts" in database._denied_tables
+        assert "system.accounts" not in database._denied_tables
         assert "system.dashboards" in database._denied_tables
-
-        class AccountReader(SyntheticUser):
-            def readable_system_table_access_scopes(self) -> set[str]:
-                return {"account"}
-
-        account_database = Database.create_for(team=self.team, user=AccountReader(self.team, "account-token"))
-        assert "system.accounts" not in account_database._denied_tables
 
     def _materialize(self, view):
         """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""

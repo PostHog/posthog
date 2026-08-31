@@ -6,7 +6,7 @@ Every project member can read accounts and their account-owned metadata. Account
 
 - Account-scoped viewsets set `access_control_unrestricted_read = True`. `AccessControlPermission` still checks project membership, while scoped API tokens still need the corresponding `account:read` scope.
 - Read facades use team-scoped account querysets without `UserAccessControl` filtering.
-- Account HogQL tables use `rbac_unrestricted_read`, which allows project members and trusted userless jobs while preserving `account:read` scope checks for service principals.
+- Account HogQL tables are unscoped, like `system.groups`. Project query contexts, including shared links and userless jobs, can read them.
 - A related resource with its own access model still enforces it. For example, account communication endpoints separately check the `ticket` resource, and warehouse-backed account tabs check warehouse access.
 
 Account mutations remain access-controlled:

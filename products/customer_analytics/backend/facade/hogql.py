@@ -99,9 +99,6 @@ account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgres
 account_meetings: PostgresTable = PostgresTable(
     name="_account_meetings",
     postgres_table_name="customer_analytics_meeting",
-    access_scope="account",
-    access_control_id_field="account_id",
-    rbac_unrestricted_read=True,
     description="Internal table of account meetings. Use `system.accounts.meetings` instead.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Meeting UUID."),
@@ -119,9 +116,6 @@ account_meetings: PostgresTable = PostgresTable(
 account_channel_summaries: PostgresTable = PostgresTable(
     name="_account_channel_summaries",
     postgres_table_name="customer_analytics_accountchannelsummary",
-    access_scope="account",
-    access_control_id_field="account_id",
-    rbac_unrestricted_read=True,
     description="Internal table of account Slack summaries. Use `system.accounts.slack_summaries` instead.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Summary UUID."),
@@ -177,9 +171,6 @@ account_email_thread_links: PostgresTable = PostgresTable(
 account_custom_property_values: PostgresTable = PostgresTable(
     name="_account_custom_property_values",
     postgres_table_name="customer_analytics_custompropertyvalue",
-    access_scope="account",
-    access_control_id_field="account_id",
-    rbac_unrestricted_read=True,
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of custom property values per account; not for direct querying — use `system.accounts.custom_properties`.",
     # Unlike the FK-only junction tables, this table has a real `team_id` column, so the
     # framework's standard `team_id = X` guard scopes it, and as a plain column comparison it is
@@ -220,9 +211,6 @@ account_custom_property_values: PostgresTable = PostgresTable(
 account_custom_property_values_history: PostgresTable = PostgresTable(
     name="_account_custom_property_values_history",
     postgres_table_name="customer_analytics_custompropertyvalue",
-    access_scope="account",
-    access_control_id_field="account_id",
-    rbac_unrestricted_read=True,
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of every custom property value write per account, superseded rows included; not for direct querying — use `system.accounts.custom_properties_history`.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the custom property value row."),
@@ -992,9 +980,6 @@ account_email_threads_lazy_join: LazyJoin = LazyJoin(
 account_relationship_definitions: PostgresTable = PostgresTable(
     name="account_relationship_definitions",
     postgres_table_name="customer_analytics_accountrelationshipdefinition",
-    access_scope="account",
-    resource_level_access_only=True,
-    rbac_unrestricted_read=True,
     description="Customer analytics account relationship definitions: team-defined relationship types between PostHog users and accounts (CSM, Account executive, ...), one row per definition. Per-account assignments live in system.account_relationships and via the system.accounts.relationships lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Relationship definition UUID."),
@@ -1025,9 +1010,6 @@ account_relationship_definitions: PostgresTable = PostgresTable(
 account_relationships: PostgresTable = PostgresTable(
     name="account_relationships",
     postgres_table_name="customer_analytics_accountrelationship",
-    access_scope="account",
-    access_control_id_field="account_id",
-    rbac_unrestricted_read=True,
     description="User-to-account relationship assignments (CSM, Account executive, ...), one row per assignment with its effective range — `ended_at` is NULL while active, set when the assignment ends, so historical account management is queryable. Active assignments per account are also exposed as a JSON object via the `system.accounts.relationships` lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Relationship assignment UUID."),
@@ -1055,9 +1037,6 @@ account_relationships: PostgresTable = PostgresTable(
 accounts: PostgresTable = PostgresTable(
     name="accounts",
     postgres_table_name="customer_analytics_account",
-    access_scope="account",
-    access_control_creator_id_field="created_by_id",
-    rbac_unrestricted_read=True,
     description="Customer analytics accounts (companies/organizations being tracked); one row per account, with CRM identifiers extracted from properties.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Account UUID."),
@@ -1309,9 +1288,6 @@ feature_request_history: PostgresTable = PostgresTable(
 custom_property_definitions: PostgresTable = PostgresTable(
     name="custom_property_definitions",
     postgres_table_name="customer_analytics_custompropertydefinition",
-    access_scope="account",
-    resource_level_access_only=True,
-    rbac_unrestricted_read=True,
     description="Customer analytics custom property definitions: team-scoped attribute shapes (the property's name and type), one row per definition. Per-account values are exposed via the system.accounts.custom_properties lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Custom property definition UUID."),

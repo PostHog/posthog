@@ -2975,19 +2975,3 @@ def access_controlled_system_tables() -> dict[str, APIScopeObject]:
         for name, node in SystemTables().children.items()
         if isinstance(node.table, PostgresTable) and node.table.access_scope is not None
     }
-
-
-@lru_cache(maxsize=1)
-def rbac_unrestricted_system_table_scopes() -> frozenset[APIScopeObject]:
-    scoped_tables = [
-        node.table
-        for node in SystemTables().children.values()
-        if isinstance(node.table, PostgresTable) and node.table.access_scope is not None
-    ]
-    scopes = {table.access_scope for table in scoped_tables}
-    return frozenset(
-        scope
-        for scope in scopes
-        if scope is not None
-        and all(table.rbac_unrestricted_read for table in scoped_tables if table.access_scope == scope)
-    )

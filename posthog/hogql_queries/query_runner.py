@@ -3023,18 +3023,6 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
         queried_resources = queried_access_controlled_resources(self.query, self.team)
-        user_has_membership = (
-            isinstance(self.user, User)
-            and self.user_access_control is not None
-            and self.user_access_control._organization_membership is not None
-        )
-        if queried_resources and (self.user is None or user_has_membership):
-            from posthog.hogql.database.schema.system import (  # noqa: PLC0415 - keeps the system catalog off the import path
-                rbac_unrestricted_system_table_scopes,
-            )
-
-            queried_resources -= rbac_unrestricted_system_table_scopes()
-
         # Reads no access-controlled table -> skip the access-control preload
         if queried_resources == set():
             return payload

@@ -137,7 +137,7 @@ class TestAccountCommunicationHogqlProjectSecretKey(NonAtomicBaseTest):
             team=self.team,
             label="account-communication-access",
             secure_value="sha256$" + "f" * 64,
-            scopes=["account:read", "ticket:read"],
+            scopes=["ticket:read"],
         )
         context = HogQLContext(database=Database.create_for(team=self.team, user=ProjectSecretAPIKeyUser(key)))
 

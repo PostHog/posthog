@@ -54,7 +54,7 @@ def build_access_control_guard(
     in query_runner.py.
     """
     resource = table.access_scope
-    if not resource or table.rbac_unrestricted_read:
+    if not resource:
         return None
 
     id_field = table.access_control_id

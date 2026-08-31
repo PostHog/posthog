@@ -54,7 +54,7 @@ database = Database.create_for(team=team, user=user, user_access_control=user_ac
 `HogQLQueryRunner` and `QueryRunnerWithHogQLContext` (`posthog/hogql_queries/query_runner.py`) do this automatically when constructed with a user.
 The MCP `execute-sql` tool goes through the same path (`posthog/api/query.py` runs queries as `request.user`).
 
-**Fail closed:** if you forget to pass the user, access-controlled system tables are removed unless they explicitly allow trusted userless reads, and all warehouse tables/views are denied (`_is_warehouse_table_denied` / `_is_warehouse_view_denied` fail closed when `user_access_control is None`).
+**Fail closed:** if you forget to pass the user, access-controlled system tables are removed, and all warehouse tables/views are denied (`_is_warehouse_table_denied` / `_is_warehouse_view_denied` fail closed when `user_access_control is None`).
 This is deliberate: if someone forgets to pass the user, the query fails outright and makes the mistake obvious, instead of silently falling back to a permissive "default access" that would leak data.
 In practice the user is available anywhere system tables are queried; for user-initiated background work, see [contexts without a request user](#contexts-without-a-request-user).
 
@@ -65,7 +65,7 @@ They're primarily used by the MCP `execute-sql` tool for retrieval.
 
 ### Resource-level access
 
-Each access-controlled system table declares an `access_scope` (e.g. `system.dashboards` → `"dashboard"`, `system.error_tracking_issues` → `"error_tracking"`). Account roster tables set `rbac_unrestricted_read`: every project member and trusted userless job can read accounts, custom properties, and relationships, while service principals still need the `account:read` scope and account APIs enforce access control on mutations.
+Each access-controlled system table declares an `access_scope` (e.g. `system.dashboards` → `"dashboard"`, `system.error_tracking_issues` → `"error_tracking"`). Account roster tables, like `system.groups`, omit an access scope. Any project query context can read them, while account APIs enforce access control on mutations.
 
 At schema build time, `_compute_system_table_access_decision()` checks `UserAccessControl.access_level_for_resource(access_scope)` for each scoped table and removes denied ones from the schema (`Database._apply_system_table_access()`).
 
