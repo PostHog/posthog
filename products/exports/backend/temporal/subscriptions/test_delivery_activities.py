@@ -120,9 +120,11 @@ async def test_claim_slack_gallery_delivery_is_atomic(team, user) -> None:
     ],
 )
 async def test_create_delivery_record_freezes_slack_delivery_mode(team, user, flag_enabled, expected_mode) -> None:
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="mode", name="Delivery mode")
     subscription = await sync_to_async(create_subscription)(
         team=team,
         created_by=user,
+        insight=insight,
         target_type="slack",
         target_value="C123|#general",
     )
@@ -147,9 +149,11 @@ async def test_create_delivery_record_freezes_slack_delivery_mode(team, user, fl
 
 
 async def test_create_delivery_record_freezes_legacy_when_flag_evaluation_fails(team, user) -> None:
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="fallback", name="Flag fallback")
     subscription = await sync_to_async(create_subscription)(
         team=team,
         created_by=user,
+        insight=insight,
         target_type="slack",
         target_value="C123|#general",
     )
@@ -174,9 +178,11 @@ async def test_create_delivery_record_freezes_legacy_when_flag_evaluation_fails(
 
 
 async def test_create_delivery_record_preserves_unversioned_retry_as_legacy(team, user) -> None:
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="unversioned", name="Legacy retry")
     subscription = await sync_to_async(create_subscription)(
         team=team,
         created_by=user,
+        insight=insight,
         target_type="slack",
         target_value="C123|#general",
     )
