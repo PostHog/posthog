@@ -92,6 +92,18 @@ class Emitter:
     # canonical retirement (when replaces=[] is cleared and the ghost chain is gone).
     BUILTIN_FK_APPS: frozenset[str] = frozenset({"auth", "contenttypes"})
 
+    # The stub owns ("<app>", "__first__"). Third-party migrations already
+    # applied on live DBs resolve swappable deps (AUTH_USER_MODEL, swapped
+    # OAuth models) to exactly that sentinel, and check_consistent_history
+    # then demands the stub be applied — its squash exemption only fires for
+    # nodes with a non-empty `replaces`. Claim one ancient, empty,
+    # applied-everywhere migration so the exemption applies and
+    # check_replacements stamps the stub. Only swappable-target apps need
+    # this; today that is posthog alone.
+    STUB_CLAIMS_BY_APP: dict[str, tuple[tuple[str, str], ...]] = {
+        "posthog": (("posthog", "0034_pg_trgm_and_btree_20200318_1447"),),
+    }
+
     def __init__(
         self,
         state: ProjectState,
@@ -348,7 +360,9 @@ class Emitter:
                 continue
             out.append(m.ref.key)
             out.extend(r.key for r in m.replaces)
-        return sorted(set(out))
+        # Names the stub claims belong to exactly one replacement node.
+        stub_claims = set(self.STUB_CLAIMS_BY_APP.get(self.app, ()))
+        return sorted(set(out) - stub_claims)
 
     EXTENSION_OP_NAMES: frozenset[str] = frozenset(
         {
@@ -623,12 +637,13 @@ class Emitter:
         for ms in early_models:
             create, _, _, _ = self._create_model_op(ms, set())
             stub_ops.append(create)
+        stub_claims = [key for key in self.STUB_CLAIMS_BY_APP.get(self.app, ()) if key in self.squasher.old_keys]
         stub = SquashFile(
             app=self.app,
             name=self.STUB_NAME,
             operations=stub_ops,
             dependencies=[],
-            replaces=[],
+            replaces=stub_claims,
         )
 
         rest_models = [ms for ms in self._models_in_app() if ms.name.lower() not in early_model_names]
