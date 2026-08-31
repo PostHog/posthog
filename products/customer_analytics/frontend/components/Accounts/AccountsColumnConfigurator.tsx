@@ -57,7 +57,7 @@ export function AccountsColumnConfigurator(): JSX.Element {
 }
 
 function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
-    const { selectColumns, accountsColumnGroups, databaseLoading, editingColumn, editingColumnIndex } =
+    const { selectColumns, accountsColumnGroups, columnSchemaLoading, editingColumn, editingColumnIndex } =
         useValues(accountsColumnConfigLogic)
     const { moveColumn, resetColumns, unselectColumn, setEditingColumnIndex } = useActions(accountsColumnConfigLogic)
 
@@ -123,7 +123,7 @@ function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean;
                     ) : (
                         <div className="w-full">
                             <h4 className="secondary uppercase text-secondary">Available columns</h4>
-                            <AvailableColumnsPicker groups={accountsColumnGroups} loading={databaseLoading} />
+                            <AvailableColumnsPicker groups={accountsColumnGroups} loading={columnSchemaLoading} />
                         </div>
                     )}
                 </div>
