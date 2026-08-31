@@ -27,7 +27,7 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 
-const REPORTS_PAGE_SIZE = 100;
+const REPORTS_PAGE_SIZE = 50;
 
 export const reportKeys = inboxReportKeys;
 

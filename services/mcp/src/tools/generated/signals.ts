@@ -232,6 +232,7 @@ const inboxReportsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
             query: {
                 channel_id: params.channel_id,
+                count_only: params.count_only,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
                 limit: params.limit,

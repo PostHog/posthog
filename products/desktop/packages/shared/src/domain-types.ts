@@ -1076,9 +1076,11 @@ export interface SignalReportsQueryParams {
   suggested_reviewers?: string;
   /** Comma-separated `P0`–`P4` priorities — only returns reports with one of these priorities. */
   priority?: string;
+  /** Return the filtered total without fetching or enriching report rows. */
+  count_only?: boolean;
   /**
    * Filter by whether a shipped implementation pull request exists. `true` keeps only PR
-   * reports, `false` only non-PR reports. Pair with `limit: 1` to count PR reports cheaply.
+   * reports, `false` only non-PR reports.
    */
   has_implementation_pr?: boolean;
   /** A space (task channel) UUID — only returns reports assigned to that space. Omit for the general view, which returns every report. */
