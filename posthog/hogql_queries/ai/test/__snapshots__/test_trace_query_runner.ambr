@@ -431,24 +431,7 @@
             JSONExtractRaw(__ai_events_fallback.properties, '$ai_output_state') AS output_state,
             JSONExtractRaw(__ai_events_fallback.properties, '$ai_tools') AS tools
      FROM events AS __ai_events_fallback
-     LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS __ai_events_fallback__override ON equals(__ai_events_fallback.distinct_id, __ai_events_fallback__override.distinct_id)
-     LEFT JOIN
-       (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'bar'), ''), 'null'), '^"|"$', '') AS properties___bar
-        FROM person
-        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                       FROM person
-                                                       WHERE equals(person.team_id, 99999)
-                                                       GROUP BY person.id
-                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS __ai_events_fallback__person ON equals(if(not(empty(__ai_events_fallback__override.distinct_id)), __ai_events_fallback__override.person_id, __ai_events_fallback.person_id), __ai_events_fallback__person.id)
-     WHERE and(equals(__ai_events_fallback.team_id, 99999), in(__ai_events_fallback.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-12-08 00:10:00', 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(__ai_events_fallback.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0), ifNull(equals(__ai_events_fallback__person.properties___bar, 'foo'), 0)))
+     WHERE and(equals(__ai_events_fallback.team_id, 99999), in(__ai_events_fallback.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(__ai_events_fallback.timestamp, assumeNotNull(toDateTime('2024-12-08 00:10:00', 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(__ai_events_fallback.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), 'trace1'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(__ai_events_fallback.person_properties, 'bar'), ''), 'null'), '^"|"$', ''), 'foo'), 0)))
      LIMIT 1 BY __ai_events_fallback.uuid) AS deduped
   GROUP BY deduped.trace_id
   LIMIT 1 SETTINGS readonly=2,
