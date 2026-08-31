@@ -72,37 +72,39 @@ export function WizardLibraryModal({
             width={1000}
             maxWidth="95vw"
         >
-            <div className="@container flex h-[min(680px,75vh)] min-h-0 flex-col gap-5 @3xl:flex-row">
-                <WizardProgramList
-                    programs={filteredPrograms}
-                    selectedProgram={selectedProgram}
-                    search={search}
-                    loading={loading}
-                    failed={failed}
-                    onSearch={onSearch}
-                    onSelect={onSelect}
-                />
-                <WizardProgramDetails
-                    program={selectedProgram}
-                    requiredPrograms={requiredPrograms}
-                    command={command}
-                    environment={environment}
-                    repository={repository}
-                    repositories={repositories}
-                    githubConnected={githubConnected}
-                    githubIntegrationLoading={githubIntegrationLoading}
-                    githubRepositoriesLoading={githubRepositoriesLoading}
-                    connectGitHubUrl={connectGitHubUrl}
-                    creating={creating}
-                    createError={createError}
-                    commandCopied={commandCopied}
-                    selectionInvalidated={selectionInvalidated}
-                    onEnvironmentChange={onEnvironmentChange}
-                    onRepositoryChange={onRepositoryChange}
-                    onCreate={onCreate}
-                    onCopyCommand={onCopyCommand}
-                    onCommandCopied={onCommandCopied}
-                />
+            <div className="@container">
+                <div className="flex h-[min(680px,75vh)] min-h-0 flex-col gap-5 @3xl:flex-row">
+                    <WizardProgramList
+                        programs={filteredPrograms}
+                        selectedProgram={selectedProgram}
+                        search={search}
+                        loading={loading}
+                        failed={failed}
+                        onSearch={onSearch}
+                        onSelect={onSelect}
+                    />
+                    <WizardProgramDetails
+                        program={selectedProgram}
+                        requiredPrograms={requiredPrograms}
+                        command={command}
+                        environment={environment}
+                        repository={repository}
+                        repositories={repositories}
+                        githubConnected={githubConnected}
+                        githubIntegrationLoading={githubIntegrationLoading}
+                        githubRepositoriesLoading={githubRepositoriesLoading}
+                        connectGitHubUrl={connectGitHubUrl}
+                        creating={creating}
+                        createError={createError}
+                        commandCopied={commandCopied}
+                        selectionInvalidated={selectionInvalidated}
+                        onEnvironmentChange={onEnvironmentChange}
+                        onRepositoryChange={onRepositoryChange}
+                        onCreate={onCreate}
+                        onCopyCommand={onCopyCommand}
+                        onCommandCopied={onCommandCopied}
+                    />
+                </div>
             </div>
         </LemonModal>
     )
