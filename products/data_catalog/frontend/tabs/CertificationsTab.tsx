@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -27,7 +28,8 @@ const STATUS_TAG: Record<string, { label: string; type: 'warning' | 'success' | 
 }
 
 export function CertificationsTab(): JSX.Element {
-    const { filteredCertifications, certificationsLoading, filters, actionsInFlight } = useValues(certificationsLogic)
+    const { filteredCertifications, certificationsLoading, certificationsError, filters, actionsInFlight } =
+        useValues(certificationsLogic)
     const {
         setFilters,
         loadCertifications,
@@ -132,6 +134,11 @@ export function CertificationsTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {certificationsError && (
+                <LemonBanner type="error" action={{ children: 'Reload', onClick: () => loadCertifications() }}>
+                    {certificationsError}
+                </LemonBanner>
+            )}
             <div className="flex justify-between gap-2 flex-wrap items-center">
                 <LemonInput
                     type="search"

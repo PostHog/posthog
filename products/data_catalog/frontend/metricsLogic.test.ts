@@ -80,6 +80,38 @@ describe('metricsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
     })
 
+    it('surfaces a load failure in the tab and keeps the prior metrics', async () => {
+        ;(dataCatalogMetricsList as jest.Mock).mockRejectedValue(new TypeError('Failed to fetch'))
+
+        logic.actions.loadMetrics()
+        await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
+
+        expect(logic.values.metricsError).toEqual('Could not load metrics. Reload to try again.')
+        expect(logic.values.allMetrics.map((metric) => metric.name)).toEqual(['weekly_active_users'])
+    })
+
+    it('does not surface a superseded load failure over a newer successful load', async () => {
+        let failStaleLoad: (error: unknown) => void = () => {}
+        ;(dataCatalogMetricsList as jest.Mock).mockReturnValueOnce(
+            new Promise((_, reject) => {
+                failStaleLoad = reject
+            })
+        )
+        logic.actions.loadMetrics()
+        ;(dataCatalogMetricsList as jest.Mock).mockResolvedValue({
+            results: [buildMetric({ id: 'metric-2', name: 'fresh' })],
+            next: null,
+        })
+        logic.actions.loadMetrics()
+        await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
+
+        failStaleLoad(new TypeError('Failed to fetch'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.metricsError).toBeNull()
+        expect(logic.values.allMetrics.map((metric) => metric.name)).toEqual(['fresh'])
+    })
+
     it('replaces the row with the response when approve succeeds', async () => {
         ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(buildMetric({ status: 'approved' }))
 

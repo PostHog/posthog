@@ -75,6 +75,11 @@ function apiErrorDetail(error: unknown): string | null {
     return error instanceof ApiError ? error.detail : null
 }
 
+// Load failures often carry no response body, so fall back to a generic message with nothing to quote.
+function loadErrorMessage(error: unknown, fallback: string): string {
+    return apiErrorDetail(error) || fallback
+}
+
 function skippedMessage(skipped: DataCatalogMetricBulkSkipApi[]): string {
     const countByReason = new Map<string, number>()
     for (const skip of skipped) {
@@ -95,6 +100,7 @@ export interface metricsLogicValues {
     isCreatingMetric: boolean
     metricFromInsightModalOpen: boolean
     metrics: DataCatalogMetricApi[]
+    metricsError: string | null
     newMetricForm: NewMetricForm
     newMetricModalOpen: boolean
     proposedCount: number
@@ -209,6 +215,9 @@ export interface metricsLogicActions {
     setInsightSearch: (search: string) => {
         search: string
     }
+    setMetricsError: (error: string | null) => {
+        error: string | null
+    }
     setNewMetricForm: (form: Partial<NewMetricForm>) => {
         form: Partial<NewMetricForm>
     }
@@ -248,27 +257,38 @@ export const metricsLogic = kea<metricsLogicType>([
         bulkApproveMetrics: (names: string[], onSuccess?: () => void) => ({ names, onSuccess }),
         bulkDeleteMetrics: (names: string[], onSuccess?: () => void) => ({ names, onSuccess }),
         setBulkActionInFlight: (bulkAction: BulkMetricAction | null) => ({ bulkAction }),
+        setMetricsError: (error: string | null) => ({ error }),
         openMetricFromInsightModal: true,
         closeMetricFromInsightModal: true,
         createMetricFromInsight: (request: MetricFromInsightRequest) => ({ request }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         allMetrics: [
             [] as DataCatalogMetricApi[],
             {
                 // Walk every page: the tab badge counts proposed metrics across the whole catalog,
                 // and selection spans pages, so a single server page would hide the rest.
-                loadMetrics: async () => {
-                    const metrics: DataCatalogMetricApi[] = []
-                    for (let offset = 0; ; offset += METRICS_PAGE_SIZE) {
-                        const response = await dataCatalogMetricsList(projectId(), {
-                            limit: METRICS_PAGE_SIZE,
-                            offset,
-                        })
-                        metrics.push(...(response.results || []))
-                        if (!response.next || !response.results?.length) {
-                            return metrics
+                loadMetrics: async (_, breakpoint) => {
+                    try {
+                        const metrics: DataCatalogMetricApi[] = []
+                        for (let offset = 0; ; offset += METRICS_PAGE_SIZE) {
+                            const response = await dataCatalogMetricsList(projectId(), {
+                                limit: METRICS_PAGE_SIZE,
+                                offset,
+                            })
+                            metrics.push(...(response.results || []))
+                            if (!response.next || !response.results?.length) {
+                                return metrics
+                            }
                         }
+                    } catch (error) {
+                        // Drop the failure if a newer load has already started: breakpoint() throws here
+                        // when this load is superseded, so a stale error never paints over fresher rows.
+                        breakpoint()
+                        // A page can fail with a fetch error or an unreadable body. Show it in the tab
+                        // rather than letting the rejection escape as an unhandled exception.
+                        actions.setMetricsError(loadErrorMessage(error, 'Could not load metrics. Reload to try again.'))
+                        return values.allMetrics
                     }
                 },
             },
@@ -341,6 +361,13 @@ export const metricsLogic = kea<metricsLogicType>([
             null as BulkMetricAction | null,
             {
                 setBulkActionInFlight: (_, { bulkAction }) => bulkAction,
+            },
+        ],
+        metricsError: [
+            null as string | null,
+            {
+                setMetricsError: (_, { error }) => error,
+                loadMetrics: () => null,
             },
         ],
         insightSearch: [

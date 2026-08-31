@@ -83,6 +83,16 @@ describe('certificationsLogic', () => {
         expect(logic.values.proposedCount).toEqual(1)
     })
 
+    it('surfaces a load failure in the tab and keeps the prior certifications', async () => {
+        ;(dataCatalogCertificationsList as jest.Mock).mockRejectedValue(new TypeError('Failed to fetch'))
+
+        logic.actions.loadCertifications()
+        await expectLogic(logic).toDispatchActions(['loadCertificationsSuccess'])
+
+        expect(logic.values.certificationsError).toEqual('Could not load certifications. Reload to try again.')
+        expect(logic.values.certifications.map((certification) => certification.id)).toEqual(['cert-1', 'cert-2'])
+    })
+
     it.each<[Partial<CertificationsFilters>, string[]]>([
         [{ status: 'proposed' }, ['cert-1', 'cert-4']],
         [{ status: 'certified' }, ['cert-2']],
