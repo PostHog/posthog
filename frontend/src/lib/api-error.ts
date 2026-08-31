@@ -18,7 +18,7 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
 /** Infrastructure-level failures where the gateway couldn't reach the backend. */
 const TRANSIENT_GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
 
-function isTransientGatewayStatus(status: number | undefined): boolean {
+export function isTransientGatewayStatus(status: number | undefined): boolean {
     return status !== undefined && TRANSIENT_GATEWAY_STATUSES.has(status)
 }
 

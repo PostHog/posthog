@@ -7,11 +7,12 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import { ApiError, NetworkError, type NetworkFailureReason, isTransientGatewayStatus } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
+import { delay } from 'lib/utils/async'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -7543,11 +7544,33 @@ function captureClientRequestFailure(properties: {
     }
 }
 
+/** Methods safe to replay when a request may already have reached the origin (a 504 timeout). */
+const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+const MAX_TRANSIENT_RETRIES = 2
+const TRANSIENT_RETRY_BASE_DELAY_MS = 400
+
+/**
+ * Whether a transient gateway failure (502/503/504) is safe to retry. A 502 or 503 means the origin
+ * never processed the request, so any method can be replayed. A 504 means it may have, so only
+ * idempotent methods retry, because replaying a mutation could apply it twice.
+ */
+function shouldRetryTransientFailure(status: number, method: string): boolean {
+    if (!isTransientGatewayStatus(status)) {
+        return false
+    }
+    if (status === 504) {
+        return IDEMPOTENT_METHODS.has(method.toUpperCase())
+    }
+    return true
+}
+
 async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
-    isRetry = false
+    isRetry = false,
+    transientRetryCount = 0
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7612,6 +7635,13 @@ async function handleFetch(
                 warnedSharedViewLeaks.add(leakKey)
                 console.warn(`[shared-view] unexpected ${response.status} on ${leakKey}`)
             }
+        }
+
+        // A transient gateway failure usually clears on retry, so replay it with backoff before
+        // surfacing the error. This is the automatic version of the reload a user would do by hand.
+        if (shouldRetryTransientFailure(response.status, method) && transientRetryCount < MAX_TRANSIENT_RETRIES) {
+            await delay(TRANSIENT_RETRY_BASE_DELAY_MS * 2 ** transientRetryCount)
+            return await handleFetch(url, method, fetcher, isRetry, transientRetryCount + 1)
         }
 
         throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))

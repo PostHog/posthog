@@ -43,6 +43,7 @@ import {
     coercePropertyValue,
     getHogqlQueryStringForPersonId,
     parsePersonFromHogQLRow,
+    personLoadErrorMessage,
     pickBestPersonDistinctId,
 } from './person-utils'
 
@@ -247,6 +248,9 @@ export interface personsLogicActions {
     resetEventsQuery: () => {
         value: true
     }
+    retryLoadPerson: () => {
+        value: true
+    }
     setActiveTab: (tab: PersonsTabType) => {
         tab: PersonsTabType
     }
@@ -359,6 +363,7 @@ export const personsLogic = kea<personsLogicType>([
         setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
         setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
         resetEventsQuery: true,
+        retryLoadPerson: true,
     }),
     loaders(({ values, actions, props }) => {
         const setupPersonQueries = (person: PersonType): void => {
@@ -533,8 +538,8 @@ export const personsLogic = kea<personsLogicType>([
                 loadPerson: () => null,
                 setPerson: () => null,
                 loadPersonUUID: () => null,
-                loadPersonFailure: (_, { error }) => error,
-                loadPersonUUIDFailure: (_, { error }) => error,
+                loadPersonFailure: (_, { error, errorObject }) => personLoadErrorMessage(error, errorObject),
+                loadPersonUUIDFailure: (_, { error, errorObject }) => personLoadErrorMessage(error, errorObject),
             },
         ],
         distinctId: [
@@ -661,6 +666,18 @@ export const personsLogic = kea<personsLogicType>([
             const person = values.person
             if (person?.id != null) {
                 actions.setEventsQuery(createInitialEventsPayload(person.id))
+            }
+        },
+        retryLoadPerson: () => {
+            if (!values.urlId) {
+                return
+            }
+            // Re-run whichever loader the current route uses, so the retry matches the failed load.
+            // The UUID route is `/persons/<uuid>`; the distinct-id route is `/person/<id>`.
+            if (router.values.location.pathname.includes('/persons/')) {
+                actions.loadPersonUUID(values.urlId)
+            } else {
+                actions.loadPerson(values.urlId)
             }
         },
         editProperty: async ({ key, newValue }) => {

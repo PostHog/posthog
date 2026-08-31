@@ -213,6 +213,7 @@ export function PersonScene(): JSX.Element | null {
     } = useValues(mountedPersonsLogic)
     const {
         loadPersons,
+        retryLoadPerson,
         editProperty,
         deleteProperty,
         navigateToTab,
@@ -239,8 +240,9 @@ export function PersonScene(): JSX.Element | null {
                     type="error"
                     className="max-w-200 w-full"
                     action={{
-                        children: 'Reload',
-                        onClick: () => window.location.reload(),
+                        children: 'Try again',
+                        onClick: () => retryLoadPerson(),
+                        loading: personLoading,
                         'data-attr': 'person-load-error-reload',
                     }}
                 >

@@ -447,6 +447,71 @@ describe('API helper', () => {
         })
     })
 
+    describe('transient gateway failures', () => {
+        beforeEach(() => jest.useFakeTimers())
+        afterEach(() => jest.useRealTimers())
+
+        const gatewayFailure = (status: number): any => ({
+            ok: false,
+            status,
+            statusText: '',
+            headers: new Headers(),
+            json: () => Promise.resolve(null),
+            clone(): any {
+                return this
+            },
+        })
+        const success = (): any => ({
+            ok: true,
+            status: 200,
+            body: {},
+            json: () => Promise.resolve(FAKE_FETCH_RESULT),
+            text: () => Promise.resolve(JSON.stringify(FAKE_FETCH_RESULT)),
+        })
+
+        it.each([502, 503, 504])('retries a %s GET and resolves once a retry succeeds', async (status) => {
+            fakeFetch.mockResolvedValueOnce(gatewayFailure(status)).mockResolvedValueOnce(success())
+
+            const promise = api.get('api/environments/2/insights')
+            await jest.advanceTimersByTimeAsync(500)
+
+            await expect(promise).resolves.toEqual(FAKE_FETCH_RESULT)
+            expect(fakeFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('retries a 503 on a POST, since the origin never processed it', async () => {
+            fakeFetch.mockResolvedValueOnce(gatewayFailure(503)).mockResolvedValueOnce(success())
+
+            const promise = api.create('api/environments/2/query', {})
+            await jest.advanceTimersByTimeAsync(500)
+
+            await expect(promise).resolves.toEqual(FAKE_FETCH_RESULT)
+            expect(fakeFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('does not replay a 504 on a POST, which may already have applied', async () => {
+            fakeFetch.mockResolvedValue(gatewayFailure(504))
+
+            const error = await api.create('api/environments/2/query', {}).catch((e) => e)
+
+            expect(error.status).toBe(504)
+            expect(fakeFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('gives up after the retry budget and throws the gateway error', async () => {
+            fakeFetch.mockResolvedValue(gatewayFailure(503))
+
+            const promise = api.get('api/environments/2/insights').catch((e) => e)
+            await jest.advanceTimersByTimeAsync(2000)
+            const error = await promise
+
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error.status).toBe(503)
+            // initial attempt plus two retries
+            expect(fakeFetch).toHaveBeenCalledTimes(3)
+        })
+    })
+
     describe('organizationFeatureFlags', () => {
         it('builds correct URL for organization feature flags', () => {
             const apiRequest = new ApiRequest()

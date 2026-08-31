@@ -12,6 +12,20 @@ import { HogQLQueryString, hogql } from '~/queries/utils'
 import { PersonType } from '~/types'
 
 /**
+ * User-facing copy for a failed person load. A server error with no readable body would otherwise
+ * print the raw HTTP fallback line (e.g. "Non-OK response ... (status 503: )"), so replace that
+ * with a plain explanation. A failure that already carries a readable message keeps it.
+ */
+export function personLoadErrorMessage(error: string, errorObject?: unknown): string {
+    const failure = errorObject as { status?: number; detail?: string | null } | null
+    const status = typeof failure?.status === 'number' ? failure.status : undefined
+    if (status !== undefined && status >= 500 && !failure?.detail) {
+        return 'The server had trouble responding. This is usually temporary, so try again in a moment.'
+    }
+    return error
+}
+
+/**
  * Generates a stable color index from a string using djb2 hash.
  * Used for consistent avatar colors based on person identifiers.
  */

@@ -203,6 +203,21 @@ describe('personsLogic', () => {
         })
     })
 
+    describe('retryLoadPerson', () => {
+        it('re-runs the UUID loader when retried on the persons route', async () => {
+            jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+            router.actions.push('/persons/the-uuid')
+            const retryLogic = personsLogic({ syncWithUrl: true, urlId: 'the-uuid' })
+            retryLogic.mount()
+
+            await expectLogic(retryLogic, () => {
+                retryLogic.actions.retryLoadPerson()
+            }).toDispatchActions(['retryLoadPerson', 'loadPersonUUID'])
+
+            retryLogic.unmount()
+        })
+    })
+
     describe('Load cohorts', () => {
         it("Doesn't load cohort if we're on", async () => {
             await expectLogic(logic, () => {
