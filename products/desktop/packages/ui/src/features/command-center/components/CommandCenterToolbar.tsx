@@ -3,6 +3,7 @@ import {
   MagnifyingGlassPlus,
   Trash,
 } from "@phosphor-icons/react";
+import { resizeCellsForLayout } from "@posthog/core/command-center/grid";
 import { Flex, Select, Text } from "@radix-ui/themes";
 import { useCallback } from "react";
 import {
@@ -97,9 +98,14 @@ export function CommandCenterToolbar({
 
   const handleSetLayout = useCallback(
     (preset: LayoutPreset) => {
-      const { cells } = useCommandCenterStore.getState();
-      setLayout(preset, occupiedCellIndices);
-      const kept = useCommandCenterStore.getState().cells;
+      const { cells, layout: currentLayout } = useCommandCenterStore.getState();
+      const kept = resizeCellsForLayout(
+        cells,
+        currentLayout,
+        preset,
+        occupiedCellIndices,
+      );
+      setLayout(preset, kept);
       destroyTerminalCells(cells.filter((cell) => !kept.includes(cell)));
     },
     [occupiedCellIndices, setLayout],

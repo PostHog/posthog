@@ -25,21 +25,6 @@ function resetStore() {
 describe("commandCenterStore", () => {
   beforeEach(resetStore);
 
-  describe("setLayout", () => {
-    it("packs visible tiles when the selected layout is smaller", () => {
-      useCommandCenterStore.setState({
-        layout: "3x2",
-        cells: ["a", "b", "c", null, "deleted-task", "d"],
-      });
-
-      useCommandCenterStore.getState().setLayout("2x2", [0, 1, 2, 5]);
-
-      const state = useCommandCenterStore.getState();
-      expect(state.layout).toBe("2x2");
-      expect(state.cells).toEqual(["a", "b", "c", "d"]);
-    });
-  });
-
   describe("autofillCells", () => {
     it.each([
       {
