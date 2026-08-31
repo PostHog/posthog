@@ -62,6 +62,15 @@ export type Turn = {
   /** Invoked once at activation, matching the pre-consumer broadcast timing. */
   broadcast: () => Promise<void>;
   pendingInput?: SDKUserMessage;
+  /** `performance.now()` at the moment the prompt entered the SDK input
+   *  stream. The SDK emits nothing while it prepares a turn, so this is the
+   *  only anchor for measuring that silent window. */
+  dispatchedAt?: number;
+  /** Set once the first SDK message for this turn has been timed, so the
+   *  measurement is reported once instead of on every message. */
+  firstMessageTimed?: boolean;
+  /** Set once the first assistant message for this turn has been timed. */
+  firstOutputTimed?: boolean;
   settled: boolean;
   resolve: (response: PromptResponse) => void;
   reject: (error: unknown) => void;
