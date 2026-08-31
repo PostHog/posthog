@@ -188,13 +188,6 @@ export namespace WorkflowSchemas {
 
   export type PatchedHogFlowScheduleWrite = Partial<HogFlowScheduleWrite>;
 
-  export type PaginatedHogFlowScheduleList = {
-    count: number;
-    next: string | null;
-    previous: string | null;
-    results: HogFlowSchedule[];
-  };
-
   /** Hand-vendored ahead of #91581 landing. */
   export type HogFlowRunRequest = {
     variables?: Record<string, unknown>;
@@ -385,18 +378,6 @@ export async function runHogFlow(
   );
 }
 
-export async function listHogFlowSchedules(
-  client: ApiClient,
-  projectId: string,
-  hogFlowId: string,
-): Promise<WorkflowSchemas.PaginatedHogFlowScheduleList> {
-  return workflowsRequest(
-    client,
-    "get",
-    hogFlowSchedulesPath(projectId, hogFlowId),
-  );
-}
-
 export async function createHogFlowSchedule(
   client: ApiClient,
   projectId: string,
@@ -423,19 +404,6 @@ export async function partialUpdateHogFlowSchedule(
     "patch",
     hogFlowScheduleDetailPath(projectId, hogFlowId, scheduleId),
     { body },
-  );
-}
-
-export async function destroyHogFlowSchedule(
-  client: ApiClient,
-  projectId: string,
-  hogFlowId: string,
-  scheduleId: string,
-): Promise<void> {
-  await workflowsRequest(
-    client,
-    "delete",
-    hogFlowScheduleDetailPath(projectId, hogFlowId, scheduleId),
   );
 }
 

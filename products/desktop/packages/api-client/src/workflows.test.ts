@@ -4,12 +4,10 @@ import {
   createHogFlow,
   createHogFlowSchedule,
   destroyHogFlow,
-  destroyHogFlowSchedule,
   findCreateTaskAction,
   isCreateTaskAction,
   isLoopShapedHogFlow,
   isTriggerAction,
-  listHogFlowSchedules,
   listHogFlows,
   partialUpdateHogFlow,
   partialUpdateHogFlowSchedule,
@@ -114,12 +112,6 @@ describe("workflows client", () => {
       path: `/api/projects/${PROJECT_ID}/hog_flows/${HOG_FLOW_ID}/run/`,
     },
     {
-      name: "listHogFlowSchedules",
-      invoke: (client) => listHogFlowSchedules(client, PROJECT_ID, HOG_FLOW_ID),
-      method: "get",
-      path: `/api/projects/${PROJECT_ID}/hog_flows/${HOG_FLOW_ID}/schedules/`,
-    },
-    {
       name: "createHogFlowSchedule",
       invoke: (client) =>
         createHogFlowSchedule(client, PROJECT_ID, HOG_FLOW_ID, {
@@ -140,13 +132,6 @@ describe("workflows client", () => {
           { timezone: "UTC" },
         ),
       method: "patch",
-      path: `/api/projects/${PROJECT_ID}/hog_flows/${HOG_FLOW_ID}/schedules/${SCHEDULE_ID}/`,
-    },
-    {
-      name: "destroyHogFlowSchedule",
-      invoke: (client) =>
-        destroyHogFlowSchedule(client, PROJECT_ID, HOG_FLOW_ID, SCHEDULE_ID),
-      method: "delete",
       path: `/api/projects/${PROJECT_ID}/hog_flows/${HOG_FLOW_ID}/schedules/${SCHEDULE_ID}/`,
     },
   ];
