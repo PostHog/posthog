@@ -19,13 +19,14 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import IntegrityError
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 import structlog
 from slack_sdk import WebClient
 
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.redis import get_client
 
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
@@ -69,6 +70,10 @@ PENDING_CLAIM_TTL = timedelta(seconds=240)
 
 class AlertThreadBusyError(Exception):
     """Another notification holds this thread's send claim; retry after it saves."""
+
+
+ALERT_THROTTLE_KEY_PREFIX = "error_tracking:alert_throttle:v1"
+MAX_RECORDED_ERROR_LENGTH = 500
 
 
 class AlertDeliveryError(Exception):
@@ -158,6 +163,7 @@ def _opener_filter_matches(
 def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
     planned = plan_alert_deliveries(inputs)
     filter_matches = _opener_filter_matches(planned, inputs)
+    throttle_allowed: dict = {}
     delivered = 0
     failures = 0
     busy = 0
@@ -172,6 +178,13 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
             if not verdict:
                 # A filtered-out opener leaves no thread behind, so later replies for
                 # this issue stay unclaimed and a matching opener can still root one.
+                continue
+            # The throttle window is claimed only for openers whose filters
+            # matched, and once per alert: every destination of the alert shares
+            # the same claim, and replies are never throttled.
+            if delivery.alert.id not in throttle_allowed:
+                throttle_allowed[delivery.alert.id] = _opener_throttle_allows(delivery.alert, inputs)
+            if not throttle_allowed[delivery.alert.id]:
                 continue
         try:
             if _deliver_one(delivery, inputs):
@@ -188,7 +201,7 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
                 notification_id=inputs.notification_id,
             )
             busy += 1
-        except Exception:
+        except Exception as error:
             # Give every destination a chance before surfacing the failure to
             # Temporal; the per-notification claim makes the retry safe for the
             # deliveries that already went out.
@@ -201,6 +214,7 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
                 lifecycle_event=inputs.event,
                 notification_id=inputs.notification_id,
             )
+            _record_delivery_outcome(delivery.destination, error=str(error))
             failures += 1
     if failures:
         raise AlertDeliveryError(f"{failures} of {len(planned)} alert deliveries failed")
@@ -209,6 +223,50 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
         # the activity's failure budget.
         raise AlertThreadBusyError(f"{busy} of {len(planned)} alert threads are busy")
     return delivered
+
+
+def _opener_throttle_allows(alert: ErrorTrackingAlert, inputs: AlertDeliveryWorkflowInputs) -> bool:
+    if alert.throttle_seconds <= 0:
+        return True
+    key = f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{inputs.issue_id}"
+    try:
+        client = get_client()
+        if client.set(key, inputs.notification_id, nx=True, ex=alert.throttle_seconds):
+            return True
+        holder = client.get(key)
+        allowed = holder is not None and holder.decode() == inputs.notification_id
+        if not allowed:
+            logger.info(
+                "error_tracking_alert_opener_throttled",
+                team_id=inputs.team_id,
+                alert_id=str(alert.id),
+                issue_id=inputs.issue_id,
+                notification_id=inputs.notification_id,
+            )
+        # A retry of the notification that claimed the window must still deliver.
+        return allowed
+    except Exception:
+        # Throttling is noise control: without Redis, deliver rather than drop.
+        logger.exception("error_tracking_alert_throttle_check_failed", alert_id=str(alert.id))
+        return True
+
+
+def _record_delivery_outcome(destination: ErrorTrackingAlertDestination, *, error: str | None) -> None:
+    now = timezone.now()
+    rows = ErrorTrackingAlertDestination.objects.for_team(destination.team_id, canonical=True).filter(id=destination.id)
+    try:
+        if error is None:
+            rows.update(last_delivered_at=now, consecutive_failures=0, updated_at=now)
+        else:
+            rows.update(
+                last_failure_at=now,
+                last_error=error[:MAX_RECORDED_ERROR_LENGTH],
+                consecutive_failures=F("consecutive_failures") + 1,
+                updated_at=now,
+            )
+    except Exception:
+        # The outcome record is observability, never worth failing a delivery over.
+        logger.exception("error_tracking_alert_outcome_record_failed", destination_id=str(destination.id))
 
 
 def _deliver_one(delivery: PlannedDelivery, inputs: AlertDeliveryWorkflowInputs) -> bool:
@@ -247,6 +305,7 @@ def _deliver_one(delivery: PlannedDelivery, inputs: AlertDeliveryWorkflowInputs)
             alert_id=str(delivery.alert.id),
             destination_id=str(delivery.destination.id),
         )
+        _record_delivery_outcome(delivery.destination, error="Slack integration is missing or was revoked")
         return False
 
     claimed_at = _claim_thread(thread, inputs)
@@ -283,6 +342,7 @@ def _post_claimed(
             return False
         channel = delivery.destination.config.get("channel")
         if not channel:
+            _record_delivery_outcome(delivery.destination, error="Destination has no Slack channel configured")
             return False
         # Transitions run as independent workflows, so a later one (resolved, assigned)
         # can land before the opener: the root shows the issue row as it is now, not
@@ -324,6 +384,7 @@ def _post_claimed(
             thread_id=str(thread.id),
             notification_id=inputs.notification_id,
         )
+    _record_delivery_outcome(delivery.destination, error=None)
     return True
 
 
