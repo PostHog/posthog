@@ -300,6 +300,18 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        it('records the polarity on the boolean output config', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluationSuccess({ ...mockEvaluation })
+                logic.actions.setTrueIsFailure(true)
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    output_config: { allows_na: false, true_is_failure: true },
+                }),
+                hasUnsavedChanges: true,
+            })
+        })
+
         it('setTriggerConditions updates conditions', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
