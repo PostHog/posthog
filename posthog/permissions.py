@@ -33,8 +33,8 @@ from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeature
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
-from posthog.models.organization_caching import get_cached_organization_membership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,

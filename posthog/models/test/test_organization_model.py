@@ -11,12 +11,12 @@ from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import BillingPeriod, OrganizationMembership
-from posthog.models.organization_caching import (
+from posthog.models.user import User
+from posthog.organization_caching import (
     get_cached_organization,
     get_cached_organization_membership,
     get_cached_organization_memberships,
 )
-from posthog.models.user import User
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.redis import get_client

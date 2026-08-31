@@ -41,7 +41,7 @@ def _user_organization_memberships_cache_key(user_id: int) -> str:
     return f"organization_access:user_memberships:{user_id}"
 
 
-def _membership_cache_version_key(key: str) -> str:
+def _access_cache_version_key(key: str) -> str:
     return f"{key}:version"
 
 
@@ -68,7 +68,7 @@ def _delete_access_cache_value(key: str) -> None:
 
 
 def _get_cache_version(key: str) -> str | None:
-    value = _get_access_cache_value(_membership_cache_version_key(key))
+    value = _get_access_cache_value(_access_cache_version_key(key))
     return value if isinstance(value, str) else None
 
 
@@ -87,12 +87,14 @@ def _get_versioned_access_cache_value(key: str, version: str | None = None) -> A
 
 
 def _cache_organization(organization: Organization) -> None:
-    _set_access_cache_value(_organization_cache_key(organization.id), organization)
+    key = _organization_cache_key(organization.id)
+    _set_versioned_access_cache_value(key, organization, _get_cache_version(key))
 
 
 def get_cached_organization(organization_id: str | UUID) -> Organization | None:
     key = _organization_cache_key(organization_id)
-    cached = _get_access_cache_value(key)
+    version = _get_cache_version(key)
+    cached = _get_versioned_access_cache_value(key, version)
     if cached == _ORGANIZATION_ACCESS_CACHE_MISS:
         return None
     organization_model = _organization_model()
@@ -102,10 +104,10 @@ def get_cached_organization(organization_id: str | UUID) -> Organization | None:
     try:
         organization = organization_model.objects.get(id=organization_id)
     except (organization_model.DoesNotExist, ValueError):
-        _set_access_cache_value(key, _ORGANIZATION_ACCESS_CACHE_MISS)
+        _set_versioned_access_cache_value(key, _ORGANIZATION_ACCESS_CACHE_MISS, version)
         return None
 
-    _cache_organization(organization)
+    _set_versioned_access_cache_value(key, organization, version)
     return organization
 
 
@@ -146,7 +148,6 @@ def get_cached_organization_membership(organization_id: str | UUID, user: User) 
         _set_versioned_access_cache_value(key, _ORGANIZATION_ACCESS_CACHE_MISS, version)
         return None
 
-    _cache_organization(membership.organization)
     _cache_membership(membership, version)
     return _prepare_cached_membership(membership, user)
 
@@ -162,7 +163,6 @@ def get_cached_organization_memberships(user: User) -> list[OrganizationMembersh
         _organization_membership_model().objects.filter(user_id=user.id).select_related("organization")
     )
     for membership in memberships:
-        _cache_organization(membership.organization)
         membership._state.fields_cache.pop("organization", None)
         membership._state.fields_cache.pop("user", None)
     _set_versioned_access_cache_value(key, memberships, version)
@@ -170,7 +170,9 @@ def get_cached_organization_memberships(user: User) -> list[OrganizationMembersh
 
 
 def invalidate_organization_access_cache(organization_id: str | UUID) -> None:
-    _delete_access_cache_value(_organization_cache_key(organization_id))
+    key = _organization_cache_key(organization_id)
+    _set_access_cache_value(_access_cache_version_key(key), uuid4().hex)
+    _delete_access_cache_value(key)
 
 
 def invalidate_organization_membership_access_cache(organization_id: str | UUID, user_id: int) -> None:
@@ -179,13 +181,13 @@ def invalidate_organization_membership_access_cache(organization_id: str | UUID,
         _user_organization_memberships_cache_key(user_id),
     )
     for key in keys:
-        _set_access_cache_value(_membership_cache_version_key(key), uuid4().hex)
+        _set_access_cache_value(_access_cache_version_key(key), uuid4().hex)
     for key in keys:
         _delete_access_cache_value(key)
 
     def invalidate_after_commit() -> None:
         for key in keys:
-            _set_access_cache_value(_membership_cache_version_key(key), uuid4().hex)
+            _set_access_cache_value(_access_cache_version_key(key), uuid4().hex)
             _delete_access_cache_value(key)
 
     transaction.on_commit(invalidate_after_commit)

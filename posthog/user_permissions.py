@@ -4,7 +4,7 @@ from uuid import UUID
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.organization_caching import get_cached_organization_memberships
+from posthog.organization_caching import get_cached_organization_memberships
 
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.models.dashboard import Dashboard

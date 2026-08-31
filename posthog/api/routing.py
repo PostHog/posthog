@@ -27,11 +27,11 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
-from posthog.models.organization_caching import get_cached_organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.organization_caching import get_cached_organization
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
