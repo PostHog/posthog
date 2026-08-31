@@ -101,16 +101,16 @@ export function UpdateInterruptDialog() {
               "The agents finished their work. Restarting will not interrupt anything."
             )}
           </AlertDialogDescription>
+          {working.length > 1 ? (
+            <ul className="mt-1 flex list-disc flex-col gap-1.5 pl-4">
+              {working.map((task) => (
+                <li key={task.taskRunId}>
+                  <TaskLink task={task} onNavigate={clear} />
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </AlertDialogHeader>
-        {working.length > 1 ? (
-          <ul className="flex list-disc flex-col gap-1 pl-5">
-            {working.map((task) => (
-              <li key={task.taskRunId}>
-                <TaskLink task={task} onNavigate={clear} />
-              </li>
-            ))}
-          </ul>
-        ) : null}
         <AlertDialogFooter>
           <Button variant="outline" onClick={clear}>
             Cancel
