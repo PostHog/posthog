@@ -475,8 +475,9 @@ class QueryTags(BaseModel):
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
-    # Why precompute was not used (set on the metric read). One of "override_direct", "team_disabled",
-    # "min_runtime", "data_warehouse"; None/absent when precompute was attempted (so a direct path then
+    # Why precompute was not used (set on the metric read). One of "activation_config",
+    # "cohort_not_calculated", "team_disabled", "min_runtime", "override_direct", "data_warehouse",
+    # "group_aggregation"; None/absent when precompute was attempted (so a direct path then
     # means the build failed or wasn't ready — derivable from the precompute_build sub-queries).
     experiment_precompute_skip_reason: Optional[str] = None
     # Analysis window of the read (ISO), for the query-performance UI. The build sub-queries carry their
