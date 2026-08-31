@@ -34,6 +34,8 @@ import { canCreateMetricsInsight, canViewMetrics } from 'products/metrics/fronte
 
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
 import type { _MetricNameApi } from '../generated/api.schemas'
+import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
+import { correlationServiceNames } from '../metricsLinks'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
@@ -47,6 +49,8 @@ export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 
 /** Narrows an untrusted value (a URL param, a saved link) to an aggregation the backend accepts. */
 export const isMetricAggregation = (value: unknown): value is MetricAggregation =>
     typeof value === 'string' && METRIC_AGGREGATIONS.includes(value as MetricAggregation)
+
+export { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY }
 
 export type MetricsViewerSeries = _MetricSeriesApi
 
@@ -141,14 +145,6 @@ const propertyFilterToMetricFilter = (filter: UniversalFilterValue): _MetricFilt
 const flattenFilterValues = (group: UniversalFiltersGroup): UniversalFilterValue[] =>
     group.values.flatMap((value) => (isUniversalGroupFilterLike(value) ? flattenFilterValues(value) : [value]))
 
-// Ingestion promotes `service.name` to its own column, so it is the one label the
-// picker can be narrowed by cheaply — see MetricNamesQueryRunner.
-export const SERVICE_NAME_KEY = 'service_name'
-
-// The anchored regex standing in for senders that set no service name: the empty
-// string cannot survive the filter pipeline, which drops empty chip values.
-export const EMPTY_SERVICE_PATTERN = '^$'
-
 /** The services a chip pins the query to, or `[]` when it isn't a membership test. */
 const serviceChipValues = (chip: UniversalFilterValue): string[] => {
     const operator = 'operator' in chip ? chip.operator : undefined
@@ -195,6 +191,7 @@ export interface metricsViewerLogicValues {
     }[]
     attributeKeyOptionsLoading: boolean
     chartSeries: MetricsChartSeries[]
+    correlationServices: string[]
     dateFrom: string | null
     dateTo: string | null
     filterGroup: UniversalFiltersGroup
@@ -383,6 +380,7 @@ export interface metricsViewerLogicMeta {
         ) => MetricsQuery | null
         queryFilters: (filterGroup: UniversalFiltersGroup) => _MetricFilterApi[]
         selectedServices: (filterGroup: UniversalFiltersGroup) => string[]
+        correlationServices: (selectedServices: string[], queryResults: _MetricSeriesApi[]) => string[]
         attributeEndpointFilters: (dateFrom: string | null, dateTo: string | null) => Record<string, string>
         chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
         hasResults: (queryResults: _MetricSeriesApi[]) => boolean
@@ -809,6 +807,16 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }
                 return serviceChipValues(chips[0])
             },
+        ],
+        // Services the logs and traces pivots can be scoped to: the pinned service filter, or
+        // failing that whichever services the chart is grouped by.
+        correlationServices: [
+            (s) => [s.selectedServices, s.queryResults],
+            (selectedServices: string[], results: MetricsViewerSeries[]): string[] =>
+                correlationServiceNames(
+                    selectedServices,
+                    results.map((series) => series.labels)
+                ),
         ],
         // Scopes the filter bar's key/value suggestions to the viewer's window; splatted onto the
         // taxonomic endpoints as query params.
