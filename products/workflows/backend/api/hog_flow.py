@@ -22,7 +22,7 @@ from django.utils.dateparse import parse_datetime
 import requests
 import structlog
 import posthoganalytics
-from django_filters import BaseInFilter, CharFilter, FilterSet
+from django_filters import BaseInFilter, BooleanFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -3898,11 +3898,22 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 
 
 class HogFlowFilterSet(FilterSet):
+    # A producer's work list. Without it an agent would have to read every workflow in the project to
+    # find the few it may look at, which is the cost the opt-in exists to avoid.
+    optimisation_enabled = BooleanFilter(
+        method="filter_optimisation_enabled",
+        label="Only workflows someone turned suggestions on for.",
+    )
+
     class Meta:
         model = HogFlow
         # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
         fields = ["id", "created_at", "updated_at", "status"]
+
+    def filter_optimisation_enabled(self, queryset, name: str, value: bool):
+        # An opt-in someone turned off keeps its row, so "on" is a row that is still enabled.
+        return queryset.filter(optimisation__enabled=value) if value else queryset.exclude(optimisation__enabled=True)
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -5172,7 +5183,7 @@ class HogFlowViewSet(
         # Reading the queue stays open while the flag is on, so a workflow turned off keeps showing
         # the suggestions someone already has to resolve. Producing a new one is what the workflow's
         # own opt-in gates.
-        if not HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).exists():
+        if not HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance, enabled=True).exists():
             raise WorkflowNotOptimisedError()
 
         param_serializer = WorkflowProposalCreateSerializer(data=request.data)
@@ -5472,8 +5483,8 @@ class HogFlowViewSet(
     def optimisation(self, request: Request, *args, **kwargs):
         """Whether PostHog may look at this workflow and suggest changes to it.
 
-        The row is the opt-in, so turning it off deletes it and a producer stops seeing the workflow
-        at all. Suggestions already made are left alone: someone still has them to resolve.
+        Turning it off stops a producer reading the workflow. Suggestions already made are left
+        alone: someone still has them to resolve.
         """
         self._require_self_optimising_enabled()
         instance = self.get_object()
@@ -5481,22 +5492,40 @@ class HogFlowViewSet(
         if request.method == "POST":
             param_serializer = HogFlowOptimisationSerializer(data=request.data)
             param_serializer.is_valid(raise_exception=True)
-            if param_serializer.validated_data["enabled"]:
-                HogFlowOptimisation.objects.get_or_create(
-                    team_id=self.team_id,
-                    hog_flow=instance,
-                    defaults={"enabled_by": request.user if request.user.is_authenticated else None},
-                )
-                self._report_workflow_action("hog_flow_optimisation_enabled", instance)
+            enabled = param_serializer.validated_data["enabled"]
+            row = HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).first()
+            if row is None:
+                # Turning it off for a workflow nobody turned on is a no-op, not a row saying "no".
+                changed = enabled
+                if enabled:
+                    row = HogFlowOptimisation.objects.create(team_id=self.team_id, hog_flow=instance, enabled=True)
             else:
-                HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).delete()
-                self._report_workflow_action("hog_flow_optimisation_disabled", instance)
+                # Turning it off keeps the row: how many people tried this and stopped is a question
+                # about the rollout, and a deleted row cannot answer it.
+                changed = row.enabled != enabled
+                if changed:
+                    row.enabled = enabled
+                    row.save(update_fields=["enabled"])
+
+            if changed:
+                # Who flipped it and when belongs with the rest of the workflow's history, rather than
+                # in columns here that could only ever remember the last flip.
+                log_activity_from_viewset(
+                    self,
+                    instance,
+                    activity="optimisation_enabled" if enabled else "optimisation_disabled",
+                    name=instance.name,
+                )
+                self._report_workflow_action(
+                    "hog_flow_optimisation_enabled" if enabled else "hog_flow_optimisation_disabled", instance
+                )
 
         row = HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).first()
+        enabled = row is not None and row.enabled
         return Response(
             HogFlowOptimisationSerializer(
                 {
-                    "enabled": row is not None,
+                    "enabled": enabled,
                     "last_run_at": row.last_run_at if row else None,
                 }
             ).data

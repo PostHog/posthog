@@ -408,6 +408,7 @@ posthog.Team web_analytics.WebAnalyticsUserConfig.team reverse-accessor(webanaly
 posthog.Team web_analytics.WebAnalyticsVisit.team reverse-accessor(webanalyticsvisit_set) 1
 posthog.Team workflows.HogFlow.team reverse-accessor(hogflow_set) 1
 posthog.Team workflows.HogFlowBatchJob.team reverse-accessor(hogflowbatchjob_set) 1
+posthog.Team workflows.HogFlowOptimisation.team reverse-accessor(hogflowoptimisation_set) 1
 posthog.Team workflows.HogFlowRevision.team reverse-accessor(hogflowrevision_set) 1
 posthog.Team workflows.HogFlowSchedule.team reverse-accessor(hogflowschedule_set) 1
 posthog.Team workflows.HogFlowTemplate.team reverse-accessor(hogflowtemplate_set) 1

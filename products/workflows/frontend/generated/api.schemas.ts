@@ -228,21 +228,12 @@ export interface PatchedHogFlowTemplateApi {
  * * `active` - Active
  * * `archived` - Archived
  */
-export type HogFlowStateEnumApi = (typeof HogFlowStateEnumApi)[keyof typeof HogFlowStateEnumApi]
+export type HogFlowStatusEnumApi = (typeof HogFlowStatusEnumApi)[keyof typeof HogFlowStatusEnumApi]
 
-export const HogFlowStateEnumApi = {
+export const HogFlowStatusEnumApi = {
     Draft: 'draft',
     Active: 'active',
     Archived: 'archived',
-} as const
-
-/**
- * * `loops` - Loops
- */
-export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
-
-export const HogFlowOriginProductEnumApi = {
-    Loops: 'loops',
 } as const
 
 /**
@@ -311,8 +302,7 @@ export interface HogFlowMinimalApi {
     readonly name: string | null
     readonly description: string
     readonly version: number
-    readonly status: HogFlowStateEnumApi
-    readonly origin_product: HogFlowOriginProductEnumApi | null
+    readonly status: HogFlowStatusEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -583,11 +573,7 @@ export interface HogFlowApi {
      * * `draft` - Draft
      * * `active` - Active
      * * `archived` - Archived */
-    status?: HogFlowStateEnumApi
-    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
-     *
-     * * `loops` - Loops */
-    origin_product?: HogFlowOriginProductEnumApi | null
+    status?: HogFlowStatusEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -638,100 +624,18 @@ export interface HogFlowApi {
 /**
  * Variable: {key, type: string|number|boolean, default}.
  */
-export type HogFlowUpdateApiVariablesItem = { [key: string]: string }
+export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
 
 /**
  * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
  * @nullable
  */
-export type HogFlowUpdateApiActionRedirects = { [key: string]: string } | null
+export type PatchedHogFlowApiActionRedirects = { [key: string]: string } | null
 
 /**
  * Mixin for serializers to add user access control fields
  */
-export interface HogFlowUpdateApi {
-    readonly id: string
-    /**
-     * Workflow name.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional description. */
-    description?: string
-    readonly version: number
-    /** draft (no execution), active (live), archived (disabled).
-     *
-     * * `draft` - Draft
-     * * `active` - Active
-     * * `archived` - Archived */
-    status?: HogFlowStateEnumApi
-    /** Product surface that owns this workflow. This value cannot change after creation.
-     *
-     * * `loops` - Loops */
-    readonly origin_product: HogFlowOriginProductEnumApi | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly updated_at: string
-    readonly trigger: unknown
-    /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
-    trigger_masking?: HogFlowMaskingApi | null
-    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
-    conversion?: HogFlowConversionApi | null
-    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
-     *
-     * * `exit_on_conversion` - Conversion
-     * * `exit_on_trigger_not_matched` - Trigger Not Matched
-     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
-     * * `exit_only_at_end` - Only At End */
-    exit_condition?: ExitConditionEnumApi
-    /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
-    email_sending_rate_limit?: HogFlowEmailSendingRateLimitApi | null
-    /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
-    edges?: HogFlowEdgeApi[]
-    /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
-    actions: HogFlowActionApi[]
-    /** @nullable */
-    readonly abort_action: string | null
-    /** Workflow vars (key, type, default). Total <5KB. */
-    variables?: HogFlowUpdateApiVariablesItem[]
-    readonly billable_action_types: unknown
-    /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
-    readonly schedules: readonly HogFlowScheduleApi[]
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level: string | null
-    /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
-    readonly draft: unknown
-    /**
-     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
-     * @nullable
-     */
-    readonly draft_updated_at: string | null
-    /**
-     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
-     * @nullable
-     */
-    readonly action_redirects: HogFlowUpdateApiActionRedirects
-}
-
-/**
- * Variable: {key, type: string|number|boolean, default}.
- */
-export type PatchedHogFlowUpdateApiVariablesItem = { [key: string]: string }
-
-/**
- * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
- * @nullable
- */
-export type PatchedHogFlowUpdateApiActionRedirects = { [key: string]: string } | null
-
-/**
- * Mixin for serializers to add user access control fields
- */
-export interface PatchedHogFlowUpdateApi {
+export interface PatchedHogFlowApi {
     readonly id?: string
     /**
      * Workflow name.
@@ -747,11 +651,7 @@ export interface PatchedHogFlowUpdateApi {
      * * `draft` - Draft
      * * `active` - Active
      * * `archived` - Archived */
-    status?: HogFlowStateEnumApi
-    /** Product surface that owns this workflow. This value cannot change after creation.
-     *
-     * * `loops` - Loops */
-    readonly origin_product?: HogFlowOriginProductEnumApi | null
+    status?: HogFlowStatusEnumApi
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
@@ -776,7 +676,7 @@ export interface PatchedHogFlowUpdateApi {
     /** @nullable */
     readonly abort_action?: string | null
     /** Workflow vars (key, type, default). Total <5KB. */
-    variables?: PatchedHogFlowUpdateApiVariablesItem[]
+    variables?: PatchedHogFlowApiVariablesItem[]
     readonly billable_action_types?: unknown
     /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
     readonly schedules?: readonly HogFlowScheduleApi[]
@@ -796,7 +696,7 @@ export interface PatchedHogFlowUpdateApi {
      * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
      * @nullable
      */
-    readonly action_redirects?: PatchedHogFlowUpdateApiActionRedirects
+    readonly action_redirects?: PatchedHogFlowApiActionRedirects
 }
 
 /**
@@ -896,9 +796,10 @@ export interface MessageAssetApi {
  * * `cancelled` - Cancelled
  * * `failed` - Failed
  */
-export type HogFlowBatchJobStateEnumApi = (typeof HogFlowBatchJobStateEnumApi)[keyof typeof HogFlowBatchJobStateEnumApi]
+export type HogFlowBatchJobStatusEnumApi =
+    (typeof HogFlowBatchJobStatusEnumApi)[keyof typeof HogFlowBatchJobStatusEnumApi]
 
-export const HogFlowBatchJobStateEnumApi = {
+export const HogFlowBatchJobStatusEnumApi = {
     Waiting: 'waiting',
     Queued: 'queued',
     Active: 'active',
@@ -917,7 +818,7 @@ export interface HogFlowBatchJobApi {
      * * `completed` - Completed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
-    status?: HogFlowBatchJobStateEnumApi
+    status?: HogFlowBatchJobStatusEnumApi
     /** ID of the workflow this batch run belongs to. */
     hog_flow: string
     /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
@@ -943,7 +844,7 @@ export interface HogFlowBatchJobCancelResponseApi {
      * * `completed` - Completed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
-    status: HogFlowBatchJobStateEnumApi
+    status: HogFlowBatchJobStatusEnumApi
     /** In-flight runs newly flagged for cancellation by this request. */
     marked: number
     /** In-flight runs of this batch not yet flagged. Non-zero on very large runs; call again. */
@@ -1050,14 +951,14 @@ export interface HogInvocationResultsCountApi {
 }
 
 /**
- * Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person.
+ * Test trigger payload, typically {event, person, groups}.
  */
 export type HogFlowInvocationApiGlobals = { [key: string]: unknown }
 
 export interface HogFlowInvocationApi {
     /** Optional override; omit to use saved definition. */
     configuration?: HogFlowApi
-    /** Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person. */
+    /** Test trigger payload, typically {event, person, groups}. */
     globals?: HogFlowInvocationApiGlobals
     /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
     mock_async_functions?: boolean
@@ -1941,9 +1842,9 @@ export type HogFlowsListParams = {
      */
     offset?: number
     /**
-     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
+     * Only workflows someone turned suggestions on for.
      */
-    origin_product?: HogFlowsListOriginProduct
+    optimisation_enabled?: boolean
     /**
      * Case-insensitive search across workflow name and description.
      */
@@ -1964,12 +1865,6 @@ export type HogFlowsListParams = {
     type?: HogFlowsListType
     updated_at?: string
 }
-
-export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof typeof HogFlowsListOriginProduct]
-
-export const HogFlowsListOriginProduct = {
-    Loops: 'loops',
-} as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
 
