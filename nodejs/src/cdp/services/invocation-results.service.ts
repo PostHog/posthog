@@ -9,6 +9,17 @@ import { HogInvocationResultsService } from './monitoring/hog-invocation-results
 import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
 
 /**
+ * What every result sink has to expose so this service can drive it by list rather
+ * than by name. `stop` is on the interface even though most sinks hold nothing to
+ * release: a sink that later acquires a resource then has one obvious place to free
+ * it, and teardown cannot quietly skip a sink because someone forgot to add a call.
+ */
+export interface ResultSink {
+    flush(): Promise<void>
+    stop(): Promise<void>
+}
+
+/**
  * Fans `CyclotronJobInvocationResult` batches out to the sinks every
  * CDP consumer/API caller needs:
  *
@@ -29,6 +40,8 @@ import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service
  * asynchronously after the HTTP response).
  */
 export class InvocationResultsService {
+    private readonly sinks: ResultSink[]
+
     constructor(
         public readonly monitoringService: HogFunctionMonitoringService,
         public readonly invocationResultsRowsService: HogInvocationResultsService,
@@ -36,7 +49,16 @@ export class InvocationResultsService {
         public readonly capturedEventsService: CapturedEventsService,
         public readonly messageAssetsService: MessageAssetsService,
         public readonly conversionWatchersService: ConversionWatchersService
-    ) {}
+    ) {
+        this.sinks = [
+            monitoringService,
+            invocationResultsRowsService,
+            warehouseWebhooksService,
+            capturedEventsService,
+            messageAssetsService,
+            conversionWatchersService,
+        ]
+    }
 
     queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
         return instrumentFn(`cdpConsumer.handleEachBatch.produceResults`, async () => {
@@ -50,14 +72,7 @@ export class InvocationResultsService {
     }
 
     async flush(): Promise<void> {
-        await Promise.all([
-            this.monitoringService.flush(),
-            this.invocationResultsRowsService.flush(),
-            this.warehouseWebhooksService.flush(),
-            this.capturedEventsService.flush(),
-            this.messageAssetsService.flush(),
-            this.conversionWatchersService.flush(),
-        ])
+        await Promise.all(this.sinks.map((sink) => sink.flush()))
     }
 
     async queueInvocationResultsAndFlush(results: CyclotronJobInvocationResult[]): Promise<void> {
@@ -66,8 +81,6 @@ export class InvocationResultsService {
     }
 
     async stop(): Promise<void> {
-        // Only the conversion-watcher sink owns a resource to release (its own pg pool); the other
-        // sinks write through the shared Kafka outputs the server tears down separately.
-        await this.conversionWatchersService.stop()
+        await Promise.all(this.sinks.map((sink) => sink.stop()))
     }
 }
