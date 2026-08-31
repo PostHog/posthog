@@ -19,6 +19,7 @@ import {
   selectAttachmentsInput,
   selectAttachmentsOutput,
   selectFilesOutput,
+  setWorktreeLocationInput,
   showMessageBoxInput,
   userAgentInstructionsOutput,
 } from "@posthog/workspace-server/services/os/schemas";
@@ -92,6 +93,14 @@ export const osRouter = router({
   getWorktreeLocation: publicProcedure.query(({ ctx }) =>
     ctx.container.get<OsService>(OS_SERVICE).getWorktreeLocation(),
   ),
+
+  setWorktreeLocation: publicProcedure
+    .input(setWorktreeLocationInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<OsService>(OS_SERVICE)
+        .setWorktreeLocation(input.location),
+    ),
 
   readFileAsDataUrl: publicProcedure
     .input(readFileAsDataUrlInput)
