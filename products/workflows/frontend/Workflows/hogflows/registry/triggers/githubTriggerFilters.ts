@@ -26,12 +26,16 @@ export const GITHUB_ACTOR_MODE_OPTIONS: { value: GithubActorMode; label: string;
     },
 ]
 
+// Each option matches a whole GitHub webhook event, not a single action: "issues" also
+// covers labeled/assigned/etc, and "push" covers a branch or tag delete with no commits.
+// Labels stay broad so they don't promise a narrower set than the filter matches; the
+// "action" advanced filter narrows further.
 export const GITHUB_EVENT_TYPE_OPTIONS: { value: string; label: string }[] = [
-    { value: 'issues', label: 'Issue opened, closed or edited' },
+    { value: 'issues', label: 'Issue activity' },
     { value: 'issue_comment', label: 'Comment on an issue or pull request' },
-    { value: 'pull_request', label: 'Pull request opened, closed or updated' },
+    { value: 'pull_request', label: 'Pull request activity' },
     { value: 'pull_request_review', label: 'Pull request reviewed' },
-    { value: 'push', label: 'Commits pushed' },
+    { value: 'push', label: 'Push activity' },
 ]
 
 /**
