@@ -75,7 +75,11 @@ export interface RailDestination {
  */
 function showSpaces(): void {
   const channelId = useCurrentChannelStore.getState().currentChannelId;
-  if (!channelId) {
+  // A saved search (/feeds/$feedId) is on the Spaces pane but is not a space:
+  // it has no channel to hold the list, so the only way back to Spaces is to
+  // navigate to the spaces index.
+  const href = currentHref() ?? "";
+  if (href.startsWith("/feeds") || !channelId) {
     showChannelList();
     navigateToSpaces();
     return;

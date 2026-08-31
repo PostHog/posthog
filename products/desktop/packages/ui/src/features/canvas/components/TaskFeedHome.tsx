@@ -18,9 +18,9 @@ import {
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
-import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelFeedView } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { FeedQueryHighlight } from "@posthog/ui/features/canvas/components/FeedQueryInput";
+import { SavedSearchSwitcher } from "@posthog/ui/features/canvas/components/SavedSearchSwitcher";
 import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
 import { useProjectTaskFeed } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
@@ -63,10 +63,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   }, [trackedFeedId]);
 
   useSetHeaderContent(
-    useMemo(
-      () => <ChannelBreadcrumb channelName={feed?.name ?? "Feed"} />,
-      [feed?.name],
-    ),
+    useMemo(() => <SavedSearchSwitcher currentFeedId={feedId} />, [feedId]),
   );
 
   const handleOpenTask = useCallback((task: Task) => {

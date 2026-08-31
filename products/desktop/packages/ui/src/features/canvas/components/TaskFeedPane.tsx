@@ -31,6 +31,7 @@ import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import type { ChannelItemActions } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { FeedQueryHighlight } from "@posthog/ui/features/canvas/components/FeedQueryInput";
+import { SavedSearchSwitcher } from "@posthog/ui/features/canvas/components/SavedSearchSwitcher";
 import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
 import { useChannelSessionFacts } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import { useProjectTaskFeed } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
@@ -43,6 +44,7 @@ import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsS
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
@@ -69,6 +71,10 @@ export function TaskFeedPane({
   const commandCenterCells = useCommandCenterStore((state) => state.cells);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+  useSetHeaderContent(
+    useMemo(() => <SavedSearchSwitcher currentFeedId={feedId} />, [feedId]),
+  );
 
   const items = useMemo(
     () =>
