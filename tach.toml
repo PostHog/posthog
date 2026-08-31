@@ -866,7 +866,7 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.signals",
-    # Not isolated (no facade exists yet): the workflow "Create AI task" action resolves and
+    # Not isolated (no facade exists yet): the workflow create-task action resolves and
     # packages team skills straight from skill_services / marketplace, matching the direct-import
     # precedent already set by products.signals and products.review_hog.
     "products.skills",

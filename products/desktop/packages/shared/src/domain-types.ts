@@ -360,9 +360,7 @@ export type ArtifactSource =
 
 export interface SkillBundleArtifactMetadata {
   skill_name: string;
-  // "workflow" identifies a team skill a workflow's "Create AI task" action resolved from the
-  // skills store, rather than one of the local sources a client upload can report.
-  skill_source: UploadableSkillSource | "workflow";
+  skill_source: UploadableSkillSource;
   content_sha256: string;
   bundle_format: "zip";
   schema_version: number;

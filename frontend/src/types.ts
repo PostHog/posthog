@@ -7293,6 +7293,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_model'
         | 'task_repository'
         | 'task_mcp_installations'
+        | 'task_skills'
     key: string
     label: string
     choices?: { value: string; label: string }[]
