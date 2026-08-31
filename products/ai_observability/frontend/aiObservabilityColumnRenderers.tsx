@@ -197,7 +197,7 @@ export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JS
     return <PersonColumnCell person={personData} />
 }
 
-export function LazyPersonColumnCellWithRedirect({ distinctId }: { distinctId: string }): JSX.Element {
+function LazyPersonColumnCellWithRedirect({ distinctId }: { distinctId: string }): JSX.Element {
     const personData = useLazyPerson(distinctId)
 
     return <PersonColumnCellWithRedirect person={personData} />

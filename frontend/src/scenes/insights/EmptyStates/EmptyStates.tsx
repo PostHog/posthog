@@ -765,7 +765,7 @@ function getInsightErrorTitle(
     titleStatus?: number | null
 ): string | JSX.Element {
     if (kind === 'memory_limit') {
-        return 'This query ran out of memory'
+        return "This query couldn't finish"
     }
     if (kind === 'invalid_query') {
         return "We couldn't run this query"

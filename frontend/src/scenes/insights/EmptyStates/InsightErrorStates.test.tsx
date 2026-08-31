@@ -139,7 +139,6 @@ describe('insight error states', () => {
             title: CLUSTER_MEMORY_DETAIL,
             expectedCopy: CLUSTER_MEMORY_DETAIL,
             retry: true,
-            bugReport: false,
         },
         { status: 400, expectedCopy: 'Open the query debugger and correct the query.', retry: false },
         {
@@ -176,7 +175,7 @@ describe('insight error states', () => {
         const rawTrace = 'Code: 241. DB::Exception: Memory limit (for query) exceeded. Stack trace:\n0.'
         render(<InsightErrorState title={rawTrace} titleStatus={513} onRetry={() => {}} />)
 
-        expect(screen.getByText('This query ran out of memory')).toBeTruthy()
+        expect(screen.getByText("This query couldn't finish")).toBeTruthy()
         expect(screen.getByText('Try a shorter date range or narrower filters, then run it again.')).toBeTruthy()
         expect(screen.queryByText(/DB::Exception/)).toBeNull()
     })
