@@ -12,6 +12,7 @@ import {
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
@@ -27,7 +28,8 @@ export class HogFunctionHandler implements ActionHandler {
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
-        private hogFlowActionBillingType: 'fetch' | 'email' | 'push'
+        private hogFlowActionBillingType: 'fetch' | 'email' | 'push',
+        private usageReporter?: CdpUsageReporterService
     ) {}
 
     async execute({
@@ -95,6 +97,12 @@ export class HogFunctionHandler implements ActionHandler {
             trackHogFlowBillableInvocation(result, {
                 invocation: functionResult.invocation,
                 billingMetricType: this.hogFlowActionBillingType,
+            })
+
+            // actionStepCount holds across a retry of this step but changes on a loop revisit.
+            this.usageReporter?.reportBillableInvocation({
+                teamId: invocation.teamId,
+                recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
             })
 
             // Re-pin the attribution version to the one that actually sent. Live edits reach runs

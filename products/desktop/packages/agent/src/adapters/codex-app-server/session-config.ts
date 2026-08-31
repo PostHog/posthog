@@ -232,6 +232,15 @@ export interface RawModel {
   supportedReasoningEfforts?: Array<{ reasoningEffort?: string } | string>;
 }
 
+/** The per-turn `collaborationMode` payload sent on `turn/start`. */
+export interface CodexTurnCollaborationMode {
+  mode: "plan" | "default";
+  settings: {
+    model: string;
+    reasoning_effort?: string;
+  };
+}
+
 /**
  * Stateful holder for a codex session's model / effort / mode selectors and the
  * ACP `configOptions` derived from them — synthesizing the Claude-style picker
@@ -300,6 +309,7 @@ export class SessionConfigState {
         (!this.gatewayModels || this.allowedModelIds?.has(value))
       ) {
         this._model = value;
+        this.reconcileEffortForModel();
       } else if (configId === "effort") this._effort = value;
       else if (configId === "mode") {
         this._mode = resolveCodexMode(value);
@@ -308,6 +318,20 @@ export class SessionConfigState {
     }
     this.rebuild();
     return { modeChanged };
+  }
+
+  /**
+   * Re-derive the effort selectors for the current model after a model switch.
+   * Effort tiers differ by family (`max` is gpt-5.6 only, `xhigh` is
+   * gpt-5.5/5.6), so a pin that the new model does not support is dropped —
+   * codex then reasons at the model default instead of receiving an unsupported
+   * effort on every turn.
+   */
+  private reconcileEffortForModel(): void {
+    this.efforts = getReasoningEffortOptions(this._model).map((o) => o.value);
+    if (this._effort && !this.efforts.includes(this._effort)) {
+      this._effort = undefined;
+    }
   }
 
   /**
@@ -362,13 +386,19 @@ export class SessionConfigState {
   }
 
   /**
-   * codex's per-turn `collaborationMode`: `{ mode, settings: { model } }`. The
-   * model must be a string (not the null in collaborationMode/list output).
+   * codex's per-turn `collaborationMode`: `{ mode, settings: { model, reasoning_effort } }`.
+   * The model must be a string (not the null in collaborationMode/list output). As of codex
+   * 0.144 (codex-rs/core/src/codex_thread.rs), codex applies a provided collaboration mode as
+   * is and reads the turn's `effort` param only when no collaboration mode is sent, so the
+   * pinned effort has to ride along here or every turn runs at the model's default effort.
    */
-  collaborationModeForTurn(): unknown {
+  collaborationModeForTurn(): CodexTurnCollaborationMode {
     return {
       mode: collaborationModeFor(this._mode),
-      settings: { model: this._model },
+      settings: {
+        model: this._model,
+        ...(this._effort ? { reasoning_effort: this._effort } : {}),
+      },
     };
   }
 

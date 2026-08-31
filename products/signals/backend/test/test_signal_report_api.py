@@ -30,11 +30,12 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.signals.backend.artefact_schemas import ChannelAssignment
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas, SignalReportTask
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_DISCUSSION,
@@ -46,6 +47,7 @@ from products.signals.backend.task_run_artefacts import (
     record_implementation_task,
     record_report_task,
 )
+from products.tasks.backend.facade.api import Channel
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -176,6 +178,14 @@ class TestSignalReportListAPI(APIBaseTest):
             art.save()
         return art
 
+    def _assign_channel(self, report: SignalReport, channel: Channel | None) -> SignalReportArtefact:
+        return SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ChannelAssignment(channel_id=channel.id if channel else None),
+            attribution=ArtefactAttribution.system(),
+        )
+
     def _actionability_artefact(self, report: SignalReport, *, actionability: str) -> SignalReportArtefact:
         payload = {"explanation": "x", "actionability": actionability, "already_addressed": False}
         art = SignalReportArtefact(
@@ -256,6 +266,59 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["priority"] == "P0"
+
+    @parameterized.expand([("unassigned", False), ("assigned", True)])
+    def test_retrieve_includes_channel_id(self, _name, assign):
+        channel = Channel.objects.create(team=self.team, name="Reports") if assign else None
+        report = self._create_report()
+        if channel:
+            self._assign_channel(report, channel)
+
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channel_id"] == (str(channel.id) if channel else None)
+
+    def test_filter_by_channel_id_narrows_to_that_space(self):
+        channel = Channel.objects.create(team=self.team, name="Reports")
+        in_space = self._create_report(title="In space")
+        self._assign_channel(in_space, channel)
+        self._create_report(title="Unassigned")
+
+        response = self.client.get(self._list_url(channel_id=str(channel.id)))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {row["id"] for row in response.json()["results"]}
+        assert ids == {str(in_space.id)}
+
+    def test_latest_channel_assignment_wins(self):
+        first_channel = Channel.objects.create(team=self.team, name="First")
+        second_channel = Channel.objects.create(team=self.team, name="Second")
+        report = self._create_report()
+        self._assign_channel(report, first_channel)
+        self._assign_channel(report, second_channel)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channel_id"] == str(second_channel.id)
+
+        first_response = self.client.get(self._list_url(channel_id=str(first_channel.id)))
+        assert first_response.status_code == status.HTTP_200_OK
+        assert all(row["id"] != str(report.id) for row in first_response.json()["results"])
+
+    def test_soft_deleted_channel_is_returned_as_unassigned(self):
+        channel = Channel.objects.create(team=self.team, name="Reports")
+        report = self._create_report()
+        self._assign_channel(report, channel)
+        channel.deleted = True
+        channel.save(update_fields=["deleted"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channel_id"] is None
+
+    def test_filter_by_channel_id_rejects_non_uuid(self):
+        response = self.client.get(self._list_url(channel_id="not-a-uuid"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     # --- priority filter ---
 
@@ -623,31 +686,6 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
-
-    def test_report_includes_its_canvas_session(self):
-        report = self._create_report()
-        canvas_id = uuid.uuid4()
-        discussion_task_id = uuid.uuid4()
-        SignalReportCanvas.objects.create(
-            team=self.team,
-            report=report,
-            canvas_id=canvas_id,
-            discussion_task_id=discussion_task_id,
-            generation_status=SignalReportCanvas.GenerationStatus.GENERATING,
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["canvas_session"] == {
-            "canvas_id": str(canvas_id),
-            "discussion_task_id": str(discussion_task_id),
-            "generation_task_id": None,
-            "generation_status": "generating",
-            "collaboration_mode": "managed",
-            "failure_reason": "",
-            "updated_at": response.json()["canvas_session"]["updated_at"],
-        }
 
     def test_retrieve_implementation_pr_url_present_when_task_has_pr(self):
         report = self._create_report()
@@ -1603,9 +1641,16 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_snooze_for_delays_repromotion(self):
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY),
+            ("pending_input", SignalReport.Status.PENDING_INPUT),
+            ("failed", SignalReport.Status.FAILED),
+        ]
+    )
+    def test_snooze_for_delays_repromotion(self, _name, initial_status):
         report = SignalReport.objects.create(
-            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=5
+            team=self.team, status=initial_status, title="t", summary="s", signal_count=5
         )
         response = self.client.post(
             self._state_url(str(report.id)),
@@ -2328,6 +2373,24 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.title == "Just the title"
         assert report.summary == "Original summary"
+
+    def test_rewriting_the_summary_takes_the_suggested_questions_down(self):
+        # The questions were written against the prose the rewrite replaces, so leaving them offers a
+        # reader questions the report no longer answers. The field is read-only on this endpoint, so
+        # nothing else could retract them. A title-only edit leaves the prose, and the questions with it.
+        report = self._create_report()
+        report.suggested_prompts = ["Which teams are affected?"]
+        report.save(update_fields=["suggested_prompts"])
+
+        self.client.patch(self._url(str(report.id)), data={"title": "Just the title"}, format="json")
+        report.refresh_from_db()
+        assert report.suggested_prompts == ["Which teams are affected?"]
+
+        response = self.client.patch(self._url(str(report.id)), data={"summary": "New summary"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["suggested_prompts"] == []
+        report.refresh_from_db()
+        assert report.suggested_prompts == []
 
     def test_update_summary_trims_whitespace(self):
         report = self._create_report()

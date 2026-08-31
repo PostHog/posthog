@@ -19,14 +19,22 @@ export const FALLBACK_MODEL = "claude-opus-4-8";
 // shape, so effort-capable models default to high to keep thinking enabled.
 export const DEFAULT_EFFORT: EffortLevel = "high";
 
-const GATEWAY_TO_SDK_MODEL: Record<string, string> = {
-  "claude-opus-4-7": "opus",
-  "claude-opus-4-8": "opus",
-  "claude-sonnet-4-6": "sonnet",
-};
+export function resolveFallbackModel(modelId: string): string | undefined {
+  return modelId === FALLBACK_MODEL ? undefined : FALLBACK_MODEL;
+}
 
-export function toSdkModelId(modelId: string): string {
-  return GATEWAY_TO_SDK_MODEL[modelId] ?? modelId;
+export function rerootedModelOptions(
+  modelId: string | undefined,
+  existingFallbackModel?: string,
+):
+  | { model: string; fallbackModel: string | undefined }
+  | Record<string, never> {
+  if (!modelId) return {};
+  const fallbackModel =
+    existingFallbackModel && existingFallbackModel !== modelId
+      ? existingFallbackModel
+      : resolveFallbackModel(modelId);
+  return { model: modelId, fallbackModel };
 }
 
 const MODELS_WITH_1M_CONTEXT = new Set([
@@ -81,6 +89,7 @@ const MODEL_EFFORT_LEVELS: Readonly<Record<string, readonly EffortLevel[]>> = {
   "claude-fable-5": EXTENDED_EFFORT_LEVELS,
   "@cf/zai-org/glm-5.2": ["high", "max"],
   "zai-org/glm-5.3": ["high", "max"],
+  "zai-org/glm-5.3-flash": ["high", "max"],
 };
 
 export function supportsEffort(modelId: string): boolean {

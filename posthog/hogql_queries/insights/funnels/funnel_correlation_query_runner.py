@@ -24,9 +24,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -249,19 +247,14 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
     def _calculate_internal(self) -> CorrelationCalculation:
         query = self.to_query()
 
-        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
-        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
+        hogql = self.response_hogql(query)
 
         response = execute_hogql_query(
             query_type="FunnelsQuery",
             query=query,
             team=self.team,
             user=self.user,
-            context=HogQLContext(
-                team_id=self.team.pk,
-                user=self.user,
-                use_new_events_schema=self._use_new_events_schema,
-            ),
+            context=self.build_hogql_context(use_new_events_schema=self._use_new_events_schema),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

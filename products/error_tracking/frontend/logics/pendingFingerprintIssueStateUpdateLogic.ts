@@ -7,7 +7,7 @@ import { ErrorTrackingIssue, ErrorTrackingPendingFingerprintIssueStateUpdate } f
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { issuesDataNodeLogic } from './issuesDataNodeLogic'
-import { applyDelta, buildPendingUpdate, CurrentIssueState, IssueStateDelta } from './pendingUpdateHelpers'
+import { buildPendingUpdate, CurrentIssueState } from './pendingUpdateHelpers'
 
 // CH sync typically lands in seconds; 60s is generous.
 export const PENDING_UPDATE_TTL_MS = 60_000
@@ -31,13 +31,6 @@ export interface pendingFingerprintIssueStateUpdateLogicActions {
     ) => {
         primaryId: string
         sourceIds: string[]
-    }
-    capturePendingUpdatesForIssues: (
-        issueIds: string[],
-        delta: IssueStateDelta
-    ) => {
-        delta: IssueStateDelta
-        issueIds: string[]
     }
     clearAll: () => {
         value: true
@@ -65,7 +58,6 @@ export const pendingFingerprintIssueStateUpdateLogic = kea<pendingFingerprintIss
 
     actions({
         addPendingUpdates: (rows: ErrorTrackingPendingFingerprintIssueStateUpdate[]) => ({ rows }),
-        capturePendingUpdatesForIssues: (issueIds: string[], delta: IssueStateDelta) => ({ issueIds, delta }),
         captureMergePendingUpdates: (primaryId: string, sourceIds: string[]) => ({ primaryId, sourceIds }),
         clearAll: true,
     }),
@@ -120,17 +112,6 @@ export const pendingFingerprintIssueStateUpdateLogic = kea<pendingFingerprintIss
     }),
 
     listeners(({ actions }) => ({
-        capturePendingUpdatesForIssues: async ({ issueIds, delta }) => {
-            const uniqueIds = Array.from(new Set(issueIds)).filter(Boolean)
-            if (uniqueIds.length === 0) {
-                return
-            }
-            const fingerprintMap = await resolveFingerprintsForIssues(uniqueIds)
-            const rows = buildCaptureRows(uniqueIds, fingerprintMap, delta)
-            if (rows.length > 0) {
-                actions.addPendingUpdates(rows)
-            }
-        },
         captureMergePendingUpdates: async ({ primaryId, sourceIds }) => {
             const allIds = Array.from(new Set([primaryId, ...sourceIds])).filter(Boolean)
             const primaryState = allIds.length > 0 ? findCurrentIssueState(primaryId) : null
@@ -208,26 +189,6 @@ async function resolveFingerprintsForIssues(
     }
 
     return result
-}
-
-function buildCaptureRows(
-    issueIds: string[],
-    fingerprintMap: Record<string, string[]>,
-    delta: IssueStateDelta
-): ErrorTrackingPendingFingerprintIssueStateUpdate[] {
-    const version = Date.now()
-    const rows: ErrorTrackingPendingFingerprintIssueStateUpdate[] = []
-    for (const id of issueIds) {
-        const current = findCurrentIssueState(id)
-        if (!current) {
-            continue
-        }
-        const merged = applyDelta(current, delta)
-        for (const fp of fingerprintMap[id] ?? []) {
-            rows.push(buildPendingUpdate(fp, id, merged, version))
-        }
-    }
-    return rows
 }
 
 function buildMergeRows(

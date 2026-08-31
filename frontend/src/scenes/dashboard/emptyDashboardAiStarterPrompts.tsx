@@ -28,11 +28,21 @@ export const EMPTY_DASHBOARD_AI_PROMPT_CHIPS: readonly DashboardAiPromptChip[] =
     },
 ]
 
+const OUTCOME_FOCUSED_DASHBOARD_AI_PROMPT_CHIPS: readonly DashboardAiPromptChip[] = [
+    ...EMPTY_DASHBOARD_AI_PROMPT_CHIPS.slice(0, 2),
+    {
+        id: 'activation_retention',
+        label: 'See what brings users back after they sign up',
+        prompt: 'Build an activation and retention dashboard. Show new signups, users who complete a key activation event, weekly retention cohorts, and the top paths to activation. Add insights I can save to this dashboard.',
+    },
+]
+
 export type EmptyDashboardAiStarterPromptsProps = {
     dashboardId?: number
     chipDisabledReason?: string | null
     onOpenAiWithPrompt: (prompt: string) => void
     className?: string
+    variant?: 'control' | 'copy'
 }
 
 export function EmptyDashboardAiStarterPrompts({
@@ -40,16 +50,21 @@ export function EmptyDashboardAiStarterPrompts({
     chipDisabledReason,
     onOpenAiWithPrompt,
     className,
+    variant = 'control',
 }: EmptyDashboardAiStarterPromptsProps): JSX.Element {
+    const isCopyVariant = variant === 'copy'
+
     return (
         <DashboardAiPromptChips
-            chips={EMPTY_DASHBOARD_AI_PROMPT_CHIPS}
+            chips={isCopyVariant ? OUTCOME_FOCUSED_DASHBOARD_AI_PROMPT_CHIPS : EMPTY_DASHBOARD_AI_PROMPT_CHIPS}
             dashboardId={dashboardId}
             chipDisabledReason={chipDisabledReason}
             onOpenAiWithPrompt={onOpenAiWithPrompt}
             dataAttrPrefix="dashboard-empty-ai-prompt"
             className={className}
             maxChips={3}
+            title={isCopyVariant ? 'What matters most to you?' : undefined}
+            description={isCopyVariant ? "Choose a topic, and we'll build a dashboard around it." : undefined}
         />
     )
 }

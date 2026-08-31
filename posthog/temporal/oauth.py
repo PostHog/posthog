@@ -98,7 +98,14 @@ POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
-McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports", "report_canvas"]
+McpScopePreset = Literal[
+    "read_only",
+    "full",
+    "signals_scout",
+    "signals_scout_reports",
+    "signals_research",
+    "signals_implementation",
+]
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
 
 # Granted only to sandbox runs a person started by hand (see `interactive_run` in
@@ -118,9 +125,12 @@ INTERNAL_SCOPES: list[str] = [
     "internal_run:read",
 ]
 
-REPORT_CANVAS_INTERNAL_SCOPES: list[str] = [
-    "llm_gateway:read",
-    "internal_run:read",
+# Write access to the shared scratchpad (`remember` / `forget`) and nothing else. Held apart
+# from `SCOUT_INTERNAL_SCOPES` so the report pipeline's research and implementation runs can
+# persist what they learn without also getting `emit_signal` and `record_output`, which the
+# scout object unlocks. Scouts still carry it — it is folded into their posture below.
+SCRATCHPAD_INTERNAL_SCOPES: list[str] = [
+    "signal_scratchpad_internal:write",
 ]
 
 # Writes for the Signals scout harness — sandbox-only because the scope object is in
@@ -130,6 +140,7 @@ REPORT_CANVAS_INTERNAL_SCOPES: list[str] = [
 # preset — unrelated `full`/`read_only` task tokens must never carry scout write access.
 SCOUT_INTERNAL_SCOPES: list[str] = [
     "signal_scout_internal:write",
+    *SCRATCHPAD_INTERNAL_SCOPES,
 ]
 
 
@@ -141,6 +152,8 @@ SCOUT_INTERNAL_SCOPES: list[str] = [
 SCOUT_REPORT_SCOPES: list[str] = [
     "signal_scout_report:write",
 ]
+
+LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
 
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
@@ -185,7 +198,22 @@ TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 PosthogMcpScopes = McpScopePreset | list[str]
 
-MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports", "report_canvas")
+MCP_SCOPE_PRESETS = (
+    "read_only",
+    "full",
+    "signals_scout",
+    "signals_scout_reports",
+    "signals_research",
+    "signals_implementation",
+)
+
+# Withheld from `signals_research`, which is otherwise the `read_only` resolution.
+# `task:write` reaches every posture through `INTERNAL_SCOPES`, but it is inert wherever the
+# MCP server runs in read-only mode, which strips every tool not annotated read-only.
+# `signals_research` turns that mode off so its two scratchpad tools survive, and that alone
+# would hand the research stage the whole task-write toolset — including setting a report's
+# state. The stage reads data and returns findings; the pipeline persists them afterwards.
+RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
 
 
 def resolve_scopes(
@@ -194,12 +222,20 @@ def resolve_scopes(
     include_internal_scopes: bool = True,
 ) -> list[str]:
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
+    scratchpad = list(SCRATCHPAD_INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
-        elif scopes == "report_canvas":
-            report_canvas_internal = list(REPORT_CANVAS_INTERNAL_SCOPES) if include_internal_scopes else []
-            resolved = [*MCP_READ_SCOPES, "canvas:write", *report_canvas_internal]
+        elif scopes == "signals_implementation":
+            # The self-driving implementation run: `full`, plus durable memory. It already
+            # writes code and logs its work on the report, so the scratchpad adds reach into
+            # one more surface rather than a new class of capability.
+            resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal, *scratchpad]
+        elif scopes == "signals_research":
+            # The report research run: reads, plus durable memory, and nothing else. See
+            # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
+            reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
+            resolved = [*reads, *scratchpad]
         elif scopes in ("signals_scout", "signals_scout_reports"):
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
@@ -231,9 +267,27 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
         # scout sandbox — the agent IS allowed to call the write tools its preset exists for
         # (remember/forget/emit_finding + the narrow `SCOUT_USER_WRITE_SCOPES`). Read-only mode
         # is a tool-annotation filter, not a scope filter, and would strip those tools
-        # categorically without this opt-out.
-        return scopes in ("full", "signals_scout", "signals_scout_reports", "report_canvas")
+        # categorically without this opt-out. The two pipeline postures need the same opt-out
+        # for their scratchpad tools; `signals_research` pays for it by withholding `task:write`
+        # (see `RESEARCH_WITHHELD_SCOPES`), so turning read-only mode off widens nothing else.
+        return scopes in (
+            "full",
+            "signals_scout",
+            "signals_scout_reports",
+            "signals_research",
+            "signals_implementation",
+        )
     return any(s in MCP_WRITE_SCOPES for s in scopes)
+
+
+def grants_scratchpad_write(scopes: PosthogMcpScopes) -> bool:
+    """Whether a posture's resolved scopes carry `scout-scratchpad-remember` / `-forget`.
+
+    Asked by the prompt side before it renders a memory protocol. A run told to record what it
+    learned, holding a token that strips the write tools, spends prompt tokens on an instruction
+    it cannot follow, so the instruction has to track the posture rather than be assumed.
+    """
+    return set(SCRATCHPAD_INTERNAL_SCOPES).issubset(resolve_scopes(scopes))
 
 
 def _get_client_id_for_region(*, region: str | None, us: str, eu: str, dev: str) -> str:

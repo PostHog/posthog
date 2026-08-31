@@ -51,6 +51,7 @@ import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTe
 import { MentionComposer } from "@posthog/ui/features/canvas/components/MentionComposer";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
+import { usePinnedAutoScroll } from "@posthog/ui/features/canvas/hooks/usePinnedAutoScroll";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
@@ -59,7 +60,6 @@ import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifac
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
 
 export function ThreadMessageRow({
   message,
@@ -542,11 +542,7 @@ function ThreadConversation({
     onMentionInsert,
   } = conversation;
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when rendered thread content changes
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [timeline, agentStatus?.phase]);
+  const { containerRef, contentRef, onScroll } = usePinnedAutoScroll();
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
@@ -562,17 +558,23 @@ function ThreadConversation({
           <TaskCard task={task} channelId={channelId} inThread />
         </div>
       )}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <ThreadTimeline
-          timeline={timeline}
-          isReady={isReady}
-          currentUserUuid={currentUser?.uuid}
-          currentUserEmail={currentUser?.email}
-          isTaskAuthor={isTaskAuthor}
-          canForward={canForward}
-          onSendToAgent={sendMessageToAgent}
-          onDelete={deleteMessage}
-        />
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-y-auto"
+        onScroll={onScroll}
+      >
+        <div ref={contentRef}>
+          <ThreadTimeline
+            timeline={timeline}
+            isReady={isReady}
+            currentUserUuid={currentUser?.uuid}
+            currentUserEmail={currentUser?.email}
+            isTaskAuthor={isTaskAuthor}
+            canForward={canForward}
+            onSendToAgent={sendMessageToAgent}
+            onDelete={deleteMessage}
+          />
+        </div>
       </div>
 
       {agentStatus && <AgentStatusLine status={agentStatus} />}

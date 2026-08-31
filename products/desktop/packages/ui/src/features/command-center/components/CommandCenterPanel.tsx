@@ -37,12 +37,10 @@ import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
-import { useDraftStore } from "../../message-editor/draftStore";
 import { EmbeddedSessionView } from "../../sessions/components/EmbeddedSessionView";
 import { TaskIcon } from "../../sidebar/components/items/TaskIcon";
 import { useTaskPrStatus } from "../../sidebar/useTaskPrStatus";
-import { TaskInput } from "../../task-detail/components/TaskInput";
-import { getCellSessionId, useCommandCenterStore } from "../commandCenterStore";
+import { useCommandCenterStore } from "../commandCenterStore";
 import type {
   CellStatus,
   CommandCenterCellData,
@@ -126,20 +124,11 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   const [selectorOpen, setSelectorOpen] = useState(false);
   // The command-center terminal is unavailable on cloud-only hosts.
   const { localWorkspaces } = useHostCapabilities();
-  const isCreating = useCommandCenterStore((s) =>
-    s.creatingCells.includes(cellIndex),
-  );
-  const assignTask = useCommandCenterStore((s) => s.assignTask);
   const setBrainrotCell = useCommandCenterStore((s) => s.setBrainrotCell);
   const setTerminalCell = useCommandCenterStore((s) => s.setTerminalCell);
-  const startCreating = useCommandCenterStore((s) => s.startCreating);
-  const stopCreating = useCommandCenterStore((s) => s.stopCreating);
   const layout = useCommandCenterStore((s) => s.layout);
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
-  const clearDraft = useDraftStore((s) => s.actions.setDraft);
-
-  const sessionId = getCellSessionId(cellIndex);
 
   const handleBrainrot = useCallback(() => {
     track(ANALYTICS_EVENTS.BRAINROT_ACTIVATED, {
@@ -156,56 +145,6 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
     [setTerminalCell, cellIndex],
   );
 
-  const handleTaskCreated = useCallback(
-    (task: Task) => {
-      assignTask(cellIndex, task.id);
-      clearDraft(sessionId, null);
-    },
-    [assignTask, cellIndex, clearDraft, sessionId],
-  );
-
-  const handleCancel = useCallback(() => {
-    stopCreating(cellIndex);
-    clearDraft(sessionId, null);
-  }, [stopCreating, cellIndex, clearDraft, sessionId]);
-
-  const wasCreatingRef = useRef(false);
-  useEffect(() => {
-    if (wasCreatingRef.current && !isCreating) {
-      clearDraft(sessionId, null);
-    }
-    wasCreatingRef.current = isCreating;
-  }, [isCreating, clearDraft, sessionId]);
-
-  if (isCreating) {
-    return (
-      <Flex direction="column" height="100%">
-        <Flex
-          align="center"
-          justify="between"
-          px="2"
-          py="1"
-          className="shrink-0 border-gray-6 border-b"
-        >
-          <Text className="font-medium font-mono text-[11px] text-gray-11">
-            New task
-          </Text>
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
-            title="Cancel"
-          >
-            <X size={12} />
-          </button>
-        </Flex>
-        <Flex direction="column" className="min-h-0 flex-1">
-          <TaskInput sessionId={sessionId} onTaskCreated={handleTaskCreated} />
-        </Flex>
-      </Flex>
-    );
-  }
-
   return (
     <Flex align="center" justify="center" height="100%">
       <Flex direction="column" align="center" gap="2" className="select-none">
@@ -213,7 +152,6 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
           cellIndex={cellIndex}
           open={selectorOpen}
           onOpenChange={setSelectorOpen}
-          onNewTask={() => startCreating(cellIndex)}
           onNewTerminal={localWorkspaces ? handleNewTerminal : undefined}
           onBrainrot={brainrotMode ? handleBrainrot : undefined}
         >
@@ -239,9 +177,15 @@ const BRAINROT_PLAYLIST_IDS = [
   "PLSzOLzwLMqSM",
 ];
 const BRAINROT_EMBED_ORIGIN = "https://www.youtube-nocookie.com";
+// Player errors like 153 arrive as onError messages, but the widget can stay
+// silent when the embed document itself fails to load or boot. Silence after
+// load is the only renderer-visible signal of that failure.
+const BRAINROT_WIDGET_SILENCE_TIMEOUT_MS = 15_000;
 
 function brainrotEmbedUrl(playlistId: string): string {
-  return `${BRAINROT_EMBED_ORIGIN}/embed/videoseries?list=${playlistId}&enablejsapi=1&autoplay=1&mute=1&playsinline=1&rel=0`;
+  // loop=1 duplicates the setLoop postMessage call, so looping survives when
+  // the widget's postMessage channel is unavailable.
+  return `${BRAINROT_EMBED_ORIGIN}/embed/videoseries?list=${playlistId}&enablejsapi=1&autoplay=1&mute=1&playsinline=1&rel=0&loop=1`;
 }
 
 function pickBrainrotEmbedUrl(): string {
@@ -256,6 +200,8 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
   const clearCell = useCommandCenterStore((s) => s.clearCell);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const randomizedRef = useRef(false);
+  const errorTrackedRef = useRef(false);
+  const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(true);
   // Lazy initializer so the playlist choice is made once per mount.
   const [embedUrl] = useState(pickBrainrotEmbedUrl);
@@ -276,13 +222,31 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
       if (event.origin !== BRAINROT_EMBED_ORIGIN) return;
       if (event.source !== iframeRef.current?.contentWindow) return;
       if (typeof event.data !== "string") return;
-      let message: { info?: { playlist?: unknown } };
+      let message: { event?: unknown; info?: unknown };
       try {
         message = JSON.parse(event.data);
       } catch {
         return;
       }
-      const playlist = message.info?.playlist;
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
+      if (message.event === "onError" && !errorTrackedRef.current) {
+        errorTrackedRef.current = true;
+        const code =
+          typeof message.info === "number"
+            ? message.info
+            : Number(message.info);
+        track(ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR, {
+          error_code: Number.isFinite(code) ? code : null,
+          reason: "player_error",
+        });
+      }
+      const playlist =
+        typeof message.info === "object" && message.info !== null
+          ? (message.info as { playlist?: unknown }).playlist
+          : undefined;
       if (
         randomizedRef.current ||
         !Array.isArray(playlist) ||
@@ -297,7 +261,13 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
       postToPlayer("setLoop", [true]);
     };
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
+    };
   }, [postToPlayer]);
 
   const handleLoad = useCallback(() => {
@@ -310,6 +280,16 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
       }),
       BRAINROT_EMBED_ORIGIN,
     );
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+    }
+    silenceTimeoutRef.current = setTimeout(() => {
+      silenceTimeoutRef.current = null;
+      track(ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR, {
+        error_code: null,
+        reason: "no_widget_messages",
+      });
+    }, BRAINROT_WIDGET_SILENCE_TIMEOUT_MS);
   }, [cellIndex]);
 
   return (
@@ -426,7 +406,7 @@ function CanvasCell({
   const handleOpen = useCallback(() => {
     if (!dashboard) return;
     void navigate({
-      to: "/website/$channelId/dashboards/$dashboardId",
+      to: "/spaces/$channelId/dashboards/$dashboardId",
       params: { channelId: dashboard.channelId, dashboardId: canvasId },
     });
   }, [canvasId, dashboard, navigate]);
@@ -502,7 +482,9 @@ function PopulatedCell({
   const clearCell = useCommandCenterStore((s) => s.clearCell);
 
   const handleExpand = useCallback(() => {
-    void openTask(cell.task);
+    void openTask(cell.task, {
+      channelId: cell.task.channel ?? undefined,
+    });
   }, [cell.task]);
 
   const handleRemove = useCallback(() => {

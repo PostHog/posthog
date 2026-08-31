@@ -192,7 +192,10 @@ export function combineUserGithubRepositories(
 
   results.forEach((result, index) => {
     if (result.isPending) pending = true;
-    if (result.isError) {
+    // A refetch in flight is not a broken installation. Returning from the
+    // browser after connecting refetches on focus, and the new installation's
+    // first repo fetch can beat the backend finishing the link.
+    if (result.isError && !result.isRefetching) {
       const installationId = installationIds[index] ?? null;
       if (installationId) failedInstallationIds.push(installationId);
     }

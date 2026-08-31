@@ -77,6 +77,7 @@ import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useCo
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import {
@@ -100,6 +101,7 @@ import { CanvasPermissionDialog } from "./CanvasPermissionDialog";
 import { CanvasSelectionCommentAction } from "./CanvasSelectionCommentAction";
 import { CanvasSidePanel } from "./CanvasSidePanel";
 import { canvasCommentTaskId } from "./canvasCommentTask";
+import { canvasRuntimeErrorAnalytics } from "./canvasRuntimeError";
 import { canvasSidePanelVisibility } from "./canvasSidePanelVisibility";
 import {
   canvasVersionNavigation,
@@ -118,15 +120,6 @@ import { usePinnedArtifact } from "./usePinnedArtifact";
 // history), and an edit composer. Generation runs as a dedicated task; while
 // one is in flight the empty canvas shows a "Generating…" state with the run's
 // chat panel open by default (in view mode too), so the work is watchable.
-// The canvas runtime error string is user/agent-authored and can carry source
-// fragments, query results, or secrets. Reduce it to the leading error class name
-// (e.g. "TypeError") for analytics, so no interpolated content crosses the boundary.
-function canvasErrorType(message: string): string {
-  return (
-    message.match(/^([A-Z][A-Za-z0-9]*(?:Error|Exception))\b/)?.[1] ?? "unknown"
-  );
-}
-
 // One toast per outcome: only new_run actually starts a run — signaled hands
 // the prompt to a run already in progress, and already_queued means an
 // identical request beat this one, so "Agent run started" would misreport both.
@@ -679,10 +672,10 @@ export function FreeformCanvasView({
     (message: string) => {
       if (message !== lastRuntimeErrorRef.current) {
         lastRuntimeErrorRef.current = message;
-        const errorType = canvasErrorType(message);
+        const analytics = canvasRuntimeErrorAnalytics(message);
         track(ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR, {
           ...canvasTrackProps,
-          error_type: errorType,
+          ...analytics,
         });
         // File the error in the authoring task's thread so its agent hears
         // about it — the class name only; the full message stays client-side.
@@ -690,7 +683,7 @@ export function FreeformCanvasView({
           reportRuntimeError({
             id: dashboardId,
             buildId: canvasTrackProps.build_id,
-            errorType,
+            errorType: analytics.error_type,
           });
         }
       }
@@ -932,16 +925,15 @@ export function FreeformCanvasView({
               {interactive &&
                 (isGenerating && effectiveTaskId ? (
                   <>
-                    <SpinnerGapIcon
-                      size={14}
-                      className="animate-spin text-accent-9"
-                    />
+                    <Spin className="text-accent-9">
+                      <SpinnerGapIcon size={14} />
+                    </Spin>
                     <Text size="1" className="text-gray-10">
                       Generating
                     </Text>
                     <RadixButton size="1" variant="soft" asChild>
                       <Link
-                        to="/website/$channelId/tasks/$taskId"
+                        to="/spaces/$channelId/tasks/$taskId"
                         params={{ channelId, taskId: effectiveTaskId }}
                       >
                         View task
@@ -1301,7 +1293,9 @@ function LoadingState() {
     <Empty className="h-full">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <SpinnerGapIcon size={18} className="animate-spin text-accent-9" />
+          <Spin className="text-accent-9">
+            <SpinnerGapIcon size={18} />
+          </Spin>
         </EmptyMedia>
         <EmptyTitle>Loading canvas</EmptyTitle>
       </EmptyHeader>
@@ -1322,7 +1316,9 @@ function GeneratingState({
     <Empty className="h-full border-0">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <SpinnerGapIcon size={18} className="animate-spin text-accent-9" />
+          <Spin className="text-accent-9">
+            <SpinnerGapIcon size={18} />
+          </Spin>
         </EmptyMedia>
         <EmptyTitle>Generating</EmptyTitle>
         <EmptyDescription>An agent is building this canvas.</EmptyDescription>
@@ -1334,7 +1330,7 @@ function GeneratingState({
             size="default"
             render={
               <Link
-                to="/website/$channelId/tasks/$taskId"
+                to="/spaces/$channelId/tasks/$taskId"
                 params={{ channelId, taskId }}
               />
             }

@@ -13,6 +13,7 @@ from products.tasks.backend.logic.services.living_artifacts import (
     has_pending_slack_file_artifacts,
     has_pending_slack_image_artifacts,
 )
+from products.tasks.backend.temporal.slack_relay.object_tags import rewrite_object_tags_for_slack
 
 logger = get_logger(__name__)
 
@@ -365,7 +366,11 @@ class RelaySlackMessageInput:
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.services.slack_messages import load_run_footer, normalize_labeled_mentions_to_bare
+    from products.slack_app.backend.services.slack_messages import (
+        load_run_footer,
+        normalize_labeled_mentions_to_bare,
+        project_web_url,
+    )
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.temporal.process_task.utils import get_message_actor
@@ -396,6 +401,11 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # composed actually notify their targets. Done before splitting/conversion: the bare form
     # is shorter (never enlarges a chunk) and the mrkdwn converter passes it through untouched.
     text = normalize_labeled_mentions_to_bare(text)
+
+    # Object tags (``<insight id="…">``, ``<hogql display="block">``) are what the desktop renders
+    # as chips and chart cards; Slack would show them as escaped XML. Rewritten to links and
+    # fenced SQL before splitting so chunk sizes account for the markdown they become.
+    text = rewrite_object_tags_for_slack(text, project_url=project_web_url(task_run.team_id))
 
     # Living-artifacts gating lives in the service: has_pending_slack_file_artifacts
     # (and deliver_pending_slack_file_artifacts below) return falsy when the
@@ -442,6 +452,26 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     if handler.footer_enabled():
         handler.run_footer = load_run_footer(task_run.id)
     mention_prefix = f"<@{target}> " if target else ""
+
+    def _record_sent_relay(state: dict[str, Any]) -> None:
+        sent_relay_ids = state.get("slack_sent_relay_ids") or []
+        if input.relay_id in sent_relay_ids:
+            raise _RelayAlreadyRecorded
+
+        sent_relay_ids.append(input.relay_id)
+        # Keep a rolling window to bound state size while preserving idempotency for recent relays.
+        state["slack_sent_relay_ids"] = sent_relay_ids[-30:]
+
+    # Claim the relay before the first Slack call. The Slack posts below swallow their own
+    # errors, so this write is the only step that can fail after a message is already in the
+    # thread, and a retry would then post it again. Claiming first means a failed write retries
+    # before anything is sent, and a retry after the claim skips instead of duplicating.
+    try:
+        TaskRun.mutate_state_atomic(input.run_id, _record_sent_relay)
+    except _RelayAlreadyRecorded:
+        logger.info("slack_relay_duplicate_skipped", run_id=input.run_id, relay_id=input.relay_id)
+        return
+
     if input.delete_progress:
         handler.delete_progress()
 
@@ -467,17 +497,3 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
-
-    def _record_sent_relay(state: dict[str, Any]) -> None:
-        sent_relay_ids = state.get("slack_sent_relay_ids") or []
-        if input.relay_id in sent_relay_ids:
-            raise _RelayAlreadyRecorded
-
-        sent_relay_ids.append(input.relay_id)
-        # Keep a rolling window to bound state size while preserving idempotency for recent relays.
-        state["slack_sent_relay_ids"] = sent_relay_ids[-30:]
-
-    try:
-        TaskRun.mutate_state_atomic(input.run_id, _record_sent_relay)
-    except _RelayAlreadyRecorded:
-        logger.info("slack_relay_duplicate_skipped", run_id=input.run_id, relay_id=input.relay_id)

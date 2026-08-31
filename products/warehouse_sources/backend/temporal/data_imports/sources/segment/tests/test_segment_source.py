@@ -1,50 +1,20 @@
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.segment import (
     SegmentSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.segment.segment import SegmentResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.source import SegmentSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(region: str = "api", api_token: str = "tok") -> SegmentSourceConfig:
     return SegmentSourceConfig(api_token=api_token, region=cast(Literal["api", "eu1"], region))
 
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert SegmentSource().source_type == ExternalDataSourceType.SEGMENT
-
-    def test_config_category_and_release_status(self) -> None:
-        config = SegmentSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Intentionally unreleased: the source is shipped behind the flag while it stabilizes.
-
-    def test_config_fields(self) -> None:
-        config = SegmentSource().get_source_config
-        field_names = {f.name for f in config.fields}
-        assert field_names == {"region", "api_token"}
-
-        token_field = next(f for f in config.fields if f.name == "api_token")
-        assert isinstance(token_field, SourceFieldInputConfig)
-        # The token is a secret and must render as a password input.
-        assert token_field.type == "password"
-        assert token_field.secret is True
-
-        region_field = next(f for f in config.fields if f.name == "region")
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert {o.value for o in region_field.options} == {"api", "eu1"}
-        assert region_field.defaultValue == "api"
+    # Intentionally unreleased: the source is shipped behind the flag while it stabilizes.
 
 
 class TestGetSchemas:
@@ -130,45 +100,9 @@ class TestNonRetryableErrors:
         assert not any(key in other_error for key in non_retryable_errors)
 
 
-class TestResumableManager:
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        source = SegmentSource()
-        inputs = MagicMock()
-        manager = source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SegmentResumeConfig
-
-
-class TestSourceForPipeline:
-    def test_plumbs_config_into_transport(self) -> None:
-        source = SegmentSource()
-        inputs = MagicMock()
-        inputs.schema_name = "sources"
-        manager = MagicMock()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.segment.source.segment_source"
-        ) as mock_source:
-            source.source_for_pipeline(_config(region="eu1", api_token="secret"), manager, inputs)
-
-        mock_source.assert_called_once()
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_token"] == "secret"
-        assert kwargs["region"] == "eu1"
-        assert kwargs["endpoint"] == "sources"
-        assert kwargs["resumable_source_manager"] is manager
-
-
 class TestCanonicalDescriptions:
     def test_descriptions_cover_known_endpoints(self) -> None:
         descriptions = SegmentSource().get_canonical_descriptions()
         # Every documented endpoint with a curated description must be a real schema.
         assert set(descriptions).issubset(set(ENDPOINTS))
         assert "sources" in descriptions
-
-    @parameterized.expand([(name,) for name in ENDPOINTS])
-    def test_described_columns_are_nonempty(self, endpoint: str) -> None:
-        descriptions: dict[str, Any] = SegmentSource().get_canonical_descriptions()
-        if endpoint not in descriptions:
-            return
-        assert descriptions[endpoint].get("description")

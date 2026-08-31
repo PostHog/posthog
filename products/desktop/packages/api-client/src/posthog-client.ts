@@ -79,18 +79,20 @@ import {
   decorateFlagPreview,
   decorateSurveyPreview,
   type EvidencePreview,
-  exposureFact,
+  type ExperimentMetricQueryResult,
+  experimentMetricQueries,
   formatDay,
   gridRows,
   hogqlEscape,
-  pivotDailyGroups,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
   shapeErrorIssuePreview,
   shapeEvaluationPreview,
   shapeEventDefinitionPreview,
+  shapeExperimentExposureChart,
   shapeExperimentPreview,
+  shapeExperimentResults,
   shapeFlagPreview,
   shapePersonPreview,
   shapeRecordingPreview,
@@ -125,6 +127,7 @@ import type {
   TeamMcpGatewayConfigUpdate,
 } from "./mcp-gateway";
 import type { SpendAnalysisResponse } from "./spend-analysis";
+import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
   normalizeTaskResponse,
   normalizeTaskRunArtifact,
@@ -730,6 +733,124 @@ export interface PostHogObjectReferenceInput {
   object_kind: string;
   object_id: string;
   source_message_id: string;
+}
+
+export interface ContextWikiTree {
+  head_sha: string;
+  paths: string[];
+}
+
+export interface ContextWikiPage {
+  path: string;
+  content: string;
+  head_sha: string;
+  updated_at: string;
+}
+
+export interface ContextWikiHealthFinding {
+  category: string;
+  path: string;
+  message: string;
+}
+
+export interface ContextWikiHealthReport {
+  head_sha: string;
+  findings: ContextWikiHealthFinding[];
+}
+
+export interface ChannelContextWikiPage {
+  path: string;
+}
+
+export interface ContextWikiDreamRun {
+  sha: string;
+  date: string;
+  committed_at: string;
+  summary: string;
+  pages_added: number;
+  pages_modified: number;
+  pages_deleted: number;
+}
+
+export interface ContextWikiActiveDreamRun {
+  run_status: "not_started" | "queued" | "in_progress";
+  started_at: string;
+}
+
+export interface ContextWikiDreamList {
+  head_sha: string;
+  active_run: ContextWikiActiveDreamRun | null;
+  dreams: ContextWikiDreamRun[];
+}
+
+export interface ContextWikiDreamFile {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  patch: string;
+  truncated: boolean;
+}
+
+export interface ContextWikiDreamDetail {
+  run: ContextWikiDreamRun;
+  files: ContextWikiDreamFile[];
+}
+
+// Thrown when PUT /context_layer/pages/ rejects a write because the caller's
+// `base_head` is older than the wiki's current head. `currentHead` is the head
+// to re-read against before retrying.
+export class ContextWikiConflictError extends Error {
+  status = 409;
+  currentHead: string | null;
+  constructor(currentHead: string | null) {
+    super("The wiki changed since you started editing");
+    this.name = "ContextWikiConflictError";
+    this.currentHead = currentHead;
+  }
+}
+
+// Thrown when a page write fails the wiki's structure lint; `errors` lists the
+// violations for inline display.
+export class ContextWikiLintError extends Error {
+  status = 400;
+  errors: string[];
+  constructor(detail: string, errors: string[]) {
+    super(detail);
+    this.name = "ContextWikiLintError";
+    this.errors = errors;
+  }
+}
+
+// Thrown on 403: the organization has private projects, so its wiki is
+// deliberately unavailable. Distinct from 404 (wiki never enabled).
+export class ContextWikiUnavailableError extends Error {
+  status = 403;
+  constructor(message: string) {
+    super(message);
+    this.name = "ContextWikiUnavailableError";
+  }
+}
+
+/** DRF error bodies carry the human-readable message in `detail`. */
+function readDetail(error: ApiRequestError): string {
+  const body = error.body as { detail?: string } | null;
+  return body?.detail ?? error.message;
+}
+
+/**
+ * DRF validation failures carry the messages per field, `{ field: [msg] }`,
+ * with no top-level `detail`. Flatten them so the server's own wording reaches
+ * the toast instead of a bare status text.
+ */
+function readFieldErrors(error: ApiRequestError): string {
+  if (typeof error.body !== "object" || error.body === null) {
+    return error.message;
+  }
+  const record = error.body as Record<string, unknown>;
+  if (typeof record.detail === "string") return record.detail;
+  const parts = Object.values(record).flatMap((messages) =>
+    Array.isArray(messages) ? messages.map(String) : [],
+  );
+  return parts.length > 0 ? parts.join(" ") : error.message;
 }
 
 export interface TaskArtifactUploadRequest {
@@ -1900,8 +2021,8 @@ export class PostHogAPIClient {
     });
   }
 
-  async approveAiDataProcessing(): Promise<void> {
-    const urlPath = `/api/organizations/@current/`;
+  async approveAiDataProcessing(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     await this.api.fetcher.fetch({
       method: "patch",
@@ -1911,6 +2032,40 @@ export class PostHogAPIClient {
         body: JSON.stringify({ is_ai_data_processing_approved: true }),
       },
     });
+  }
+
+  async areDesktopBetaTermsAccepted(organizationId: string): Promise<boolean> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to check Desktop beta terms: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      is_desktop_beta_terms_accepted: boolean;
+    };
+    return data.is_desktop_beta_terms_accepted;
+  }
+
+  async acceptDesktopBetaTerms(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to accept Desktop beta terms: ${response.statusText}`,
+      );
+    }
   }
 
   async getProject(projectId: number) {
@@ -2644,6 +2799,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        signal_report_task_relationship?: string;
         branch?: string | null;
         runtime_adapter?: string | null;
         model?: string | null;
@@ -2722,8 +2878,8 @@ export class PostHogAPIClient {
   // Task channels + threads. Not in the generated OpenAPI client yet, so these
   // go through the raw fetcher like the desktop file-system endpoints above.
 
-  // List backend task channels: all public channels plus the requester's
-  // personal "#me" channel (provisioned lazily server-side on first list).
+  // All public channels plus the requester's #me. Creates nothing: startup provisions the
+  // default spaces, which is what lets a caller gate on one already existing.
   async getTaskChannels(): Promise<TaskChannel[]> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
@@ -2790,6 +2946,69 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as ProvisionedTaskChannels;
+  }
+
+  /**
+   * Opens the first-run agent session in #general. Reads the company's homepage, so it takes a
+   * few seconds; callers fire it without awaiting. Resolves false when no session was started,
+   * which is the normal path while the spaces rollout has not reached this user.
+   */
+  async startOnboardingSession(): Promise<string | null> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { task_id?: string | null };
+    return data.task_id ?? null;
+  }
+
+  async startOnboardingTestSession(input: {
+    company_domain: string;
+    joining_existing_organization: boolean;
+    has_events: boolean;
+    signal_reports_waiting: number;
+    other_members: string[];
+    sources_enabled: string[];
+    sources_watching: string[];
+    sources_newly_enabled: boolean;
+  }): Promise<{ task_id: string; channel_id: string }> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session_test/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(input) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to start test onboarding session: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { task_id: string; channel_id: string };
+  }
+
+  async createTeachingCanvasForTest(): Promise<{
+    canvas_id: string;
+    channel_id: string;
+  }> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/teaching_canvas_test/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to create teaching canvas: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { canvas_id: string; channel_id: string };
   }
 
   async updateTaskChannelRepositories(
@@ -2941,6 +3160,143 @@ export class PostHogAPIClient {
       returned: all.length,
     });
     return all;
+  }
+
+  // ---- Organization context wiki (context_layer) ------------------------
+  // Org-scoped: the wiki is one repo per organization, shared across projects.
+  // 404 means the wiki was never enabled; 403 means it exists but is dark
+  // because the organization has private projects.
+
+  // GET with the wiki's shared read semantics: 404 (never enabled or missing
+  // page) reads as null, 403 (privacy guard) as ContextWikiUnavailableError.
+  private async getContextWikiResource<T>(urlPath: string): Promise<T | null> {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+      return (await response.json()) as T;
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        if (error.status === 404) return null;
+        if (error.status === 403) {
+          throw new ContextWikiUnavailableError(readDetail(error));
+        }
+      }
+      throw error;
+    }
+  }
+
+  async getContextWikiTree(): Promise<ContextWikiTree | null> {
+    return this.getContextWikiResource<ContextWikiTree>(
+      `/api/organizations/@current/context_layer/tree/`,
+    );
+  }
+
+  async getContextWikiPage(path: string): Promise<ContextWikiPage | null> {
+    return this.getContextWikiResource<ContextWikiPage>(
+      `/api/organizations/@current/context_layer/pages/?path=${encodeURIComponent(path)}`,
+    );
+  }
+
+  async getContextWikiHealthReport(): Promise<ContextWikiHealthReport | null> {
+    return this.getContextWikiResource<ContextWikiHealthReport>(
+      `/api/organizations/@current/context_layer/wiki/report/`,
+    );
+  }
+
+  async getChannelContextWikiPage(
+    channelId: string,
+  ): Promise<ChannelContextWikiPage | null> {
+    return this.getContextWikiResource<ChannelContextWikiPage>(
+      `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/`,
+    );
+  }
+
+  async getContextWikiDreams(): Promise<ContextWikiDreamList | null> {
+    return this.getContextWikiResource<ContextWikiDreamList>(
+      `/api/organizations/@current/context_layer/dreams/`,
+    );
+  }
+
+  async getContextWikiDream(
+    sha: string,
+  ): Promise<ContextWikiDreamDetail | null> {
+    return this.getContextWikiResource<ContextWikiDreamDetail>(
+      `/api/organizations/@current/context_layer/dreams/${encodeURIComponent(sha)}/`,
+    );
+  }
+
+  /**
+   * Full-content page write guarded by `baseHead` optimistic concurrency.
+   * The server holds a per-org writer lock shared with agent commit landings;
+   * a lock-busy 429 surfaces as ApiRequestError and is safe to retry with the
+   * same base head — callers configure that retry (see
+   * `useContextWikiPageMutation`). 409 (stale base head) and 400 (lint) are
+   * the actionable failures.
+   */
+  async putContextWikiPage(input: {
+    path: string;
+    content: string;
+    baseHead: string;
+  }): Promise<{ head_sha: string }> {
+    const urlPath = `/api/organizations/@current/context_layer/pages/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "put",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify({
+            path: input.path,
+            content: input.content,
+            base_head: input.baseHead,
+          }),
+        },
+      });
+      return (await response.json()) as { head_sha: string };
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
+      if (error.status === 409) {
+        const body = error.body as { current_head?: string } | null;
+        throw new ContextWikiConflictError(body?.current_head ?? null);
+      }
+      if (error.status === 400) {
+        const body = error.body as {
+          detail?: string;
+          errors?: string[];
+        } | null;
+        throw new ContextWikiLintError(
+          body?.detail ?? "The change violates the wiki structure.",
+          body?.errors ?? [],
+        );
+      }
+      if (error.status === 403) {
+        throw new ContextWikiUnavailableError(readDetail(error));
+      }
+      throw error;
+    }
+  }
+
+  async enableContextWiki(): Promise<{ head_sha: string }> {
+    const urlPath = `/api/organizations/@current/context_layer/enable/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: { body: JSON.stringify({}) },
+      });
+      return (await response.json()) as { head_sha: string };
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        throw new Error(
+          `Failed to enable the context wiki: ${readDetail(error)}`,
+        );
+      }
+      throw error;
+    }
   }
 
   // A channel's system-announcement feed (context created, CONTEXT.md being
@@ -4458,6 +4814,9 @@ export class PostHogAPIClient {
         String(params.has_implementation_pr),
       );
     }
+    if (params?.channel_id) {
+      url.searchParams.set("channel_id", params.channel_id);
+    }
 
     const response = await this.api.fetcher.fetch({
       method: "get",
@@ -5700,20 +6059,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to create sandbox environment: ${response.statusText}`,
+        `Failed to create sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async updateSandboxEnvironment(
@@ -5724,20 +6085,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/${id}/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "patch",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to update sandbox environment: ${response.statusText}`,
+        `Failed to update sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async deleteSandboxEnvironment(id: string): Promise<void> {
@@ -6005,6 +6368,60 @@ export class PostHogAPIClient {
   }
 
   /**
+   * The signed-in person's own spend limit, as the gateway holds it. A
+   * deployment without the gateway wired answers `available: false` rather than
+   * failing, so the settings page can say the limit informs only.
+   */
+  async getUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(await this.spendLimitRequest("get"));
+  }
+
+  /** Sets the limit; `windowSeconds` is the window it resets over. */
+  async setUserSpendLimit(
+    limitUsd: number,
+    windowSeconds: number,
+  ): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("post", "", {
+        limit_usd: String(limitUsd),
+        window_seconds: windowSeconds,
+      }),
+    );
+  }
+
+  /** Removes the limit, so nothing holds this person's spend. */
+  async clearUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("delete", "clear/"),
+    );
+  }
+
+  private async spendLimitRequest(
+    method: "get" | "post" | "delete",
+    suffix = "",
+    body?: Record<string, unknown>,
+  ): Promise<unknown> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/ai_gateway/@me/spend_limit/${suffix}`;
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any
+    // non-2xx, so unwrap that into the endpoint's clean message rather than
+    // surfacing the raw string in the settings toast.
+    try {
+      const response = await this.api.fetcher.fetch({
+        method,
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+      });
+      return await response.json();
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Couldn't update your spend limit."),
+      );
+    }
+  }
+
+  /**
    * Lists the team's LLM skills (latest versions, no bodies).
    * Returns null when the feature is unavailable for this org (the
    * llm-analytics-skills flag gates the endpoint server-side with a 403).
@@ -6161,25 +6578,20 @@ export class PostHogAPIClient {
     return { results: data.results ?? [], columns: data.columns ?? [] };
   }
 
-  /**
-   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
-   * the team's project and returns the raw response. `refresh: "blocking"`
-   * serves a fresh-enough cached result and computes synchronously otherwise —
-   * the same mode PostHog insights use. Backs inbox report charts, whose query
-   * nodes are scout-authored and arrive unparsed.
-   */
   async runQuery(
     query: Record<string, unknown>,
+    options?: { refresh?: "blocking" | false },
   ): Promise<Record<string, unknown>> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/query/`;
     const url = new URL(`${this.api.baseUrl}${path}`);
+    const refresh = options?.refresh === false ? null : "blocking";
     const response = await this.api.fetcher.fetch({
       method: "post",
       url,
       path,
       overrides: {
-        body: JSON.stringify({ query, refresh: "blocking" }),
+        body: JSON.stringify({ query, ...(refresh ? { refresh } : {}) }),
       },
     });
     const data = (await response.json()) as Record<string, unknown>;
@@ -6284,54 +6696,74 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id: numericId } },
         );
         const preview = shapeExperimentPreview(experiment);
-        // Depth: unique persons exposed per variant, showing the experiment
-        // is collecting and roughly balanced.
-        if (!experiment.start_date || !experiment.feature_flag_key) {
-          return preview;
-        }
-        const until = experiment.end_date
-          ? ` AND timestamp <= parseDateTimeBestEffort('${hogqlEscape(experiment.end_date)}')`
-          : "";
-        const scope = `event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until}`;
-        const [exposures, dailyExposures] = await Promise.all([
-          this.runQuery({
-            kind: "HogQLQuery",
-            query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE ${scope} GROUP BY variant ORDER BY variant`,
-          }).catch(() => ({})),
-          this.runQuery({
-            kind: "HogQLQuery",
-            query: `SELECT toDate(timestamp) AS day, toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE ${scope} GROUP BY day, variant ORDER BY day`,
-          }).catch(() => ({})),
-        ]);
-        const fact = exposureFact(gridRows(exposures));
-        // "false" rows are flag evaluations outside the experiment, not a variant.
-        const pivot = pivotDailyGroups(
-          gridRows(dailyExposures).filter((row) => String(row[1]) !== "false"),
+        const primaryQueries = experimentMetricQueries(experiment, "primary");
+        const secondaryQueries = experimentMetricQueries(
+          experiment,
+          "secondary",
         );
-        const variantStats = gridRows(exposures)
-          .filter((row) => typeof row[0] === "string" && row[0] !== "false")
-          .slice(0, 4)
-          .map((row) => ({
-            label: `${row[0]} exposed`,
-            value: compactCount(Number(row[1]) || 0),
-          }));
+        if (!experiment.start_date) {
+          return {
+            ...preview,
+            experimentResults: shapeExperimentResults(experiment, null, [], []),
+          };
+        }
+
+        const runMetricQuery = async (
+          metric: unknown,
+        ): Promise<ExperimentMetricQueryResult> => {
+          if (!metric || typeof metric !== "object") {
+            return { response: null };
+          }
+          try {
+            const response = await this.runQuery(
+              {
+                kind: "ExperimentQuery",
+                metric,
+                experiment_id: numericId,
+              },
+              { refresh: false },
+            );
+            return {
+              response: response as Schemas.ExperimentQueryResponse,
+            };
+          } catch {
+            return { response: null };
+          }
+        };
+
+        const exposureQuery = experiment.feature_flag
+          ? this.runQuery(
+              {
+                kind: "ExperimentExposureQuery",
+                experiment_id: numericId,
+                experiment_name: experiment.name,
+                exposure_criteria: experiment.exposure_criteria,
+                feature_flag: experiment.feature_flag,
+                start_date: experiment.start_date,
+                end_date: experiment.end_date,
+                holdout: experiment.holdout,
+              },
+              { refresh: false },
+            ).catch(() => null)
+          : Promise.resolve(null);
+        const [exposureResponse, primaryResults, secondaryResults] =
+          await Promise.all([
+            exposureQuery,
+            Promise.all(primaryQueries.map(runMetricQuery)),
+            Promise.all(secondaryQueries.map(runMetricQuery)),
+          ]);
+
+        const experimentExposureResponse =
+          exposureResponse as Schemas.ExperimentExposureQueryResponse | null;
         return {
           ...preview,
-          facts: fact ? [...(preview.facts ?? []), fact] : preview.facts,
-          stats: [...(preview.stats ?? []), ...variantStats],
-          chart: pivot
-            ? {
-                title:
-                  pivot.omittedGroups > 0
-                    ? `Daily exposed users by variant (top ${pivot.series.length} of ${
-                        pivot.series.length + pivot.omittedGroups
-                      })`
-                    : "Daily exposed users by variant",
-                labels: pivot.labels,
-                series: pivot.series,
-                render: "line" as const,
-              }
-            : undefined,
+          experimentResults: shapeExperimentResults(
+            experiment,
+            experimentExposureResponse,
+            primaryResults,
+            secondaryResults,
+          ),
+          chart: shapeExperimentExposureChart(experimentExposureResponse),
         };
       }
       case "error": {

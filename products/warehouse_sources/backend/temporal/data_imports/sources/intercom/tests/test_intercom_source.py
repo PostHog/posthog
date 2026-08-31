@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldOauthConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
     IntercomSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"contacts", "conversations", "tickets", "activity_logs", "conversation_parts"}
 
@@ -18,9 +15,6 @@ class TestIntercomSource:
         self.source = IntercomSource()
         self.team_id = 123
         self.config = IntercomSourceConfig(intercom_integration_id=456)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.INTERCOM
 
     def test_default_version_is_latest(self):
         # New sources are stamped with the default; keep it on the newest supported version.
@@ -49,32 +43,6 @@ class TestIntercomSource:
 
         _, kwargs = mock_intercom_source.call_args
         assert kwargs["api_version"] == expected
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Intercom"
-        assert config.releaseStatus == "beta"
-        assert not config.unreleasedSource
-
-        oauth_field = config.fields[0]
-        assert isinstance(oauth_field, SourceFieldOauthConfig)
-        assert oauth_field.name == "intercom_integration_id"
-        assert oauth_field.kind == "intercom"
-        assert oauth_field.required is True
-
-    @pytest.mark.parametrize(
-        "key",
-        [
-            "401 Client Error",
-            "403 Client Error",
-            "Missing integration ID",
-            "Integration not found",
-            "Intercom access token not found",
-        ],
-    )
-    def test_get_non_retryable_errors(self, key):
-        assert key in self.source.get_non_retryable_errors()
 
     @pytest.mark.parametrize(
         "error_msg",

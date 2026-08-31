@@ -11,13 +11,6 @@ from django.utils.html import format_html
 from posthog.management.commands.rerun_google_ads_failed_invocations import MAX_WINDOW_DAYS
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState
-from products.cdp.backend.services.masked_secrets import (
-    DEFAULT_MAX_RESULTS,
-    DEFAULT_MAX_SCANNED,
-    scan_for_masked_secrets,
-    scan_hog_flows_for_masked_secrets,
-    summarize_by_organization,
-)
 
 
 class HogFunctionAdminForm(forms.ModelForm):
@@ -95,44 +88,6 @@ class RerunGoogleAdsFailedInvocationsForm(forms.Form):
         return cleaned
 
 
-class MaskedSecretsForm(forms.Form):
-    """Admin-facing wrapper around the `find_masked_hog_function_secrets` command.
-
-    Mirrors its flags so an operator who needs the full list can rerun the same scope from the
-    shell without re-deriving the arguments.
-    """
-
-    team_ids = forms.CharField(
-        required=False,
-        help_text="Optional comma-separated team IDs. Leave blank to scan every team.",
-    )
-    include_deleted = forms.BooleanField(
-        required=False,
-        initial=False,
-        help_text="Include soft-deleted hog functions. They send nothing, so they are off by default.",
-    )
-    include_archived = forms.BooleanField(
-        required=False,
-        initial=False,
-        help_text="Include archived workflows. They send nothing, so they are off by default.",
-    )
-    max_results = forms.IntegerField(
-        initial=DEFAULT_MAX_RESULTS,
-        min_value=1,
-        max_value=10000,
-        help_text="Cap on reported hog functions and on reported workflows. You are told when the scan stops at the cap.",
-    )
-
-    def clean_team_ids(self) -> list[int]:
-        raw = self.cleaned_data.get("team_ids", "") or ""
-        if not raw.strip():
-            return []
-        try:
-            return [int(part.strip()) for part in raw.split(",") if part.strip()]
-        except ValueError:
-            raise forms.ValidationError("Team IDs must be a comma-separated list of integers.")
-
-
 @admin.register(HogFunction)
 class HogFunctionAdmin(admin.ModelAdmin):
     form = HogFunctionAdminForm
@@ -195,74 +150,13 @@ class HogFunctionAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.rerun_google_ads_view),
                 name="rerun-google-ads-failed-invocations",
             ),
-            path(
-                "masked-secrets/",
-                self.admin_site.admin_view(self.masked_secrets_view),
-                name="hog-function-masked-secrets",
-            ),
         ]
         return custom_urls + super().get_urls()
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
         extra_context["show_rerun_google_ads_button"] = True
-        extra_context["show_masked_secrets_button"] = True
         return super().changelist_view(request, extra_context=extra_context)
-
-    def masked_secrets_view(self, request):
-        scan = None
-        flow_scan = None
-        organizations: list = []
-        if request.method == "POST":
-            form = MaskedSecretsForm(request.POST)
-            if form.is_valid():
-                team_ids = form.cleaned_data["team_ids"] or None
-                max_results = form.cleaned_data["max_results"]
-                scan = scan_for_masked_secrets(
-                    team_ids=team_ids,
-                    include_deleted=form.cleaned_data["include_deleted"],
-                    max_results=max_results,
-                    max_scanned=DEFAULT_MAX_SCANNED,
-                )
-                flow_scan = scan_hog_flows_for_masked_secrets(
-                    team_ids=team_ids,
-                    include_archived=form.cleaned_data["include_archived"],
-                    max_results=max_results,
-                    max_scanned=DEFAULT_MAX_SCANNED,
-                )
-                organizations = summarize_by_organization([*scan.findings, *flow_scan.findings])
-                if scan.truncated or flow_scan.truncated:
-                    capped = " and ".join(
-                        name
-                        for name, capped_scan in (("hog functions", scan), ("workflows", flow_scan))
-                        if capped_scan.truncated
-                    )
-                    messages.warning(
-                        request,
-                        f"The {capped} scan stopped before covering every row, so more may be affected than "
-                        "this shows. Scan a narrower set of teams, or run the "
-                        "find_masked_hog_function_secrets management command for the full sweep.",
-                    )
-                elif not scan.findings and not flow_scan.findings:
-                    messages.success(
-                        request,
-                        f"Scanned {scan.scanned_count} hog function(s) and {flow_scan.scanned_count} workflow(s) "
-                        "with stored secrets. None store the mask.",
-                    )
-        else:
-            form = MaskedSecretsForm()
-
-        return render(
-            request,
-            "admin/cdp/hogfunction/masked_secrets.html",
-            {
-                "form": form,
-                "scan": scan,
-                "flow_scan": flow_scan,
-                "organizations": organizations,
-                "title": "Hog functions and workflows storing the secret mask",
-            },
-        )
 
     def rerun_google_ads_view(self, request):
         output: str | None = None

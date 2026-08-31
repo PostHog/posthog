@@ -1,81 +1,53 @@
-import { useState } from 'react'
-
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectGroupLabel,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from 'lib/ui/quill'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { ISSUE_STATUS_OPTIONS } from '../utils'
-import { StatusIndicator } from './Indicators'
+import { getIssueStatusConfig, StatusIndicator } from './Indicators'
 
 export const IssueStatusSelect = ({
     status,
     options = ISSUE_STATUS_OPTIONS,
     onChange,
+    size = 'sm',
 }: {
     status: ErrorTrackingIssue['status']
     options?: ErrorTrackingIssue['status'][]
     onChange: (status: ErrorTrackingIssue['status']) => void
+    size?: 'sm' | 'default'
 }): JSX.Element => {
-    const [showPopover, setShowPopover] = useState(false)
-
-    const _onChange = (status: ErrorTrackingIssue['status']): void => {
-        setShowPopover(false)
-        onChange(status)
-    }
-
     return (
-        <DropdownMenu open={showPopover} onOpenChange={setShowPopover}>
-            <DropdownMenuTrigger
-                className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
-                role="button"
-            >
-                <StatusIndicator status={status} className="ml-1 text-xs text-secondary" />
-                <IconChevronDown />
-            </DropdownMenuTrigger>
-            <IssueStatusDropdown status={status} options={options} onChange={_onChange} />
-        </DropdownMenu>
-    )
-}
-
-function IssueStatusDropdown({
-    status,
-    options,
-    onChange,
-}: {
-    status: ErrorTrackingIssue['status']
-    options: ErrorTrackingIssue['status'][]
-    onChange: (status: ErrorTrackingIssue['status']) => void
-}): JSX.Element {
-    return (
-        <DropdownMenuContent>
-            <DropdownMenuGroup>
-                {options.map((option) => (
-                    <DropdownMenuItem
-                        key={option}
-                        className="text-base text-secondary hover:bg-fill-button-tertiary-hover hover:text-fill-button-tertiary px-1"
-                        asChild
-                    >
-                        <LemonButton
-                            fullWidth
-                            onClick={() => option !== status && onChange(option)}
-                            role="menuitem"
-                            size="xsmall"
-                            active={option === status}
-                        >
-                            <StatusIndicator status={option} withTooltip="right" />
-                        </LemonButton>
-                    </DropdownMenuItem>
-                ))}
-            </DropdownMenuGroup>
-        </DropdownMenuContent>
+        <Select
+            value={status}
+            onValueChange={(nextStatus: ErrorTrackingIssue['status'] | null) => {
+                if (nextStatus && nextStatus !== status) {
+                    onChange(nextStatus)
+                }
+            }}
+        >
+            <SelectTrigger size={size} className="gap-1" aria-label={`Status: ${getIssueStatusConfig(status).label}`}>
+                <SelectValue>
+                    <StatusIndicator status={status} size="xsmall" className="text-secondary" />
+                </SelectValue>
+            </SelectTrigger>
+            <SelectContent align="start" alignItemWithTrigger={false}>
+                <SelectGroup>
+                    <SelectGroupLabel className="py-1">Status</SelectGroupLabel>
+                    {options.map((option) => (
+                        <SelectItem key={option} value={option}>
+                            <StatusIndicator status={option} size="xsmall" />
+                        </SelectItem>
+                    ))}
+                </SelectGroup>
+            </SelectContent>
+        </Select>
     )
 }
