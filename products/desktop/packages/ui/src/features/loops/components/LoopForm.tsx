@@ -6,9 +6,10 @@ import {
 } from "@phosphor-icons/react";
 import { type LoopSchemas, LoopsApiError } from "@posthog/api-client/loops";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
-import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { ANALYTICS_EVENTS, LOOPS_HOG_FLOWS_FLAG } from "@posthog/shared";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useBluebirdFlag } from "@posthog/ui/features/feature-flags/useBluebirdFlag";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
@@ -23,6 +24,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Text, TextArea, TextField } from "@radix-ui/themes";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useAuthStateValue } from "../../auth/store";
+import { useHogFlow } from "../hooks/useHogFlow";
 import {
   useCreateLoop,
   useDeleteLoop,
@@ -37,7 +39,6 @@ import { summarizeTrigger } from "../loopDisplay";
 import { useLoopDraftStore } from "../loopDraftStore";
 import {
   emptyLoopFormValues,
-  formValuesToLoopWrite,
   isAutoFixEnabled,
   isLoopFormValid,
   isTriggerDraftValid,
@@ -46,6 +47,11 @@ import {
   loopToFormValues,
   normalizeLoopFormValues,
 } from "../loopFormTypes";
+import {
+  emptyHogFlowLoopFormValues,
+  hogFlowToFormValues,
+  isHogFlowLoopFormValid,
+} from "../loopHogFlowMapping";
 import { formatLoopModel } from "../loopModels";
 import { buildSkillInstructions, loopSkillBundles } from "../loopSkill";
 import { LoopBehaviorFields } from "./LoopBehaviorFields";
@@ -57,6 +63,7 @@ import { LoopNotificationsFields } from "./LoopNotificationsFields";
 import { LoopRepositoryPicker } from "./LoopRepositoryPicker";
 import { LoopInstructionsFields } from "./LoopSkillFields";
 import { LoopSpaceBreadcrumb } from "./LoopSpaceBreadcrumb";
+import { LoopTeamSkillsFields } from "./LoopTeamSkillsFields";
 import { LoopTriggerEditor } from "./LoopTriggerEditor";
 
 const VISIBILITY_OPTIONS: {
@@ -81,8 +88,12 @@ type LoopFormBaseline = {
   serialized: string;
 };
 
-function buildLoopFormBaseline(loop: LoopSchemas.Loop): LoopFormBaseline {
-  const values = normalizeLoopFormValues(loopToFormValues(loop));
+function buildLoopFormBaseline(
+  loop: LoopSchemas.Loop,
+  overrideValues?: LoopFormValues,
+): LoopFormBaseline {
+  const values =
+    overrideValues ?? normalizeLoopFormValues(loopToFormValues(loop));
   return {
     loopId: loop.id,
     updatedAt: loop.updated_at,
@@ -109,9 +120,21 @@ export function LoopForm({
 }: LoopFormProps) {
   const isEdit = !!loop;
   const isEmbedded = variant === "embedded";
+  const hogFlowsEnabled = useFeatureFlag(LOOPS_HOG_FLOWS_FLAG);
   const projectId = useAuthStateValue((state) => state.currentProjectId);
+  // The raw HogFlow behind this loop, needed only because the `Loop` wire shape `loop` decompiles
+  // to has no field for `skillNames` — see `useHogFlow`. Not loaded yet on first render, so the
+  // initial state below still seeds from `loop` and gets corrected once this resolves.
+  const hogFlow = useHogFlow(loop?.id, hogFlowsEnabled && isEdit);
+  const hogFlowFormValues =
+    hogFlowsEnabled && hogFlow.data
+      ? normalizeLoopFormValues(
+          hogFlowToFormValues(hogFlow.data.flow, hogFlow.data.schedule),
+        )
+      : undefined;
   const [values, setValues] = useState<LoopFormValues>(() => {
     if (loop) return normalizeLoopFormValues(loopToFormValues(loop));
+    if (hogFlowsEnabled) return emptyHogFlowLoopFormValues();
     // One-shot prefill from the landing prompt or a template; merged over the
     // blank defaults. Read (not consumed) here, then cleared in the effect
     // below so the manual "New loop" button always opens a blank form.
@@ -139,8 +162,12 @@ export function LoopForm({
 
   useEffect(() => {
     if (!loop) return;
+    // Still waiting on the raw HogFlow (see `hogFlow` above) — don't seed the form from the
+    // lossy `Loop` facade in the meantime, or a freshly-loaded skillNames would get stomped by
+    // this effect re-running once the real values arrive right after.
+    if (hogFlowsEnabled && !hogFlowFormValues) return;
 
-    const nextBaseline = buildLoopFormBaseline(loop);
+    const nextBaseline = buildLoopFormBaseline(loop, hogFlowFormValues);
     if (!baseline || baseline.loopId !== loop.id) {
       setBaseline(nextBaseline);
       setValues(nextBaseline.values);
@@ -158,7 +185,7 @@ export function LoopForm({
     setBaseline(nextBaseline);
     setValues(nextBaseline.values);
     setHasRemoteUpdate(false);
-  }, [loop, baseline, isDirty]);
+  }, [loop, baseline, isDirty, hogFlowsEnabled, hogFlowFormValues]);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -205,8 +232,10 @@ export function LoopForm({
     bundleSkill.isPending ||
     replaceSkillBundles.isPending ||
     deleteLoop.isPending;
-  const canSubmit =
-    isLoopFormValid(values) && !isSubmitting && !hasRemoteUpdate;
+  const formIsValid = hogFlowsEnabled
+    ? isHogFlowLoopFormValid(values)
+    : isLoopFormValid(values);
+  const canSubmit = formIsValid && !isSubmitting && !hasRemoteUpdate;
 
   // Per-step gate for the Next button. The final Create button is gated on the
   // whole form being valid, so jumping between steps can't submit a bad loop.
@@ -215,7 +244,7 @@ export function LoopForm({
       (values.skill !== null || !!values.instructions.trim()),
     values.triggers.every(isTriggerDraftValid),
     true,
-    isLoopFormValid(values),
+    formIsValid,
   ];
   const isLastStep = step === STEPS.length - 1;
 
@@ -268,7 +297,32 @@ export function LoopForm({
       return;
     }
     if (!canSubmit) return;
-    const body = formValuesToLoopWrite(values);
+
+    if (hogFlowsEnabled) {
+      // No skill-bundle upload step: skills are already attached by name in `values.skillNames`,
+      // sent as part of the write itself (see `formValuesToHogFlowWrite`).
+      try {
+        const saved = isEdit
+          ? await updateLoop.mutateAsync({ kind: "save", values })
+          : await createLoop.mutateAsync(values);
+        track(
+          isEdit
+            ? ANALYTICS_EVENTS.LOOP_UPDATED
+            : ANALYTICS_EVENTS.LOOP_CREATED,
+          buildLoopSavedProps(saved),
+        );
+        if (onSaved) {
+          onSaved(saved);
+        } else {
+          navigateToLoopDetail(saved.id);
+        }
+      } catch (error) {
+        toast.error(isEdit ? "Failed to save loop" : "Failed to create loop", {
+          description: error instanceof Error ? error.message : undefined,
+        });
+      }
+      return;
+    }
 
     // Bundling runs before anything is persisted: a missing or broken local
     // skill fails here with no partial state, instead of leaving a saved loop
@@ -287,8 +341,8 @@ export function LoopForm({
 
     try {
       const saved = isEdit
-        ? await updateLoop.mutateAsync(body)
-        : await createLoop.mutateAsync(body);
+        ? await updateLoop.mutateAsync({ kind: "save", values })
+        : await createLoop.mutateAsync(values);
       track(
         isEdit ? ANALYTICS_EVENTS.LOOP_UPDATED : ANALYTICS_EVENTS.LOOP_CREATED,
         buildLoopSavedProps(saved),
@@ -390,11 +444,19 @@ export function LoopForm({
               onChange={(e) => patch({ description: e.target.value })}
             />
           </Field>
-          <LoopInstructionsFields
-            values={values}
-            disabled={isSubmitting}
-            onPatch={patch}
-          />
+          {hogFlowsEnabled ? (
+            <LoopTeamSkillsFields
+              values={values}
+              disabled={isSubmitting}
+              onPatch={patch}
+            />
+          ) : (
+            <LoopInstructionsFields
+              values={values}
+              disabled={isSubmitting}
+              onPatch={patch}
+            />
+          )}
         </Step>
 
         <Divider />
@@ -407,6 +469,7 @@ export function LoopForm({
             triggers={values.triggers}
             triggerEndpointPath={triggerEndpointPath}
             disabled={isSubmitting}
+            availableTriggerTypes={hogFlowsEnabled ? ["schedule"] : undefined}
             onChange={(triggers) => patch({ triggers })}
           />
         </Step>
@@ -610,11 +673,19 @@ export function LoopForm({
                   onChange={(e) => patch({ description: e.target.value })}
                 />
               </Field>
-              <LoopInstructionsFields
-                values={values}
-                disabled={isSubmitting}
-                onPatch={patch}
-              />
+              {hogFlowsEnabled ? (
+                <LoopTeamSkillsFields
+                  values={values}
+                  disabled={isSubmitting}
+                  onPatch={patch}
+                />
+              ) : (
+                <LoopInstructionsFields
+                  values={values}
+                  disabled={isSubmitting}
+                  onPatch={patch}
+                />
+              )}
             </Step>
           ) : null}
 
@@ -627,6 +698,9 @@ export function LoopForm({
                 triggers={values.triggers}
                 triggerEndpointPath={triggerEndpointPath}
                 disabled={isSubmitting}
+                availableTriggerTypes={
+                  hogFlowsEnabled ? ["schedule"] : undefined
+                }
                 onChange={(triggers) => patch({ triggers })}
               />
             </Step>

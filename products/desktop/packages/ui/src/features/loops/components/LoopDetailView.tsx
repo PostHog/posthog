@@ -146,7 +146,7 @@ export function LoopDetailView({
   const handleToggleEnabled = (enabled: boolean) => {
     if (!loop) return;
     updateLoop.mutate(
-      { enabled },
+      { kind: "toggleEnabled", enabled },
       {
         onSuccess: () => {
           track(

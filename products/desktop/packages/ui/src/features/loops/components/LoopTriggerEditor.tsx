@@ -108,12 +108,22 @@ function githubTriggerInvalidMessage(
   return "Fill in a path and a value for each payload condition, or remove the empty rows.";
 }
 
+const ALL_TRIGGER_TYPES: LoopSchemas.LoopTriggerTypeEnum[] = [
+  "schedule",
+  "github",
+  "api",
+];
+
 interface LoopTriggerEditorProps {
   triggers: LoopTriggerDraft[];
   onChange: (triggers: LoopTriggerDraft[]) => void;
   /** Rendered in the API trigger card. Absent for a not-yet-created loop. */
   triggerEndpointPath: string | null;
   disabled?: boolean;
+  /** Trigger types offerable from "Add trigger". Defaults to all three; the hog_flows-backed
+   * variant of this feature passes `["schedule"]` — HogFlow triggers other than schedule aren't
+   * supported here yet. */
+  availableTriggerTypes?: LoopSchemas.LoopTriggerTypeEnum[];
 }
 
 export function LoopTriggerEditor({
@@ -121,6 +131,7 @@ export function LoopTriggerEditor({
   onChange,
   triggerEndpointPath,
   disabled,
+  availableTriggerTypes = ALL_TRIGGER_TYPES,
 }: LoopTriggerEditorProps) {
   const updateTrigger = (key: string, patch: Partial<LoopTriggerDraft>) => {
     onChange(
@@ -166,7 +177,11 @@ export function LoopTriggerEditor({
         ))
       )}
 
-      <AddTriggerMenu disabled={disabled} onAdd={addTrigger} />
+      <AddTriggerMenu
+        disabled={disabled}
+        onAdd={addTrigger}
+        availableTypes={availableTriggerTypes}
+      />
     </Flex>
   );
 }
@@ -174,10 +189,17 @@ export function LoopTriggerEditor({
 function AddTriggerMenu({
   disabled,
   onAdd,
+  availableTypes,
 }: {
   disabled?: boolean;
   onAdd: (type: LoopSchemas.LoopTriggerTypeEnum) => void;
+  availableTypes: LoopSchemas.LoopTriggerTypeEnum[];
 }) {
+  const options = TRIGGER_TYPES.filter((option) =>
+    availableTypes.includes(option.type),
+  );
+  if (options.length === 0) return null;
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -200,7 +222,7 @@ function AddTriggerMenu({
         sideOffset={6}
         className="w-auto min-w-[280px]"
       >
-        {TRIGGER_TYPES.map((option) => (
+        {options.map((option) => (
           <DropdownMenuItem
             key={option.type}
             onClick={() => onAdd(option.type)}

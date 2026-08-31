@@ -5,7 +5,9 @@ import {
   emptyHogFlowLoopFormValues,
   formValuesToHogFlowWrite,
   formValuesToScheduleWrite,
+  hogFlowMinimalToLoop,
   hogFlowToFormValues,
+  hogFlowToLoop,
   isDecompilableLoopHogFlow,
   isHogFlowLoopFormValid,
   taskToLoopRun,
@@ -329,5 +331,70 @@ describe("taskToLoopRun", () => {
         origin_product: "workflow",
       }),
     ).toBeNull();
+  });
+});
+
+describe("hogFlowMinimalToLoop", () => {
+  it("maps list-row fields LoopRow renders, defaulting fields the minimal response omits", () => {
+    const minimal: WorkflowSchemas.HogFlowMinimal = {
+      id: "flow-1",
+      name: "My loop",
+      description: "Runs nightly",
+      version: 1,
+      status: "active",
+      created_at: "2026-01-01T00:00:00.000Z",
+      created_by: { id: 42, email: "a@example.com" },
+      updated_at: "2026-01-01T00:00:00.000Z",
+      trigger: { type: "schedule" },
+      edges: [LOOP_EDGE],
+      actions: [TRIGGER_ACTION, taskAction()],
+    };
+
+    const loop = hogFlowMinimalToLoop(minimal);
+
+    expect(loop.name).toBe("My loop");
+    expect(loop.description).toBe("Runs nightly");
+    expect(loop.created_by_id).toBe(42);
+    expect(loop.enabled).toBe(true);
+    expect(loop.instructions).toBe("Investigate failing CI runs");
+    expect(loop.consecutive_failures).toBe(0);
+    expect(loop.disabled_reason).toBeNull();
+    expect(loop.triggers).toEqual([]);
+  });
+
+  it("reads enabled off status, not a separate flag", () => {
+    const minimal: WorkflowSchemas.HogFlowMinimal = {
+      id: "flow-1",
+      name: "My loop",
+      description: "",
+      version: 1,
+      status: "draft",
+      created_at: "2026-01-01T00:00:00.000Z",
+      created_by: { id: 1, email: "a@example.com" },
+      updated_at: "2026-01-01T00:00:00.000Z",
+      trigger: { type: "schedule" },
+      edges: [LOOP_EDGE],
+      actions: [TRIGGER_ACTION, taskAction()],
+    };
+
+    expect(hogFlowMinimalToLoop(minimal).enabled).toBe(false);
+  });
+});
+
+describe("hogFlowToLoop", () => {
+  it("carries a real trigger, unlike hogFlowMinimalToLoop", () => {
+    const loop = hogFlowToLoop(flow(), DAILY_SCHEDULE);
+
+    expect(loop.triggers).toHaveLength(1);
+    expect(loop.triggers[0]).toMatchObject({
+      type: "schedule",
+      enabled: true,
+      config: { cron_expression: "30 9 * * *", timezone: "UTC" },
+    });
+  });
+
+  it("carries an empty trigger config with no schedule", () => {
+    const loop = hogFlowToLoop(flow(), null);
+    expect(loop.triggers[0].config).toEqual({});
   });
 });

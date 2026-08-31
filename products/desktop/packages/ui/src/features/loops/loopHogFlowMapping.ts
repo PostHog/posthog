@@ -124,18 +124,150 @@ export function emptyHogFlowLoopFormValues(): LoopFormValues {
         config: { cron_expression: "0 9 * * 1", timezone: "UTC" },
       },
     ],
-    behaviors: {
-      create_prs: true,
-      watch_ci: false,
-      fix_review_comments: false,
-      max_fix_iterations: 3,
-    },
-    notifications: {
-      push: { enabled: false, events: [], params: {} },
-      email: { enabled: false, events: [], params: {} },
-      slack: { enabled: false, events: [], params: {} },
-    },
+    behaviors: HOG_FLOW_LOOP_BEHAVIORS,
+    notifications: emptyLoopNotifications(),
     contextTarget: null,
+  };
+}
+
+const HOG_FLOW_LOOP_BEHAVIORS: LoopSchemas.LoopBehaviors = {
+  create_prs: true,
+  watch_ci: false,
+  fix_review_comments: false,
+  max_fix_iterations: 3,
+};
+
+function emptyLoopNotifications(): LoopSchemas.LoopNotifications {
+  return {
+    push: { enabled: false, events: [], params: {} },
+    email: { enabled: false, events: [], params: {} },
+    slack: { enabled: false, events: [], params: {} },
+  };
+}
+
+/** Reads the create-task action's inputs shared by every read direction (form values, list
+ * row, detail view) — one action shape, three renderings. */
+function deriveCreateTaskFields(actions: WorkflowSchemas.HogFlowAction[]): {
+  instructions: string;
+  model: string;
+  reasoningEffort: LoopSchemas.LoopReasoningEffortEnum | null;
+  repositories: LoopSchemas.LoopRepositoryEntry[];
+  skillNames: string[];
+} {
+  const inputs = findCreateTaskAction(actions)?.config.inputs;
+  return {
+    instructions: inputs?.prompt.value ?? "",
+    model: inputs?.model?.value.model ?? "",
+    reasoningEffort:
+      (inputs?.model?.value
+        .reasoning_effort as LoopSchemas.LoopReasoningEffortEnum | null) ??
+      null,
+    // The create-task action's `repository` input is a plain "org/repo" string with no
+    // integration id — `github_integration_id: 0` is a display-only placeholder for
+    // `LoopRepositoryPicker`, never sent back on write (see `buildCreateTaskAction`).
+    repositories: inputs?.repository?.value
+      ? [{ github_integration_id: 0, full_name: inputs.repository.value }]
+      : [],
+    skillNames: inputs?.skills?.value ?? [],
+  };
+}
+
+/** Decompiles a HogFlow list row onto the `Loop` shape `LoopRow`/`LoopsListView` already
+ * render, so those components don't need a hog_flows-specific variant. Fields the minimal
+ * list response doesn't carry (last run status, consecutive failures, disabled reason) default
+ * to their "healthy, no history yet" values rather than being guessed at — the detail view
+ * (`hogFlowToLoop`) is where a caller gets the real ones. */
+export function hogFlowMinimalToLoop(
+  flow: WorkflowSchemas.HogFlowMinimal,
+): LoopSchemas.Loop {
+  const fields = deriveCreateTaskFields(flow.actions);
+  return {
+    id: flow.id,
+    team_id: 0,
+    created_by_id: flow.created_by.id,
+    name: flow.name ?? "",
+    description: flow.description,
+    visibility: "team",
+    instructions: fields.instructions,
+    runtime_adapter: "claude",
+    model: fields.model,
+    reasoning_effort: fields.reasoningEffort,
+    repositories: fields.repositories,
+    sandbox_environment_id: null,
+    enabled: flow.status === "active",
+    disabled_reason: null,
+    overlap_policy: "skip",
+    behaviors: HOG_FLOW_LOOP_BEHAVIORS,
+    connectors: { mcp_installation_ids: [], posthog_mcp_scopes: "read_only" },
+    notifications: emptyLoopNotifications(),
+    context_target: null,
+    internal: false,
+    origin_product: "user_created",
+    last_run_at: null,
+    last_run_status: null,
+    last_error: null,
+    consecutive_failures: 0,
+    created_at: flow.created_at,
+    updated_at: flow.updated_at,
+    // The minimal list response carries no schedule — a list row never reads triggers
+    // (see `LoopRow`), so this stays empty rather than faking one.
+    triggers: [],
+  };
+}
+
+/** Decompiles a full HogFlow (plus its schedule) onto the `Loop` shape `LoopDetailView` already
+ * renders. Unlike `hogFlowMinimalToLoop`, this carries a real trigger — the detail view reads
+ * it for its read-only "configuration summary" section. */
+export function hogFlowToLoop(
+  flow: WorkflowSchemas.HogFlow,
+  schedule: WorkflowSchemas.HogFlowSchedule | null,
+): LoopSchemas.Loop {
+  const fields = deriveCreateTaskFields(flow.actions);
+  const scheduleConfig = schedule
+    ? rruleScheduleToLoopTriggerConfig(schedule)
+    : null;
+
+  return {
+    id: flow.id,
+    team_id: 0,
+    created_by_id: flow.created_by.id,
+    name: flow.name ?? "",
+    description: flow.description,
+    visibility: "team",
+    instructions: fields.instructions,
+    runtime_adapter: "claude",
+    model: fields.model,
+    reasoning_effort: fields.reasoningEffort,
+    repositories: fields.repositories,
+    sandbox_environment_id: null,
+    enabled: flow.status === "active",
+    disabled_reason: null,
+    overlap_policy: "skip",
+    behaviors: HOG_FLOW_LOOP_BEHAVIORS,
+    connectors: { mcp_installation_ids: [], posthog_mcp_scopes: "read_only" },
+    notifications: emptyLoopNotifications(),
+    context_target: null,
+    internal: false,
+    origin_product: "user_created",
+    last_run_at: null,
+    last_run_status: null,
+    last_error: null,
+    consecutive_failures: 0,
+    created_at: flow.created_at,
+    updated_at: flow.updated_at,
+    triggers: [
+      {
+        id: TRIGGER_ACTION_ID,
+        loop_id: flow.id,
+        type: "schedule",
+        enabled: flow.status === "active",
+        config: scheduleConfig ?? {},
+        schedule_sync_status: null,
+        last_fired_at: null,
+        created_at: flow.created_at,
+        updated_at: flow.updated_at,
+      },
+    ],
   };
 }
 
@@ -159,8 +291,7 @@ export function hogFlowToFormValues(
   flow: WorkflowSchemas.HogFlow,
   schedule: WorkflowSchemas.HogFlowSchedule | null,
 ): LoopFormValues {
-  const task = findCreateTaskAction(flow.actions);
-  const inputs = task?.config.inputs;
+  const fields = deriveCreateTaskFields(flow.actions);
   const scheduleConfig = schedule
     ? rruleScheduleToLoopTriggerConfig(schedule)
     : null;
@@ -177,35 +308,18 @@ export function hogFlowToFormValues(
     name: flow.name ?? "",
     description: flow.description,
     visibility: "team",
-    instructions: inputs?.prompt.value ?? "",
+    instructions: fields.instructions,
     skill: null,
     skillContext: "",
-    skillNames: inputs?.skills?.value ?? [],
+    skillNames: fields.skillNames,
     runtimeAdapter: "claude",
-    model: inputs?.model?.value.model ?? "",
-    reasoningEffort:
-      (inputs?.model?.value
-        .reasoning_effort as LoopSchemas.LoopReasoningEffortEnum | null) ??
-      null,
-    // The create-task action's `repository` input is a plain "org/repo" string with no
-    // integration id — `github_integration_id: 0` is a display-only placeholder for
-    // `LoopRepositoryPicker`, never sent back on write (see `buildCreateTaskAction`).
-    repositories: inputs?.repository?.value
-      ? [{ github_integration_id: 0, full_name: inputs.repository.value }]
-      : [],
+    model: fields.model,
+    reasoningEffort: fields.reasoningEffort,
+    repositories: fields.repositories,
     sandboxEnvironmentId: null,
     triggers: [trigger],
-    behaviors: {
-      create_prs: true,
-      watch_ci: false,
-      fix_review_comments: false,
-      max_fix_iterations: 3,
-    },
-    notifications: {
-      push: { enabled: false, events: [], params: {} },
-      email: { enabled: false, events: [], params: {} },
-      slack: { enabled: false, events: [], params: {} },
-    },
+    behaviors: HOG_FLOW_LOOP_BEHAVIORS,
+    notifications: emptyLoopNotifications(),
     contextTarget: null,
   };
 }

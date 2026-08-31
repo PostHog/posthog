@@ -1,6 +1,10 @@
 import { type LoopSchemas, listLoopRuns } from "@posthog/api-client/loops";
+import { LOOPS_HOG_FLOWS_FLAG } from "@posthog/shared";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useQuery } from "@tanstack/react-query";
+import { taskToLoopRun } from "../loopHogFlowMapping";
 import { loopsKeys } from "./loopsKeys";
 import { useLoopsClient } from "./useLoopsClient";
 
@@ -8,9 +12,14 @@ export const RECENT_RUNS_LIMIT = 10;
 
 /** The most recent runs for a loop, polled so the detail view stays live. */
 export function useLoopRuns(loopId: string | undefined) {
+  const hogFlowsEnabled = useFeatureFlag(LOOPS_HOG_FLOWS_FLAG);
   const loopsClient = useLoopsClient();
 
-  return useQuery<LoopSchemas.LoopRunPage, Error, LoopSchemas.LoopRun[]>({
+  const legacy = useQuery<
+    LoopSchemas.LoopRunPage,
+    Error,
+    LoopSchemas.LoopRun[]
+  >({
     queryKey: loopsKeys.runs(loopsClient?.projectId ?? null, loopId ?? ""),
     queryFn: async () => {
       if (!loopsClient || !loopId) throw new Error("Not authenticated");
@@ -22,9 +31,30 @@ export function useLoopRuns(loopId: string | undefined) {
       );
     },
     select: (page) => page.results.slice(0, RECENT_RUNS_LIMIT),
-    enabled: !!loopsClient && !!loopId,
+    enabled: !hogFlowsEnabled && !!loopsClient && !!loopId,
     staleTime: 10_000,
     refetchInterval: 15_000,
     meta: AUTH_SCOPED_QUERY_META,
   });
+
+  const hogFlow = useAuthenticatedQuery<LoopSchemas.LoopRun[]>(
+    ["workflows-loops", "runs", loopId ?? ""],
+    async (client) => {
+      if (!loopId) throw new Error("Not authenticated");
+      const { tasks } = await client.getTasksPage({
+        hogFlowId: loopId,
+        limit: RECENT_RUNS_LIMIT,
+      });
+      return tasks
+        .map(taskToLoopRun)
+        .filter((run): run is LoopSchemas.LoopRun => run !== null);
+    },
+    {
+      enabled: hogFlowsEnabled && !!loopId,
+      staleTime: 10_000,
+      refetchInterval: 15_000,
+    },
+  );
+
+  return hogFlowsEnabled ? hogFlow : legacy;
 }

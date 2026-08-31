@@ -229,6 +229,11 @@ export interface TaskListOptions {
   commentedBy?: number;
   /** Filter to tasks whose thread mentions this user ID. */
   mentions?: number;
+  /**
+   * Filter to the runs one workflow's "Create AI task" action spawned. Hand-vendored ahead of
+   * https://github.com/PostHog/posthog/pull/91581 landing — see `@posthog/api-client/workflows`.
+   */
+  hogFlowId?: string;
   /** List only archived tasks; the server excludes them by default. */
   archived?: boolean;
   /** Caller-side cap for surfaces that only show the newest few. */
@@ -2657,6 +2662,10 @@ export class PostHogAPIClient {
 
     if (options?.mentions) {
       params.mentions = options.mentions;
+    }
+
+    if (options?.hogFlowId) {
+      params.hog_flow_id = options.hogFlowId;
     }
 
     if (options?.archived) {
