@@ -1431,6 +1431,10 @@
             },
             "required": ["id", "action_id"]
         },
+        "WorkflowBaseUpdatedAtSchema": {
+            "type": "string",
+            "description": "Optimistic concurrency: the updated_at (or draft_updated_at) last loaded for this workflow. If the stored workflow is newer, the write is rejected with 409 instead of clobbering a concurrent edit. Pass the value from your last workflows-get or the last write response."
+        },
         "WorkflowGraphPatchSchema": {
             "type": "object",
             "properties": {
@@ -1615,6 +1619,10 @@
                         ]
                     },
                     "description": "Ordered graph edits applied atomically: the stored graph is read, ops are applied in order, the result is fully validated, and it is saved only if valid — otherwise the workflow is left unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned."
+                },
+                "base_updated_at": {
+                    "type": "string",
+                    "description": "Optimistic concurrency: the updated_at (or draft_updated_at) last loaded for this workflow. If the stored workflow is newer, the write is rejected with 409 instead of clobbering a concurrent edit. Pass the value from your last workflows-get or the last write response."
                 }
             },
             "required": ["id", "operations"]

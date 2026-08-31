@@ -31,7 +31,11 @@ import {
     HogFlowsSchedulesPartialUpdateParams,
 } from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
+import {
+    WorkflowActionEmailPatchSchema,
+    WorkflowBaseUpdatedAtSchema,
+    WorkflowGraphPatchSchema,
+} from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -436,9 +440,9 @@ const workflowsTestRun = (): ToolBase<typeof WorkflowsTestRunSchema, unknown> =>
     },
 })
 
-const WorkflowsUpdateSchema = HogFlowsPartialUpdateParams.omit({ project_id: true }).extend(
-    HogFlowsPartialUpdateBody.shape
-)
+const WorkflowsUpdateSchema = HogFlowsPartialUpdateParams.omit({ project_id: true })
+    .extend(HogFlowsPartialUpdateBody.shape)
+    .extend({ base_updated_at: WorkflowBaseUpdatedAtSchema.optional() })
 
 const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUrl<Schemas.HogFlow>> =>
     withUiApp('workflow', {
@@ -467,6 +471,9 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             }
             if (params.variables !== undefined) {
                 body['variables'] = params.variables
+            }
+            if (params.base_updated_at !== undefined) {
+                body['base_updated_at'] = params.base_updated_at
             }
             const result = await context.api.request<Schemas.HogFlow>({
                 method: 'PATCH',

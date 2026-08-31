@@ -367,7 +367,9 @@ tools:
             workflows-publish. The full updated workflow is returned, so you don't need to re-fetch before the next
             edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper:
             {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with
-            workflows-test-run after patching.
+            workflows-test-run after patching. Pass base_updated_at (the updated_at, or draft_updated_at for an active
+            workflow, from your last workflows-get or write response) so a concurrent edit is rejected with 409 instead
+            of silently clobbered.
     workflows-publish:
         operation: hog_flows_publish_create
         enabled: true
@@ -464,11 +466,16 @@ tools:
             trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
             drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
             content fields stage a draft (published with workflows-publish) while name/description apply immediately.
-            Status changes go through workflows-enable / workflows-archive.
+            Status changes go through workflows-enable / workflows-archive. Pass base_updated_at (the updated_at from
+            your last workflows-get or write response) so a concurrent edit is rejected with 409 instead of silently
+            clobbered.
         exclude_params:
             - status
             - actions
             - edges
+        param_overrides:
+            base_updated_at:
+                input_schema: WorkflowBaseUpdatedAtSchema
         ui_app: workflow
     workflows-update-schedule:
         operation: hog_flows_schedules_partial_update

@@ -740,6 +740,17 @@ const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
     }),
 ])
 
+// Optimistic-concurrency token shared by the workflow write tools. The backend rejects a write whose
+// base_updated_at is older than the stored row with a 409, so two concurrent edits can't silently
+// clobber each other. Kept as its own export so workflows-update can reference it via param_overrides.
+export const WorkflowBaseUpdatedAtSchema = z
+    .string()
+    .describe(
+        'Optimistic concurrency: the updated_at (or draft_updated_at) last loaded for this workflow. If the ' +
+            'stored workflow is newer, the write is rejected with 409 instead of clobbering a concurrent edit. ' +
+            'Pass the value from your last workflows-get or the last write response.'
+    )
+
 export const WorkflowGraphPatchSchema = z.object({
     id: z.string().describe('The workflow (HogFlow) id to edit.'),
     operations: z
@@ -750,6 +761,7 @@ export const WorkflowGraphPatchSchema = z.object({
                 'is fully validated, and it is saved only if valid — otherwise the workflow is left unchanged. Reference ' +
                 'nodes/edges by id so you never resend the whole graph. The full updated workflow is returned.'
         ),
+    base_updated_at: WorkflowBaseUpdatedAtSchema.optional(),
 })
 
 // Surgical edits to an email template's Unlayer design — one discriminated op per change, addressed by
