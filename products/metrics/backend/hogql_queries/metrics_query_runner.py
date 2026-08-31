@@ -87,6 +87,14 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             "MetricsQuery composes one HogQL query per clause via the metrics facade; there is no single statement"
         )
 
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # `display` is presentation only — `_to_request` never reads it, so it must not namespace
+        # the cache. Without this, adding a goal line re-runs every bucket in ClickHouse, and two
+        # tiles differing only in chart type would each hold their own entry.
+        payload["query"].pop("display", None)
+        return payload
+
     def _query_date_range(self) -> QueryDateRange:
         # explicitDate keeps second-granular windows intact; without it,
         # QueryDateRange rounds date_to up to end of day.
