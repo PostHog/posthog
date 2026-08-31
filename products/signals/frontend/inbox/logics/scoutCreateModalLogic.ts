@@ -96,6 +96,15 @@ export function getScoutCreateFormValues(
 }
 
 /**
+ * A stable logic key per opening context. The blank create form gets one draft; each prefilled
+ * template keeps its own. The draft is persisted keyed by this, so it must not change between mounts
+ * of the same context — `useId()` would mint a new key each mount and lose the draft.
+ */
+export function scoutCreateModalLogicKey(initialValues: ScoutCreateInitialValues | undefined): string {
+    return initialValues?.name?.trim() || 'new'
+}
+
+/**
  * The skill name a form entry produces: the fixed prefix plus what was typed. A pasted full name
  * (`signals-scout-foo`) is not doubled up.
  */
@@ -241,9 +250,12 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
         markMcpServersDefaulted: true,
     }),
     reducers(({ props: logicProps }) => ({
-        // A caller that passes explicit server ids opts out of the "all servers" default.
+        // A caller that passes explicit server ids opts out of the "all servers" default. Persisted
+        // alongside the draft so a restored draft keeps the user's server selection, rather than the
+        // "all servers" default re-applying on the next open.
         mcpServersDefaulted: [
             logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
+            { persist: true },
             {
                 markMcpServersDefaulted: () => true,
             },
@@ -315,6 +327,13 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
             },
         },
     })),
+    // Persist the draft so it survives navigating away or reloading. kea-localstorage keys it by the
+    // logic path plus the logic key, so each opening context keeps its own draft (see
+    // `scoutCreateModalLogicKey`). The default and handlers already come from the form above; this
+    // only attaches the persistence option to that same reducer.
+    reducers({
+        scoutCreateForm: [DEFAULT_SCOUT_CREATE_FORM_VALUES, { persist: true }, {}],
+    }),
     // The team's servers load asynchronously, so the default is applied once they arrive
     // rather than in the form defaults. Applying it once keeps a later reload from
     // re-selecting servers the user switched off.

@@ -17,7 +17,7 @@ import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SCOUT_DAILY_AT_SCHEDULE_MODE } from '../utils/scoutRunsWindow'
-import { ScoutCreateModalLogicProps, scoutCreateModalLogic } from './scoutCreateModalLogic'
+import { ScoutCreateModalLogicProps, scoutCreateModalLogic, scoutCreateModalLogicKey } from './scoutCreateModalLogic'
 
 jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutCreate: jest.fn(),
@@ -109,6 +109,8 @@ describe('scoutCreateModalLogic', () => {
     let onCreated: jest.MockedFunction<NonNullable<ScoutCreateModalLogicProps['onCreated']>>
 
     beforeEach(() => {
+        // The draft is persisted to localStorage; clear it so one test's draft can't leak into another.
+        localStorage.clear()
         initKeaTests()
         // The prefix-in-the-field form is part of the inbox redesign; the legacy contract is pinned below.
         setRedesignFlag(true)
@@ -363,6 +365,28 @@ describe('scoutCreateModalLogic', () => {
             String(MOCK_TEAM_ID),
             expect.objectContaining({ name: 'signals-scout-checkout-failures' })
         )
+    })
+
+    it('restores a persisted draft when reopened under the same key', async () => {
+        logic = scoutCreateModalLogic({ logicKey: scoutCreateModalLogicKey(undefined), onClose })
+        logic.mount()
+        logic.actions.setScoutCreateFormValue('body', 'Watch checkout latency and report spikes.')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+
+        // A fresh instance under the same key is what a remount after navigating away looks like.
+        const reopened = scoutCreateModalLogic({ logicKey: scoutCreateModalLogicKey(undefined), onClose })
+        reopened.mount()
+        expect(reopened.values.scoutCreateForm.body).toBe('Watch checkout latency and report spikes.')
+        reopened.unmount()
+    })
+
+    it.each([
+        [undefined, 'new'],
+        [{}, 'new'],
+        [{ name: 'signals-scout-ai-observability-daily-digest' }, 'signals-scout-ai-observability-daily-digest'],
+    ])('keys the draft per opening context: %p', (initialValues, expectedKey) => {
+        expect(scoutCreateModalLogicKey(initialValues)).toBe(expectedKey)
     })
 
     // With the redesign flag off the field holds the whole skill name, so the prefix must be typed.
