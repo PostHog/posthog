@@ -138,6 +138,17 @@ export const WebScriptsNeedsSetup: ProductEmptyStateStory = productEmptyStateSto
     }
 )
 
+// A scene narrowed by the side panel (or a small window): the preview stacks under the copy
+// instead of sharing the row, so neither is squeezed into a column too narrow to read.
+export const FeatureFlagsNarrowScene: ProductEmptyStateStory = productEmptyStateStory(
+    featureFlagsEmptyState,
+    'needs-setup',
+    {
+        containerWidth: 600,
+        mocks: { get: { '/api/projects/:team_id/feature_flags/': [200, emptyEntityList] } },
+    }
+)
+
 // AI observability detection is binary (no waiting-for-data middle state).
 export const AIObservabilityNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
     aiObservabilityEmptyState,
@@ -146,23 +157,32 @@ export const AIObservabilityNeedsSetup: ProductEmptyStateStory = productEmptySta
 
 // Replay vision detection is binary too (a scanner is the unit of setup); its
 // detection logic polls the scanner stats endpoint, so answer it with zeros.
+const replayVisionScannerStatsMocks: Mocks = {
+    get: {
+        '/api/projects/:team_id/vision/scanners/stats/': {
+            total: 0,
+            enabled: 0,
+            by_type: {
+                monitor: { enabled: 0, total: 0 },
+                classifier: { enabled: 0, total: 0 },
+                scorer: { enabled: 0, total: 0 },
+                summarizer: { enabled: 0, total: 0 },
+            },
+        },
+    },
+}
+
 export const ReplayVisionNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
     replayVisionEmptyState,
     'needs-setup',
-    {
-        mocks: {
-            get: {
-                '/api/projects/:team_id/vision/scanners/stats/': {
-                    total: 0,
-                    enabled: 0,
-                    by_type: {
-                        monitor: { enabled: 0, total: 0 },
-                        classifier: { enabled: 0, total: 0 },
-                        scorer: { enabled: 0, total: 0 },
-                        summarizer: { enabled: 0, total: 0 },
-                    },
-                },
-            },
-        },
-    }
+    { mocks: replayVisionScannerStatsMocks }
+)
+
+// Replay vision is the one product with `hedgehogPlacement: 'beside'`. Below the width the
+// wide illustration needs, it falls back to the small hedgehog above the product name, so
+// the pitch keeps a readable column instead of being squeezed next to the artwork.
+export const ReplayVisionNarrowScene: ProductEmptyStateStory = productEmptyStateStory(
+    replayVisionEmptyState,
+    'needs-setup',
+    { containerWidth: 1100, mocks: replayVisionScannerStatsMocks }
 )

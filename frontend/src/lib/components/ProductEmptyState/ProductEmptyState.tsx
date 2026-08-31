@@ -74,9 +74,12 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
         )
 
     return (
+        // Breakpoints key off our own width, not the viewport: the sidebar, the side panel, and
+        // the scene padding all eat into it, so a viewport breakpoint fires long after the copy
+        // has already been squeezed. Two containers because the two decisions read different
+        // widths - the preview watches the whole surface, the hedgehog watches the copy column.
         <div
-            // Fill the scene: viewport minus the app chrome and the product header above us.
-            className="grid w-full flex-1 grid-cols-1 items-stretch gap-10 md:grid-cols-[minmax(0,1fr)_40%] min-h-[calc(100vh-var(--breadcrumbs-height-full,0px)-var(--scene-padding,1rem)-4rem)]"
+            className="@container/product-empty-state flex w-full flex-1"
             style={
                 {
                     '--empty-state-accent': config.accentColor,
@@ -85,121 +88,149 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
             }
         >
             <div
-                className={cn(
-                    'mx-auto flex w-full min-w-0 justify-center gap-8 px-6',
-                    hedgehogBeside ? 'max-w-[56rem] items-center' : 'max-w-[36rem]'
-                )}
+                // Fill the scene: viewport minus the app chrome and the product header above us.
+                // Side by side needs 64rem for both halves to hold their content; below that the
+                // preview stacks under the copy, so a narrow scene keeps the pitch and the
+                // preview rather than squeezing both into columns too narrow to read.
+                className="grid w-full flex-1 grid-cols-1 items-stretch gap-10 @min-[64rem]/product-empty-state:grid-cols-[minmax(0,1fr)_40%] min-h-[calc(100vh-var(--breadcrumbs-height-full,0px)-var(--scene-padding,1rem)-4rem)]"
             >
-                {Hedgehog && hedgehogBeside ? <Hedgehog className="hidden w-72 shrink-0 xl:block" /> : null}
-                <div className="flex min-w-0 max-w-[36rem] flex-col justify-center gap-4">
-                    <div className="flex flex-col items-start gap-3">
-                        {Hedgehog && !hedgehogBeside ? <Hedgehog className="w-32 shrink-0" /> : null}
-                        <div className="inline-flex items-center gap-2.5 text-4xl font-bold [&_svg]:text-[2.25rem]">
-                            <span className={ACCENT_TEXT}>{config.icon}</span>
-                            <span>{config.productName}</span>
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <h2 className="text-xl font-semibold m-0">{text.headline}</h2>
-                        <p className="text-secondary text-sm m-0">{text.lead}</p>
-                    </div>
-
-                    {text.hint ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
-
-                    {showWizard ? (
-                        <>
-                            <TerminalCard
-                                command={wizardCommand}
-                                copyLabel={`${config.productName} wizard command`}
-                                onCopy={() => captureClick('wizard command copied')}
-                            />
-                            {guardedPrimaryAction ? (
-                                <>
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-px flex-1 bg-border-primary" />
-                                        <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
-                                        <div className="h-px flex-1 bg-border-primary" />
-                                    </div>
-                                    {guardedPrimaryAction}
-                                </>
-                            ) : null}
-                        </>
-                    ) : config.PrimaryAction ? (
-                        <config.PrimaryAction />
-                    ) : guardedPrimaryAction ? (
-                        guardedPrimaryAction
-                    ) : manualUrl ? (
-                        <LemonButton
-                            type="primary"
-                            to={manualUrl}
-                            targetBlank
-                            className="self-start"
-                            onClick={() => captureClick('manual setup clicked')}
-                            data-attr="product-empty-state-manual-setup"
-                        >
-                            Set up {config.productName}
-                        </LemonButton>
+                <div
+                    className={cn(
+                        '@container/product-empty-state-copy mx-auto flex w-full min-w-0 justify-center gap-8 px-6',
+                        // Widening the column to seat the illustration beside the copy is only
+                        // worth it once the preview is up in its own column, so it stays capped
+                        // while the two are stacked.
+                        hedgehogBeside
+                            ? 'max-w-[36rem] items-center @min-[64rem]/product-empty-state:max-w-[56rem]'
+                            : 'max-w-[36rem]'
+                    )}
+                >
+                    {Hedgehog && hedgehogBeside ? (
+                        // At this width the illustration still leaves the copy 32rem, about what
+                        // an `above` empty state gives it. Below it the column drops the wide
+                        // illustration and falls back to the small one above the product name.
+                        <Hedgehog className="hidden w-72 shrink-0 @min-[52rem]/product-empty-state-copy:block" />
                     ) : null}
+                    <div className="flex min-w-0 max-w-[36rem] flex-col justify-center gap-4">
+                        <div className="flex flex-col items-start gap-3">
+                            {Hedgehog ? (
+                                <Hedgehog
+                                    className={cn(
+                                        'shrink-0',
+                                        // `beside` artwork is wide rather than square, so it needs
+                                        // more width than an `above` hedgehog to stay legible here.
+                                        hedgehogBeside ? 'w-48 @min-[52rem]/product-empty-state-copy:hidden' : 'w-32'
+                                    )}
+                                />
+                            ) : null}
+                            <div className="inline-flex items-center gap-2.5 text-4xl font-bold [&_svg]:text-[2.25rem]">
+                                <span className={ACCENT_TEXT}>{config.icon}</span>
+                                <span>{config.productName}</span>
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <h2 className="text-xl font-semibold m-0">{text.headline}</h2>
+                            <p className="text-secondary text-sm m-0">{text.lead}</p>
+                        </div>
 
-                    {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
+                        {text.hint ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
 
-                    <div className="flex items-center gap-4">
-                        {showWizard && !primaryActionButton && manualUrl ? (
+                        {showWizard ? (
+                            <>
+                                <TerminalCard
+                                    command={wizardCommand}
+                                    copyLabel={`${config.productName} wizard command`}
+                                    onCopy={() => captureClick('wizard command copied')}
+                                />
+                                {guardedPrimaryAction ? (
+                                    <>
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-px flex-1 bg-border-primary" />
+                                            <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
+                                            <div className="h-px flex-1 bg-border-primary" />
+                                        </div>
+                                        {guardedPrimaryAction}
+                                    </>
+                                ) : null}
+                            </>
+                        ) : config.PrimaryAction ? (
+                            <config.PrimaryAction />
+                        ) : guardedPrimaryAction ? (
+                            guardedPrimaryAction
+                        ) : manualUrl ? (
                             <LemonButton
-                                type="secondary"
-                                icon={<IconGear />}
+                                type="primary"
                                 to={manualUrl}
                                 targetBlank
+                                className="self-start"
                                 onClick={() => captureClick('manual setup clicked')}
                                 data-attr="product-empty-state-manual-setup"
                             >
-                                Configure manually
+                                Set up {config.productName}
                             </LemonButton>
                         ) : null}
-                        {config.docsUrl ? (
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                icon={<IconBook />}
-                                to={config.docsUrl}
-                                targetBlank
-                                onClick={() => captureClick('docs clicked')}
-                                data-attr="product-empty-state-docs"
-                            >
-                                Read the docs
-                            </LemonButton>
-                        ) : null}
-                        {config.skippable !== false ? (
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                onClick={skipEmptyState}
-                                data-attr="product-empty-state-skip"
-                            >
-                                Skip for now
-                            </LemonButton>
-                        ) : null}
+
+                        {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
+
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                            {showWizard && !primaryActionButton && manualUrl ? (
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconGear />}
+                                    to={manualUrl}
+                                    targetBlank
+                                    onClick={() => captureClick('manual setup clicked')}
+                                    data-attr="product-empty-state-manual-setup"
+                                >
+                                    Configure manually
+                                </LemonButton>
+                            ) : null}
+                            {config.docsUrl ? (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    icon={<IconBook />}
+                                    to={config.docsUrl}
+                                    targetBlank
+                                    onClick={() => captureClick('docs clicked')}
+                                    data-attr="product-empty-state-docs"
+                                >
+                                    Read the docs
+                                </LemonButton>
+                            ) : null}
+                            {config.skippable !== false ? (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    onClick={skipEmptyState}
+                                    data-attr="product-empty-state-skip"
+                                >
+                                    Skip for now
+                                </LemonButton>
+                            ) : null}
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div
-                // Previews read `--empty-state-accent` only, so in dark mode point that at the dark
-                // token here rather than asking every preview to branch on the theme itself.
-                className="hidden min-w-0 flex-col justify-center gap-3 p-10 md:flex rounded-md border border-primary dark:[--empty-state-accent:var(--empty-state-accent-dark)]"
-                style={{
-                    backgroundImage:
-                        'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',
-                }}
-            >
-                <div className="flex items-center gap-2 text-xs font-semibold text-secondary">
-                    <span
-                        className="size-2 rounded-full bg-[var(--empty-state-accent)] dark:bg-[var(--empty-state-accent-dark)] animate-pulse motion-reduce:animate-none"
-                        aria-hidden="true"
-                    />
-                    {config.previewLabel}
+                <div
+                    // Previews read `--empty-state-accent` only, so in dark mode point that at the dark
+                    // token here rather than asking every preview to branch on the theme itself.
+                    // Tighter padding while stacked, where the width goes to the preview itself.
+                    className="flex min-w-0 flex-col justify-center gap-3 p-6 @min-[64rem]/product-empty-state:p-10 rounded-md border border-primary dark:[--empty-state-accent:var(--empty-state-accent-dark)]"
+                    style={{
+                        backgroundImage:
+                            'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',
+                    }}
+                >
+                    <div className="flex items-center gap-2 text-xs font-semibold text-secondary">
+                        <span
+                            className="size-2 rounded-full bg-[var(--empty-state-accent)] dark:bg-[var(--empty-state-accent-dark)] animate-pulse motion-reduce:animate-none"
+                            aria-hidden="true"
+                        />
+                        {config.previewLabel}
+                    </div>
+                    <Preview mode={mode} />
                 </div>
-                <Preview mode={mode} />
             </div>
         </div>
     )
