@@ -19,7 +19,6 @@ import posthog from 'posthog-js'
 import api, { ApiMethodOptions } from 'lib/api'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import {
-    expandRecentsForDisplay,
     hasRecentContext,
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
@@ -35,6 +34,7 @@ import {
     InfiniteListLogicProps,
     META_GROUP_TYPES,
     QuickFilterItem,
+    SelectingKeyOnly,
     SkeletonItem,
     isQuickFilterItem,
     isSkeletonItem,
@@ -59,6 +59,10 @@ import {
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
+import {
+    filterPinnedForContext,
+    filterRecentsForContext,
+} from 'lib/components/TaxonomicFilter/utils/suggestedContextFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
@@ -510,7 +514,7 @@ export interface infiniteListLogicMeta {
             recentFilterItems: TaxonomicDefinitionTypes[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             arg: ExcludedOperators | undefined,
-            arg2: import('lib/components/TaxonomicFilter/types').SelectingKeyOnly | undefined,
+            arg2: SelectingKeyOnly | undefined,
             arg3: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined
         ) => TaxonomicDefinitionTypes[]
         contextFilteredPinnedItems: (
@@ -1118,52 +1122,23 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 recentFilterItems: TaxonomicDefinitionTypes[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
                 excludedOperators: ExcludedOperators | undefined,
-                selectingKeyOnly: boolean | undefined,
+                selectingKeyOnly: SelectingKeyOnly | undefined,
                 excludedProperties: ExcludedProperties | undefined
-            ): TaxonomicDefinitionTypes[] => {
-                if (!recentFilterItems?.length) {
-                    return []
-                }
-                const availableTypes = new Set(taxonomicGroupTypes)
-                const inScope = recentFilterItems.filter((item) => {
-                    if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
-                        return false
-                    }
-                    // A group's excluded values (e.g. `message` for the logs group-by picker) must be
-                    // dropped from the Recent tab too, not just the group's own option list — otherwise
-                    // an excluded key recorded elsewhere leaks back in as a selectable recent.
-                    const excludedValues = excludedProperties?.[item._recentContext.sourceGroupType]
-                    if (excludedValues?.length && excludedValues.includes(item._recentContext.sourceValue)) {
-                        return false
-                    }
-                    const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
-                    if (excludedForGroup?.length) {
-                        const propertyFilter = item._recentContext.propertyFilter
-                        const operator =
-                            propertyFilter && 'operator' in propertyFilter ? propertyFilter.operator : undefined
-                        if (operator && excludedForGroup.includes(operator)) {
-                            return false
-                        }
-                    }
-                    return true
-                })
-                return expandRecentsForDisplay(inScope, selectingKeyOnly)
-            },
+            ): TaxonomicDefinitionTypes[] =>
+                filterRecentsForContext(
+                    recentFilterItems,
+                    taxonomicGroupTypes,
+                    excludedOperators,
+                    selectingKeyOnly,
+                    excludedProperties
+                ),
         ],
         contextFilteredPinnedItems: [
             (s) => [s.pinnedFilterItems, s.taxonomicGroupTypes],
             (
                 pinnedFilterItems: TaxonomicDefinitionTypes[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[]
-            ): TaxonomicDefinitionTypes[] => {
-                if (!pinnedFilterItems?.length) {
-                    return []
-                }
-                const availableTypes = new Set(taxonomicGroupTypes)
-                return pinnedFilterItems.filter(
-                    (item) => hasPinnedContext(item) && availableTypes.has(item._pinnedContext.sourceGroupType)
-                )
-            },
+            ): TaxonomicDefinitionTypes[] => filterPinnedForContext(pinnedFilterItems, taxonomicGroupTypes),
         ],
         // This list is the filter's only substantive (non-meta) group. There are no separate
         // Recent/Pinned tabs leading the filter, so this list floats recent/pinned items to

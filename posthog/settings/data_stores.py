@@ -211,12 +211,12 @@ for route in product_routes:
 
     PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
-    DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+    DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3  # ty: ignore[invalid-assignment]
     DATABASES[writer_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     reader_url = os.getenv(reader_env, writer_url)
     DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
-    DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+    DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3  # ty: ignore[invalid-assignment]
     DATABASES[reader_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     if TEST:
@@ -251,7 +251,7 @@ for route in product_routes:
     if direct_url:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
-        DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10  # ty: ignore[invalid-assignment]
         _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True

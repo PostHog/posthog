@@ -20,6 +20,7 @@ from posthog.schema import (
     AccountsTableQuery,
     AccountsTableQueryResponse,
     AccountsTableRelationshipColumn,
+    AccountsTableRelationshipFilter,
     AccountsTableRow,
     AccountsTableSearchFilter,
     AccountsTableTagsColumn,
@@ -112,10 +113,12 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                         f"Account table filter strings support up to {ACCOUNTS_TABLE_MAX_STRING_LENGTH} characters."
                     )
                 filter_values = (
-                    filter_.tagNames
+                    filter_.tagNames or []
                     if isinstance(filter_, AccountsTableTagsFilter)
-                    else filter_.userIds
+                    else filter_.userIds or []
                     if isinstance(filter_, AccountsTableAssignedToFilter)
+                    else filter_.userIds or []
+                    if isinstance(filter_, AccountsTableRelationshipFilter)
                     else filter_.values or []
                     if isinstance(filter_, AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)
                     else []
@@ -140,6 +143,14 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     filters.append(contracts.AccountTableAssignedFilter())
                 elif isinstance(filter_, AccountsTableUnassignedFilter):
                     filters.append(contracts.AccountTableUnassignedFilter())
+                elif isinstance(filter_, AccountsTableRelationshipFilter):
+                    filters.append(
+                        contracts.AccountTableRelationshipFilter(
+                            definition_id=UUID(filter_.definitionId),
+                            operator=contracts.AccountTableRelationshipOperator(filter_.operator.value),
+                            user_ids=tuple(filter_.userIds or ()),
+                        )
+                    )
                 elif isinstance(filter_, AccountsTableAccountIdFilter):
                     filters.append(contracts.AccountTableAccountIdFilter(account_id=UUID(filter_.accountId)))
                 elif isinstance(filter_, AccountsTableAccountFieldFilter):
