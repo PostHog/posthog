@@ -12,6 +12,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { BedrockGatewayVariant } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
+import type { SteerDeclineCause } from "../../acp-extensions";
 import type { PostHogProductId } from "../../posthog-products";
 import type { AgentMode } from "../../types";
 import type { Pushable } from "../../utils/streams";
@@ -46,7 +47,7 @@ export type BackgroundTerminal =
 export type PendingSteer = {
   /** Set when the SDK echoes the message back, i.e. it entered the turn. */
   consumed: boolean;
-  settle: (reachedModel: boolean) => void;
+  settle: (reachedModel: boolean, cause?: SteerDeclineCause) => void;
 };
 
 /** One in-flight `prompt()` call, settled by the session's consumer. */
