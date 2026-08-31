@@ -418,6 +418,9 @@ depends_on = [
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
+    # An experiment with a funnel metric runs the funnel through product analytics' facade. The
+    # edge is not new — it was hidden while the funnels runners sat in core.
+    "products.product_analytics",
     "products.product_tours",
     "products.surveys",
     "products.tasks",
