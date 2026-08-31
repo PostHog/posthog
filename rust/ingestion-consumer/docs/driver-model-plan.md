@@ -28,19 +28,23 @@ These components stay as they are: the stream runners, the P2C router, the apert
 
 ## Changes
 
+The ledger track comes first (changes 1 to 3).
+It is isolated from the dispatch path, and shadow mode tests it against the current implementation in production before the cutover.
+
 | # | Type | Change |
 | --- | --- | --- |
 | 1 | Structure | Add the offset ledger module |
-| 2 | Structure | Demux polls into groups |
+| 2 | Structure | Run the ledger in shadow mode |
 | 3 | Structure | Commit from the ledger frontier |
-| 4 | Logic | Complete batches in any order |
-| 5 | Logic | Route every group through the key table |
-| 6 | Structure | Remove the stream fences |
-| 7 | Logic | Replace the batch window with budget B |
-| 8 | Structure | Split into two single-owner event loops |
-| 9 | Logic | Pack requests toward target T |
-| 10 | Logic | Add the RTT dispatch governor |
-| 11 | Logic | Add the bounded revocation drain |
+| 4 | Structure | Demux polls into groups |
+| 5 | Logic | Complete batches in any order |
+| 6 | Logic | Route every group through the key table |
+| 7 | Structure | Remove the stream fences |
+| 8 | Logic | Replace the batch window with budget B |
+| 9 | Structure | Split into two single-owner event loops |
+| 10 | Logic | Pack requests toward target T |
+| 11 | Logic | Add the RTT dispatch governor |
+| 12 | Logic | Add the bounded revocation drain |
 
 ### 1. Add the offset ledger module (structure)
 
@@ -49,12 +53,39 @@ These components stay as they are: the stream runners, the P2C router, the apert
 **Goal:** Make commit contiguity a property of a data structure.
 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
-- Each slot records: complete or not, event count, byte count. The counts serve the budget in change 7.
+- Each slot records: complete or not, event count, byte count. The counts serve the budget in change 8.
 - Operations: `charge` adds a delivered offset. `complete` marks an offset done. `frontier` removes the contiguous done prefix and returns the highest removed offset.
 - Completions can arrive in any order. The frontier moves only over completed slots.
-- Add property tests: out-of-order completion, monotonic frontier, ring capacity.
+- Kafka delivers offsets with gaps (transactions, compaction). Contiguity means the prefix of delivered offsets, not offset arithmetic.
+- Add property tests: out-of-order completion, monotonic frontier, offset gaps, ring capacity.
 
-### 2. Demux polls into groups (structure)
+### 2. Run the ledger in shadow mode (structure)
+
+**Task:** Wire the ledger next to the commit path. Compare its frontier with each real commit. Do not change what the consumer commits.
+
+**Goal:** Prove the ledger against production traffic before it owns the commits.
+
+- New config: the ledger mode, `off`, `shadow`, or `active`. This change ships `shadow`. Change 3 ships `active`.
+- Charge every delivered offset into its partition ledger during `collect_batch`.
+- When a batch completes, mark all its offsets complete.
+- At each commit, compare the partition's frontier with the offset the current path commits. With oldest-first completion, the two must be equal.
+- On a mismatch: increment a counter and log the partition with both offsets. Do not block the commit.
+- On revoke, drop the partition's ledger. This mirrors the commit sentinel's `forget_partitions`.
+- Soak on all lanes. The exit criterion is a mismatch count of zero across deploys and rebalances.
+
+### 3. Commit from the ledger frontier (structure)
+
+**Task:** Set the ledger mode to `active`. The frontier becomes the committed offset. Keep oldest-first batch completion.
+
+**Goal:** The frontier produces the same commits as the old code, and change 2 already proved that.
+
+- Commit each partition's frontier instead of the batch's max offset.
+- With oldest-first completion, the output is identical to the old path.
+- The commit sentinel stays on and checks contiguity and monotonicity.
+- Rollback is the config switch back to `shadow`.
+- Delete the old commit computation after `active` holds on all lanes.
+
+### 4. Demux polls into groups (structure)
 
 **Task:** Change `collect_batch` to output groups. A group is one poll's consecutive messages for one routing key on one partition.
 
@@ -64,19 +95,7 @@ These components stay as they are: the stream runners, the P2C router, the apert
 - The dispatcher flattens the groups back into one message list. Sub-batch assembly does not change.
 - Later changes use the group as the unit of dispatch and completion.
 
-### 3. Commit from the ledger frontier (structure)
-
-**Task:** Wire the ledger into the commit path. Keep oldest-first batch completion.
-
-**Goal:** The frontier produces the same commits as the current code, and the sentinel proves it.
-
-- Charge every delivered offset into its partition ledger during `collect_batch`.
-- When a batch completes, mark all its offsets complete.
-- Commit the frontier of each partition instead of the batch's max offset.
-- With oldest-first completion, the frontier equals the old commit point. The output is identical.
-- The commit sentinel stays on and checks contiguity and monotonicity.
-
-### 4. Complete batches in any order (logic)
+### 5. Complete batches in any order (logic)
 
 **Task:** Replace the oldest-first await with completion events.
 
@@ -88,7 +107,7 @@ These components stay as they are: the stream runners, the P2C router, the apert
 - Keep `max_in_flight_batches` as the bound on outstanding work.
 - Behavior change: commit timing decouples across partitions. Replay exposure stays inside the batch window.
 
-### 5. Route every group through the key table (logic)
+### 6. Route every group through the key table (logic)
 
 **Task:** Enqueue all groups into per-key FIFO queues. Dispatch only runnable keys. Remove the sticky pins.
 
@@ -104,17 +123,17 @@ These components stay as they are: the stream runners, the P2C router, the apert
 - Route each request with the existing P2C and aperture. There is no stickiness.
 - This is proposal 2 of the design doc. Ship it as a canary on one lane. Measure worker key-cache locality before and after (open question 3).
 
-### 6. Remove the stream fences (structure)
+### 7. Remove the stream fences (structure)
 
 **Task:** Delete `FenceGuard` and the fence-settle loop from `grpc_transport.rs`.
 
 **Goal:** Keep only the failure logic the new invariant needs.
 
-- After change 5, one send origin exists. A key with a failed request is not runnable. No newer send for that key can enter a stream.
+- After change 6, one send origin exists. A key with a failed request is not runnable. No newer send for that key can enter a stream.
 - A stream failure returns each request's messages to the key table. That is sufficient.
 - Keep: retry classification, busy (503) handling, the ack watchdog, and ack-prefix resolution.
 
-### 7. Replace the batch window with budget B (logic)
+### 8. Replace the batch window with budget B (logic)
 
 **Task:** Poll only while uncommitted work is below B. B counts events and bytes.
 
@@ -126,7 +145,7 @@ These components stay as they are: the stream runners, the P2C router, the apert
 - Pause and resume the poll at the budget limit. Do not stop servicing Kafka callbacks.
 - New config: the budget in events and in bytes.
 
-### 8. Split into two single-owner event loops (structure)
+### 9. Split into two single-owner event loops (structure)
 
 **Task:** Move the key table, dispatch, and settlement into one batcher task. The consumer loop and the batcher exchange accumulators and completions over channels.
 
@@ -136,7 +155,7 @@ These components stay as they are: the stream runners, the P2C router, the apert
 - Select order in each loop: clocks and rebalance events first, completions next, polls last.
 - The worker-health snapshot stays the only shared read.
 
-### 9. Pack requests toward target T (logic)
+### 10. Pack requests toward target T (logic)
 
 **Task:** Add the packer, with target size T and `PACK_LATENCY_BUDGET`.
 
@@ -149,7 +168,7 @@ These components stay as they are: the stream runners, the P2C router, the apert
 - Router order inside a pass: fill open requests on healthy workers first, then pick a worker with P2C from the aperture slice. Partition affinity is a tie-breaker only.
 - Check the worker side first: a request now spans polls and keys. Confirm the worker's `concurrentBatches` accounting and the meaning of `batch_id` still hold.
 
-### 10. Add the RTT dispatch governor (logic)
+### 11. Add the RTT dispatch governor (logic)
 
 **Task:** Replace the fixed per-worker un-acked cap with a permit pool that request RTT governs.
 
@@ -161,7 +180,7 @@ These components stay as they are: the stream runners, the P2C router, the apert
 - Keep the 503 backoff in the transport. Exclude 503 waits from the RTT signal.
 - Cap each stream channel at `DEPTH_MAX`.
 
-### 11. Add the bounded revocation drain (logic)
+### 12. Add the bounded revocation drain (logic)
 
 **Task:** Implement the drain sequence from section 4 of the design doc.
 
