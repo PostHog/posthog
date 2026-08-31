@@ -38,15 +38,17 @@ interface ServicesListProps {
     loading: boolean
     /** Both the empty state and the subtitle read differently for a search result than for the whole project. */
     searchTerm: string
+    /** The window these counts cover, so the metrics link opens on it rather than the metrics default. */
+    dateFrom: string
 }
 
 /**
  * Every service in the project, in one scroller. The aggregates query costs the same whether
  * it returns 25 rows or all of them, because the LIMIT lands after the GROUP BY.
  */
-export function ServicesList({ services, loading, searchTerm }: ServicesListProps): JSX.Element {
+export function ServicesList({ services, loading, searchTerm, dateFrom }: ServicesListProps): JSX.Element {
     const withMetricsLink = useCanViewServiceMetrics()
-    const rowProps = useMemo(() => ({ services, withMetricsLink }), [services, withMetricsLink])
+    const rowProps = useMemo(() => ({ services, withMetricsLink, dateFrom }), [services, withMetricsLink, dateFrom])
 
     if (loading && services.length === 0) {
         return (
@@ -126,6 +128,7 @@ function ServicesListHeader({ withMetricsLink }: { withMetricsLink: boolean }): 
 interface ServicesListRowProps {
     services: ServiceRow[]
     withMetricsLink: boolean
+    dateFrom: string
 }
 
 function ServicesListRow({
@@ -134,6 +137,7 @@ function ServicesListRow({
     style,
     services,
     withMetricsLink,
+    dateFrom,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
@@ -176,6 +180,7 @@ function ServicesListRow({
                 <>
                     <ViewServiceMetricsButton
                         serviceName={service.service_name}
+                        dateFrom={dateFrom}
                         size="xsmall"
                         noPadding
                         iconOnly
