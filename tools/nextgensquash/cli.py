@@ -18,7 +18,9 @@ from . import cyclebreak, emit, install, loading, planning, retire
 
 def _run_plan(args: argparse.Namespace) -> None:
     tree = loading.MigrationTree.load(loading.REPO_ROOT)
-    squasher = planning.Squasher(tree, args.cutoff, include_prior_squashes=args.include_prior_squashes)
+    squasher = planning.Squasher(
+        tree, args.cutoff, include_prior_squashes=args.include_prior_squashes, min_young=args.min_young
+    )
     rendered = planning.TreeRenderer(squasher).render()
     text = yaml.safe_dump(rendered, sort_keys=False, default_flow_style=False, width=200)
     if args.output:
@@ -30,7 +32,9 @@ def _run_plan(args: argparse.Namespace) -> None:
 
 def _run_emit(args: argparse.Namespace) -> None:
     tree = loading.MigrationTree.load(loading.REPO_ROOT)
-    squasher = planning.Squasher(tree, args.cutoff, include_prior_squashes=args.include_prior_squashes)
+    squasher = planning.Squasher(
+        tree, args.cutoff, include_prior_squashes=args.include_prior_squashes, min_young=args.min_young
+    )
     state = planning.Snapshotter(squasher).final_state()
     cycle_breaker = cyclebreak.CycleBreaker(state)
     # One graph load shared by the young-safety check and every per-app
@@ -140,6 +144,14 @@ def main() -> None:
 
     def _add_phase_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--cutoff", type=date.fromisoformat, default=loading.DEFAULT_CUTOFF)
+        p.add_argument(
+            "--min-young",
+            type=int,
+            default=3,
+            help="Keep at least this many live migrations per app after the squash, moving the "
+            "newest pre-cutoff migrations to young where the date cutoff alone leaves fewer. "
+            "Stops the squash from becoming a dormant app's tip.",
+        )
         p.add_argument(
             "--include-prior-squashes",
             action=argparse.BooleanOptionalAction,

@@ -15,17 +15,14 @@ class Migration(migrations.Migration):
         ("data_catalog", "0001_initial"),
         ("data_catalog", "0002_tablecertification"),
         ("data_catalog", "0003_relationshipproposal"),
-        ("data_catalog", "0004_tablecertification_proposed_status"),
-        ("data_catalog", "0005_alter_metric_description"),
-        ("data_catalog", "0006_metric_name_partial_unique"),
     ]
 
     initial = True
 
     dependencies = [
         ("data_catalog", "0000_squash_stub"),
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
-        ("data_tools", "0003_datawarehouseexpression"),
+        ("data_modeling", "0028_alter_datawarehousemanagedviewset_kind"),
+        ("data_tools", "0002_migrate_data_modeling_models"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
         ("warehouse_sources", "0151_repin_linkedin_ads_api_version"),
     ]
@@ -45,7 +42,7 @@ class Migration(migrations.Migration):
                 (
                     "name",
                     models.CharField(
-                        help_text="Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse; references to the old name stop resolving.",
+                        help_text="Identifier-safe run handle, unique per team and reserved forever. Write-once.",
                         max_length=128,
                         validators=[
                             django.core.validators.RegexValidator(
@@ -63,9 +60,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "description",
-                    models.TextField(
-                        help_text="What the metric means and what it serves, in 1-3 short sentences. The load-bearing text. Query mechanics live in the definition; query rationale in reasoning."
-                    ),
+                    models.TextField(help_text="What the metric means and how to interpret it. The load-bearing text."),
                 ),
                 (
                     "unit",
@@ -192,13 +187,7 @@ class Migration(migrations.Migration):
                     models.Index(fields=["team", "status"], name="data_catalo_team_id_7d270a_idx"),
                     models.Index(fields=["team", "source_insight_short_id"], name="data_catalo_team_id_f2da25_idx"),
                 ],
-                "constraints": [
-                    models.UniqueConstraint(
-                        condition=models.Q(("deleted", False)),
-                        fields=("team", "name"),
-                        name="unique_live_metric_name_per_team",
-                    )
-                ],
+                "constraints": [models.UniqueConstraint(fields=("team", "name"), name="unique_metric_name_per_team")],
             },
         ),
         migrations.CreateModel(
@@ -275,15 +264,6 @@ class Migration(migrations.Migration):
                     "team",
                     models.ForeignKey(
                         db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-                (
-                    "proposed_status",
-                    models.CharField(
-                        choices=[("certified", "certified"), ("deprecated", "deprecated")],
-                        default=products.data_catalog.backend.facade.enums.CertificationStatus["CERTIFIED"],
-                        help_text="The mark this proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled.",
-                        max_length=32,
                     ),
                 ),
             ],

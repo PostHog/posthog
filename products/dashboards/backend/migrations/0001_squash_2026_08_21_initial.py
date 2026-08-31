@@ -26,7 +26,6 @@ class Migration(migrations.Migration):
         ("dashboards", "0012_alter_dashboardtemplate_scope"),
         ("dashboards", "0013_dashboardtile_button_tile_id_idx"),
         ("dashboards", "0014_backfill_dashboardtemplate_button_tile_type"),
-        ("dashboards", "0015_dashboard_customization"),
     ]
 
     initial = True
@@ -151,7 +150,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-                ("customization", models.JSONField(blank=True, db_default={}, default=dict)),
             ],
             options={
                 "db_table": "posthog_dashboard",

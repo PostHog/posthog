@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("feature_flags", "0013_narrow_whole_rollout_percentages"),
+        ("feature_flags", "0010_remove_featureflag_performed_rollback_and_more"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
         ("product_tours", "0000_squash_stub"),
         ("surveys", "0005_migrate_product_analytics_models"),

@@ -45,9 +45,6 @@ class Migration(migrations.Migration):
         ("data_modeling", "0026_datawarehousesavedquery_semantic_enrichment_hash"),
         ("data_modeling", "0027_datawarehousesavedquery_column_order"),
         ("data_modeling", "0028_alter_datawarehousemanagedviewset_kind"),
-        ("data_modeling", "0029_add_skipped_data_modeling_job_status"),
-        ("data_modeling", "0030_datawarehousesavedquery_incremental_config_and_more"),
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
     ]
 
     initial = True
@@ -413,24 +410,6 @@ class Migration(migrations.Migration):
                         null=True,
                     ),
                 ),
-                (
-                    "incremental_config",
-                    models.JSONField(
-                        blank=True,
-                        default=None,
-                        help_text="Incremental materialization settings: enabled, incremental_key, unique_key, lookback_seconds. Null means this view is always fully refreshed.",
-                        null=True,
-                    ),
-                ),
-                (
-                    "incremental_state",
-                    models.JSONField(
-                        blank=True,
-                        default=None,
-                        help_text="Incremental materialization progress: watermark, definition_fingerprint, last_full_refresh_at, last_run_mode. System-written, not user-editable.",
-                        null=True,
-                    ),
-                ),
             ],
             options={
                 "db_table": "posthog_datawarehousesavedquery",
@@ -631,7 +610,6 @@ class Migration(migrations.Migration):
                             ("Completed", "Completed"),
                             ("Failed", "Failed"),
                             ("Running", "Running"),
-                            ("Skipped", "Skipped"),
                         ],
                         default="Running",
                         max_length=400,
@@ -669,15 +647,6 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         to="data_modeling.datawarehousesavedquery",
-                    ),
-                ),
-                (
-                    "run_mode",
-                    models.CharField(
-                        blank=True,
-                        choices=[("full_refresh", "Full refresh"), ("incremental", "Incremental")],
-                        max_length=20,
-                        null=True,
                     ),
                 ),
             ],

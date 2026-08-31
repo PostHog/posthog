@@ -11,18 +11,16 @@ import products.pulse.backend.models
 
 
 class Migration(migrations.Migration):
-    replaces = [("pulse", "0001_initial"), ("pulse", "0002_resourcelink_alert_resourcelink_subscription_and_more")]
+    replaces = [("pulse", "0001_initial")]
 
     initial = True
 
     dependencies = [
-        ("alerts", "0003_alter_alertconfiguration_calculation_interval"),
         ("annotations", "0003_annotation_hidden_in_user_interface"),
-        ("dashboards", "0015_dashboard_customization"),
+        ("dashboards", "0014_backfill_dashboardtemplate_button_tile_type"),
         ("experiments", "0032_teamexperimentsconfig_flag_cleanup_repository"),
-        ("exports", "0007_alter_exportedasset_export_format"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
-        ("product_analytics", "0006_insightvariable_values_query_connection_id"),
+        ("product_analytics", "0003_drop_insightcachingstate_table"),
         ("pulse", "0000_squash_stub"),
     ]
 
@@ -224,8 +222,6 @@ class Migration(migrations.Migration):
                             ("dashboard", "Dashboard"),
                             ("annotation", "Annotation"),
                             ("experiment", "Experiment"),
-                            ("alert", "Alert"),
-                            ("subscription", "Subscription"),
                             ("event", "Event"),
                         ],
                         max_length=20,
@@ -296,26 +292,6 @@ class Migration(migrations.Migration):
                     "team",
                     models.ForeignKey(
                         db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-                (
-                    "alert",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to="alerts.alertconfiguration",
-                    ),
-                ),
-                (
-                    "subscription",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to="exports.subscription",
                     ),
                 ),
             ],

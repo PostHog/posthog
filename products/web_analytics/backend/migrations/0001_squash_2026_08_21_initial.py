@@ -16,8 +16,6 @@ class Migration(migrations.Migration):
         ("web_analytics", "0003_webanalyticsinteraction"),
         ("web_analytics", "0004_rename_achievement_track_keys"),
         ("web_analytics", "0005_savedheatmap_block_consent_modals"),
-        ("web_analytics", "0006_webanalyticsuserconfig"),
-        ("web_analytics", "0007_savedheatmap_is_prewarm"),
     ]
 
     initial = True
@@ -71,7 +69,6 @@ class Migration(migrations.Migration):
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
                 ("block_consent_modals", models.BooleanField(default=False)),
-                ("is_prewarm", models.BooleanField(db_default=False, default=False)),
             ],
             options={
                 "db_table": "posthog_heatmapsaved",
@@ -205,36 +202,6 @@ class Migration(migrations.Migration):
                         fields=("team", "user", "kind"), name="unique_web_analytics_interaction_per_kind"
                     )
                 ],
-            },
-        ),
-        migrations.CreateModel(
-            name="WebAnalyticsUserConfig",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("achievements_opt_out", models.BooleanField(default=False)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-                (
-                    "user",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "posthog_webanalyticsuserconfig",
-                "constraints": [
-                    models.UniqueConstraint(fields=("team", "user"), name="unique_web_analytics_user_config")
-                ],
-                "indexes": [],
             },
         ),
         migrations.CreateModel(

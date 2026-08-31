@@ -34,8 +34,6 @@ class Migration(migrations.Migration):
         ("mcp_store", "0022_mcpserviceaccountserveraccess_user"),
         ("mcp_store", "0023_backfill_agent_access_user"),
         ("mcp_store", "0024_personal_agent_server_access"),
-        ("mcp_store", "0025_drop_old_agent_server_access"),
-        ("mcp_store", "0026_agent_grant_scope"),
     ]
 
     initial = True
@@ -766,19 +764,6 @@ class Migration(migrations.Migration):
                         to="mcp_store.mcpserviceaccount",
                     ),
                 ),
-                (
-                    "credential_owner",
-                    models.ForeignKey(
-                        blank=True,
-                        db_constraint=False,
-                        db_index=False,
-                        null=True,
-                        on_delete=django.db.models.deletion.DO_NOTHING,
-                        related_name="+",
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                ("grant_scope", models.CharField(blank=True, db_default="", default="", max_length=20)),
             ],
             options={
                 "db_table": "mcp_store_mcpauditevent",
@@ -856,23 +841,17 @@ class Migration(migrations.Migration):
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
-                (
-                    "scope",
-                    models.CharField(
-                        choices=[("personal", "Personal"), ("team", "Team")],
-                        db_default="personal",
-                        default="personal",
-                        max_length=20,
-                    ),
-                ),
             ],
             options={
                 "db_table": "mcp_store_mcpserviceaccountserveraccess",
                 "indexes": [],
                 "constraints": [
                     models.UniqueConstraint(
+                        fields=("service_account", "gateway_server"), name="uniq_agent_server_access"
+                    ),
+                    models.UniqueConstraint(
                         fields=("service_account", "gateway_server", "user"), name="uniq_agent_server_access_per_user"
-                    )
+                    ),
                 ],
             },
         ),

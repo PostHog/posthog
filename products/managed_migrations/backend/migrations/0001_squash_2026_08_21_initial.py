@@ -8,10 +8,7 @@ import posthog.helpers.encrypted_fields
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("managed_migrations", "0001_migrate_managed_migrations_models"),
-        ("managed_migrations", "0002_alter_batchimport_secrets_nullable"),
-    ]
+    replaces = [("managed_migrations", "0001_migrate_managed_migrations_models")]
 
     initial = True
 
@@ -49,7 +46,7 @@ class Migration(migrations.Migration):
                 ("display_status_message", models.TextField(blank=True, null=True)),
                 ("state", models.JSONField(blank=True, null=True)),
                 ("import_config", models.JSONField()),
-                ("secrets", posthog.helpers.encrypted_fields.EncryptedJSONStringField(blank=True, null=True)),
+                ("secrets", posthog.helpers.encrypted_fields.EncryptedJSONStringField()),
                 ("backoff_attempt", models.IntegerField(default=0)),
                 ("backoff_until", models.DateTimeField(blank=True, null=True)),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),

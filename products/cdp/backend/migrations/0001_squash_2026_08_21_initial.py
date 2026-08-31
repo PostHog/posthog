@@ -10,17 +10,13 @@ import posthog.helpers.encrypted_fields
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("cdp", "0001_migrate_cdp_models"),
-        ("cdp", "0002_alter_hogfunction_batch_export"),
-        ("cdp", "0003_hog_function_drafts"),
-    ]
+    replaces = [("cdp", "0001_migrate_cdp_models"), ("cdp", "0002_alter_hogfunction_batch_export")]
 
     initial = True
 
     dependencies = [
         ("actions", "0001_migrate_actions_models"),
-        ("batch_exports", "0005_add_batch_export_source"),
+        ("batch_exports", "0004_migrate_managed_migrations_models"),
         ("cdp", "0000_squash_stub"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
     ]
@@ -217,13 +213,6 @@ class Migration(migrations.Migration):
                         to="cdp.hogfunctiontemplate",
                     ),
                 ),
-                ("draft", models.JSONField(blank=True, null=True)),
-                ("draft_updated_at", models.DateTimeField(blank=True, null=True)),
-                (
-                    "draft_encrypted_inputs",
-                    posthog.helpers.encrypted_fields.EncryptedJSONStringField(blank=True, null=True),
-                ),
-                ("version", models.IntegerField(db_default=1, default=1)),
             ],
             options={
                 "db_table": "posthog_hogfunction",
@@ -296,53 +285,6 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.UniqueConstraint(fields=("plugin_id", "filename"), name="unique_filename_for_plugin")
                 ],
-            },
-        ),
-        migrations.CreateModel(
-            name="HogFunctionRevision",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("version", models.IntegerField(help_text="Function version this snapshot was published as.")),
-                (
-                    "content",
-                    models.JSONField(
-                        help_text="Full snapshot of the function's config fields (hog, inputs_schema, inputs, filters, mappings, masking) at this version."
-                    ),
-                ),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                (
-                    "created_by",
-                    models.ForeignKey(
-                        blank=True,
-                        db_constraint=False,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
-                    "hog_function",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="revisions", to="cdp.hogfunction"
-                    ),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-            ],
-            options={
-                "constraints": [
-                    models.UniqueConstraint(
-                        fields=("hog_function", "version"), name="unique_hogfunction_revision_version"
-                    )
-                ],
-                "indexes": [],
             },
         ),
         migrations.CreateModel(

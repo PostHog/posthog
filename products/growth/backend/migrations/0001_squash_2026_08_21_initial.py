@@ -14,8 +14,6 @@ class Migration(migrations.Migration):
         ("growth", "0003_enrichmentsignupsnapshot"),
         ("growth", "0004_organizationenrichmentfetch"),
         ("growth", "0005_enrichmentlabelresult_enrichmentpromptconfig"),
-        ("growth", "0006_seed_ai_pilled_prompt_config"),
-        ("growth", "0007_organizationenrichmentfetch_growth_enrich_fetch_org_ts_id"),
     ]
 
     initial = True
@@ -184,10 +182,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "indexes": [
-                    models.Index(fields=["organization", "fetched_at"], name="growth_enrich_fetch_org_time"),
-                    models.Index(fields=["organization", "-fetched_at", "-id"], name="growth_enrich_fetch_org_ts_id"),
-                ],
+                "indexes": [models.Index(fields=["organization", "fetched_at"], name="growth_enrich_fetch_org_time")],
                 "constraints": [],
             },
         ),

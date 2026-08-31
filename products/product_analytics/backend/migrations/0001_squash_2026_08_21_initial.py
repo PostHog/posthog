@@ -16,15 +16,12 @@ class Migration(migrations.Migration):
         ("product_analytics", "0001_migrate_product_analytics_models"),
         ("product_analytics", "0002_delete_insightcachingstate"),
         ("product_analytics", "0003_drop_insightcachingstate_table"),
-        ("product_analytics", "0004_delete_revenue_analytics_insights"),
-        ("product_analytics", "0005_insightvariable_is_multi_and_more"),
-        ("product_analytics", "0006_insightvariable_values_query_connection_id"),
     ]
 
     initial = True
 
     dependencies = [
-        ("dashboards", "0015_dashboard_customization"),
+        ("dashboards", "0014_backfill_dashboardtemplate_button_tile_type"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
         ("product_analytics", "0000_squash_stub"),
     ]
@@ -157,9 +154,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-                ("is_multi", models.BooleanField(db_default=False, default=False)),
-                ("values_query", models.TextField(blank=True, null=True)),
-                ("values_query_connection_id", models.TextField(blank=True, null=True)),
             ],
             options={
                 "db_table": "posthog_insightvariable",

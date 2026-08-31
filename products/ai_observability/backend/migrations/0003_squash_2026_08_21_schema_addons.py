@@ -3,7 +3,6 @@
 from django.db import migrations
 
 import posthog.migration_helpers.not_valid_constraint
-import posthog.migration_helpers.not_valid_foreign_key
 
 
 class Migration(migrations.Migration):
@@ -92,13 +91,5 @@ class Migration(migrations.Migration):
         posthog.migration_helpers.not_valid_constraint.ValidateConstraint(
             model_name="evaluation",
             name="model_config_only_on_llm_judge",
-        ),
-        posthog.migration_helpers.not_valid_foreign_key.ValidateForeignKey(
-            model_name="datasetitemversion",
-            name="llma_item_ver_item_owner_fk",
-        ),
-        posthog.migration_helpers.not_valid_foreign_key.ValidateForeignKey(
-            model_name="datasetitemversion",
-            name="llma_item_ver_revision_owner_fk",
         ),
     ]

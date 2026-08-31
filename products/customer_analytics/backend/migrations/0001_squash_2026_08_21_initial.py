@@ -61,9 +61,9 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("customer_analytics", "0000_squash_stub"),
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
+        ("data_modeling", "0028_alter_datawarehousemanagedviewset_kind"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
-        ("product_analytics", "0006_insightvariable_values_query_connection_id"),
+        ("product_analytics", "0003_drop_insightcachingstate_table"),
         ("warehouse_sources", "0151_repin_linkedin_ads_api_version"),
     ]
 

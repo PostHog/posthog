@@ -3,8 +3,6 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
-import posthog.uuidt
-
 
 class Migration(migrations.Migration):
     replaces = [
@@ -64,13 +62,12 @@ class Migration(migrations.Migration):
         ("data_warehouse", "0054_migrate_data_tools_models"),
         ("data_warehouse", "0055_remove_data_modeling_models"),
         ("data_warehouse", "0056_remove_data_modeling_models"),
-        ("data_warehouse", "0057_managed_warehouse_backfill_partition"),
     ]
 
     initial = True
 
     dependencies = [
-        ("dashboards", "0015_dashboard_customization"),
+        ("dashboards", "0014_backfill_dashboardtemplate_button_tile_type"),
         ("data_warehouse", "0000_squash_stub"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
         ("warehouse_sources", "0151_repin_linkedin_ads_api_version"),
@@ -120,51 +117,6 @@ class Migration(migrations.Migration):
                 "app_label": "data_warehouse",
                 "indexes": [],
                 "constraints": [],
-            },
-        ),
-        migrations.CreateModel(
-            name="ManagedWarehouseBackfillPartition",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("environment_id", models.BigIntegerField()),
-                ("dataset", models.CharField(choices=[("events", "Events"), ("persons", "Persons")], max_length=16)),
-                ("partition_key", models.CharField(max_length=128)),
-                (
-                    "granularity",
-                    models.CharField(choices=[("day", "Day"), ("month", "Month"), ("full", "Full")], max_length=8),
-                ),
-                ("period_start", models.DateField(blank=True, null=True)),
-                (
-                    "lifecycle_state",
-                    models.CharField(
-                        choices=[("running", "Running"), ("completed", "Completed"), ("failed", "Failed")],
-                        max_length=16,
-                    ),
-                ),
-                ("run_id", models.CharField(max_length=64)),
-                ("started_at", models.DateTimeField()),
-                ("completed_at", models.DateTimeField(blank=True, null=True)),
-                ("last_error", models.CharField(blank=True, max_length=128, null=True)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-            ],
-            options={
-                "constraints": [
-                    models.UniqueConstraint(
-                        fields=("team", "environment_id", "dataset", "partition_key"),
-                        name="unique_managed_warehouse_backfill_partition",
-                    )
-                ],
-                "indexes": [],
             },
         ),
     ]

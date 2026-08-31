@@ -32,9 +32,6 @@ class Migration(migrations.Migration):
         ("logs", "0017_logsmetricrule"),
         ("logs", "0018_teamlogsconfig_logs_distinct_id_attribute_keys"),
         ("logs", "0019_backfill_logs_distinct_id_attribute_keys"),
-        ("logs", "0020_logsretentionrule"),
-        ("logs", "0021_logsalertconfiguration_schedule_restriction"),
-        ("logs", "0022_backfill_logs_session_id_attribute_keys"),
     ]
 
     initial = True
@@ -95,7 +92,6 @@ class Migration(migrations.Migration):
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
                 ("first_enabled_at", models.DateTimeField(blank=True, null=True)),
-                ("schedule_restriction", models.JSONField(blank=True, default=None, null=True)),
             ],
             options={
                 "db_table": "logs_logsalertconfiguration",
@@ -270,51 +266,6 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.UniqueConstraint(fields=("team", "metric_name"), name="logs_metric_rule_team_metric_uniq")
                 ],
-            },
-        ),
-        migrations.CreateModel(
-            name="LogsRetentionRule",
-            fields=[
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True, null=True)),
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("name", models.CharField(max_length=255)),
-                ("enabled", models.BooleanField(default=False)),
-                (
-                    "priority",
-                    models.PositiveIntegerField(
-                        default=0,
-                        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
-                    ),
-                ),
-                ("config", models.JSONField(default=dict)),
-                ("version", models.PositiveIntegerField(default=1)),
-                (
-                    "created_by",
-                    models.ForeignKey(
-                        blank=True,
-                        db_constraint=False,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "logs_logsretentionrule",
-                "indexes": [
-                    models.Index(fields=["team_id", "enabled", "priority"], name="logs_retention_team_en_pr_idx")
-                ],
-                "constraints": [],
             },
         ),
         migrations.CreateModel(

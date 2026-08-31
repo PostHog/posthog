@@ -42,14 +42,12 @@ class Migration(migrations.Migration):
         ("endpoints", "0027_copy_cache_age_to_data_freshness"),
         ("endpoints", "0028_remove_cache_age_seconds"),
         ("endpoints", "0029_remove_data_modeling_models"),
-        ("endpoints", "0030_endpointversion_last_executed_at"),
-        ("endpoints", "0031_endpointversion_optional_breakdown_properties"),
     ]
 
     initial = True
 
     dependencies = [
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
+        ("data_modeling", "0028_alter_datawarehousemanagedviewset_kind"),
         ("endpoints", "0000_squash_stub"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
     ]
@@ -100,7 +98,7 @@ class Migration(migrations.Migration):
                     "last_executed_at",
                     models.DateTimeField(
                         blank=True,
-                        help_text="When this endpoint was last executed via the run API. Updated with 30-minute granularity.",
+                        help_text="When this endpoint was last executed via the run API. Updated with hour granularity.",
                         null=True,
                     ),
                 ),
@@ -198,23 +196,6 @@ class Migration(migrations.Migration):
                     models.IntegerField(
                         default=86400,
                         help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
-                    ),
-                ),
-                (
-                    "last_executed_at",
-                    models.DateTimeField(
-                        blank=True,
-                        help_text="When this version was last executed via the run API. Updated with 30-minute granularity.",
-                        null=True,
-                    ),
-                ),
-                (
-                    "optional_breakdown_properties",
-                    models.JSONField(
-                        blank=True,
-                        db_default=[],
-                        default=list,
-                        help_text="Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown.",
                     ),
                 ),
             ],

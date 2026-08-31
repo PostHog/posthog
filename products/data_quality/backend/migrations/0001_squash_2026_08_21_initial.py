@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
+        ("data_modeling", "0028_alter_datawarehousemanagedviewset_kind"),
         ("data_quality", "0000_squash_stub"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
         ("warehouse_sources", "0151_repin_linkedin_ads_api_version"),

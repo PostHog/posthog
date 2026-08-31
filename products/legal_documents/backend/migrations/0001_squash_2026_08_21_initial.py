@@ -12,9 +12,6 @@ class Migration(migrations.Migration):
         ("legal_documents", "0001_initial_migration"),
         ("legal_documents", "0002_legaldocument_pandadoc_integration"),
         ("legal_documents", "0003_legaldocument_drop_signed_document_url"),
-        ("legal_documents", "0004_alter_legaldocument_document_type"),
-        ("legal_documents", "0005_legaldocument_signed_pdf_stored"),
-        ("legal_documents", "0006_backfill_signed_pdf_stored"),
     ]
 
     initial = True
@@ -37,11 +34,7 @@ class Migration(migrations.Migration):
                 (
                     "document_type",
                     models.CharField(
-                        choices=[
-                            ("BAA", "Business Associate Agreement"),
-                            ("DPA", "Data Processing Agreement"),
-                            ("MSA", "Master Service Agreement"),
-                        ],
+                        choices=[("BAA", "Business Associate Agreement"), ("DPA", "Data Processing Agreement")],
                         max_length=8,
                     ),
                 ),
@@ -71,7 +64,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("pandadoc_document_id", models.CharField(blank=True, db_index=True, max_length=64)),
-                ("signed_pdf_stored", models.BooleanField(db_default=False, default=False)),
             ],
             options={
                 "ordering": ["-created_at"],

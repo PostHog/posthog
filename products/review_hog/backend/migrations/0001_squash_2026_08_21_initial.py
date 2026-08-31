@@ -36,8 +36,6 @@ class Migration(migrations.Migration):
         ("review_hog", "0025_reviewusersettings_stamphog_review_inbox_prs"),
         ("review_hog", "0026_reviewreport_review_initial_permission_mode_and_more"),
         ("review_hog", "0027_alter_reviewreportartefact_type"),
-        ("review_hog", "0028_reviewusersettings_resolve_comments"),
-        ("review_hog", "0029_alter_reviewreportartefact_type"),
     ]
 
     initial = True
@@ -220,7 +218,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("stamphog_review_inbox_prs", models.BooleanField(db_default=False, default=False)),
-                ("resolve_comments", models.BooleanField(db_default=True, default=True)),
             ],
             options={
                 "constraints": [
@@ -244,7 +241,6 @@ class Migration(migrations.Migration):
                             ("validation_verdict", "Validation Verdict"),
                             ("finding_outcome", "Finding Outcome"),
                             ("thread_verdict", "Thread Verdict"),
-                            ("resolution_run", "Resolution Run"),
                             ("task_run", "Task Run"),
                             ("commit", "Commit"),
                             ("code_reference", "Code Reference"),

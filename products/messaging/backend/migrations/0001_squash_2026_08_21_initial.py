@@ -8,11 +8,7 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("messaging", "0001_migrate_messaging_models"),
-        ("messaging", "0002_optout_sync_config"),
-        ("messaging", "0003_message_suppression"),
-    ]
+    replaces = [("messaging", "0001_migrate_messaging_models")]
 
     initial = True
 
@@ -84,112 +80,6 @@ class Migration(migrations.Migration):
                 "db_table": "posthog_messagerecipientpreference",
                 "unique_together": {("team", "identifier")},
                 "indexes": [],
-                "constraints": [],
-            },
-        ),
-        migrations.CreateModel(
-            name="OptOutSyncConfig",
-            fields=[
-                (
-                    "team",
-                    models.OneToOneField(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        primary_key=True,
-                        serialize=False,
-                        to="posthog.team",
-                    ),
-                ),
-                ("app_import_result", models.JSONField(blank=True, null=True)),
-                ("csv_import_result", models.JSONField(blank=True, null=True)),
-                ("webhook_enabled", models.BooleanField(default=False)),
-                ("track_enabled", models.BooleanField(default=False)),
-                (
-                    "app_integration",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to="posthog.integration",
-                    ),
-                ),
-                (
-                    "track_integration",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to="posthog.integration",
-                    ),
-                ),
-                (
-                    "webhook_integration",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to="posthog.integration",
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "posthog_messaging_optout_sync_config",
-                "indexes": [],
-                "constraints": [],
-            },
-        ),
-        migrations.CreateModel(
-            name="MessageSuppression",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                ("deleted", models.BooleanField(default=False)),
-                ("identifier", models.CharField(max_length=512)),
-                (
-                    "source",
-                    models.CharField(
-                        choices=[("BOUNCE", "Bounce"), ("MANUAL", "Manual")], default="BOUNCE", max_length=16
-                    ),
-                ),
-                ("reason", models.TextField(blank=True, null=True)),
-                ("transient_bounce_count", models.IntegerField(default=0)),
-                ("last_bounce_at", models.DateTimeField(blank=True, null=True)),
-                ("last_bounce_diagnostic", models.TextField(blank=True, null=True)),
-                ("suppressed", models.BooleanField(default=False)),
-                ("suppressed_at", models.DateTimeField(blank=True, null=True)),
-                (
-                    "created_by",
-                    models.ForeignKey(
-                        blank=True,
-                        db_constraint=False,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "posthog_messagesuppression",
-                "indexes": [
-                    models.Index(
-                        condition=models.Q(("deleted", False), ("suppressed", True)),
-                        fields=["team", "-updated_at"],
-                        name="pmsg_supp_active_by_updated",
-                    )
-                ],
-                "unique_together": {("team", "identifier")},
                 "constraints": [],
             },
         ),

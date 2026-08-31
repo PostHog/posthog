@@ -22,8 +22,6 @@ class Migration(migrations.Migration):
         ("notebooks", "0009_notebooknoderun_code"),
         ("notebooks", "0010_notebooknoderun_node_type"),
         ("notebooks", "0011_alter_notebooknoderun_status"),
-        ("notebooks", "0012_kernelruntime_frames_and_more"),
-        ("notebooks", "0013_notebooknoderun_connection_id_and_more"),
     ]
 
     initial = True
@@ -186,8 +184,6 @@ class Migration(migrations.Migration):
                 ),
                 ("server_connect_token", models.TextField(blank=True, null=True)),
                 ("server_url", models.TextField(blank=True, null=True)),
-                ("frames", models.JSONField(blank=True, default=None, null=True)),
-                ("frames_run_created_at", models.DateTimeField(blank=True, null=True)),
             ],
             options={
                 "db_table": "posthog_kernelruntime",
@@ -241,20 +237,6 @@ class Migration(migrations.Migration):
                         max_length=20,
                     ),
                 ),
-                ("kernel_runtime_id", models.UUIDField(blank=True, null=True)),
-                (
-                    "user",
-                    models.ForeignKey(
-                        blank=True,
-                        db_constraint=False,
-                        db_index=False,
-                        null=True,
-                        on_delete=django.db.models.deletion.DO_NOTHING,
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                ("connection_id", models.UUIDField(blank=True, null=True)),
-                ("send_raw_query", models.BooleanField(db_default=False, default=False)),
             ],
             options={
                 "db_table": "posthog_notebooknoderun",

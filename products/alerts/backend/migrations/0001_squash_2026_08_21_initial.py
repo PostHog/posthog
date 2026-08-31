@@ -20,9 +20,9 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("alerts", "0000_squash_stub"),
-        ("notebooks", "0013_notebooknoderun_connection_id_and_more"),
+        ("notebooks", "0011_alter_notebooknoderun_status"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
-        ("product_analytics", "0006_insightvariable_values_query_connection_id"),
+        ("product_analytics", "0003_drop_insightcachingstate_table"),
     ]
 
     operations = [

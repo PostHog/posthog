@@ -20,8 +20,6 @@ class Migration(migrations.Migration):
         ("cohorts", "0007_cohortbackfillrun_cohort_bfr_reconciling_idx"),
         ("cohorts", "0008_person_property_backfill_foundation"),
         ("cohorts", "0009_cohort_backfill_per_kind_uniqueness"),
-        ("cohorts", "0010_alter_cohortbackfillrun_marker_watch"),
-        ("cohorts", "0011_cohort_import_resolution_counts"),
     ]
 
     initial = True
@@ -106,22 +104,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("person_filters_shape_hash", models.CharField(blank=True, max_length=64, null=True)),
-                (
-                    "last_import_total_count",
-                    models.IntegerField(
-                        blank=True,
-                        help_text="Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.",
-                        null=True,
-                    ),
-                ),
-                (
-                    "last_import_unmatched_count",
-                    models.IntegerField(
-                        blank=True,
-                        help_text="How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.",
-                        null=True,
-                    ),
-                ),
             ],
             options={
                 "db_table": "posthog_cohort",
@@ -302,7 +284,7 @@ class Migration(migrations.Migration):
                     "marker_watch",
                     models.JSONField(
                         blank=True,
-                        help_text='Opaque watcher resume state written by the Rust seeder, shape {"schema":2,"topic":"...","positions":{...},"ends":{...}|null}. Django never interprets it.',
+                        help_text='Opaque watcher resume state written by the Rust seeder, shape {"schema":1,"positions":{...},"ends":{...}|null}. Django never interprets it.',
                         null=True,
                     ),
                 ),

@@ -13,9 +13,6 @@ class Migration(migrations.Migration):
         ("skills", "0001_adopt_skills_models"),
         ("skills", "0002_llmskill_category"),
         ("skills", "0003_backfill_scout_category"),
-        ("skills", "0004_llmskillowner"),
-        ("skills", "0005_communityskill"),
-        ("skills", "0006_llmskill_version_description"),
     ]
 
     initial = True
@@ -53,7 +50,6 @@ class Migration(migrations.Migration):
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
                 ("category", models.CharField(blank=True, db_default="", default="", max_length=64)),
-                ("version_description", models.CharField(blank=True, max_length=400, null=True)),
             ],
             options={
                 "db_table": "llm_analytics_llmskill",
@@ -70,81 +66,6 @@ class Migration(migrations.Migration):
                         name="unique_llm_skill_latest_per_team",
                     ),
                 ],
-            },
-        ),
-        migrations.CreateModel(
-            name="LLMSkillOwner",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("skill_name", models.CharField(max_length=64)),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False,
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="+",
-                        to="posthog.team",
-                    ),
-                ),
-                (
-                    "user",
-                    models.ForeignKey(
-                        db_constraint=False,
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="+",
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "llm_analytics_llmskillowner",
-                "constraints": [
-                    models.UniqueConstraint(fields=("team", "skill_name", "user"), name="unique_llm_skill_owner")
-                ],
-                "indexes": [],
-            },
-        ),
-        migrations.CreateModel(
-            name="CommunitySkill",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("slug", models.CharField(max_length=64, unique=True)),
-                ("name", models.CharField(max_length=64)),
-                ("description", models.CharField(max_length=4096)),
-                ("body", models.TextField()),
-                ("license", models.CharField(blank=True, default="", max_length=255)),
-                ("compatibility", models.CharField(blank=True, default="", max_length=500)),
-                ("allowed_tools", models.JSONField(blank=True, default=list)),
-                ("metadata", models.JSONField(blank=True, default=dict)),
-                ("tags", models.JSONField(blank=True, default=list)),
-                (
-                    "trust_tier",
-                    models.CharField(
-                        choices=[("official", "Official"), ("verified", "Verified"), ("community", "Community")],
-                        default="community",
-                        max_length=20,
-                    ),
-                ),
-                ("author_handle", models.CharField(blank=True, default="", max_length=255)),
-                ("github_url", models.CharField(blank=True, default="", max_length=8201)),
-                ("source_sha", models.CharField(blank=True, default="", max_length=64)),
-                ("install_count", models.PositiveIntegerField(default=0)),
-                ("published_at", models.DateTimeField(blank=True, null=True)),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                ("deleted", models.BooleanField(default=False)),
-            ],
-            options={
-                "db_table": "llm_analytics_communityskill",
-                "indexes": [],
-                "constraints": [],
             },
         ),
         migrations.CreateModel(
@@ -168,60 +89,6 @@ class Migration(migrations.Migration):
                 "db_table": "llm_analytics_llmskillfile",
                 "indexes": [],
                 "constraints": [models.UniqueConstraint(fields=("skill", "path"), name="unique_skill_file_path")],
-            },
-        ),
-        migrations.CreateModel(
-            name="CommunitySkillFile",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("path", models.CharField(max_length=500)),
-                ("content", models.TextField()),
-                ("content_type", models.CharField(default="text/plain", max_length=100)),
-                (
-                    "skill",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="files", to="skills.communityskill"
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "llm_analytics_communityskillfile",
-                "indexes": [],
-                "constraints": [
-                    models.UniqueConstraint(fields=("skill", "path"), name="unique_community_skill_file_path")
-                ],
-            },
-        ),
-        migrations.CreateModel(
-            name="CommunitySkillVote",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
-                (
-                    "skill",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="votes", to="skills.communityskill"
-                    ),
-                ),
-                (
-                    "user",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "llm_analytics_communityskillvote",
-                "indexes": [],
-                "constraints": [
-                    models.UniqueConstraint(fields=("skill", "user"), name="unique_community_skill_vote_per_user")
-                ],
             },
         ),
     ]

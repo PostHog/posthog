@@ -14,7 +14,6 @@ class Migration(migrations.Migration):
         ("managed_warehouse", "0001_migrate_managed_warehouse_models"),
         ("managed_warehouse", "0002_managedwarehousesourcejob"),
         ("managed_warehouse", "0003_remove_duckgres_batch_sink_state"),
-        ("managed_warehouse", "0004_managedwarehousesourcelifecycle"),
     ]
 
     initial = True
@@ -147,29 +146,5 @@ class Migration(migrations.Migration):
             managers=[
                 ("all_teams", django.db.models.manager.Manager()),
             ],
-        ),
-        migrations.CreateModel(
-            name="ManagedWarehouseSourceLifecycle",
-            fields=[
-                (
-                    "organization",
-                    models.OneToOneField(
-                        db_constraint=False,
-                        on_delete=django.db.models.deletion.CASCADE,
-                        primary_key=True,
-                        related_name="managed_warehouse_source_lifecycle",
-                        serialize=False,
-                        to="posthog.organization",
-                    ),
-                ),
-                ("generation", models.PositiveBigIntegerField(default=0)),
-                ("desired_active", models.BooleanField(default=True)),
-                ("legacy_conversion_generation", models.PositiveBigIntegerField(blank=True, null=True)),
-            ],
-            options={
-                "db_table": "posthog_managedwarehousesourcelifecycle",
-                "indexes": [],
-                "constraints": [],
-            },
         ),
     ]

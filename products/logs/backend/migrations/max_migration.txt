@@ -1,1 +1,1 @@
-0001_squash_2026_08_21_initial
+0022_backfill_logs_session_id_attribute_keys

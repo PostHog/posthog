@@ -22,7 +22,6 @@ class Migration(migrations.Migration):
         ("event_definitions", "0007_drop_eventproperty_team_id_fk_idx"),
         ("event_definitions", "0008_drop_eventproperty_proj_property_coalesce_idx"),
         ("event_definitions", "0009_drop_eventproperty_proj_event_coalesce_idx"),
-        ("event_definitions", "0010_propertydefinition_warehouse_origin"),
     ]
 
     initial = True
@@ -200,7 +199,6 @@ class Migration(migrations.Migration):
                         to="posthog.team",
                     ),
                 ),
-                ("warehouse_origin", models.JSONField(blank=True, default=None, null=True)),
             ],
             options={
                 "db_table": "posthog_propertydefinition",

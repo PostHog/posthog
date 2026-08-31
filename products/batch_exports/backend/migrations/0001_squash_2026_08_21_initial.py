@@ -13,7 +13,6 @@ class Migration(migrations.Migration):
         ("batch_exports", "0002_batchexport_batchexportbackfill_and_more"),
         ("batch_exports", "0003_alter_batchexportdestination_type"),
         ("batch_exports", "0004_migrate_managed_migrations_models"),
-        ("batch_exports", "0005_add_batch_export_source"),
     ]
 
     initial = True
@@ -92,45 +91,6 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name="BatchExportSource",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.UUIDT, editable=False, primary_key=True, serialize=False),
-                ),
-                (
-                    "hogql_query",
-                    models.TextField(blank=True, help_text="The HogQL query whose results are exported.", null=True),
-                ),
-                (
-                    "created_at",
-                    models.DateTimeField(
-                        auto_now_add=True, help_text="The timestamp at which this BatchExportSource was created."
-                    ),
-                ),
-                (
-                    "last_updated_at",
-                    models.DateTimeField(
-                        auto_now=True, help_text="The timestamp at which this BatchExportSource was last updated."
-                    ),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False,
-                        help_text="The team this belongs to.",
-                        on_delete=django.db.models.deletion.CASCADE,
-                        to="posthog.team",
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "posthog_batchexportsource",
-                "indexes": [],
-                "constraints": [],
-            },
-        ),
-        migrations.CreateModel(
             name="BatchExport",
             fields=[
                 (
@@ -198,12 +158,7 @@ class Migration(migrations.Migration):
                     "model",
                     models.CharField(
                         blank=True,
-                        choices=[
-                            ("events", "Events"),
-                            ("persons", "Persons"),
-                            ("sessions", "Sessions"),
-                            ("hogql", "Hogql"),
-                        ],
+                        choices=[("events", "Events"), ("persons", "Persons"), ("sessions", "Sessions")],
                         default="events",
                         help_text="Which model this BatchExport is exporting.",
                         max_length=64,
@@ -840,16 +795,6 @@ class Migration(migrations.Migration):
                         to="batch_exports.batchexportdestination",
                     ),
                 ),
-                (
-                    "source",
-                    models.ForeignKey(
-                        blank=True,
-                        help_text="The source of the data to export. When set, takes precedence over `model`.",
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to="batch_exports.batchexportsource",
-                    ),
-                ),
             ],
             options={
                 "db_table": "posthog_batchexport",
@@ -878,12 +823,7 @@ class Migration(migrations.Migration):
                     "model",
                     models.CharField(
                         blank=True,
-                        choices=[
-                            ("events", "Events"),
-                            ("persons", "Persons"),
-                            ("sessions", "Sessions"),
-                            ("hogql", "Hogql"),
-                        ],
+                        choices=[("events", "Events"), ("persons", "Persons"), ("sessions", "Sessions")],
                         default="events",
                         help_text="Which model this batch export is exporting.",
                         max_length=64,
@@ -905,16 +845,6 @@ class Migration(migrations.Migration):
                         help_text="The team this belongs to.",
                         on_delete=django.db.models.deletion.CASCADE,
                         to="posthog.team",
-                    ),
-                ),
-                (
-                    "source",
-                    models.ForeignKey(
-                        blank=True,
-                        help_text="The source of the data to export. When set, takes precedence over `model`.",
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to="batch_exports.batchexportsource",
                     ),
                 ),
             ],

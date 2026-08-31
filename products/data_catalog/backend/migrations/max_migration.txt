@@ -1,1 +1,1 @@
-0001_squash_2026_08_21_initial
+0006_metric_name_partial_unique

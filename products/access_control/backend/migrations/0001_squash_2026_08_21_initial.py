@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("access_control", "0000_squash_stub"),
         ("ee", "0059_scimprovisioneduser_unique_config"),
-        ("event_definitions", "0010_propertydefinition_warehouse_origin"),
+        ("event_definitions", "0009_drop_eventproperty_proj_event_coalesce_idx"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
     ]
 

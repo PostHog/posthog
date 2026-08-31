@@ -22,8 +22,6 @@ class Migration(migrations.Migration):
         ("canvas", "0010_canvassourceversion_draft"),
         ("canvas", "0011_canvasstate"),
         ("canvas", "0012_grid_canvas_foundation"),
-        ("canvas", "0013_canvas_kind_store_index"),
-        ("canvas", "0014_canvas_discussion_task_id"),
     ]
 
     initial = True
@@ -78,18 +76,10 @@ class Migration(migrations.Migration):
                 ),
                 ("description", models.TextField(blank=True, default="")),
                 ("kind", models.CharField(default="freeform", max_length=16)),
-                ("discussion_task_id", models.UUIDField(blank=True, null=True)),
             ],
             options={
                 "db_table": "posthog_canvas",
-                "indexes": [
-                    models.Index(fields=["channel", "-created_at"], name="canvas_channel_recency"),
-                    models.Index(
-                        condition=models.Q(("kind", "freeform"), _negated=True),
-                        fields=["team", "kind"],
-                        name="canvas_kind_store",
-                    ),
-                ],
+                "indexes": [models.Index(fields=["channel", "-created_at"], name="canvas_channel_recency")],
                 "constraints": [],
             },
         ),

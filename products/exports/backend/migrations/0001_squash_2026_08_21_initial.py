@@ -17,17 +17,15 @@ class Migration(migrations.Migration):
         ("exports", "0003_alter_subscription_target_type"),
         ("exports", "0004_subscription_ai_prompt_config"),
         ("exports", "0005_subscriptiondelivery_posthog_subdel_sub_fin"),
-        ("exports", "0006_subscription_ai_query_plan"),
-        ("exports", "0007_alter_exportedasset_export_format"),
     ]
 
     initial = True
 
     dependencies = [
-        ("dashboards", "0015_dashboard_customization"),
+        ("dashboards", "0014_backfill_dashboardtemplate_button_tile_type"),
         ("exports", "0000_squash_stub"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
-        ("product_analytics", "0006_insightvariable_values_query_connection_id"),
+        ("product_analytics", "0003_drop_insightcachingstate_table"),
     ]
 
     operations = [
@@ -50,7 +48,6 @@ class Migration(migrations.Migration):
                             ("video/mp4", "video/mp4"),
                             ("image/gif", "image/gif"),
                             ("application/json", "application/json"),
-                            ("application/x-ndjson", "application/x-ndjson"),
                         ],
                         max_length=100,
                     ),
@@ -187,7 +184,6 @@ class Migration(migrations.Migration):
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
                 ("prompt", models.TextField(blank=True, null=True)),
                 ("ai_prompt_config", models.JSONField(blank=True, default=dict)),
-                ("ai_query_plan", models.JSONField(blank=True, default=None, null=True)),
             ],
             options={
                 "db_table": "posthog_subscription",

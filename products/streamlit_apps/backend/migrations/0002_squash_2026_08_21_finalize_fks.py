@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("streamlit_apps", "0001_squash_2026_08_21_initial"),
-        ("streamlit_apps", "0001_squash_2026_08_21_initial"),
+        ("streamlit_apps", "0003_alter_streamlitapp_options_and_more"),
     ]
 
     operations = [

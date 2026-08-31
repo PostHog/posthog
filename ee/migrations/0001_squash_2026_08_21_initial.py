@@ -75,9 +75,9 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("dashboards", "0015_dashboard_customization"),
+        ("dashboards", "0014_backfill_dashboardtemplate_button_tile_type"),
         ("ee", "0000_squash_stub"),
-        ("event_definitions", "0010_propertydefinition_warehouse_origin"),
+        ("event_definitions", "0009_drop_eventproperty_proj_event_coalesce_idx"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
     ]
 

@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("cohorts", "0001_squash_2026_08_21_initial"),
-        ("cohorts", "0001_squash_2026_08_21_initial"),
+        ("cohorts", "0011_cohort_import_resolution_counts"),
     ]
 
     operations = [

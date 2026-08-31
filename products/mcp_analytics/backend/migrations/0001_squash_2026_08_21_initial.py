@@ -16,8 +16,6 @@ class Migration(migrations.Migration):
         ("mcp_analytics", "0005_alter_mcpsession_duration_seconds_and_more"),
         ("mcp_analytics", "0006_alter_mcpsession_distinct_id_and_more"),
         ("mcp_analytics", "0007_alter_mcpsession_options_and_more"),
-        ("mcp_analytics", "0008_drop_mcpsession_backfill_columns"),
-        ("mcp_analytics", "0009_mcpintentembeddingcache"),
     ]
 
     initial = True
@@ -153,29 +151,6 @@ class Migration(migrations.Migration):
                 "db_table": "posthog_mcp_analytics_intent_cluster_snapshot",
                 "indexes": [],
                 "constraints": [],
-            },
-        ),
-        migrations.CreateModel(
-            name="MCPIntentEmbeddingCache",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("content_hash", models.CharField(max_length=64)),
-                ("model", models.CharField(max_length=64)),
-                ("embedding", models.BinaryField()),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-            ],
-            options={
-                "db_table": "posthog_mcp_analytics_intent_embedding_cache",
-                "indexes": [models.Index(fields=["team", "created_at"], name="posthog_mcp_team_id_31d8c1_idx")],
-                "constraints": [
-                    models.UniqueConstraint(
-                        fields=("team", "content_hash", "model"), name="unique_mcp_intent_embedding_cache"
-                    )
-                ],
             },
         ),
     ]

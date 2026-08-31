@@ -49,9 +49,9 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("cohorts", "0011_cohort_import_resolution_counts"),
+        ("cohorts", "0009_cohort_backfill_per_kind_uniqueness"),
         ("experiments", "0000_squash_stub"),
-        ("feature_flags", "0013_narrow_whole_rollout_percentages"),
+        ("feature_flags", "0010_remove_featureflag_performed_rollback_and_more"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
     ]
 

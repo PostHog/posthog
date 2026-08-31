@@ -10,10 +10,7 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("approvals", "0001_migrate_approvals_models"),
-        ("approvals", "0002_alter_changerequest_validation_status"),
-    ]
+    replaces = [("approvals", "0001_migrate_approvals_models")]
 
     initial = True
 
@@ -43,7 +40,12 @@ class Migration(migrations.Migration):
                 (
                     "validation_status",
                     models.CharField(
-                        choices=[("valid", "Valid"), ("invalid", "Invalid"), ("stale", "Stale (resource changed)")],
+                        choices=[
+                            ("valid", "Valid"),
+                            ("invalid", "Invalid"),
+                            ("expired", "Expired"),
+                            ("stale", "Stale (resource changed)"),
+                        ],
                         default="valid",
                         max_length=16,
                     ),

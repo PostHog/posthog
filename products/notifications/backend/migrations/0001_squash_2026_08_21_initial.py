@@ -34,7 +34,6 @@ class Migration(migrations.Migration):
         ("notifications", "0021_alter_notificationevent_notification_type"),
         ("notifications", "0022_add_notification_idempotency_key"),
         ("notifications", "0023_add_notification_idempotency_key_index"),
-        ("notifications", "0024_alter_notificationevent_notification_type"),
     ]
 
     initial = True
@@ -71,7 +70,6 @@ class Migration(migrations.Migration):
                             ("subscription_nudge", "SUBSCRIPTION_NUDGE"),
                             ("email_reputation", "EMAIL_REPUTATION"),
                             ("materialization_failure", "MATERIALIZATION_FAILURE"),
-                            ("data_quality_check_failure", "DATA_QUALITY_CHECK_FAILURE"),
                         ],
                         max_length=32,
                     ),

@@ -17,9 +17,9 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("annotations", "0000_squash_stub"),
-        ("dashboards", "0015_dashboard_customization"),
+        ("dashboards", "0014_backfill_dashboardtemplate_button_tile_type"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
-        ("product_analytics", "0006_insightvariable_values_query_connection_id"),
+        ("product_analytics", "0003_drop_insightcachingstate_table"),
     ]
 
     operations = [

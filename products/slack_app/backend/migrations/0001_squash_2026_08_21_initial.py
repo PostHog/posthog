@@ -21,7 +21,6 @@ class Migration(migrations.Migration):
         ("slack_app", "0010_slacksettings_default_integration_nullable"),
         ("slack_app", "0011_slacksettings_permission_modes"),
         ("slack_app", "0012_slackthreadtaskmapping_workspace_created_idx"),
-        ("slack_app", "0013_slacksettings_untagged_followup_mode"),
     ]
 
     initial = True
@@ -158,20 +157,6 @@ class Migration(migrations.Migration):
                     models.JSONField(
                         blank=True,
                         help_text="Per-integration permission mode for Slack-started agent runs, keyed by integration id.",
-                        null=True,
-                    ),
-                ),
-                (
-                    "untagged_followup_mode",
-                    models.CharField(
-                        blank=True,
-                        choices=[
-                            ("auto", "Always pick it up"),
-                            ("ask", "Ask before picking it up"),
-                            ("never", "Never pick it up"),
-                        ],
-                        help_text="What PostHog does with untagged replies in threads this user started.",
-                        max_length=16,
                         null=True,
                     ),
                 ),

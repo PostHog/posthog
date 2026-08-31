@@ -21,7 +21,6 @@ class Migration(migrations.Migration):
         ("user_interviews", "0006_userinterviewtopic_invite_fields"),
         ("user_interviews", "0007_userinterview_classifications"),
         ("user_interviews", "0008_userinterview_user_interview_classif_gin"),
-        ("user_interviews", "0009_userinterview_shared_respondent_fields"),
     ]
 
     initial = True
@@ -134,9 +133,6 @@ class Migration(migrations.Migration):
                         size=None,
                     ),
                 ),
-                ("respondent_name", models.CharField(blank=True, db_default="", default="", max_length=400)),
-                ("respondent_key", models.CharField(blank=True, db_default="", default="", max_length=64)),
-                ("distinct_id", models.CharField(blank=True, db_default="", default="", max_length=200)),
             ],
             options={
                 "abstract": False,

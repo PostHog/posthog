@@ -22,9 +22,6 @@ class Migration(migrations.Migration):
         ("visual_review", "0009_add_ssim_score_and_change_kind"),
         ("visual_review", "0010_backfill_change_kind_and_ssim"),
         ("visual_review", "0011_alter_artifact_managers_and_more"),
-        ("visual_review", "0012_quarantined_identifier_source_run"),
-        ("visual_review", "0013_run_is_partial"),
-        ("visual_review", "0014_run_search_trgm"),
     ]
 
     initial = True
@@ -161,7 +158,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("tolerated_match_count", models.PositiveIntegerField(default=0)),
-                ("is_partial", models.BooleanField(default=False)),
             ],
             options={
                 "ordering": ["-created_at"],
@@ -179,6 +175,43 @@ class Migration(migrations.Migration):
                         name="unique_latest_run_per_group",
                     )
                 ],
+            },
+            managers=[
+                ("all_teams", django.db.models.manager.Manager()),
+            ],
+        ),
+        migrations.CreateModel(
+            name="QuarantinedIdentifier",
+            fields=[
+                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ("team_id", models.BigIntegerField(db_index=True)),
+                ("identifier", models.CharField(max_length=512)),
+                ("run_type", models.CharField(max_length=64)),
+                ("reason", models.CharField(max_length=255)),
+                (
+                    "source",
+                    models.CharField(
+                        choices=[("human", "human"), ("agent", "agent"), ("auto", "auto")],
+                        default="human",
+                        max_length=10,
+                    ),
+                ),
+                ("expires_at", models.DateTimeField(blank=True, null=True)),
+                ("created_by_id", models.BigIntegerField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "repo",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="quarantined_identifiers",
+                        to="visual_review.repo",
+                    ),
+                ),
+            ],
+            options={
+                "indexes": [models.Index(fields=["repo", "run_type", "identifier"], name="quarantine_lookup")],
+                "constraints": [],
             },
             managers=[
                 ("all_teams", django.db.models.manager.Manager()),
@@ -225,53 +258,6 @@ class Migration(migrations.Migration):
                         fields=("repo", "identifier", "baseline_hash", "alternate_hash"), name="unique_tolerated_hash"
                     )
                 ],
-            },
-            managers=[
-                ("all_teams", django.db.models.manager.Manager()),
-            ],
-        ),
-        migrations.CreateModel(
-            name="QuarantinedIdentifier",
-            fields=[
-                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ("team_id", models.BigIntegerField(db_index=True)),
-                ("identifier", models.CharField(max_length=512)),
-                ("run_type", models.CharField(max_length=64)),
-                ("reason", models.CharField(max_length=255)),
-                (
-                    "source",
-                    models.CharField(
-                        choices=[("human", "human"), ("agent", "agent"), ("auto", "auto")],
-                        default="human",
-                        max_length=10,
-                    ),
-                ),
-                ("expires_at", models.DateTimeField(blank=True, null=True)),
-                ("created_by_id", models.BigIntegerField(blank=True, null=True)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "repo",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="quarantined_identifiers",
-                        to="visual_review.repo",
-                    ),
-                ),
-                (
-                    "source_run",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="originated_quarantines",
-                        to="visual_review.run",
-                    ),
-                ),
-            ],
-            options={
-                "indexes": [models.Index(fields=["repo", "run_type", "identifier"], name="quarantine_lookup")],
-                "constraints": [],
             },
             managers=[
                 ("all_teams", django.db.models.manager.Manager()),

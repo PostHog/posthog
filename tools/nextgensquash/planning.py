@@ -35,7 +35,13 @@ class ProposedSquash:
 class Squasher:
     """Plans a new migration tree given an old/young partition."""
 
-    def __init__(self, tree: loading.MigrationTree, cutoff: date, include_prior_squashes: bool = True):
+    def __init__(
+        self,
+        tree: loading.MigrationTree,
+        cutoff: date,
+        include_prior_squashes: bool = True,
+        min_young: int = 3,
+    ):
         self.tree = tree
         self.cutoff = cutoff
         # Dated name matches `Emitter.INITIAL_NAME` — same value, different
@@ -43,9 +49,53 @@ class Squasher:
         self.SQUASH_NAME = f"0001_squash_{cutoff.isoformat().replace('-', '_')}_initial"
         self.include_prior_squashes = include_prior_squashes
         self.old, self.young = tree.partition(cutoff, include_prior_squashes=include_prior_squashes)
+        self._rebalance_min_young(min_young)
         self.migration_graph = self._build_migration_graph()
         self.app_graph = self._build_app_graph()
         self.squashes = self._plan_squashes()
+
+    def _rebalance_min_young(self, min_young: int) -> None:
+        """Move each app's newest old migrations to young until the app keeps
+        `min_young` live migrations after its squash. A pure date cutoff makes
+        the squash the tip of every dormant app, claiming names that in-flight
+        branches and half-deployed environments still reference. Always keep at
+        least the app's first migration folded so every app still squashes and
+        the cross-app graph mechanics stay uniform, and never move a prior
+        squash file (its replaces set must stay claimed).
+        """
+        if min_young <= 0:
+            return
+        young_counts: dict[str, int] = defaultdict(int)
+        for m in self.young.values():
+            young_counts[m.ref.app] += 1
+        # A migration with a cross-app old dependent must stay folded: moving it
+        # young leaves a claimed migration depending on a live young node, and
+        # that edge weaves a CircularDependencyError through the replaces
+        # redirects (seen with the surveys/feature_flags model-move pairs). The
+        # date partition itself can never produce such an edge, so the tail
+        # rule must not create one either.
+        blocked: set[str] = set()
+        for m in self.old.values():
+            for dep in m.dependencies:
+                if dep.app != m.ref.app and dep.key in self.old:
+                    blocked.add(dep.key)
+        for app, migs in loading.MigrationTree.group_by_app(self.old).items():
+            chain = sorted(migs, key=lambda m: m.ref.name)
+            movable = chain[1:]
+            need = min_young - young_counts[app]
+            for m in reversed(movable):
+                if need <= 0:
+                    break
+                # SeparateDatabaseAndState = a cross-app state move. Its two
+                # sides must fold together: splitting a pair across the
+                # boundary leaves the model in both apps' snapshots (both
+                # initials CREATE the table) or in neither (nothing does).
+                is_state_move = any(op.kind == "SeparateDatabaseAndState" for op in m.operations)
+                if m.replaces or m.ref.key in blocked or is_state_move:
+                    break
+                del self.old[m.ref.key]
+                self.young[m.ref.key] = m
+                need -= 1
 
     @functools.cached_property
     def latest_old_per_app(self) -> dict[str, str]:
@@ -282,4 +332,27 @@ class Snapshotter:
         for ms in state.models.values():
             ms.options.setdefault("indexes", [])
             ms.options.setdefault("constraints", [])
+        self._check_single_table_owner(state)
         return state
+
+    @staticmethod
+    def _check_single_table_owner(state: ProjectState) -> None:
+        """Fail when two managed models in the snapshot map to one table.
+
+        A split SeparateDatabaseAndState pair leaves a moved model in both the
+        giving and the receiving app's snapshot, and both initial squashes then
+        CREATE the same table — a fresh migrate dies on `relation already
+        exists` minutes in. Catch it at emit time instead.
+        """
+        owners: dict[str, tuple[str, str]] = {}
+        for (app_label, model_name), ms in state.models.items():
+            if not ms.options.get("managed", True) or ms.options.get("proxy", False):
+                continue
+            table = ms.options.get("db_table") or f"{app_label}_{model_name}"
+            prior = owners.setdefault(table, (app_label, model_name))
+            if prior != (app_label, model_name):
+                raise RuntimeError(
+                    f"table {table!r} is owned by both {prior[0]}.{prior[1]} and "
+                    f"{app_label}.{model_name} in the snapshot state — a state-move "
+                    "pair was split across the old/young boundary"
+                )

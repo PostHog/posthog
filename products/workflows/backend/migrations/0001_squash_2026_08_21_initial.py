@@ -28,7 +28,6 @@ class Migration(migrations.Migration):
         ("workflows", "0015_delete_emailreputationsnapshot"),
         ("workflows", "0016_drop_emailreputationsnapshot_fk"),
         ("workflows", "0017_drop_emailreputationsnapshot_table"),
-        ("workflows", "0018_teamworkflowsconfig_ses_tenant_state"),
     ]
 
     initial = True
@@ -189,12 +188,6 @@ class Migration(migrations.Migration):
                 ),
                 ("email_sending_suspended_at", models.DateTimeField(blank=True, null=True)),
                 ("email_sending_suspension_reason", models.TextField(blank=True, default="")),
-                (
-                    "ses_tenant_reputation_impact",
-                    models.CharField(blank=True, db_default="", default="", max_length=32),
-                ),
-                ("ses_tenant_sending_status", models.CharField(blank=True, db_default="", default="", max_length=32)),
-                ("ses_tenant_state_synced_at", models.DateTimeField(blank=True, null=True)),
             ],
             options={
                 "indexes": [],

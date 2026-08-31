@@ -8,16 +8,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("data_tools", "0001_migrate_data_tools_models"),
-        ("data_tools", "0002_migrate_data_modeling_models"),
-        ("data_tools", "0003_datawarehouseexpression"),
-    ]
+    replaces = [("data_tools", "0001_migrate_data_tools_models"), ("data_tools", "0002_migrate_data_modeling_models")]
 
     initial = True
 
     dependencies = [
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
+        ("data_modeling", "0028_alter_datawarehousemanagedviewset_kind"),
         ("data_tools", "0000_squash_stub"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
     ]
@@ -150,56 +146,6 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "posthog_querytabstate",
                 "constraints": [models.UniqueConstraint(fields=("team", "created_by"), name="unique_team_created_by")],
-                "indexes": [],
-            },
-        ),
-        migrations.CreateModel(
-            name="DataWarehouseExpression",
-            fields=[
-                ("deleted", models.BooleanField(blank=True, default=False, null=True)),
-                ("deleted_at", models.DateTimeField(blank=True, null=True)),
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.UUIDT, editable=False, primary_key=True, serialize=False),
-                ),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("table_name", models.CharField(max_length=400)),
-                ("field_name", models.CharField(max_length=400)),
-                ("expression", models.TextField()),
-                ("connection_id", models.UUIDField(blank=True, null=True)),
-                (
-                    "created_by",
-                    models.ForeignKey(
-                        blank=True,
-                        db_constraint=False,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-            ],
-            options={
-                "constraints": [
-                    models.UniqueConstraint(
-                        condition=models.Q(("deleted", False), ("deleted__isnull", True), _connector="OR"),
-                        fields=("team", "table_name", "field_name", "connection_id"),
-                        name="uniq_dw_expression_active_connection",
-                    ),
-                    models.UniqueConstraint(
-                        condition=models.Q(
-                            models.Q(("deleted", False), ("deleted__isnull", True), _connector="OR"),
-                            ("connection_id__isnull", True),
-                        ),
-                        fields=("team", "table_name", "field_name"),
-                        name="uniq_dw_expression_active_default",
-                    ),
-                ],
                 "indexes": [],
             },
         ),

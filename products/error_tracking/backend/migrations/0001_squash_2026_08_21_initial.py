@@ -39,13 +39,12 @@ class Migration(migrations.Migration):
         ("error_tracking", "0024_errortrackingissue_severity"),
         ("error_tracking", "0025_issue_state_updated_at"),
         ("error_tracking", "0026_issue_state_updated_at_index"),
-        ("error_tracking", "0027_add_severity_rules"),
     ]
 
     initial = True
 
     dependencies = [
-        ("cohorts", "0011_cohort_import_resolution_counts"),
+        ("cohorts", "0009_cohort_backfill_per_kind_uniqueness"),
         ("ee", "0059_scimprovisioneduser_unique_config"),
         ("error_tracking", "0000_squash_stub"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
@@ -425,38 +424,6 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "posthog_errortrackingbypassrule",
                 "indexes": [models.Index(fields=["team_id"], name="posthog_err_team_id_ba5150_idx")],
-                "constraints": [],
-            },
-        ),
-        migrations.CreateModel(
-            name="ErrorTrackingSeverityRule",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.UUIDT, editable=False, primary_key=True, serialize=False),
-                ),
-                ("filters", models.JSONField()),
-                ("bytecode", models.JSONField()),
-                (
-                    "severity",
-                    models.TextField(
-                        choices=[("low", "Low"), ("medium", "Medium"), ("high", "High"), ("critical", "Critical")]
-                    ),
-                ),
-                ("order_key", models.IntegerField()),
-                ("disabled_data", models.JSONField(blank=True, null=True)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "posthog_errortrackingseverityrule",
-                "indexes": [],
                 "constraints": [],
             },
         ),

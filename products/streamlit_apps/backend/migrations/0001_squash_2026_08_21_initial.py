@@ -2,7 +2,6 @@
 
 import uuid
 
-import django.db.models.manager
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
@@ -11,11 +10,7 @@ import posthog.utils
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("streamlit_apps", "0001_initial"),
-        ("streamlit_apps", "0002_seed_streamlit_oauth_app"),
-        ("streamlit_apps", "0003_alter_streamlitapp_options_and_more"),
-    ]
+    replaces = [("streamlit_apps", "0001_initial")]
 
     initial = True
 
@@ -56,11 +51,7 @@ class Migration(migrations.Migration):
                         name="streamlit_apps_app_unique_active_short_id_per_team",
                     )
                 ],
-                "default_manager_name": "all_teams",
             },
-            managers=[
-                ("all_teams", django.db.models.manager.Manager()),
-            ],
         ),
         migrations.CreateModel(
             name="StreamlitAppVersion",

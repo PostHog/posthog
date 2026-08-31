@@ -55,7 +55,6 @@ class Migration(migrations.Migration):
         ("ai_observability", "0037_backfill_dataset_item_version_dataset"),
         ("ai_observability", "0038_make_dataset_item_version_dataset_non_null"),
         ("ai_observability", "0039_dataset_item_version_ownership_constraints"),
-        ("ai_observability", "0040_validate_dataset_item_version_ownership"),
     ]
 
     initial = True

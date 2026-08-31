@@ -21,9 +21,9 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("actions", "0001_migrate_actions_models"),
-        ("feature_flags", "0013_narrow_whole_rollout_percentages"),
+        ("feature_flags", "0010_remove_featureflag_performed_rollback_and_more"),
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
-        ("product_analytics", "0006_insightvariable_values_query_connection_id"),
+        ("product_analytics", "0003_drop_insightcachingstate_table"),
         ("surveys", "0000_squash_stub"),
     ]
 

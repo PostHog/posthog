@@ -73,9 +73,6 @@ class Migration(migrations.Migration):
         ("conversations", "0057_email_channel_kind_and_owner"),
         ("conversations", "0058_add_email_channel_kind_constraint"),
         ("conversations", "0059_validate_email_channel_kind_constraint"),
-        ("conversations", "0060_emailthread_emailthreadmessage_and_more"),
-        ("conversations", "0061_emailchannelsetup_emailchannel_connection_status_and_more"),
-        ("conversations", "0062_emailthreadaccountlink"),
     ]
 
     initial = True
@@ -126,19 +123,6 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="owned_conversations_email_channels",
                         to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
-                    "connection_status",
-                    models.CharField(
-                        choices=[
-                            ("pending_confirmation", "Pending confirmation"),
-                            ("active", "Active"),
-                            ("confirmation_expired", "Confirmation expired"),
-                        ],
-                        db_default="active",
-                        default="active",
-                        max_length=32,
                     ),
                 ),
             ],
@@ -390,38 +374,6 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name="EmailThread",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("canonical_thread_key", models.CharField(max_length=998)),
-                ("subject", models.TextField(blank=True, default="")),
-                ("first_message_at", models.DateTimeField(blank=True, null=True)),
-                ("last_message_at", models.DateTimeField(blank=True, null=True)),
-                ("message_count", models.PositiveIntegerField(default=0)),
-                ("preview", models.CharField(blank=True, default="", max_length=500)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "posthog_conversations_email_thread",
-                "indexes": [models.Index(fields=["team", "-last_message_at"], name="email_thread_team_last_idx")],
-                "constraints": [
-                    models.UniqueConstraint(
-                        fields=("team", "canonical_thread_key"), name="unique_email_thread_key_per_team"
-                    )
-                ],
-            },
-        ),
-        migrations.CreateModel(
             name="Ticket",
             fields=[
                 (
@@ -599,41 +551,6 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name="EmailChannelSetup",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("provider", models.CharField(choices=[("google", "Google")], max_length=32)),
-                ("expires_at", models.DateTimeField()),
-                ("confirmation_action", posthog.helpers.encrypted_fields.EncryptedTextField(blank=True, null=True)),
-                ("confirmation_message_id_hash", models.CharField(blank=True, default="", max_length=64)),
-                ("confirmation_received_at", models.DateTimeField(blank=True, null=True)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "channel",
-                    models.OneToOneField(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="setup",
-                        to="conversations.emailchannel",
-                    ),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "posthog_conversations_email_channel_setup",
-                "indexes": [],
-                "constraints": [],
-            },
-        ),
-        migrations.CreateModel(
             name="TicketViewFavorite",
             fields=[
                 (
@@ -667,154 +584,6 @@ class Migration(migrations.Migration):
                 "unique_together": {("ticket_view", "user")},
                 "indexes": [models.Index(fields=["team_id", "user"], name="conv_ticket_view_fav_idx")],
                 "constraints": [],
-            },
-        ),
-        migrations.CreateModel(
-            name="EmailThreadMessage",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("message_id", models.CharField(blank=True, max_length=998, null=True)),
-                ("in_reply_to", models.CharField(blank=True, max_length=998, null=True)),
-                ("references", models.JSONField(blank=True, default=list)),
-                ("sent_at", models.DateTimeField()),
-                ("sender_email", models.CharField(max_length=400)),
-                ("sender_name", models.CharField(blank=True, default="", max_length=400)),
-                ("to_recipients", models.JSONField(blank=True, default=list)),
-                ("cc_recipients", models.JSONField(blank=True, default=list)),
-                (
-                    "direction",
-                    models.CharField(choices=[("inbound", "Inbound"), ("outbound", "Outbound")], max_length=16),
-                ),
-                ("source_type", models.CharField(max_length=64)),
-                ("source_id", models.CharField(max_length=512)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                (
-                    "comment",
-                    models.OneToOneField(
-                        db_constraint=False,
-                        on_delete=django.db.models.deletion.RESTRICT,
-                        related_name="email_thread_message",
-                        to="posthog.comment",
-                    ),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-                (
-                    "thread",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="messages",
-                        to="conversations.emailthread",
-                    ),
-                ),
-                ("sender_authenticated", models.BooleanField(db_default=False, default=False)),
-            ],
-            options={
-                "db_table": "posthog_conversations_email_thread_message",
-                "ordering": ["sent_at", "id"],
-                "indexes": [
-                    models.Index(fields=["team", "thread", "sent_at", "id"], name="email_message_thread_time_idx")
-                ],
-                "constraints": [
-                    models.UniqueConstraint(
-                        fields=("team", "source_type", "source_id"), name="unique_email_message_source_per_team"
-                    ),
-                    models.UniqueConstraint(
-                        condition=models.Q(("message_id__isnull", False), models.Q(("message_id", ""), _negated=True)),
-                        fields=("team", "message_id"),
-                        name="unique_email_message_id_per_team",
-                    ),
-                ],
-            },
-        ),
-        migrations.CreateModel(
-            name="EmailThreadParticipant",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("email", models.CharField(max_length=400)),
-                ("display_name", models.CharField(blank=True, default="", max_length=400)),
-                ("kind", models.CharField(choices=[("internal", "Internal"), ("customer", "Customer")], max_length=16)),
-                ("person_id", models.UUIDField(blank=True, null=True)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-                (
-                    "thread",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="participants",
-                        to="conversations.emailthread",
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "posthog_conversations_email_thread_participant",
-                "indexes": [],
-                "constraints": [
-                    models.UniqueConstraint(fields=("team", "thread", "email"), name="unique_email_thread_participant")
-                ],
-            },
-        ),
-        migrations.CreateModel(
-            name="EmailThreadAccountLink",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
-                ),
-                ("account_id", models.CharField(max_length=64)),
-                ("account_external_id", models.CharField(blank=True, max_length=400, null=True)),
-                (
-                    "match_source",
-                    models.CharField(
-                        choices=[
-                            ("known_email", "Known email"),
-                            ("person_group", "Person group"),
-                            ("email_domain", "Email domain"),
-                        ],
-                        max_length=32,
-                    ),
-                ),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "team",
-                    models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-                (
-                    "thread",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="account_links",
-                        to="conversations.emailthread",
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "posthog_conversations_email_thread_account_link",
-                "indexes": [models.Index(fields=["team", "account_id", "thread"], name="email_link_team_account_idx")],
-                "constraints": [
-                    models.UniqueConstraint(
-                        fields=("team", "thread", "account_id"), name="unique_email_thread_account_link"
-                    )
-                ],
             },
         ),
         migrations.CreateModel(

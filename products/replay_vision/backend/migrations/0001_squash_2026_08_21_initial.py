@@ -99,7 +99,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1312_oauthrefreshtoken_oauthrefreshtoken_family_idx"),
         ("replay_vision", "0000_squash_stub"),
-        ("workflows", "0018_teamworkflowsconfig_ses_tenant_state"),
+        ("workflows", "0017_drop_emailreputationsnapshot_table"),
     ]
 
     operations = [

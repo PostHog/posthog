@@ -8,12 +8,7 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("analytics_platform", "0001_preaggregation_job"),
-        ("analytics_platform", "0002_preaggregation_job_expires_at"),
-        ("analytics_platform", "0003_preaggregation_job_expires_at_index"),
-        ("analytics_platform", "0004_unique_pending_job_index"),
-    ]
+    replaces = [("analytics_platform", "0001_preaggregation_job")]
 
     initial = True
 
@@ -55,7 +50,6 @@ class Migration(migrations.Migration):
                     "team",
                     models.ForeignKey(editable=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
                 ),
-                ("expires_at", models.DateTimeField(blank=True, null=True)),
             ],
             options={
                 "indexes": [
@@ -64,7 +58,6 @@ class Migration(migrations.Migration):
                     models.Index(
                         fields=["team_id", "time_range_start", "time_range_end"], name="analytics_p_team_id_4e65a5_idx"
                     ),
-                    models.Index(fields=["team_id", "expires_at"], name="analytics_p_team_id_3b8e02_idx"),
                 ],
                 "constraints": [
                     models.CheckConstraint(
