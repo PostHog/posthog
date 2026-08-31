@@ -7,12 +7,14 @@ import pytest
 from products.tasks.backend.logic.stream.redis_stream import (
     DATA_KEY,
     TASK_RUN_STREAM_COMPLETED_TIMEOUT,
+    TASK_RUN_STREAM_SEQUENCE_TIMEOUT,
     TASK_RUN_STREAM_TIMEOUT,
     TaskRunRedisStream,
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
     TaskRunStreamSequenceGap,
     _stream_id_sort_key,
+    get_task_run_stream_completed_key,
     get_task_run_stream_key,
     publish_task_run_stream_complete,
     publish_task_run_stream_event,
@@ -142,12 +144,15 @@ async def test_terminal_sentinel_shortens_stream_ttl(
         await redis_stream.delete_stream()
 
 
-def test_publish_task_run_stream_complete_shortens_stream_ttl() -> None:
+@pytest.mark.parametrize("already_completed", [False, True])
+def test_publish_task_run_stream_complete_shortens_stream_ttl(already_completed: bool) -> None:
     run_id = f"test:{uuid4()}"
     stream_key = get_task_run_stream_key(run_id)
     client = get_tasks_stream_redis_sync()
     try:
         assert publish_task_run_stream_event(run_id, {"type": "message"}) is not None
+        if already_completed:
+            client.set(get_task_run_stream_completed_key(stream_key), "1", ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
         assert client.ttl(stream_key) > TASK_RUN_STREAM_COMPLETED_TIMEOUT
 
         assert publish_task_run_stream_complete(run_id) is True

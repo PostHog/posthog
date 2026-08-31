@@ -659,6 +659,7 @@ def publish_task_run_stream_complete(run_id: str, use_dedicated: bool = False) -
             # fakeredis doesn't support WATCH/MULTI; the sequencing race the
             # transaction guards against can't happen under the test harness.
             if client.exists(completed_key):
+                client.expire(stream_key, TASK_RUN_STREAM_COMPLETED_TIMEOUT)
                 return True
             client.xadd(stream_key, {DATA_KEY: raw}, maxlen=TASK_RUN_STREAM_MAX_LENGTH, approximate=True)
             client.expire(stream_key, TASK_RUN_STREAM_COMPLETED_TIMEOUT)
@@ -671,6 +672,7 @@ def publish_task_run_stream_complete(run_id: str, use_dedicated: bool = False) -
                     pipe.watch(completed_key)
                     if pipe.exists(completed_key):
                         pipe.reset()
+                        client.expire(stream_key, TASK_RUN_STREAM_COMPLETED_TIMEOUT)
                         return True
                     pipe.multi()
                     pipe.xadd(stream_key, {DATA_KEY: raw}, maxlen=TASK_RUN_STREAM_MAX_LENGTH, approximate=True)
