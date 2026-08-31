@@ -2,7 +2,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '../../types'
-import { MAX_CONVERSION_WINDOW_MINUTES, buildConversionWatcher } from './hogflow-executor.service'
+import { MAX_CONVERSION_WINDOW_MINUTES, buildConversionWatcher } from './conversion-watcher'
 
 describe('buildConversionWatcher', () => {
     const propertyBytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11]
