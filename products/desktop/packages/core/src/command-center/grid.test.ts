@@ -19,6 +19,7 @@ import {
   makeTerminalCellValue,
   reflowCells,
   resizeCells,
+  resizeCellsForLayout,
 } from "./grid";
 
 describe("getGridDimensions / getCellCount", () => {
@@ -166,6 +167,43 @@ describe("resizeCells", () => {
   it("pads with null when growing", () => {
     expect(resizeCells(["a"], 4)).toEqual(["a", null, null, null]);
   });
+});
+
+describe("resizeCellsForLayout", () => {
+  it("packs occupied cells when the grid capacity shrinks", () => {
+    expect(
+      resizeCellsForLayout(
+        ["a", "b", "c", null, "deleted-task", "d"],
+        "3x2",
+        "2x2",
+        [0, 1, 2, 5],
+      ),
+    ).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it.each([
+    {
+      from: "3x1",
+      to: "2x2",
+      cells: ["a", null, "c"],
+      occupiedCellIndices: [0, 2],
+      expected: ["a", null, null, null],
+    },
+    {
+      from: "3x2",
+      to: "2x3",
+      cells: ["a", null, null, null, "b", null],
+      occupiedCellIndices: [0, 4],
+      expected: ["a", null, null, "b", null, null],
+    },
+  ] as const)(
+    "preserves coordinates when resizing from $from to $to without reducing capacity",
+    ({ from, to, cells, occupiedCellIndices, expected }) => {
+      expect(
+        resizeCellsForLayout(cells, from, to, occupiedCellIndices),
+      ).toEqual(expected);
+    },
+  );
 });
 
 describe("clampZoom", () => {
