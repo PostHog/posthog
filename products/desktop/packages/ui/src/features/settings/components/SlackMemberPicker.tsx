@@ -114,14 +114,29 @@ export function SlackMemberPicker({
         {(itemValue: string) => {
           const member = availableMembers.find((m) => m.id === itemValue);
           if (!member) return null;
+          // Display names are not unique in a workspace, so surface the unique
+          // handle alongside when it differs — otherwise two same-named members
+          // are indistinguishable and the wrong one could be DMed.
+          const showHandle =
+            Boolean(member.name) &&
+            member.name.toLowerCase() !== member.display_name.toLowerCase();
           return (
             <ComboboxItem
               key={member.id}
               value={member.id}
-              title={member.display_name}
+              title={
+                showHandle
+                  ? `${member.display_name} (${member.name})`
+                  : member.display_name
+              }
             >
               <UserIcon size={12} weight="regular" className="shrink-0" />
               <span className="min-w-0 truncate">{member.display_name}</span>
+              {showHandle ? (
+                <span className="shrink-0 text-muted-foreground">
+                  ({member.name})
+                </span>
+              ) : null}
             </ComboboxItem>
           );
         }}
