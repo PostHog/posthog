@@ -72,7 +72,7 @@ export function WizardLibraryModal({
             width={1000}
             maxWidth="95vw"
         >
-            <div className="flex h-[min(680px,75vh)] min-h-0 flex-col gap-5 lg:flex-row">
+            <div className="@container flex h-[min(680px,75vh)] min-h-0 flex-col gap-5 @3xl:flex-row">
                 <WizardProgramList
                     programs={filteredPrograms}
                     selectedProgram={selectedProgram}

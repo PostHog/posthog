@@ -12,9 +12,11 @@ jest.mock('./generated/api', () => ({ wizardRunsList: jest.fn() }))
 
 const mockWizardRunsList = wizardRunsList as jest.Mock
 
-function makeRun(): WizardRunApi {
+type WizardRunsResponse = Awaited<ReturnType<typeof wizardRunsList>>
+
+function makeRun(id = 'run-1'): WizardRunApi {
     return {
-        id: 'run-1',
+        id,
         team_id: 1,
         created_by_id: 1,
         environment: 'cloud',
@@ -39,6 +41,14 @@ function makeRun(): WizardRunApi {
         finished_at: null,
         deadline_at: '2026-08-26T11:00:00Z',
     }
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((promiseResolve) => {
+        resolve = promiseResolve
+    })
+    return { promise, resolve }
 }
 
 describe('wizardRunsLogic', () => {
@@ -73,6 +83,45 @@ describe('wizardRunsLogic', () => {
             runsInitialLoading: false,
             runs: [expect.objectContaining({ id: 'run-1' })],
         })
+    })
+
+    it('keeps the newest overlapping response', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const olderRequest = deferred<WizardRunsResponse>()
+        const newerRequest = deferred<WizardRunsResponse>()
+        mockWizardRunsList.mockImplementationOnce(() => olderRequest.promise)
+        mockWizardRunsList.mockImplementationOnce(() => newerRequest.promise)
+
+        logic.actions.loadRuns()
+        logic.actions.loadRuns()
+        newerRequest.resolve({ count: 1, next: null, previous: null, results: [makeRun('newer-run')] })
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(logic.values.runs).toEqual([expect.objectContaining({ id: 'newer-run' })])
+
+        olderRequest.resolve({ count: 1, next: null, previous: null, results: [makeRun('older-run')] })
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(logic.values.runs).toEqual([expect.objectContaining({ id: 'newer-run' })])
+    })
+
+    it('loads every page before filtering runs', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        mockWizardRunsList.mockClear()
+        const firstPage = Array.from({ length: 100 }, (_, index) => makeRun(`run-${index}`))
+        mockWizardRunsList
+            .mockResolvedValueOnce({ count: 101, next: 'next', previous: null, results: firstPage })
+            .mockResolvedValueOnce({ count: 101, next: null, previous: 'previous', results: [makeRun('run-100')] })
+
+        logic.actions.loadRuns()
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ runs: [...firstPage, makeRun('run-100')] })
+        expect(mockWizardRunsList).toHaveBeenNthCalledWith(1, expect.any(String), { limit: 100, offset: 0 })
+        expect(mockWizardRunsList).toHaveBeenNthCalledWith(2, expect.any(String), { limit: 100, offset: 100 })
     })
 
     it('searches runs by repository name', async () => {

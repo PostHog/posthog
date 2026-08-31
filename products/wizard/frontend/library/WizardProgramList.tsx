@@ -21,7 +21,7 @@ export function WizardProgramList({
     onSelect: (program: WizardProgramApi) => void
 }): JSX.Element {
     return (
-        <div className="flex h-full min-h-0 w-full flex-col gap-3 border-b pb-4 lg:w-90 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-4">
+        <div className="flex h-full min-h-0 w-full flex-col gap-3 border-b pb-4 @3xl:w-90 @3xl:border-b-0 @3xl:border-r @3xl:pb-0 @3xl:pr-4">
             <LemonInput
                 value={search}
                 onChange={onSearch}

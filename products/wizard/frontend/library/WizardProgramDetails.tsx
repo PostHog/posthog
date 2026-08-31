@@ -65,7 +65,7 @@ export function WizardProgramDetails({
     const supportsLocal = program.supported_environments.includes('local')
 
     return (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 lg:pl-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 @3xl:pl-3">
             <div>
                 <h3 className="mb-1 text-xl">{program.name}</h3>
                 <p className="m-0 text-sm text-muted">{program.description}</p>

@@ -8,6 +8,7 @@ import type { RunEnvironmentEnumApi, WizardRunApi, WizardRunStatusEnumApi } from
 import { wizardWorkspaceLabel } from './wizardRunDisplay'
 
 const RUN_POLL_INTERVAL_MS = 10_000
+const RUN_PAGE_SIZE = 100
 
 export interface wizardRunsLogicValues {
     currentProjectId: number | null
@@ -118,14 +119,28 @@ export const wizardRunsLogic = kea<wizardRunsLogicType>([
         runs: [
             [] as WizardRunApi[],
             {
-                loadRuns: async () => {
+                loadRuns: async (_, breakpoint) => {
                     if (!values.currentProjectId) {
                         return []
                     }
 
-                    const response = await wizardRunsList(String(values.currentProjectId), { limit: 50, offset: 0 })
+                    const runs: WizardRunApi[] = []
+                    let offset = 0
 
-                    return response.results
+                    while (true) {
+                        const response = await wizardRunsList(String(values.currentProjectId), {
+                            limit: RUN_PAGE_SIZE,
+                            offset,
+                        })
+                        breakpoint()
+                        runs.push(...response.results)
+
+                        if (runs.length >= response.count || response.results.length === 0) {
+                            return runs
+                        }
+
+                        offset += response.results.length
+                    }
                 },
             },
         ],
