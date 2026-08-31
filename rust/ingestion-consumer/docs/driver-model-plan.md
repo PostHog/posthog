@@ -53,8 +53,8 @@ Cycle 8 needs cycles 2 and 3.
 The swap unit in cycle 3 is the **scheduler**: the decision core that says which runs may go to a worker now, and where.
 That is where the complexity concentrates — the pins, the stash, and the flush interplay.
 Packing follows at once (cycle 4): the performance win depends only on the key-table scheduler, not on the event loop, decoupled commits, or the budget.
-The governor follows packing (cycle 5): it needs the scheduler's ready queue for its growth signal, and packing first, so RTT (request round-trip time) tunes against comparable requests.
-The request time budget follows (cycle 6): its enforcement precondition is the one-outstanding-request-per-key rule (#89995), and its budget sizes against the packed request size.
+The request time budget follows packing (cycle 5): its enforcement precondition is the one-outstanding-request-per-key rule (#89995), and its budget sizes against the packed request size.
+The governor follows (cycle 6): it needs the scheduler's ready queue for its growth signal, and it comes after packing and the time budget, so RTT (request round-trip time) tunes once, against the final request shape.
 The single-owner event loop follows as its own outcome (cycle 7), once the scheduler is simple.
 
 Each change ends with its interface impact: the types it adds, modifies, or removes.
@@ -76,11 +76,11 @@ A change that adds metrics lists their names.
 | 12 | 3 per-key order | Cleanup | Delete the old scheduler |
 | 13 | 4 target-sized requests | Implement | Add the packer |
 | 14 | 4 target-sized requests | Switchover | Set the packing targets |
-| 15 | 5 adaptive concurrency | Implement | Add the governor |
-| 16 | 5 adaptive concurrency | Switchover | Enable RTT adaptation |
-| 17 | 5 adaptive concurrency | Cleanup | Remove the fixed per-worker cap |
-| 18 | 6 partial redelivery | Implement | Add partial settlement and the request time budget |
-| 19 | 6 partial redelivery | Switchover | Set the request time budgets |
+| 15 | 5 partial redelivery | Implement | Add partial settlement and the request time budget |
+| 16 | 5 partial redelivery | Switchover | Set the request time budgets |
+| 17 | 6 adaptive concurrency | Implement | Add the governor |
+| 18 | 6 adaptive concurrency | Switchover | Enable RTT adaptation |
+| 19 | 6 adaptive concurrency | Cleanup | Remove the fixed per-worker cap |
 | 20 | 7 single-owner batcher | Structure | Collapse the batcher into one event loop |
 | 21 | 7 single-owner batcher | Cleanup | Remove the stream fences |
 | 22 | 8 decoupled commits | Switchover | Switch completion to group granularity |
@@ -363,7 +363,7 @@ Exit criterion after the targets: the request-size histograms center near T, and
 
 - Check the worker side first: a packed request spans polls and keys. Confirm the worker's `concurrentBatches` accounting and the meaning of `batch_id` still hold.
 - Pack runs from multiple runnable keys into one request near T. T counts events and bytes.
-- Emit immediately when the ready work can fill the free stream slots with near-T requests. Otherwise arm the pack deadline. The governor (cycle 5) replaces the slots with permits.
+- Emit immediately when the ready work can fill the free stream slots with near-T requests. Otherwise arm the pack deadline. The governor (cycle 6) replaces the slots with permits.
 - When the deadline expires, emit partial requests. The deadline also bounds the wait when held groups keep polls open: packing adds latency, never a deadlock.
 - Router order inside a pass: fill open requests on healthy workers first, then pick a worker with P2C from the aperture slice. Partition affinity is a tie-breaker only.
 
@@ -391,16 +391,65 @@ Exit criterion after the targets: the request-size histograms center near T, and
 
 - None in this repository. Config values only.
 
-## Cycle 5: concurrency adapts to worker health
+## Cycle 5: a slow request redelivers only its remainder
+
+Outcome: a worker stops a request at the consumer's time budget, acks the finished prefix, and only the remainder redelivers.
+Today one slow message holds every message behind it until the ack watchdog fences the whole stream, and everything unacked replays with duplicate work.
+This budget is time per request. It is not B, the uncommitted-work budget of cycle 9.
+
+It needs #89995 merged on the worker side (`soft_budget_ms` on the wire, the `PARTIAL` ack).
+It needs cycle 3: one outstanding request per key is #89995's stated enforcement precondition.
+It sizes the budget against cycle 4's request size. Its cap on request RTT matters for cycle 6: set `REQUEST_LATENCY_BUDGET` below the soft budget, or the governor never shrinks.
+
+**Verify:** a generous budget on one lane enforces rarely and exercises the real partial-ack path at negligible volume.
+Exit criterion: partial acks resolve and their remainders redeliver in order, zero key-order sentinel violations, and ack-watchdog teardowns (`ingestion_consumer_worker_stream_teardowns_total`) fall.
+
+### 15. Add partial settlement and the request time budget (implement)
+
+**Task:** Teach the transport the `PARTIAL` ack and the scheduler a partial settlement. Ship with no budget set: absent means unlimited, today's behavior.
+
+**Goal:** Partial redelivery exists as one settlement arm, not a new path.
+
+- The stream runner parses `PARTIAL` and resolves the send with the accepted index list, instead of fencing it as busy.
+- The scheduler's partial arm is the failure arm plus a completed prefix: complete each key's finished prefix as group completions, return the remainder to the front of its queue, and keep the key blocked until the redelivery settles.
+- The prototype against the old machinery (#91480) showed the cost of doing this earlier: concurrent polls and per-batch accounting push partial handling through the deferral paths. Behind the key table it is one `on_settled` arm.
+- Stamp `soft_budget_ms` on each request from config. Unset sends no budget.
+
+**Interfaces:**
+
+- Modify the ack handling in `grpc_transport.rs`: parse `PARTIAL`; resolve with the accepted indexes.
+- Modify the settlement types and `KeyTableScheduler::on_settled`: add the partial arm.
+- Modify `Config`: add the soft budget per request, default unset.
+
+**Metrics:**
+
+- Add `ingestion_consumer_request_budget_partials_total` (counter) and `ingestion_consumer_request_budget_timed_out_messages_total` (counter). The names match the wire: a `PARTIAL` ack with a `timed_out` index list.
+
+### 16. Set the request time budgets (switchover)
+
+**Task:** Set the soft budget per lane: first generous, then real.
+
+**Goal:** A slow request costs a partial redelivery, not a fenced stream and a full replay.
+
+- A charts values PR sets the budget lane by lane. The generous stage is the cycle's verify.
+- Watch the partial and timed-out counters, the key-order sentinel, and stream teardowns.
+- Rollback is unsetting the values.
+
+**Interfaces:**
+
+- None in this repository. Config values only.
+
+## Cycle 6: concurrency adapts to worker health
 
 Outcome: request RTT governs the number of requests in flight.
 It needs cycle 4: packing makes request sizes uniform, so the RTT signal tunes against comparable requests.
+It comes after cycle 5, so the governor tunes once, against budget-capped RTT: set `REQUEST_LATENCY_BUDGET` below the soft budget, or it never shrinks.
 The growth signal — ready work waiting on permits — comes from the key-table scheduler's ready queue.
 
-**Verify:** with adaptation off, change 15 reports the decisions it would make.
+**Verify:** with adaptation off, change 17 reports the decisions it would make.
 Exit criterion: `ingestion_consumer_governor_adjustments_total` shows shrink signals under induced worker latency and stays quiet under normal load.
 
-### 15. Add the governor (implement)
+### 17. Add the governor (implement)
 
 **Task:** Add the permit pool and the RTT EWMA (an exponentially weighted moving average). Ship with adaptation off: permits mirror the current per-worker cap.
 
@@ -424,7 +473,7 @@ Exit criterion: `ingestion_consumer_governor_adjustments_total` shows shrink sig
 - Add `ingestion_consumer_governor_permits` (gauge) and `ingestion_consumer_request_rtt_seconds` (gauge, the EWMA).
 - Add `ingestion_consumer_governor_adjustments_total` (counter, direction `grow` or `shrink`). With adaptation off, it counts would-be decisions.
 
-### 16. Enable RTT adaptation (switchover)
+### 18. Enable RTT adaptation (switchover)
 
 **Task:** Turn adaptation on. Request RTT governs the permit pool.
 
@@ -437,7 +486,7 @@ Exit criterion: `ingestion_consumer_governor_adjustments_total` shows shrink sig
 
 - Modify `Config`: enable adaptation.
 
-### 17. Remove the fixed per-worker cap (cleanup)
+### 19. Remove the fixed per-worker cap (cleanup)
 
 **Task:** Remove the per-worker `max_unacked` cap after adaptation is stable on all lanes.
 
@@ -446,54 +495,6 @@ Exit criterion: `ingestion_consumer_governor_adjustments_total` shows shrink sig
 **Interfaces:**
 
 - Modify `GrpcTransport`: remove the per-worker cap and its config. Stream channels keep `DEPTH_MAX`.
-
-## Cycle 6: a slow request redelivers only its remainder
-
-Outcome: a worker stops a request at the consumer's time budget, acks the finished prefix, and only the remainder redelivers.
-Today one slow message holds every message behind it until the ack watchdog fences the whole stream, and everything unacked replays with duplicate work.
-This budget is time per request. It is not B, the uncommitted-work budget of cycle 9.
-
-It needs #89995 merged on the worker side (`soft_budget_ms` on the wire, the `PARTIAL` ack).
-It needs cycle 3: one outstanding request per key is #89995's stated enforcement precondition.
-It sizes the budget against cycle 4's request size, and its cap on request RTT interacts with cycle 5: tune `REQUEST_LATENCY_BUDGET` below the soft budget, or the governor never shrinks.
-
-**Verify:** a generous budget on one lane enforces rarely and exercises the real partial-ack path at negligible volume.
-Exit criterion: partial acks resolve and their remainders redeliver in order, zero key-order sentinel violations, and ack-watchdog teardowns (`ingestion_consumer_worker_stream_teardowns_total`) fall.
-
-### 18. Add partial settlement and the request time budget (implement)
-
-**Task:** Teach the transport the `PARTIAL` ack and the scheduler a partial settlement. Ship with no budget set: absent means unlimited, today's behavior.
-
-**Goal:** Partial redelivery exists as one settlement arm, not a new path.
-
-- The stream runner parses `PARTIAL` and resolves the send with the accepted index list, instead of fencing it as busy.
-- The scheduler's partial arm is the failure arm plus a completed prefix: complete each key's finished prefix as group completions, return the remainder to the front of its queue, and keep the key blocked until the redelivery settles.
-- The prototype against the old machinery (#91480) showed the cost of doing this earlier: concurrent polls and per-batch accounting push partial handling through the deferral paths. Behind the key table it is one `on_settled` arm.
-- Stamp `soft_budget_ms` on each request from config. Unset sends no budget.
-
-**Interfaces:**
-
-- Modify the ack handling in `grpc_transport.rs`: parse `PARTIAL`; resolve with the accepted indexes.
-- Modify the settlement types and `KeyTableScheduler::on_settled`: add the partial arm.
-- Modify `Config`: add the soft budget per request, default unset.
-
-**Metrics:**
-
-- Add `ingestion_consumer_request_budget_partials_total` (counter) and `ingestion_consumer_request_budget_timed_out_messages_total` (counter). The names match the wire: a `PARTIAL` ack with a `timed_out` index list.
-
-### 19. Set the request time budgets (switchover)
-
-**Task:** Set the soft budget per lane: first generous, then real.
-
-**Goal:** A slow request costs a partial redelivery, not a fenced stream and a full replay.
-
-- A charts values PR sets the budget lane by lane. The generous stage is the cycle's verify.
-- Watch the partial and timed-out counters, the key-order sentinel, and stream teardowns.
-- Rollback is unsetting the values.
-
-**Interfaces:**
-
-- None in this repository. Config values only.
 
 ## Cycle 7: the batcher is one single-owner event loop
 
