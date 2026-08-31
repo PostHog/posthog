@@ -16,6 +16,7 @@ from products.wizard.backend.logic.workers.commands import wizard_handoff_output
 from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
     LOCAL_WIZARD_INSTALL_PATH,
+    WIZARD_PACKAGE_INSTALL_PATH,
     local_wizard_source_root,
 )
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest
@@ -199,11 +200,15 @@ def test_prepare_local_wizard_reports_build_stderr(get_sandbox_class: MagicMock,
 
 @parameterized.expand(
     (
-        ("default", (), "npx --yes @posthog/wizard@2.60.0 --headless-DONOTUSE-EXPERIMENTAL"),
+        (
+            "default",
+            (),
+            f"node {WIZARD_PACKAGE_INSTALL_PATH}/node_modules/@posthog/wizard/dist/bin.js --headless-DONOTUSE-EXPERIMENTAL",
+        ),
         (
             "nested",
             ("audit", "web-analytics"),
-            "npx --yes @posthog/wizard@2.60.0 audit web-analytics --headless-DONOTUSE-EXPERIMENTAL",
+            f"node {WIZARD_PACKAGE_INSTALL_PATH}/node_modules/@posthog/wizard/dist/bin.js audit web-analytics --headless-DONOTUSE-EXPERIMENTAL",
         ),
     )
 )
@@ -229,8 +234,10 @@ def test_execute_wizard_uses_selected_program(
 
     get_sandbox_class.return_value.get_by_id.assert_called_once_with(request.sandbox_id)
     command = sandbox.execute.call_args.args[0]
-    assert command.startswith(f"cd {request.workspace_path} &&")
     assert expected_invocation in command
+    assert f"--prefix {WIZARD_PACKAGE_INSTALL_PATH}" in command
+    assert "--registry=https://registry.npmjs.org" in command
+    assert command.index("npm ") < command.index(f"cd {request.workspace_path}")
     assert "wizard-secret" not in command
 
 
@@ -251,6 +258,7 @@ def test_execute_wizard_uses_prepared_local_wizard(get_sandbox_class: MagicMock)
 
     command = sandbox.execute.call_args.args[0]
     assert f"node {LOCAL_WIZARD_INSTALL_PATH}/dist/bin.js audit web-analytics" in command
+    assert "npm " not in command
 
 
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
