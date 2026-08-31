@@ -84,6 +84,14 @@ Tokens do not enter Temporal inputs, workflow history, run metadata, or logs.
 Wizard owns the Worker command, environment, credentials, resource limits, timeouts, and diff behavior.
 Tasks provides only generic repository-token and sandbox helpers through public facades.
 
+## Deployment configuration
+
+The production rollout depends on the [Wizard Worker chart](https://github.com/PostHog/charts/pull/14662) and [cloud infrastructure](https://github.com/PostHog/posthog-cloud-infra/pull/10081) changes.
+The chart must run a worker that polls `wizard-task-queue` before cloud run creation is enabled.
+`WIZARD_RUN_ARTIFACTS_S3_BUCKET` must identify the provisioned artifact bucket.
+`WIZARD_RUN_CREATE_THROTTLE_RATE` and `WIZARD_RUN_READ_THROTTLE_RATE` can override the default API limits.
+`LOCAL_WIZARD_ROOT` only enables local source uploads when Django runs in debug mode.
+
 ## Run Artifacts
 
 V0 stores a non-empty Git diff in object storage.
