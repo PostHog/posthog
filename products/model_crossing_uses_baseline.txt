@@ -412,6 +412,7 @@ posthog.Team workflows.HogFlowRevision.team reverse-accessor(hogflowrevision_set
 posthog.Team workflows.HogFlowSchedule.team reverse-accessor(hogflowschedule_set) 1
 posthog.Team workflows.HogFlowTemplate.team reverse-accessor(hogflowtemplate_set) 1
 posthog.Team workflows.TeamWorkflowsConfig.team reverse-accessor(teamworkflowsconfig) 1
+posthog.Team workflows.WorkflowProposal.team reverse-accessor(workflowproposal_set) 1
 posthog.User access_control.AccessControl.created_by reverse-accessor(accesscontrol_set) 1
 posthog.User access_control.OrganizationResourceAccess.created_by reverse-accessor(organizationresourceaccess_set) 1
 posthog.User access_control.PropertyAccessControl.created_by reverse-accessor(propertyaccesscontrol_set) 1
@@ -595,6 +596,8 @@ posthog.User workflows.HogFlow.created_by reverse-accessor(hogflow_set) 1
 posthog.User workflows.HogFlowBatchJob.created_by reverse-accessor(hogflowbatchjob_set) 1
 posthog.User workflows.HogFlowRevision.created_by reverse-accessor(hogflowrevision_set) 1
 posthog.User workflows.HogFlowTemplate.created_by reverse-accessor(hogflowtemplate_set) 1
+posthog.User workflows.WorkflowProposal.created_by reverse-accessor(workflowproposal_set) 1
+posthog.User workflows.WorkflowProposal.resolved_by reverse-accessor(resolved_workflow_proposals) 1
 posthog.UserIntegration tasks.Task.github_user_integration reverse-accessor(task_set) 1
 product_analytics.Insight alerts.Alert.insight reverse-accessor(alert_set) 1
 product_analytics.Insight alerts.AlertConfiguration.insight reverse-accessor(alertconfiguration_set) 1
