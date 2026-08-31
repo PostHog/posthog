@@ -518,6 +518,44 @@ class TestPostgresSourceNonRetryableErrors:
         assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
 
     @pytest.mark.parametrize(
+        "error_msg,expected_phrase",
+        [
+            (
+                'OperationalError: connection failed: connection to server at "db.example.com" (10.0.0.1), port 5432 failed: server closed the connection unexpectedly',
+                "closing",
+            ),
+            (
+                'OperationalError: connection failed: connection to server at "db.example.com" (10.0.0.1), port 5432 failed: FATAL: the database system is starting up',
+                "accepting connections",
+            ),
+            (
+                'OperationalError: connection failed: connection to server at "db.example.com" (10.0.0.1), port 5432 failed: FATAL: sorry, too many clients already',
+                "connection slots",
+            ),
+        ],
+    )
+    def test_exhausted_retries_replace_raw_driver_text(self, source, error_msg, expected_phrase):
+        # Once Temporal's retries run out these land on the job as-is, so without a mapping the
+        # customer reads libpq's host and IP and gets no next action. Mirror the finalizer's
+        # first-match selection over get_retry_exhausted_errors.
+        message = next(
+            (
+                friendly
+                for pattern, friendly in source.get_retry_exhausted_errors().items()
+                if error_message_matches(error_msg, [pattern])
+            ),
+            None,
+        )
+        assert message is not None, f"Exhausted retryable error must surface a message: {error_msg}"
+        assert expected_phrase in message.lower()
+        assert "db.example.com" not in message and "10.0.0.1" not in message
+
+    def test_every_retryable_error_has_an_exhaustion_message(self, source):
+        # A transient substring added to postgres.py flows into get_retryable_errors automatically,
+        # so one missing here would silently fall back to storing the raw driver text.
+        assert source.get_retryable_errors() == set(source.get_retry_exhausted_errors().keys())
+
+    @pytest.mark.parametrize(
         "error_msg",
         [
             # Raw psycopg message (what the activity-level check sees via str(e)) when require_ssl=False

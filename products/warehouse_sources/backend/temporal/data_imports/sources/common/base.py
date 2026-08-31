@@ -231,6 +231,26 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return set()
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        """Customer-facing messages for retryable failures that survived the whole retry budget.
+
+        Entries here do NOT change retryability — a matching failure keeps retrying and the schema
+        stays enabled. They only replace the raw driver text the job would otherwise store once
+        Temporal's retries run out, so `latest_error` names the failure class and a next action
+        instead of leaking connection internals.
+
+        Keys are partial error messages matched against `str(error)`, and should be drawn from
+        `get_retryable_errors` — a class the source never retries has no exhaustion to describe.
+        `get_non_retryable_errors` is consulted first, so a message matching both keeps the
+        non-retryable wording.
+
+        Returns `dict[str, str]`:
+            key = a partial error message to match on
+            value = the message to store on the failed job
+        """
+
+        return {}
+
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
         """Sibling schemas `schema_name` reads from the warehouse instead of re-fetching.
 

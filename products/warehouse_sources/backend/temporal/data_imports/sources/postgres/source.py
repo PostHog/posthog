@@ -237,6 +237,30 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = (
     "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
 )
 
+# Terminal messages for the transient classes in `get_retryable_errors`. Those stay retryable, but
+# once every retry is spent the job stores whatever the driver said — a raw libpq or pooler string
+# carrying the customer's host and IP and no next action. Each message below names the class and
+# what to check, and deliberately carries no connection detail. See `get_retry_exhausted_errors`.
+_CONNECTION_DROPPED_EXHAUSTED_MESSAGE = (
+    "PostHog's connection to your database kept closing before the sync could finish, and "
+    "reconnecting didn't help. The database, a connection pooler, a firewall, or an SSH tunnel is "
+    "ending the connection early. Check those for idle or connection lifetime timeouts, restarts, "
+    "and failovers. This sync is still enabled and will run again on its next schedule."
+)
+
+_SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE = (
+    "Your database wasn't accepting connections, and it was still unavailable after every retry. It "
+    "reported that it's starting up, recovering, or shutting down. Check that the database is "
+    "running and healthy. This sync is still enabled and will run again on its next schedule."
+)
+
+_CONNECTION_LIMIT_EXHAUSTED_MESSAGE = (
+    "Your database had no free connection slots for PostHog, and none freed up before the retries "
+    "ran out. Raise the connection limit on the database or its pooler, or reduce how many other "
+    "clients connect at the same time. This sync is still enabled and will run again on its next "
+    "schedule."
+)
+
 
 @SourceRegistry.register
 class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
@@ -925,6 +949,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Every substring `get_retryable_errors` keeps retryable, mapped to the message the job
+        # stores once Temporal's retries are spent. Without this the terminal `latest_error` is the
+        # raw driver text (for example libpq's "connection to server at "<host>" (<ip>), port <port>
+        # failed: server closed the connection unexpectedly"), which leaks the customer's connection
+        # detail, offers no next action, and reads the same whether a sync dropped once or has been
+        # failing all week.
+        #
+        # Built from the same tuples as `get_retryable_errors` so a substring added there can't
+        # silently fall back to raw driver text here.
+        return {
+            **dict.fromkeys(_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
+            **dict.fromkeys(_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
+            **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
+            **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
         }
 
     def reconcile_schema_metadata(
