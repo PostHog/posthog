@@ -705,6 +705,7 @@ depends_on = [
     "products.alerts",
     "products.cdp",
     "products.cohorts",
+    "products.event_definitions",
     "products.experiments",
     "products.exports",
     "products.notifications",
