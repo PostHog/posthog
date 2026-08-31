@@ -61,7 +61,10 @@ describe('webhook template', () => {
 
         expect(response.error).toBeUndefined()
         const params = response.invocation.queueParameters as any
-        expect(params.standard_webhooks).toEqual({ secret_input: 'signing_secret' })
+        expect(params.standard_webhooks).toEqual({
+            secret_input: 'signing_secret',
+            webhook_id: expect.any(String),
+        })
         expect(JSON.stringify(params)).not.toContain('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw')
     })
 

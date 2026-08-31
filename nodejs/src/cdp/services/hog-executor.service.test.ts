@@ -1552,6 +1552,11 @@ describe('Hog Executor', () => {
             // as a receiver's verification library would.
             const KEY = Buffer.from('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw', 'base64')
             const BODY = '{"test": 2432232314}'
+            // Shaped like what the fetch async function puts on the queue payload.
+            const SIGNING_REFS = {
+                secret_input: 'signing_secret',
+                webhook_id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
+            }
 
             const seedSigningSecretInput = (invocation: CyclotronJobInvocationHogFunction) => {
                 invocation.hogFunction.encrypted_inputs = {
@@ -1580,14 +1585,14 @@ describe('Hog Executor', () => {
                     method: 'POST',
                     body: BODY,
                     headers: { 'Content-Type': 'application/json' },
-                    standard_webhooks: { secret_input: 'signing_secret' },
+                    standard_webhooks: SIGNING_REFS,
                 })
                 seedSigningSecretInput(invocation)
 
                 const result = await executor.executeFetch(invocation)
 
                 expect(result.error).toBeUndefined()
-                expect(receivedId).toBe(invocation.id)
+                expect(receivedId).toBe(SIGNING_REFS.webhook_id)
                 // Date.now is mocked to 2025-01-01T00:00:00Z in beforeEach
                 expect(receivedTimestamp).toBe('1735689600')
                 expect(receivedSignature).toBe(expectedSignature(receivedId!, receivedTimestamp!))
@@ -1620,7 +1625,7 @@ describe('Hog Executor', () => {
                     method: 'POST',
                     body: BODY,
                     headers: { 'Content-Type': 'application/json' },
-                    standard_webhooks: { secret_input: 'signing_secret' },
+                    standard_webhooks: SIGNING_REFS,
                 })
                 seedSigningSecretInput(invocation)
 
@@ -1652,7 +1657,7 @@ describe('Hog Executor', () => {
                     method: 'POST',
                     body: BODY,
                     headers: { 'Content-Type': 'application/json' },
-                    standard_webhooks: { secret_input: 'signing_secret' },
+                    standard_webhooks: SIGNING_REFS,
                 })
                 // Intentionally do NOT seed inputs.
 

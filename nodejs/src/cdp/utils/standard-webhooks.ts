@@ -13,6 +13,14 @@ const SIGNING_HEADERS = new Set(['webhook-id', 'webhook-timestamp', 'webhook-sig
 // See https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md
 const BASE64_SECRET_REGEX = /^[A-Za-z0-9+/]+={0,2}$/
 
+// The spec puts symmetric signing secrets at 24 bytes or more. Shorter almost
+// always means a truncated paste, and base64 decoding is lenient enough to turn
+// one into a short or even empty HMAC key, which anyone could reproduce. Fail
+// here so the customer sees the cause instead of a 403 from the receiver. There
+// is deliberately no upper bound: HMAC-SHA256 folds a long key down itself, so
+// rejecting one would only break a receiver that issues them.
+const MIN_SECRET_KEY_BYTES = 24
+
 export type ResolvedStandardWebhooksKey = { ok: true; key: Buffer } | { ok: false; error: string }
 
 export type SignStandardWebhooksRequestArgs = {
@@ -24,7 +32,7 @@ export type SignStandardWebhooksRequestArgs = {
 }
 
 export function resolveStandardWebhooksKey(
-    params: CyclotronInvocationQueueParametersFetchStandardWebhooksType,
+    params: Pick<CyclotronInvocationQueueParametersFetchStandardWebhooksType, 'secret_input'>,
     hogFunction: Pick<HogFunctionType, 'inputs' | 'encrypted_inputs'>
 ): ResolvedStandardWebhooksKey {
     const secret = resolveHogFunctionInputValue(hogFunction, params.secret_input)
@@ -45,7 +53,16 @@ export function resolveStandardWebhooksKey(
         }
     }
 
-    return { ok: true, key: Buffer.from(encoded, 'base64') }
+    const key = Buffer.from(encoded, 'base64')
+
+    if (key.length < MIN_SECRET_KEY_BYTES) {
+        return {
+            ok: false,
+            error: `Standard Webhooks signing failed: the signing secret decodes to ${key.length} bytes, but the spec requires at least ${MIN_SECRET_KEY_BYTES}. Check that the whole secret was pasted.`,
+        }
+    }
+
+    return { ok: true, key }
 }
 
 /**

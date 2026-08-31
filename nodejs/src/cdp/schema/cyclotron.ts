@@ -119,8 +119,13 @@ export const CyclotronInvocationQueueParametersFetchAwsSigV4Schema = z.object({
 // fetch executor signs the request per the Standard Webhooks spec immediately
 // before each attempt. Like `aws_sigv4` above, `secret_input` is an input-key
 // reference resolved at fetch time, because the queue payload is plaintext JSON.
+// `webhook_id` is minted per fetch call by the fetch async function and lives in
+// the payload so retries of that call reuse it: the spec makes it the receiver's
+// idempotency key, so it must stay constant across attempts of one delivery and
+// differ between two deliveries, including two in the same invocation.
 export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.object({
     secret_input: z.string(),
+    webhook_id: z.string(),
 })
 
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({

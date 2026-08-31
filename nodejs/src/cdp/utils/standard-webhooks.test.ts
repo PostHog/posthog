@@ -38,6 +38,10 @@ describe('standard-webhooks', () => {
             ['not a string', hogFunctionWith(12345)],
             ['an empty string', hogFunctionWith('')],
             ['not valid base64', hogFunctionWith('whsec_not!!valid@@base64')],
+            // Lenient base64 decoding turns a truncated paste into a short or
+            // even empty HMAC key, which anyone could reproduce.
+            ['truncated to a single base64 character', hogFunctionWith('whsec_A')],
+            ['shorter than the 24 bytes the spec requires', hogFunctionWith(`whsec_${BASE64_SECRET.slice(0, 16)}`)],
         ])('refuses to produce a key when the secret is %s', (_name, hogFunction) => {
             const resolved = resolveStandardWebhooksKey({ secret_input: 'signing_secret' }, hogFunction as any)
 

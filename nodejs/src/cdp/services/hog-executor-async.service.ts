@@ -469,16 +469,16 @@ export class HogExecutorAsyncService {
         // Standard Webhooks signatures embed a timestamp the receiver checks
         // against a tolerance window (5 minutes in the reference libraries), so
         // like AWS SigV4 above they are computed immediately before each attempt
-        // and never persisted back to queueParameters. `invocation.id` is stable
-        // across retries, which gives the receiver the constant `webhook-id`
-        // idempotency key the spec asks for.
+        // and never persisted back to queueParameters. The `webhook-id` the
+        // receiver dedupes on is the exception: it comes from the queue payload,
+        // which the retry path preserves, so it stays constant across attempts.
         if (params.standard_webhooks) {
             const resolved = resolveStandardWebhooksKey(params.standard_webhooks, invocation.hogFunction)
             if (!resolved.ok) {
                 return failSigning(resolved.error)
             }
             signedHeaders = signStandardWebhooksRequest({
-                webhookId: invocation.id,
+                webhookId: params.standard_webhooks.webhook_id,
                 body: params.body ?? '',
                 headers: signedHeaders,
                 key: resolved.key,
