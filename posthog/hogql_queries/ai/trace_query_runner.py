@@ -49,11 +49,14 @@ TRACE_FIELDS_MAPPING: dict[str, str] = {
 
 class TraceQueryDateRange(QueryDateRange):
     """
-    Provides a bounded capture range for the shared-events fallback.
+    Provides a bounded capture range for both read paths.
 
-    The dedicated table is ordered by `(team_id, trace_id, timestamp)`, so an exact trace lookup
-    does not need timestamp bounds. Shared events is ordered by day and event, so its fallback
-    stays time-bounded.
+    A trace ID is not guaranteed unique over time: a caller can reuse the same ID for a new
+    trace instance days or months later. Without timestamp bounds the query groups every event
+    that ever carried the ID into one trace, so the response mixes separate instances and returns
+    events outside the requested window. Both read paths therefore stay time-bounded to the
+    requested window plus these capture buffers, which keeps a single instance intact while
+    dropping the others.
     """
 
     # Backward buffer: clock skew / the small negative anchor the frontend applies to date_from.
@@ -85,11 +88,10 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     def _calculate(self):
         query_result = query_ai_events(
             query=self._build_query(),
-            placeholders={"filter_conditions": self._get_where_clause(include_timestamp_bounds=False)},
+            placeholders={"filter_conditions": self._get_where_clause()},
             team=self.team,
             query_type=NodeKind.TRACE_QUERY,
             fall_back_to_events=True,
-            fallback_placeholders={"filter_conditions": self._get_where_clause()},
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -238,23 +240,19 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
 
         return last_refresh + timedelta(minutes=1)
 
-    def _get_where_clause(self, *, include_timestamp_bounds: bool = True) -> ast.Expr:
-        where_exprs: list[ast.Expr] = []
-        if include_timestamp_bounds:
-            where_exprs.extend(
-                [
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["ai_events", "timestamp"]),
-                        right=self._date_range.date_from_as_hogql(),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.LtEq,
-                        left=ast.Field(chain=["ai_events", "timestamp"]),
-                        right=self._date_range.date_to_as_hogql(),
-                    ),
-                ]
-            )
+    def _get_where_clause(self) -> ast.Expr:
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["ai_events", "timestamp"]),
+                right=self._date_range.date_from_as_hogql(),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["ai_events", "timestamp"]),
+                right=self._date_range.date_to_as_hogql(),
+            ),
+        ]
 
         where_exprs.append(
             ast.CompareOperation(

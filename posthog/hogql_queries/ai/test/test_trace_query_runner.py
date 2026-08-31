@@ -966,6 +966,45 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(trace.totalLatency, 3.9)
         self.assertEqual(trace.events[0].properties.get("$ai_input"), [{"role": "user", "content": "Foo"}])
 
+    def test_reused_trace_id_excludes_events_outside_window(self):
+        # A trace ID is not unique over time: the same ID can anchor a separate trace instance
+        # months later. Without timestamp bounds on the ai_events read the query merges both
+        # instances, so the response leaks events from outside the requested window.
+        trace_id = str(uuid.uuid4())
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": datetime(2024, 6, 1, 0, 0, tzinfo=UTC),
+                    "event_uuid": str(uuid.uuid4()),
+                    "properties": {"$ai_trace_id": trace_id, "$ai_input": [{"role": "user", "content": "old"}]},
+                },
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": datetime(2024, 12, 1, 0, 0, tzinfo=UTC),
+                    "event_uuid": str(uuid.uuid4()),
+                    "properties": {"$ai_trace_id": trace_id, "$ai_input": [{"role": "user", "content": "new"}]},
+                },
+            ]
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        trace = response.results[0]
+        self.assertEqual(len(trace.events), 1)
+        self.assertTrue(trace.events[0].createdAt.startswith("2024-12-01"))
+
     def test_trace_name_from_trace_event(self):
         """Test that trace_name comes from $ai_trace events when they exist."""
         _create_person(distinct_ids=["person1"], team=self.team)
