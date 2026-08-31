@@ -36,6 +36,7 @@ SLACK_USER_CONFIG_ERRORS = frozenset(
 SLACK_GALLERY_CONFIG_ERRORS = frozenset(
     {
         "file_uploads_disabled",
+        "file_upload_size_restricted",
         "file_type_not_allowed",
         "storage_limit_reached",
         "ekm_access_denied",

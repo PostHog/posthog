@@ -31,6 +31,16 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         ])('%s', (_name, status, diagnostics, expected) => {
             expect(isPartialDelivery({ status, ai_report_diagnostics: diagnostics })).toBe(expected)
         })
+
+        it('marks a completed delivery with a partial recipient result as partial', () => {
+            expect(
+                isPartialDelivery({
+                    status: SubscriptionDeliveryStatusEnumApi.Completed,
+                    ai_report_diagnostics: [],
+                    recipient_results: [{ recipient: 'C123|#reports', status: 'partial', error: null }],
+                })
+            ).toBe(true)
+        })
     })
 
     describe('queryStatusLabel', () => {

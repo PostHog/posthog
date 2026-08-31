@@ -11,14 +11,19 @@ import type {
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-/** A completed AI delivery whose report couldn't compute some queries still shipped — but with missing
- * metrics — so it reads as "Partial", not a clean "Completed". Derived from the (query:viewer-gated)
- * diagnostics the viewer already has; a query-restricted caller (diagnostics scrubbed) sees "Completed". */
-export function isPartialDelivery(row: Pick<SubscriptionDeliveryApi, 'status' | 'ai_report_diagnostics'>): boolean {
+/** Recipient failures are visible to every viewer. Query failures only affect viewers with access to
+ * diagnostics because the API scrubs those diagnostics for query-restricted viewers. */
+export function isPartialDelivery(
+    row: Pick<SubscriptionDeliveryApi, 'status' | 'ai_report_diagnostics'> &
+        Partial<Pick<SubscriptionDeliveryApi, 'recipient_results'>>
+): boolean {
     if (row.status !== SubscriptionDeliveryStatusEnumApi.Completed) {
         return false
     }
-    return (row.ai_report_diagnostics ?? []).some((d) => d.ok === false)
+    return (
+        (row.ai_report_diagnostics ?? []).some((d) => d.ok === false) ||
+        parseRecipientResults(row.recipient_results).some((result) => result.status === 'partial')
+    )
 }
 
 /** The "Partial" status tag for a completed delivery whose report couldn't compute some queries. Null when

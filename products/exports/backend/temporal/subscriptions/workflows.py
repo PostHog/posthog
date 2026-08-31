@@ -489,11 +489,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 if temporalio.workflow.patched("subscription-delivery-campaign-v2")
                 else deliver_subscription
             )
-            delivery_retry_policy = (
-                temporalio.common.RetryPolicy(maximum_attempts=1)
-                if prepare_result.is_slack_gallery
-                else SUBSCRIPTION_DELIVER_RETRY_POLICY
-            )
             failure_stage = SubscriptionFailureStage.DELIVERY
             deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
                 delivery_activity,
@@ -513,7 +508,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     delivery_id=delivery_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=delivery_retry_policy,
+                retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
             )
 
             # Capture per-recipient results for the delivery record
@@ -538,6 +533,17 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         "error_message": returned_error.get("message", "Subscription delivery failed"),
                         "failure_stage": SubscriptionFailureStage.DELIVERY.value,
                         "failure_category": "delivery_result",
+                        "failure_component": _FAILURE_STAGE_COMPONENT[SubscriptionFailureStage.DELIVERY],
+                        "failure_retryable": False,
+                    }
+                )
+            elif inputs.slo and any(result["status"] == "partial" for result in delivery_recipient_results):
+                inputs.slo.outcome = SloOutcome.FAILURE
+                inputs.slo.completion_properties.update(
+                    {
+                        "partial_delivery": True,
+                        "failure_stage": SubscriptionFailureStage.DELIVERY.value,
+                        "failure_category": "partial_delivery_result",
                         "failure_component": _FAILURE_STAGE_COMPONENT[SubscriptionFailureStage.DELIVERY],
                         "failure_retryable": False,
                     }

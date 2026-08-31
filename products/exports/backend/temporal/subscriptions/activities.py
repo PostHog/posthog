@@ -275,10 +275,6 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
     team = subscription.team
     dashboard = subscription.dashboard
-    is_slack_gallery = subscription.target_type == Subscription.SubscriptionTarget.SLACK and bool(
-        subscription.delivery_config.get("post_all_insights_in_main_message")
-    )
-
     await LOGGER.ainfo(
         "create_export_assets.loaded",
         subscription_id=inputs.subscription_id,
@@ -320,7 +316,6 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             team_id=team.id,
             distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
             target_type=subscription.target_type,
-            is_slack_gallery=is_slack_gallery,
             available_insight_count=resolved_insights.available_insight_count,
             selected_insight_count=resolved_insights.selected_insight_count,
             status=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
@@ -392,7 +387,6 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         team_id=team.id,
         distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
         target_type=subscription.target_type,
-        is_slack_gallery=is_slack_gallery,
         available_insight_count=resolved_insights.available_insight_count,
         selected_insight_count=resolved_insights.selected_insight_count,
     )
@@ -472,9 +466,9 @@ async def _deliver_insight_dashboard_subscription(
     assets_by_id = await database_sync_to_async(
         lambda: {
             a.id: a
-            for a in ExportedAsset.objects_including_ttl_deleted.select_related("insight", "dashboard").filter(
-                pk__in=inputs.exported_asset_ids
-            )
+            for a in ExportedAsset.objects_including_ttl_deleted.select_related("insight", "dashboard")
+            .defer("content")
+            .filter(pk__in=inputs.exported_asset_ids)
         },
         thread_sensitive=False,
     )()
@@ -531,6 +525,7 @@ async def _deliver_insight_dashboard_subscription(
                 is_new_subscription=send_only_to_new_recipients,
                 change_summary=inputs.change_summary,
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
+                delivery_id=inputs.delivery_id,
             ),
         )
     else:

@@ -1,8 +1,11 @@
+import uuid
 import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
 from django.conf import settings
+from django.db.models.functions import Length
+from django.utils import timezone as tz
 
 import aiohttp
 import structlog
@@ -17,7 +20,7 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, SubscriptionResource
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, SubscriptionResource
 
 from ee.tasks.subscriptions import SLACK_GALLERY_CONFIG_ERRORS, SLACK_USER_CONFIG_ERRORS
 from ee.tasks.subscriptions.subscription_utils import (
@@ -116,6 +119,37 @@ def _asset_image_bytes(asset: ExportedAsset) -> bytes | None:
     return None
 
 
+def _asset_image_size(asset: ExportedAsset) -> int | None:
+    if "content" not in asset.get_deferred_fields():
+        content = asset.__dict__.get("content")
+        if content:
+            return len(content)
+    elif asset.pk is not None:
+        content_length = (
+            ExportedAsset.objects.filter(pk=asset.pk)
+            .annotate(content_length=Length("content"))
+            .values_list("content_length", flat=True)
+            .get()
+        )
+        if content_length:
+            return content_length
+    if asset.content_location:
+        metadata = object_storage.head_object(asset.content_location)
+        content_length = metadata.get("ContentLength") if metadata else None
+        return content_length if isinstance(content_length, int) else None
+    return None
+
+
+def _claim_slack_gallery_delivery(delivery_id: uuid.UUID) -> bool:
+    return (
+        SubscriptionDelivery.objects.filter(
+            id=delivery_id,
+            slack_gallery_delivery_started_at__isnull=True,
+        ).update(slack_gallery_delivery_started_at=tz.now())
+        == 1
+    )
+
+
 def _insight_name(asset: ExportedAsset) -> str:
     return ((asset.insight.name or asset.insight.derived_name) if asset.insight else "Insight") or "Insight"
 
@@ -173,16 +207,33 @@ def _prepare_slack_gallery(
     generation_failed_names: list[str] = []
     attachment_failed_names: list[str] = []
     for asset in assets:
-        if _has_asset_failed(asset):
+        if asset.exception is not None:
             generation_failed_names.append(_insight_name(asset))
+            continue
+        content_size = _asset_image_size(asset)
+        if content_size is None:
+            (attachment_failed_names if asset.content_location else generation_failed_names).append(
+                _insight_name(asset)
+            )
+            continue
+        if content_size > MAX_SLACK_UPLOAD_BYTES:
+            logger.warning(
+                "deliver_slack_gallery.asset_too_large",
+                subscription_id=subscription.id,
+                filename=asset.filename,
+                size_bytes=content_size,
+            )
+            attachment_failed_names.append(_insight_name(asset))
             continue
         content = _asset_image_bytes(asset)
         if content is None:
             attachment_failed_names.append(_insight_name(asset))
             continue
+        # The object may have changed between HEAD and GET. Keep a final bound on
+        # what is handed to Slack even though the common path rejects before reading.
         if len(content) > MAX_SLACK_UPLOAD_BYTES:
             logger.warning(
-                "deliver_slack_gallery.asset_too_large",
+                "deliver_slack_gallery.asset_grew_after_size_check",
                 subscription_id=subscription.id,
                 filename=asset.filename,
                 size_bytes=len(content),
@@ -594,7 +645,15 @@ async def _upload_slack_gallery_with_retry(
                 attempt=attempt + 1,
                 max_retries=max_retries,
             )
-            await asyncio.sleep(2**attempt)
+            retry_after = error.response.headers.get("Retry-After") or error.response.headers.get("retry-after")
+            if slack_error_code in {"ratelimited", "rate_limited"} and retry_after is not None:
+                try:
+                    wait_seconds = min(max(float(retry_after), 0.0), 60.0)
+                except (TypeError, ValueError):
+                    wait_seconds = float(2**attempt)
+            else:
+                wait_seconds = float(2**attempt)
+            await asyncio.sleep(wait_seconds)
 
 
 async def send_slack_message_with_integration_async(
@@ -605,6 +664,7 @@ async def send_slack_message_with_integration_async(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
+    delivery_id: uuid.UUID | None = None,
 ) -> SlackDeliveryResult:
     if subscription.delivery_config.get("post_all_insights_in_main_message"):
         gallery = await database_sync_to_async(_prepare_slack_gallery, thread_sensitive=False)(
@@ -616,6 +676,26 @@ async def send_slack_message_with_integration_async(
             summary_skipped_over_budget=summary_skipped_over_budget,
             integration=integration,
         )
+        if delivery_id is not None:
+            claimed = await database_sync_to_async(
+                _claim_slack_gallery_delivery,
+                thread_sensitive=False,
+            )(delivery_id)
+            if not claimed:
+                logger.warning(
+                    "deliver_slack_gallery.retry_blocked_after_delivery_started",
+                    subscription_id=subscription.id,
+                    delivery_id=str(delivery_id),
+                )
+                return SlackDeliveryResult(
+                    main_message_sent=False,
+                    total_thread_messages=0,
+                    failed_thread_message_indices=[],
+                    failure_message=(
+                        "Slack gallery delivery was already attempted. Check the channel before retrying."
+                    ),
+                    failure_type="slack_delivery_unconfirmed",
+                )
         return await deliver_slack_gallery(integration, subscription, gallery)
 
     # `_prepare_slack_message` reads lazily-loaded ORM relations (e.g. `integration.team.organization`),

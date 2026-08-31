@@ -607,6 +607,10 @@ class SubscriptionDelivery(UUIDModel):
     # Per-recipient delivery results
     recipient_results = models.JSONField(default=list)
 
+    # Claimed immediately before the first non-idempotent Slack gallery API call.
+    # Activity retries may repeat all safe preparation, but never cross this boundary twice.
+    slack_gallery_delivery_started_at = models.DateTimeField(null=True, blank=True)
+
     # Overall status and error (null when no error)
     # Shape: {"message": str, "type": str, ...} — extensible for stack traces, codes, etc.
     status = models.CharField(max_length=24, choices=Status, default=Status.STARTING)
