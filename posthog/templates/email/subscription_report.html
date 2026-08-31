@@ -1,4 +1,6 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+{% extends "email/base.html" %}
+
+{% block section %}
 
 {% if inviter %}
 <h1 class="invite-header">
@@ -77,4 +79,4 @@
     or
     <a target="_blank" href="{{ unsubscribe_url }}"><b>unsubscribe now.</b></a>
 </p>
-{% endblock %}{% load posthog_filters %}
+{% endblock %}
