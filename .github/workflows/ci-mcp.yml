@@ -10,6 +10,13 @@ on:
         # The `no-ci` label silences this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers here, so it takes effect from the next push.
         types: [opened, synchronize, reopened, ready_for_review]
+    schedule:
+        # Hourly run against the newest master state. Master pushes no longer run the
+        # build, unit or integration tests per commit — the merge queue's trunk-merge/**
+        # run already gated every commit before it landed — so this is where master's
+        # coverage comes from.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '53 * * * *'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -56,7 +63,10 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. On schedule the action would otherwise diff only the
+              # last commit and could turn the full run into a no-op.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -142,7 +152,9 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: changes
-        if: needs.changes.outputs.mcp == 'true'
+        # Skipped on master push: the merge queue already ran this for every landed
+        # commit, and the hourly scheduled run keeps master coverage.
+        if: needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
 
         steps:
             - name: Checkout code
@@ -223,7 +235,9 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: changes
-        if: needs.changes.outputs.mcp == 'true'
+        # Skipped on master push: the merge queue already ran this for every landed
+        # commit, and the hourly scheduled run keeps master coverage.
+        if: needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
         steps:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -307,7 +321,11 @@ jobs:
         # non-pytest Python change, so they're the expensive half of this workflow.
         # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
         # treats skipped as success, and the ready-for-review run is the merge gate.
-        if: needs.changes.outputs.mcp == 'true' && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
+        # Skipped on master push too: the merge queue already ran them for every
+        # landed commit, and the hourly scheduled run keeps master coverage.
+        if: >-
+            needs.changes.outputs.mcp == 'true' && github.event_name != 'push'
+            && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
