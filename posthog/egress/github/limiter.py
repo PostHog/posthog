@@ -351,3 +351,20 @@ def consume_github_installation_sync(
     return get_outbound_rate_limiter().consume_sync(
         github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
     )
+
+
+def github_installation_pace_seconds(
+    installation_id: str | int,
+    *,
+    priority: Priority = Priority.NORMAL,
+    resource: GitHubRateResource = GitHubRateResource.CORE,
+) -> float:
+    """Seconds to wait before the next call on this installation's budget for ``resource``.
+
+    For a caller that can wait rather than be shed, such as a bulk import walking pages. Zero means
+    the budget has room to spare. See ``OutboundRateLimiter.pace_seconds`` for what the wait means
+    and why it is not a wait for a reset.
+    """
+    return get_outbound_rate_limiter().pace_seconds(
+        github_installation_key(installation_id, resource=resource), priority=priority
+    )
