@@ -252,7 +252,7 @@ class Emitter:
                     return True
         return False
 
-    def _intra_app_fk_targets(self, ms: Any, skip_fields: set[str]) -> set[str]:
+    def _intra_app_fk_targets(self, ms: Any, skip_fields: set[str]) -> list[str]:
         """Return lowercase intra-app model names referenced by `ms`:
         - FK targets (`remote_field.model`)
         - M2M intermediate models (`remote_field.through`)
@@ -278,7 +278,9 @@ class Emitter:
             b_app, b_model = cyclebreak.CycleBreaker._target_app_and_model(base)
             if b_app == self.app and b_model and b_model != ms.name.lower():
                 targets.add(b_model)
-        return targets
+        # Sorted so graph edge insertion (and with it topological tie-breaking
+        # of the emitted CreateModel order) is deterministic across runs.
+        return sorted(targets)
 
     def _sort_models_topologically(self, models: list[Any], skip_fields_by_model: dict[str, set[str]]) -> list[Any]:
         by_name = {ms.name.lower(): ms for ms in models}

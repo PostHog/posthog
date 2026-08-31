@@ -261,7 +261,9 @@ class CycleBreaker:
         return back
 
     def deferred_for_app(self, app: str) -> list[FKField]:
-        return [fk for fk in self.deferred if fk.from_app == app]
+        # Sorted so emitted operation order is deterministic across runs
+        # (self.deferred is a set).
+        return sorted((fk for fk in self.deferred if fk.from_app == app), key=lambda fk: fk.key)
 
     def deferred_field_keys_for_app(self, app: str) -> set[tuple[str, str]]:
         """{(model_name, field_name)} that this app's CreateModel should skip."""
