@@ -13,6 +13,7 @@ import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyS
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
+import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
@@ -194,3 +195,9 @@ export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyS
     'waiting-for-data',
     { mocks: errorTrackingMocks }
 )
+
+// Logs detection asks the has-logs API on mount - answer "none yet".
+export const LogsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(logsEmptyState, 'needs-setup', {
+    // nosemgrep: no-environments-api-urls-frontend -- api.logs is env-scoped, so the msw mock must match /api/environments to intercept it
+    mocks: { get: { '/api/environments/:team_id/logs/has_logs': [200, { hasLogs: false }] } },
+})
