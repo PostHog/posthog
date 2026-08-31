@@ -76,7 +76,7 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
@@ -193,13 +193,9 @@ class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
     """Resolve an insight by its database ID or its user-facing short ID."""
 
     def to_internal_value(self, data):
-        if isinstance(data, str):
-            data = data.strip()
-            if not data.isdigit():
-                try:
-                    return self.get_queryset().get(short_id=data)
-                except Insight.DoesNotExist:
-                    pass
+        insight = resolve_insight_by_id_or_short_id(self.get_queryset(), data)
+        if insight is not None:
+            return insight
 
         return super().to_internal_value(data)
 
