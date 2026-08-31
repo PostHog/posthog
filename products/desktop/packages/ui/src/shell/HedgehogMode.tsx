@@ -24,17 +24,23 @@ export function HedgehogMode() {
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<HedgehogModeHandle | null>(null);
   const [gameDead, setGameDead] = useState(false);
+  // Counts context losses across effect re-runs. An effect-local counter
+  // resets whenever a dependency changes (user config settling at boot, a
+  // settings write), which re-arms three more remount attempts per re-run
+  // and lets a crashing GPU cycle the game indefinitely. Reset only when
+  // the user turns the mode off.
+  const contextLossesRef = useRef(0);
 
   useEffect(() => {
     if (hedgehogMode) return;
     setGameDead(false);
+    contextLossesRef.current = 0;
   }, [hedgehogMode]);
 
   useEffect(() => {
     if (!hedgehogMode || gameDead || !containerRef.current || !host) return;
 
     let cancelled = false;
-    let losses = 0;
     let remountTimer: ReturnType<typeof setTimeout> | null = null;
     const container = containerRef.current;
 
@@ -59,7 +65,8 @@ export function HedgehogMode() {
     // immediately.
     const handleContextLost = () => {
       if (!handleRef.current) return;
-      losses += 1;
+      contextLossesRef.current += 1;
+      const losses = contextLossesRef.current;
       log.error("Hedgehog mode WebGL context lost", { losses });
       captureException(new Error("Hedgehog mode WebGL context lost"), {
         source: "hedgehog-mode",
