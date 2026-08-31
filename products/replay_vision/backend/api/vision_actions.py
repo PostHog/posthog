@@ -502,6 +502,13 @@ class VisionActionSerializer(serializers.ModelSerializer):
         duplicates = VisionAction.objects.for_team(team.id).filter(name=name)
         if self.instance is not None:
             duplicates = duplicates.exclude(pk=self.instance.pk)
+        # A migrated or retired row is disabled and invisible to every read path, so holding its
+        # name against a new one rejects a name nothing shows the caller.
+        duplicates = (
+            duplicates.exclude(alert_config__has_key="migrated_to")
+            .exclude(synthesis_config__has_key="migrated_to")
+            .exclude(synthesis_config__has_key="retired")
+        )
         if duplicates.exists():
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
 

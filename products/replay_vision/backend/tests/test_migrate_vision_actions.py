@@ -50,6 +50,15 @@ class TestMigrateVisionActions(APIBaseTest):
                 },
             )
 
+    def _make_scanner(self, name: str) -> ReplayScanner:
+        return ReplayScanner.objects.create(
+            team=self.team,
+            name=name,
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "watch"},
+            model=ScannerModel.GEMINI_3_7_FLASH,
+        )
+
     def _make_action(self, **overrides: Any) -> VisionAction:
         fields: dict[str, Any] = {
             "team": self.team,
@@ -178,6 +187,24 @@ class TestMigrateVisionActions(APIBaseTest):
         assert action.enabled is False
         assert action.synthesis_config == {"retired": True}
         assert VisionAlertConfiguration.objects.for_team(self.team.id).count() == 0
+
+    def test_org_with_only_default_digests_is_still_flagged(self) -> None:
+        # One default digest per scanner: the unique constraint allows no more.
+        for index in range(2):
+            scanner = self.scanner if index == 0 else self._make_scanner(f"Scanner {index}")
+            self._make_action(
+                scanner=scanner,
+                mode=ActionMode.GROUP_SUMMARY,
+                is_scanner_digest=True,
+                delivery_config=[],
+                synthesis_config={},
+            )
+        with patch("products.signals.backend.facade.api.create_scout_for_source") as create_scout:
+            self._run()
+        create_scout.assert_not_called()
+        for key in ("replay-vision-alerts", "replay-vision-scout-digests"):
+            flag = FeatureFlag.objects.get(team=self.team, key=key)
+            assert flag.filters["groups"][0]["properties"][0]["value"] == [str(self.team.organization_id)]
 
     def test_rerun_skips_migrated_rows(self) -> None:
         self._make_action(alert_config={"frequency": "every_match"})

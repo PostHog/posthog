@@ -71,6 +71,17 @@ class TestVisionActionsShim(APIBaseTest):
     def test_cron_rrule_round_trip(self, _name: str, rrule: str) -> None:
         assert cron_to_rrule(rrule_to_cron(rrule)) == rrule
 
+    @parameterized.expand(
+        [
+            ("ordinal_byday", "FREQ=WEEKLY;BYDAY=1MO;BYHOUR=9;BYMINUTE=0"),
+            ("weekly_interval", "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO;BYHOUR=9;BYMINUTE=0"),
+            ("daily_interval", "FREQ=DAILY;INTERVAL=3;BYHOUR=9;BYMINUTE=0"),
+        ]
+    )
+    def test_rrule_to_cron_rejects_schedules_cron_cannot_express(self, _name: str, rrule: str) -> None:
+        with self.assertRaises(ValueError):
+            rrule_to_cron(rrule)
+
     def test_flagged_alert_create_lands_in_new_system(self) -> None:
         with patch(f"{_SHIM}.create_alert_destination_hog_functions") as destinations:
             response = self.client.post(
@@ -377,6 +388,81 @@ class TestVisionActionsShim(APIBaseTest):
             )
         assert response.status_code == 400, response.json()
         assert "scout" in str(response.json()).lower()
+
+    def test_legacy_id_with_several_successors_updates_and_deletes_all(self) -> None:
+        alerts = [
+            VisionAlertConfiguration.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                scanner=self.scanner,
+                name=f"Fanned {index}",
+                kind=VisionAlertKind.MATCH,
+                selection={},
+            )
+            for index in range(2)
+        ]
+        legacy = VisionAction.objects.unscoped().create(
+            team=self.team,
+            scanner=self.scanner,
+            name="Wide legacy alert",
+            mode=ActionMode.ALERT,
+            trigger_type=TriggerType.SCHEDULE,
+            enabled=False,
+            alert_config={"frequency": "every_match", "migrated_to": [str(a.id) for a in alerts]},
+        )
+        with patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[]):
+            response = self.client.patch(f"{self.base_url}{legacy.id}/", {"enabled": False}, format="json")
+            assert response.status_code == 200, response.json()
+            for alert in alerts:
+                alert.refresh_from_db()
+                assert alert.enabled is False
+
+            with patch(f"{_SHIM}.soft_delete_all_alert_destinations"):
+                response = self.client.delete(f"{self.base_url}{legacy.id}/")
+        assert response.status_code == 204
+        assert VisionAlertConfiguration.objects.for_team(self.team.id).count() == 0
+
+    def test_frequency_change_is_refused_rather_than_ignored(self) -> None:
+        alert = VisionAlertConfiguration.objects.for_team(self.team.id).create(
+            team_id=self.team.id, scanner=self.scanner, name="Match", kind=VisionAlertKind.MATCH, selection={}
+        )
+        response = self.client.patch(
+            f"{self.base_url}{alert.id}/",
+            {"alert_config": {"frequency": "on_breach", "threshold": 5, "direction": "above"}},
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+        alert.refresh_from_db()
+        assert alert.kind == VisionAlertKind.MATCH
+
+    def test_name_of_a_migrated_row_can_be_reused(self) -> None:
+        alert = VisionAlertConfiguration.objects.for_team(self.team.id).create(
+            team_id=self.team.id, scanner=self.scanner, name="Checkout alerts", kind=VisionAlertKind.MATCH, selection={}
+        )
+        VisionAction.objects.unscoped().create(
+            team=self.team,
+            scanner=self.scanner,
+            name="Checkout alerts",
+            mode=ActionMode.ALERT,
+            trigger_type=TriggerType.SCHEDULE,
+            enabled=False,
+            alert_config={"frequency": "every_match", "migrated_to": [str(alert.id)]},
+        )
+        with (
+            patch(f"{_SHIM}.soft_delete_all_alert_destinations"),
+            patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[]),
+        ):
+            assert self.client.delete(f"{self.base_url}{alert.id}/").status_code == 204
+            response = self.client.post(
+                self.base_url,
+                {
+                    "name": "Checkout alerts",
+                    "scanner": str(self.scanner.id),
+                    "mode": "alert",
+                    "alert_config": {"frequency": "every_match"},
+                },
+                format="json",
+            )
+        assert response.status_code == 201, response.json()
 
     def test_unflagged_requests_keep_legacy_behavior(self) -> None:
         self._flag.stop()

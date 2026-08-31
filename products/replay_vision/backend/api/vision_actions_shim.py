@@ -98,11 +98,22 @@ def rrule_to_cron(rrule: str) -> str:
     if freq == "HOURLY":
         return "0 * * * *"
     if freq == "DAILY":
+        if parts.get("INTERVAL", "1") != "1":
+            raise ValueError(f"Cron cannot express a multi-day interval: {rrule}")
         return f"{minute} {hour} * * *"
     if freq == "WEEKLY":
+        # cron repeats every week, so an INTERVAL would silently double the cadence.
+        if parts.get("INTERVAL", "1") != "1":
+            raise ValueError(f"Cron cannot express a multi-week interval: {rrule}")
         days = parts.get("BYDAY")
-        cron_days = ",".join(str(_DAY_TO_CRON[d]) for d in days.split(",")) if days else "1"
-        return f"{minute} {hour} * * {cron_days}"
+        if not days:
+            return f"{minute} {hour} * * 1"
+        tokens = days.split(",")
+        # rrule accepts ordinal tokens like 1MO ("first Monday"); cron has no equivalent.
+        unknown = [token for token in tokens if token not in _DAY_TO_CRON]
+        if unknown:
+            raise ValueError(f"Unsupported BYDAY token(s) {unknown} in rrule: {rrule}")
+        return f"{minute} {hour} * * {','.join(str(_DAY_TO_CRON[token]) for token in tokens)}"
     raise ValueError(f"Unsupported rrule: {rrule}")
 
 
@@ -350,6 +361,26 @@ def _resolve(team: Team, pk: str) -> tuple[str, Any] | None:
     return _resolve(team, str(migrated)) if migrated else None
 
 
+def _resolve_all(team: Team, pk: str) -> list[tuple[str, Any]]:
+    """Every entity an id stands for.
+
+    A legacy alert overriding `selection.scanner_ids` migrated into one alert per scanner, so its
+    id names all of them. Acting on only the first would leave the rest enabled.
+    """
+    if not _is_uuid(pk):
+        single = _resolve(team, pk)
+        return [single] if single else []
+    legacy = VisionAction.objects.for_team(team.id).filter(id=pk).first()
+    if legacy is not None:
+        stamps = (legacy.alert_config or {}) if legacy.mode == ActionMode.ALERT else (legacy.synthesis_config or {})
+        migrated = stamps.get("migrated_to")
+        if isinstance(migrated, list):
+            resolved = [_resolve(team, str(successor)) for successor in migrated]
+            return [entry for entry in resolved if entry is not None]
+    single = _resolve(team, pk)
+    return [single] if single else []
+
+
 def scanner_id_for(team: Team, pk: str) -> str | None:
     """The scanner an id belongs to, so the viewset can object-check before acting on it."""
     resolved = _resolve(team, pk)
@@ -536,11 +567,25 @@ def _create_scout(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any
 
 
 def update_action(team: Team, pk: str, data: dict[str, Any], user: User) -> dict[str, Any]:
-    resolved = _resolve(team, pk)
-    if resolved is None:
+    entries = _resolve_all(team, pk)
+    if not entries:
         raise NotFound()
-    kind, entity = resolved
+    rendered = [_update_one(team, kind, entity, data, user) for kind, entity in entries]
+    return rendered[0]
+
+
+def _update_one(team: Team, kind: str, entity: Any, data: dict[str, Any], user: User) -> dict[str, Any]:
     if kind == "alert":
+        config = data.get("alert_config") or {}
+        frequency = config.get("frequency")
+        if frequency is not None:
+            wanted = VisionAlertKind.MATCH if frequency == "every_match" else VisionAlertKind.METRIC
+            if wanted != entity.kind:
+                # kind is immutable on an alert (the DB constraint pins match alerts stateless), so
+                # accepting the field and ignoring it would report a change that never happened.
+                raise ValidationError(
+                    {"alert_config": "Cannot change an alert's frequency. Delete it and create a new one."}
+                )
         if data.get("enabled") and not entity.enabled:
             _enforce_enabled_alert_cap(team, str(entity.scanner_id), exclude_id=str(entity.id))
         update_fields: list[str] = []
@@ -548,7 +593,6 @@ def update_action(team: Team, pk: str, data: dict[str, Any], user: User) -> dict
             if key in data:
                 setattr(entity, key, data[key])
                 update_fields.append(key)
-        config = data.get("alert_config")
         if config and entity.kind == VisionAlertKind.METRIC:
             for key in ("metric", "direction", "threshold", "window_days"):
                 if key in config:
@@ -598,10 +642,14 @@ def update_action(team: Team, pk: str, data: dict[str, Any], user: User) -> dict
 
 
 def destroy_action(team: Team, pk: str) -> None:
-    resolved = _resolve(team, pk)
-    if resolved is None:
+    entries = _resolve_all(team, pk)
+    if not entries:
         raise NotFound()
-    kind, entity = resolved
+    for kind, entity in entries:
+        _destroy_one(team, kind, entity)
+
+
+def _destroy_one(team: Team, kind: str, entity: Any) -> None:
     if kind == "alert":
         soft_delete_all_alert_destinations(
             team_id=team.id, alert_id=str(entity.id), allowed_event_ids=VISION_ALERT_EVENT_IDS

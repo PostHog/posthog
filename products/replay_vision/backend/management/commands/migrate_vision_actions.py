@@ -179,7 +179,7 @@ class Command(BaseCommand):
             stamps = getattr(action, stamp_field) or {}
             if stamps.get("migrated_to") or stamps.get("retired"):
                 report.skipped_already += 1
-                migrated_any = migrated_any or bool(stamps.get("migrated_to"))
+                migrated_any = True
                 continue
             try:
                 if action.mode == ActionMode.ALERT:
@@ -187,7 +187,11 @@ class Command(BaseCommand):
                 elif action.delivery_config or not action.is_scanner_digest:
                     migrated_any |= self._migrate_digest(action, execute, report)
                 else:
-                    self._retire_default(action, execute, report)
+                    # Retiring a default is a completed migration for that row: the new Overview
+                    # card replaces it. Without feeding the flag flip, an org whose only rows are
+                    # default digests gets them disabled and never switches surface, so its
+                    # Overview reads "The featured digest is paused." forever.
+                    migrated_any |= self._retire_default(action, execute, report)
             except Exception as error:
                 org_problems += 1
                 report.problems.append(f"{action.mode} {action.id} ({action.name!r}, team {action.team_id}): {error}")
@@ -358,13 +362,14 @@ class Command(BaseCommand):
             logger.info("vision_action_migration.scout_created", action_id=str(action.id), scout=payload["name"])
         return True
 
-    def _retire_default(self, action: VisionAction, execute: bool, report: _Report) -> None:
+    def _retire_default(self, action: VisionAction, execute: bool, report: _Report) -> bool:
         report.defaults_retired += 1
         if not execute:
-            return
+            return True
         action.synthesis_config = {**(action.synthesis_config or {}), "retired": True}
         action.enabled = False
         action.save(update_fields=["synthesis_config", "enabled", "updated_at"])
+        return True
 
     def _flag_org(self, org_id: Any, execute: bool, flag_team_id: int, report: _Report) -> None:
         from products.feature_flags.backend.facade.api import (  # noqa: PLC0415 — keeps the flags API surface off the command's import path
