@@ -55,6 +55,7 @@ from products.replay_vision.backend.rrule import validate_rrule, validate_timezo
 from products.replay_vision.backend.scanner_access import readable_scanner_ids, selection_target_ids
 from products.replay_vision.backend.scanner_config import acting_user
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
+from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 
 logger = structlog.get_logger(__name__)
 
@@ -713,6 +714,18 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         return dict(serializer.validated_data)
 
+    def _require_canonical_team_access(self) -> None:
+        """Scouts canonicalize to the parent team, so authorize against the team that owns them.
+
+        The shim reads and writes scouts on `team.parent_team or team`, while this viewset's
+        default gate only checks the URL team. Without this, a key scoped solely to a child
+        environment is authorized against one team while touching another's rows. The native
+        scout endpoints carry the same permission for the same reason.
+        """
+        permission = ScoutCanonicalTeamAccessPermission()
+        if not permission.has_permission(self.request, self):
+            raise PermissionDenied(permission.message)
+
     def _serves_new_systems(self) -> bool:
         # One switch for the whole surface, shared with the UI: while the org is flagged onto the
         # new alerts product, the legacy contract is served from the new systems.
@@ -731,6 +744,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():
             return super().list(request, *args, **kwargs)
+        self._require_canonical_team_access()
         scanner_ids = self._accessible_scanner_ids()
         requested = request.query_params.get("scanner")
         if requested:
@@ -746,6 +760,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():
             return super().retrieve(request, *args, **kwargs)
+        self._require_canonical_team_access()
         scanner = self._authorized_scanner(self.kwargs["pk"])
         return Response(
             vision_actions_shim.retrieve_action(self.team, self.kwargs["pk"], can_edit=self._can_edit_scanner(scanner))
@@ -754,6 +769,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():
             return super().create(request, *args, **kwargs)
+        self._require_canonical_team_access()
         validated = self._validated_legacy_payload(request, partial=False)
         # Same object-level check `perform_create` makes, against the scanner the payload names and
         # every scanner its selection reads from.
@@ -763,6 +779,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():
             return super().partial_update(request, *args, **kwargs)
+        self._require_canonical_team_access()
         self._authorized_scanner(self.kwargs["pk"])
         validated = self._validated_legacy_payload(request, partial=True)
         if "scanner" in validated:
@@ -774,6 +791,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self._serves_new_systems():
             return super().destroy(request, *args, **kwargs)
+        self._require_canonical_team_access()
         self._authorized_scanner(self.kwargs["pk"])
         vision_actions_shim.destroy_action(self.team, self.kwargs["pk"])
         return Response(status=204)

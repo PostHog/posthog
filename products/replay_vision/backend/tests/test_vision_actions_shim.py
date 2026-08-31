@@ -503,6 +503,28 @@ class TestVisionActionsShim(APIBaseTest):
             )
         assert response.status_code == 201, response.json()
 
+    def test_child_environment_key_cannot_reach_the_parent_teams_scouts(self) -> None:
+        with (
+            patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[]),
+            patch(
+                "products.signals.backend.scout_harness.views.ScoutCanonicalTeamAccessPermission.has_permission",
+                return_value=False,
+            ),
+        ):
+            listed = self.client.get(self.base_url)
+            created = self.client.post(
+                self.base_url,
+                {
+                    "name": "Sneaky digest",
+                    "scanner": str(self.scanner.id),
+                    "mode": "group_summary",
+                    "trigger_config": {"rrule": "FREQ=DAILY;BYHOUR=8;BYMINUTE=0", "timezone": "UTC"},
+                },
+                format="json",
+            )
+        assert listed.status_code == 403, listed.status_code
+        assert created.status_code == 403, created.status_code
+
     def test_unflagged_requests_keep_legacy_behavior(self) -> None:
         self._flag.stop()
         with patch("posthog.ph_client.feature_enabled_or_false", return_value=False):
