@@ -79,6 +79,11 @@ def build_git_diff_command(repository_path: str) -> str:
     return f"cd {shlex.quote(repository_path)} && git add -N --all && git diff --binary --no-ext-diff HEAD"
 
 
+def build_sanitize_repository_remote_command(repository_path: str, repository: str) -> str:
+    remote_url = f"https://github.com/{repository}.git"
+    return f"git -C {shlex.quote(repository_path)} remote set-url origin {shlex.quote(remote_url)}"
+
+
 def wizard_handoff_output_path(run_id: UUID) -> str:
     return f"/tmp/posthog-wizard-handoff-{run_id.hex}.md"
 

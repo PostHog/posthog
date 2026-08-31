@@ -108,12 +108,16 @@ def test_clone_repository_uses_integration_token(
     get_github_token.return_value = "github-secret"
     sandbox = get_sandbox_class.return_value.get_by_id.return_value
     sandbox.clone_repository.return_value = _execution_result()
+    sandbox.execute.return_value = _execution_result()
 
     root_path = clone_repository(request)
 
     assert root_path == "/tmp/workspace/repos/posthog/posthog"
     get_sandbox_class.return_value.get_by_id.assert_called_once_with(request.sandbox_id)
     sandbox.clone_repository.assert_called_once_with(request.repository, github_token="github-secret", shallow=True)
+    sanitize_command = sandbox.execute.call_args.args[0]
+    assert "github-secret" not in sanitize_command
+    assert "https://github.com/PostHog/PostHog.git" in sanitize_command
 
 
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
