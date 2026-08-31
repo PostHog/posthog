@@ -32,7 +32,7 @@ tiles, or `FeaturePreviewSceneGate` rather than scene empty states.
 
 ## Adopted
 
-25 scenes. The 11 marked "in review" are the stack under PR #90607 and are not on `master` yet.
+Rows marked "in review" are not on `master` yet. See "Regenerating the lists" for a live count.
 
 | Product                | Scene                                                                               | Status                |
 | ---------------------- | ----------------------------------------------------------------------------------- | --------------------- |
@@ -50,7 +50,7 @@ tiles, or `FeaturePreviewSceneGate` rather than scene empty states.
 | Skills                 | `products/skills/frontend/LLMSkillsScene.tsx`                                       | on master             |
 | User interviews        | `products/user_interviews/frontend/UserInterviews.tsx`                              | on master             |
 | Web scripts            | `frontend/src/scenes/data-pipelines/WebScriptsScene.tsx`                            | on master             |
-| Error tracking         | `products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx` | in review             |
+| Error tracking         | `products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx` | on master             |
 | Logs                   | `products/logs/frontend/LogsScene.tsx`                                              | in review             |
 | Tracing                | `products/tracing/frontend/TracingScene.tsx`                                        | in review             |
 | Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | in review             |
