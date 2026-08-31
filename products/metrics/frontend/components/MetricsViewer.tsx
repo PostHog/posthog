@@ -127,7 +127,7 @@ export const MetricsViewer = (): JSX.Element => {
         chartSeries,
         anomalyBadge,
         liveRefresh,
-        queryResultsLoading,
+        queryLoading,
         queryError,
         savedInsightLoading,
         savedInsight,
@@ -393,12 +393,12 @@ export const MetricsViewer = (): JSX.Element => {
                                 fallbackName={metricName}
                                 exemplars={chartMarkers}
                             />
-                        ) : !queryResultsLoading ? (
+                        ) : !queryLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">
                                 No data for this metric in the selected range.
                             </div>
                         ) : null}
-                        {queryResultsLoading && <SpinnerOverlay />}
+                        {queryLoading && <SpinnerOverlay />}
                     </div>
                 </div>
                 {hasMetricName && (
