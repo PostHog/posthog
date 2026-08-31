@@ -387,6 +387,81 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         assert trace.events[0].sentiment.messages is not None
         assert trace.events[0].sentiment.messages["0"].score == 0.8
 
+    def test_reused_trace_id_excludes_sentiment_from_other_instances(self):
+        # A reused trace ID can carry sentiment evaluations from separate instances. The event query
+        # is window-bounded, so the trace-level sentiment aggregate must reflect only the evaluations
+        # of the generations this window returns, not another instance's out-of-window generation.
+        trace_id = str(uuid.uuid4())
+        in_window_generation_id = "generation-in-window"
+        out_of_window_generation_id = "generation-out-of-window"
+
+        def _sentiment_eval(target_event_id: str, timestamp: datetime, label: str, scores: dict[str, float]) -> dict:
+            return {
+                "event": "$ai_evaluation",
+                "team": self.team,
+                "distinct_id": "person1",
+                "timestamp": timestamp,
+                "event_uuid": str(uuid.uuid4()),
+                "properties": {
+                    "$ai_trace_id": trace_id,
+                    "$ai_evaluation_runtime": "sentiment",
+                    "$ai_target_event_id": target_event_id,
+                    "$ai_sentiment_label": label,
+                    "$ai_sentiment_score": scores[label],
+                    "$ai_sentiment_scores": scores,
+                    "$ai_sentiment_messages": {"0": {"label": label, "score": scores[label], "scores": scores}},
+                    "$ai_sentiment_message_count": 1,
+                },
+            }
+
+        negative_scores = {"positive": 0.1, "neutral": 0.1, "negative": 0.8}
+        positive_scores = {"positive": 0.8, "neutral": 0.1, "negative": 0.1}
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": datetime(2024, 6, 1, 0, 0, tzinfo=UTC),
+                    "event_uuid": str(uuid.uuid4()),
+                    "properties": {"$ai_trace_id": trace_id, "$ai_generation_id": out_of_window_generation_id},
+                },
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": datetime(2024, 12, 1, 0, 0, tzinfo=UTC),
+                    "event_uuid": str(uuid.uuid4()),
+                    "properties": {"$ai_trace_id": trace_id, "$ai_generation_id": in_window_generation_id},
+                },
+                _sentiment_eval(
+                    out_of_window_generation_id, datetime(2024, 6, 1, 0, 1, tzinfo=UTC), "positive", positive_scores
+                ),
+                _sentiment_eval(
+                    in_window_generation_id, datetime(2024, 12, 1, 0, 1, tzinfo=UTC), "negative", negative_scores
+                ),
+            ]
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                includeSentiment=True,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+
+        assert len(response.results) == 1
+        trace = response.results[0]
+        assert len(trace.events) == 1
+        assert trace.sentiment is not None
+        assert trace.sentiment.messages is not None
+        # Only the in-window generation's evaluation feeds the aggregate; the other instance is gone.
+        assert f"{in_window_generation_id}:0" in trace.sentiment.messages
+        assert f"{out_of_window_generation_id}:0" not in trace.sentiment.messages
+        assert trace.sentiment.label == "negative"
+
     @patch("posthog.hogql_queries.ai.trace_query_runner.load_generation_sentiment_evaluations_for_traces")
     def test_stored_sentiment_evaluation_lookup_is_opt_in(self, mock_load_sentiment):
         _create_person(distinct_ids=["person1"], team=self.team)
