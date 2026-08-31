@@ -1,5 +1,6 @@
 import { ReactNode } from 'react'
 
+import { Language } from 'lib/components/CodeSnippet'
 import { Link } from 'lib/lemon-ui/Link'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 
@@ -72,16 +73,26 @@ function getEmptyStateMessage(frame: ErrorTrackingStackFrame, loading: boolean):
             </>
         )
     }
-    return (
-        <>
-            This frame is resolved, but its source code is not available. This usually means the source map was not
-            uploaded.{' '}
-            <Link to={SYMBOL_SETS_DOC_LINK} target="_blank">
-                Learn how to upload source maps
-            </Link>
-            .
-        </>
-    )
+    // Source maps only apply to JavaScript and TypeScript. Other runtimes send source code in the
+    // event payload, so a missing source map is never the reason their frames have none.
+    if (usesSourceMaps(frame)) {
+        return (
+            <>
+                This frame is resolved, but its source code is not available. This usually means the source map was not
+                uploaded.{' '}
+                <Link to={SYMBOL_SETS_DOC_LINK} target="_blank">
+                    Learn how to upload source maps
+                </Link>
+                .
+            </>
+        )
+    }
+    return 'This frame is resolved, but its source code is not available.'
+}
+
+function usesSourceMaps(frame: ErrorTrackingStackFrame): boolean {
+    const language = getFrameLanguage(frame)
+    return language === Language.JavaScript || language === Language.TypeScript
 }
 
 function UploadSymbolSetsLink(): JSX.Element {

@@ -82,4 +82,11 @@ describe('CollapsibleFrame', () => {
         renderFrame(frame, true)
         expect(screen.getByText(matcher)).toBeInTheDocument()
     })
+
+    it('does not blame a missing source map on a non-JavaScript frame', () => {
+        renderFrame({ ...baseFrame, lang: 'go', source: 'main.go' }, true)
+
+        expect(screen.getByText('This frame is resolved, but its source code is not available.')).toBeInTheDocument()
+        expect(screen.queryByText(/source map/i)).not.toBeInTheDocument()
+    })
 })
