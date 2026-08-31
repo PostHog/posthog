@@ -26,6 +26,10 @@ export interface VirtualizedTableColumn<T> {
     title: ReactNode
     /** Fixed column width in px. Omit to flex-fill the remaining space. */
     width?: number
+    /** Smallest width a flex column keeps before the row scrolls horizontally. Ignored when `width` is set. */
+    minWidth?: number
+    /** Share of the remaining space a flex column takes, relative to other flex columns. Default 1. */
+    grow?: number
     align?: 'right'
     /** Header tooltip. */
     tooltip?: string
@@ -34,16 +38,27 @@ export interface VirtualizedTableColumn<T> {
     sorter?: (a: T, b: T) => number
 }
 
-function Cell({ width, align, children }: { width?: number; align?: 'right'; children: ReactNode }): JSX.Element {
+function Cell({
+    width,
+    minWidth,
+    grow,
+    align,
+    children,
+}: {
+    width?: number
+    minWidth?: number
+    grow?: number
+    align?: 'right'
+    children: ReactNode
+}): JSX.Element {
+    const flex = width === undefined
     return (
         <div
-            className={cn(
-                'shrink-0 truncate px-2 text-xs',
-                width === undefined && 'flex-1 min-w-0',
-                align === 'right' && 'text-right'
-            )}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={width !== undefined ? { width } : undefined}
+            className={cn('shrink-0 truncate px-2 text-xs', align === 'right' && 'text-right')}
+            style={
+                // eslint-disable-next-line react/forbid-dom-props
+                flex ? { flexGrow: grow ?? 1, flexBasis: 0, minWidth: minWidth ?? FLEX_MIN_WIDTH } : { width }
+            }
         >
             {children}
         </div>
@@ -64,14 +79,14 @@ function HeaderCell({
     const label = column.tooltip ? <Tooltip title={column.tooltip}>{column.title}</Tooltip> : column.title
     if (!column.sorter) {
         return (
-            <Cell width={column.width} align={column.align}>
+            <Cell width={column.width} minWidth={column.minWidth} grow={column.grow} align={column.align}>
                 {label}
             </Cell>
         )
     }
     const active = sortKey === column.key
     return (
-        <Cell width={column.width} align={column.align}>
+        <Cell width={column.width} minWidth={column.minWidth} grow={column.grow} align={column.align}>
             <button
                 type="button"
                 className={cn(
@@ -142,7 +157,13 @@ function VirtualizedRow({
                 tabIndex={onRowClick ? 0 : undefined}
             >
                 {columns.map((column) => (
-                    <Cell key={column.key} width={column.width} align={column.align}>
+                    <Cell
+                        key={column.key}
+                        width={column.width}
+                        minWidth={column.minWidth}
+                        grow={column.grow}
+                        align={column.align}
+                    >
                         {column.render(record)}
                     </Cell>
                 ))}
@@ -176,7 +197,7 @@ export function VirtualizedTable<T>({
     const [sortOrder, setSortOrder] = useState<VirtualizedSortOrder>(defaultSort?.order ?? -1)
 
     const minRowWidth = useMemo(
-        () => columns.reduce((sum, column) => sum + (column.width ?? FLEX_MIN_WIDTH), 0),
+        () => columns.reduce((sum, column) => sum + (column.width ?? column.minWidth ?? FLEX_MIN_WIDTH), 0),
         [columns]
     )
 

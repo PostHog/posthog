@@ -42,13 +42,15 @@ function buildColumns(windowMs: number): VirtualizedTableColumn<AggregatedSpanRo
         {
             key: 'service_name',
             title: 'Service',
-            width: 150,
+            minWidth: 150,
             sorter: (a, b) => a.service_name.localeCompare(b.service_name),
             render: (row) => <span className="font-mono">{row.service_name}</span>,
         },
         {
             key: 'name',
             title: 'Operation',
+            minWidth: 200,
+            grow: 3,
             sorter: (a, b) => a.name.localeCompare(b.name),
             render: (row) => <span className="font-mono">{row.name}</span>,
         },
