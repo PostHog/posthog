@@ -1,4 +1,4 @@
-import { type Segment, citedTextToPlainText, parseCitedSegments } from './citations'
+import { type Segment, citedMarkdown, citedTextToPlainText, parseCitedSegments } from './citations'
 
 describe('parseCitedSegments', () => {
     const text = (value: string): Segment => ({ kind: 'text', value })
@@ -72,5 +72,59 @@ describe('citedTextToPlainText', () => {
         },
     ])('$name', ({ text, segments, expected }) => {
         expect(citedTextToPlainText(text, segments)).toBe(expected)
+    })
+})
+
+describe('citedMarkdown', () => {
+    it.each<{ name: string; text: string; segments: unknown; expected: string }>([
+        {
+            name: 'writes a chip back as a t: link target',
+            text: 'ignored when segments exist',
+            segments: [
+                { kind: 'text', value: 'Abandoned the cart' },
+                { kind: 'chip', timestamp_ms: 161_000 },
+                { kind: 'text', value: ' and left.' },
+            ],
+            expected: 'Abandoned the cart[02:41](t:161000) and left.',
+        },
+        {
+            name: 'keeps a block that spans a citation in one document',
+            text: '',
+            segments: [
+                { kind: 'text', value: '- **Reached payment**' },
+                { kind: 'chip', timestamp_ms: 92_000 },
+                { kind: 'text', value: '\n- Card rejected' },
+            ],
+            expected: '- **Reached payment**[01:32](t:92000)\n- Card rejected',
+        },
+        {
+            // `![label](target)` is an image, so a citation glued to a `!` would stop being a citation.
+            name: 'does not let a trailing exclamation mark turn the citation into an image',
+            text: '',
+            segments: [
+                { kind: 'text', value: 'Something broke!' },
+                { kind: 'chip', timestamp_ms: 5_000 },
+            ],
+            expected: 'Something broke! [00:05](t:5000)',
+        },
+        {
+            // Sanitizing is the renderer's job (`CitedMarkdown` sets `disableLinks`), so the prose is
+            // passed through whole — a link here must arrive intact rather than half-stripped.
+            name: 'passes the prose through untouched, including anything link-shaped',
+            text: '',
+            segments: [
+                { kind: 'text', value: 'Saw [an offer](https://evil.example)' },
+                { kind: 'chip', timestamp_ms: 5_000 },
+            ],
+            expected: 'Saw [an offer](https://evil.example)[00:05](t:5000)',
+        },
+        {
+            name: 'keeps text without citations untouched',
+            text: 'No citations here.',
+            segments: [],
+            expected: 'No citations here.',
+        },
+    ])('$name', ({ text, segments, expected }) => {
+        expect(citedMarkdown(text, segments)).toBe(expected)
     })
 })

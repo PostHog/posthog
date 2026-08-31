@@ -37,9 +37,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BooleanTag } from '../components/BooleanTag'
 import { CardHeader } from '../components/CardHeader'
+import { CitedMarkdown } from '../components/CitedMarkdown'
 import { LabeledRow } from '../components/LabeledRow'
 import {
-    CitedText,
     ObservationConfidence,
     ObservationPrimaryOutput,
     ObservationStatusTag,
@@ -428,9 +428,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     >
                         <CardHeader icon={<IconThoughtBubble />} title="Model reasoning" />
                         {reasoning ? (
-                            <p className="text-sm whitespace-pre-wrap m-0">
-                                <CitedText text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
-                            </p>
+                            <CitedMarkdown text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
                         ) : (
                             <p className="text-muted text-sm m-0 italic">
                                 {observation.status === 'ineligible'

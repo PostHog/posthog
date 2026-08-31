@@ -1,3 +1,4 @@
+import { TIMESTAMP_REF_PREFIX } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
 // `uuid` is legacy (only old event-uuid citations carry it). Timestamp citations use `timestamp_ms` alone.
@@ -54,6 +55,37 @@ export function parseCitedSegments(text: string, segments: unknown): Segment[] {
         return splitLeakedCitations(text)
     }
     return persisted.flatMap((segment) => (segment.kind === 'text' ? splitLeakedCitations(segment.value) : [segment]))
+}
+
+/**
+ * Markdown source for a cited field, with each citation chip written back as a `t:<ms>` link target
+ * LemonMarkdown hands to `renderTimestampRef`.
+ *
+ * The chips were split out of the prose at scan time, so a renderer that parses the text as markdown has
+ * to see one string, not a segment list — a bullet or a bold run that spans a citation would otherwise be
+ * cut in half and parsed as two documents.
+ *
+ * Nothing here sanitizes the prose. The renderer is what holds the line on links and images (see
+ * `CitedMarkdown`): stripping syntax at this layer would have to out-guess every markdown form that
+ * reaches a link, and reference-style `[x][ref]` alone already defeats that.
+ */
+export function citedMarkdown(text: string, segments: unknown): string {
+    const list = parseCitedSegments(text, segments)
+    if (list.length === 0) {
+        return text
+    }
+    let out = ''
+    for (const segment of list) {
+        if (segment.kind === 'text') {
+            out += segment.value
+            continue
+        }
+        // Glued to the preceding word, matching how the chips render outside markdown — except after a
+        // `!`, where gluing a link turns the pair into an image. One space there reads as normal prose.
+        const label = colonDelimitedDuration(Math.max(0, Math.floor(segment.timestamp_ms / 1000)), null)
+        out += `${out.endsWith('!') ? ' ' : ''}[${label}](${TIMESTAMP_REF_PREFIX}${segment.timestamp_ms})`
+    }
+    return out
 }
 
 /** Plain-text rendering of a cited field for the clipboard: citation chips become readable `(mm:ss)` timestamps. */

@@ -30,11 +30,7 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRun,
     VisionActionRunStatus,
 )
-from products.replay_vision.backend.observation_formatting import (
-    EVENT_ID_CITATION_RE,
-    SEARCH_SNIPPET_LIMIT,
-    describe_output,
-)
+from products.replay_vision.backend.observation_formatting import describe_output, plain_snippet
 from products.replay_vision.backend.scanner_access import readable_scanner_ids
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_actions.synthesis import (
@@ -401,12 +397,12 @@ def _alert_markdown(
 def _reasoning_snippet(output: dict[str, Any]) -> str | None:
     """The scanner's free-text reasoning for one observation, collapsed to a single line and length-capped.
 
-    Recording-derived untrusted text, so it gets the same treatment as the summarizer feed: event-id
-    citations stripped and whitespace collapsed to one line, keeping it from forging extra list items or
-    header lines. `strip_external_links_markdown` runs over the whole message afterwards, defanging any
-    link/image markdown this carries. Falls back to `summary` for scanner types that emit that instead."""
+    Recording-derived untrusted text, so it gets the same treatment as the summarizer feed: `plain_snippet`
+    strips event-id citations, flattens any markdown the model wrote, and folds the result onto one
+    length-capped line, keeping it from forging extra list items or header lines.
+    `strip_external_links_markdown` runs over the whole message afterwards, defanging any link/image markdown
+    this carries. Falls back to `summary` for scanner types that emit that instead."""
     text = output.get("reasoning") or output.get("summary")
     if not isinstance(text, str) or not text.strip():
         return None
-    clean = re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", text)).strip()[:SEARCH_SNIPPET_LIMIT]
-    return clean or None
+    return plain_snippet(text) or None
