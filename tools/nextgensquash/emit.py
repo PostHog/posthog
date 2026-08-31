@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import (
     dataclass,
     field as dc_field,
@@ -308,11 +309,17 @@ class Emitter:
         return sorted(out)
 
     def _third_party_dependencies(self) -> list[tuple[str, str]]:
-        """Carry forward deps of claimed migrations into apps this repo does not
-        manage (e.g. posthog.0886 -> social_django.0010_uid_db_index). These are
-        hand-authored sequencing guarantees with no FK behind them, so the FK
-        walk cannot see them; dropping one lets the squash apply before a
-        third-party migration it needs. Keep the highest dep name per app.
+        """Report (never emit) deps of claimed migrations into apps this repo
+        does not manage — e.g. posthog.0886 -> social_django.0010_uid_db_index.
+
+        Do NOT carry these onto the squash: a third-party app whose own
+        migrations hang off ("posthog", "__first__") (swappable AUTH_USER_MODEL)
+        would then be forced BEFORE the initial that creates posthog_user, and
+        its user-FK CREATE TABLE breaks on a fresh DB. The historical dep only
+        guarded a RunPython the squash drops anyway; install's cycle-edge
+        removal strips it from the source file so the loader's parent-edge
+        inheritance can't resurrect it. This list feeds the emit log so every
+        such drop stays visible.
         """
         managed_apps = {m.ref.app for m in self.squasher.tree.migrations.values()}
         best: dict[str, str] = {}
@@ -637,7 +644,8 @@ class Emitter:
         # latest-old migration. The stub anchor means we're never __first__.
         initial_deps: list[tuple[str, str]] = [(self.app, self.STUB_NAME)]
         initial_deps.extend(self._cross_app_dependencies(skip_by_model))
-        initial_deps.extend(self._third_party_dependencies())
+        for tp_app, tp_name in self._third_party_dependencies():
+            sys.stderr.write(f"note: {self.app} drops third-party dep ({tp_app}, {tp_name}) — see docstring\n")
         initial_deps = sorted(set(initial_deps))
         initial = SquashFile(
             app=self.app,
