@@ -26,26 +26,26 @@ def use_distributed_events_recent_table(
     is_backfill: bool, backfill_details: BackfillDetails | None, data_interval_start: dt.datetime | None
 ) -> bool:
     """We should use the distributed_events_recent table if it's not a backfill (backfill_details is None) or the
-    backfill is within the last 6 days.
+    backfill is within the last 8 days.
 
-    We also check the data_interval_start to make sure it's also within the last 6 days (should always be the case for
+    We also check the data_interval_start to make sure it's also within the last 8 days (should always be the case for
     realtime batch exports but for tests it may not be the case)
 
-    The events_recent table, and by extension, the distributed_events_recent table, only have event data from the last 7
-    days (we use 6 days to give some buffer).
+    The events_recent table, and by extension, the distributed_events_recent table, only has event data from the last 9
+    days (we cutoff at 8 days to give some extra margin).
     """
 
     if (
         not is_backfill
         and data_interval_start
-        and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6))
+        and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=8))
     ):
         return True
 
     backfill_start_at = None
     if backfill_details and backfill_details.start_at:
         backfill_start_at = dt.datetime.fromisoformat(backfill_details.start_at)
-    if backfill_start_at and backfill_start_at > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
+    if backfill_start_at and backfill_start_at > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=8)):
         return True
 
     return False
