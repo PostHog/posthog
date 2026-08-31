@@ -143,6 +143,9 @@ export const KeyMetricsNarrowScene: Story = {
 }
 
 export const KeyMetricsLoading: Story = {
+    // The point of this story is the skeletons, and the test runner treats a LemonSkeleton as a loader
+    // it must see disappear before snapshotting. Tell it not to wait, or it times out on every run.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     render: () => (
         <div className="w-[960px]">
             <MetricTiles metrics={METRICS} loading incompleteTail={false} />
