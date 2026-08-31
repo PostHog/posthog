@@ -140,9 +140,12 @@ function run(github, { history = [], now = minutes(0), env = {} } = {}) {
     Object.assign(process.env, {
         SLACK_CHANNEL: 'C0AS64N6DJL',
         GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml',
+        SCHEDULED_GATING_WORKFLOWS: '',
         WORKFLOW_FAILURE_STREAK_THRESHOLD: '5',
         // Reset to production defaults every run so a per-test override can't leak via process.env.
         WORKFLOW_FAILURE_MINUTES_THRESHOLD: '20',
+        SCHEDULED_FAILURE_STREAK_THRESHOLD: '2',
+        SCHEDULED_FAILURE_MINUTES_THRESHOLD: '150',
         ACTIVITY_WINDOW_MINUTES: '120',
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
         ...env,
@@ -504,6 +507,7 @@ describe('ci-alerts-devex', () => {
         const result = await ciAlertsDevex.fetchWorkflowRuns(github, 'PostHog', 'posthog', 'ci-backend.yml', 40)
         // The root-cause guard: never request the eventually-consistent status=completed index.
         assert.equal(capturedParams.status, undefined)
+        assert.equal(capturedParams.event, 'push') // one lane per trigger event; push is the default
         // in_progress/queued/cancelled dropped; settled runs kept, newest-first order preserved.
         assert.deepEqual(
             result.map((r) => r.conclusion),
@@ -677,6 +681,96 @@ describe('ci-alerts-devex', () => {
             assert.equal(outputs.action, expected)
         })
     }
+
+    // --- Scheduled lanes ---
+
+    // Backend CI covers master through two lanes: its push run carries the per-commit checks and
+    // its hourly scheduled run carries the test matrices.
+    const scheduledEnv = { GATING_WORKFLOWS: 'ci-backend.yml', SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml' }
+
+    // listWorkflowRuns keyed by `<workflow file>:<event>`, so a lane that requests the wrong
+    // trigger reads an empty page instead of the other lane's runs.
+    const laneGithub = (laneRuns, commits) => ({
+        rest: {
+            actions: {
+                listWorkflowRuns: ({ workflow_id, event }) =>
+                    Promise.resolve({ data: { workflow_runs: laneRuns[`${workflow_id}:${event}`] || [] } }),
+            },
+            repos: { listCommits: () => Promise.resolve({ data: commits }) },
+        },
+    })
+
+    // (push conclusions, schedule conclusions) → action + the workflow names carried on the anchor.
+    for (const [scenario, { push, schedule }, expected] of [
+        [
+            'a red scheduled lane pages while its push lane is green',
+            { push: ['success'], schedule: ['failure', 'failure'] },
+            { action: 'create', blocking: ['Backend CI (scheduled)'] },
+        ],
+        [
+            'both lanes of one workflow report under their own names',
+            { push: Array(5).fill('failure'), schedule: ['failure', 'failure'] },
+            { action: 'create', blocking: ['Backend CI', 'Backend CI (scheduled)'] },
+        ],
+        [
+            'a single scheduled failure stays below the lane threshold',
+            { push: ['success'], schedule: ['failure', 'success'] },
+            { action: 'none', blocking: [] },
+        ],
+        ['a green scheduled lane stays quiet', { push: ['success'], schedule: ['success'] }, { action: 'none', blocking: [] }],
+    ]) {
+        it(`scheduled lane: ${scenario}`, async () => {
+            const github = laneGithub(
+                {
+                    'ci-backend.yml:push': runs('Backend CI', push),
+                    'ci-backend.yml:schedule': runs('Backend CI', schedule),
+                },
+                pushAt(minutes(-3).toISOString())
+            )
+            const { slack, outputs } = await run(github, { env: scheduledEnv })
+            assert.equal(outputs.action, expected.action)
+            assert.equal(outputs.blocking_count, String(expected.blocking.length))
+            const anchored = slack.postMessage.calls[0]?.[0]?.metadata?.event_payload?.workflows || []
+            assert.deepEqual(
+                anchored.map((w) => w.name).sort(),
+                expected.blocking
+            )
+        })
+    }
+
+    it('a red scheduled lane stays quiet while nobody is pushing (weekend gate)', async () => {
+        // A cron keeps producing runs through a quiet weekend, so unlike a push lane its run
+        // streak alone must not open an incident.
+        const github = laneGithub(
+            {
+                'ci-backend.yml:push': runs('Backend CI', ['success']),
+                'ci-backend.yml:schedule': runs('Backend CI', ['failure', 'failure']),
+            },
+            pushAt(minutes(-3000).toISOString())
+        )
+        const { slack, outputs } = await run(github, { env: scheduledEnv })
+        assert.equal(outputs.action, 'none')
+        assert.equal(slack.postMessage.calls.length, 0)
+    })
+
+    it('a scheduled lane trailing master by hours is still readable (regression)', async () => {
+        // The push freshness bound assumes a run per master commit. An hourly lane legitimately
+        // trails master's newest commit, and judging it by the push bound would read the matrices
+        // as unreadable, which drops them from detection and holds every open incident.
+        const github = laneGithub(
+            {
+                'ci-backend.yml:push': runs('Backend CI', ['success']),
+                'ci-backend.yml:schedule': [
+                    failureRun('Backend CI', 'sched1', minutes(-240).toISOString(), minutes(-215).toISOString()),
+                    failureRun('Backend CI', 'sched2', minutes(-300).toISOString(), minutes(-275).toISOString()),
+                ],
+            },
+            pushAt(minutes(-3).toISOString())
+        )
+        const { outputs } = await run(github, { env: scheduledEnv })
+        assert.equal(outputs.action, 'create')
+        assert.equal(outputs.blocking_count, '1')
+    })
 
     describe('formatDuration', () => {
         for (const [mins, expected] of [

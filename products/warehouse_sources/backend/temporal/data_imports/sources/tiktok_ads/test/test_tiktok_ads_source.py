@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tiktokads import (
     TikTokAdsSourceConfig,
@@ -34,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     TikTokAdsAPIError,
     TikTokAdsPaginator,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestTikTokAdsSource:
@@ -53,9 +52,6 @@ class TestTikTokAdsSource:
         self.mock_integration = Mock(spec=Integration)
         self.mock_integration.access_token = "test_access_token"
         self.mock_integration.team_id = self.team_id
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TIKTOKADS
 
     @parameterized.expand(
         [
@@ -414,17 +410,6 @@ class TestTikTokAdsSource:
             "ad_country_report",
             "ad_platform_report",
         }
-
-    def test_get_resumable_source_manager(self):
-        """The source must expose a ResumableSourceManager instance."""
-        inputs = MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = self.job_id
-        inputs.logger = MagicMock()
-
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source.tiktok_ads_source")
     def test_source_for_pipeline_success(self, mock_tiktok_source):

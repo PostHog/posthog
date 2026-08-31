@@ -27,6 +27,12 @@ export class BlockProxy {
         return this.blocks.length
     }
 
+    // Compressed bytes the render will download, known before anything loads into the browser.
+    // S3 Range bytes=start-end is inclusive, so each block spans end - start + 1 bytes.
+    get totalCompressedBytes(): number {
+        return this.blocks.reduce((sum, block) => sum + (block.end_byte - block.start_byte + 1), 0)
+    }
+
     // Send both the legacy shared secret (when configured) and the relayed team-scoped JWT (when one
     // was minted upstream), so recording-api accepts either and rollout stays order-independent.
     private authHeaders(): Record<string, string> {

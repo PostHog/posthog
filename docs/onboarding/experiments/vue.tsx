@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getVueSteps as getVueStepsPA } from '../product-analytics/vue'
+import { getVueInstallSteps } from '../product-analytics/vue'
 import { StepDefinition } from '../steps'
 
 export const getVueSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only
-    const installationSteps = getVueStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -39,7 +36,7 @@ export const getVueSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getVueInstallSteps(ctx), ...experimentSteps]
 }
 
 export const VueInstallation = createInstallation(getVueSteps)

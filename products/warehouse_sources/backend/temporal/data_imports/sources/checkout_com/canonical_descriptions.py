@@ -80,6 +80,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "payment_type": "Type of the payment (e.g. Regular, Recurring).",
             "source": "Payment source details (instrument identifier, type, card metadata).",
             "customer": "Customer associated with the payment (identifier, email, name).",
+            "customer_id": "Identifier of the customer associated with the payment. Joins to the customers table's id column.",
             "processing": "Processing details such as acquirer identifiers.",
             "metadata": "Custom key-value pairs attached to the payment.",
         },

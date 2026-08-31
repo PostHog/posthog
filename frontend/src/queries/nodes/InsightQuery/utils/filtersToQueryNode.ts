@@ -95,7 +95,7 @@ const insightTypeToNodeKind: Record<
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
 }
 
-const actorsOnlyMathTypes = [
+export const actorsOnlyMathTypes = [
     BaseMathType.UniqueUsers,
     BaseMathType.WeeklyActiveUsers,
     BaseMathType.MonthlyActiveUsers,

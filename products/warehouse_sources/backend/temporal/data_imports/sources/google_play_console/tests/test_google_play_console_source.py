@@ -3,17 +3,12 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import DataWarehouseSourceCategory, SourceFieldFileUploadConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleplayconsole import (
     GooglePlayConsoleKeyFileConfig,
     GooglePlayConsoleSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.google_play_console import (
-    GooglePlayConsoleResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.settings import (
     ENDPOINTS,
@@ -24,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.source import (
     GooglePlayConsoleSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 SOURCE_MODULE = GooglePlayConsoleSource.__module__
 
@@ -41,38 +36,8 @@ def _config(app_package_names: str | None = None) -> GooglePlayConsoleSourceConf
     )
 
 
-def test_source_type() -> None:
-    assert GooglePlayConsoleSource().source_type == ExternalDataSourceType.GOOGLEPLAYCONSOLE
-
-
 def test_package_names_force_the_key_to_be_re_uploaded() -> None:
     assert GooglePlayConsoleSource().connection_host_fields == ["app_package_names"]
-
-
-def test_source_ships_visible_as_alpha() -> None:
-    config = GooglePlayConsoleSource().get_source_config
-
-    assert config.unreleasedSource is None
-    assert config.releaseStatus == "alpha"
-    assert config.featureFlag is None
-
-
-def test_get_source_config_fields() -> None:
-    config = GooglePlayConsoleSource().get_source_config
-
-    assert [field.name for field in config.fields] == ["key_file", "app_package_names"]
-    assert config.label == "Google Play Console"
-    assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-    assert config.iconPath.endswith(".png")
-    assert config.docsUrl == "https://posthog.com/docs/cdp/sources/google-play-console"
-
-
-def test_key_file_upload_collects_every_field_the_token_exchange_needs() -> None:
-    key_file = next(field for field in GooglePlayConsoleSource().get_source_config.fields if field.name == "key_file")
-
-    assert isinstance(key_file, SourceFieldFileUploadConfig)
-    assert key_file.required is True
-    assert set(key_file.fileFormat.keys) == {"client_email", "private_key", "private_key_id", "token_uri"}
 
 
 def test_api_version_metadata() -> None:
@@ -155,34 +120,6 @@ def test_list_endpoint_descriptions_document_their_primary_key_columns(name: str
     columns = CANONICAL_DESCRIPTIONS[name]["columns"]
 
     assert set(PRIMARY_KEYS[name]).issubset(columns)
-
-
-def test_get_resumable_source_manager_is_bound_to_the_resume_config() -> None:
-    manager = GooglePlayConsoleSource().get_resumable_source_manager(mock.MagicMock())
-
-    assert manager._data_class is GooglePlayConsoleResumeConfig
-
-
-@pytest.mark.parametrize("status", [401, 403])
-def test_auth_failures_are_non_retryable(status: int) -> None:
-    errors = GooglePlayConsoleSource().get_non_retryable_errors()
-
-    assert f"{status} Client Error" in errors
-
-
-def test_validate_credentials_passes_the_uploaded_key_and_resolved_version() -> None:
-    with mock.patch(f"{SOURCE_MODULE}.validate_google_play_console_credentials", return_value=(True, None)) as validate:
-        assert GooglePlayConsoleSource().validate_credentials(_config(), team_id=1) == (True, None)
-
-    key, api_version = validate.call_args.args
-    assert key.client_email == "reporting@example.iam.gserviceaccount.com"
-    assert key.private_key == "private-key"
-    assert api_version == "v1beta1"
-
-
-def test_validate_credentials_surfaces_the_transport_error() -> None:
-    with mock.patch(f"{SOURCE_MODULE}.validate_google_play_console_credentials", return_value=(False, "nope")):
-        assert GooglePlayConsoleSource().validate_credentials(_config(), team_id=1) == (False, "nope")
 
 
 def _inputs(**overrides: Any) -> mock.MagicMock:

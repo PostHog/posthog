@@ -416,6 +416,16 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "help_text": "Estimated cost over the previous window; null when the job-level source isn't synced.",
                 "allow_null": True,
             },
+            "cost_per_merge_usd": {
+                "help_text": "estimated_cost_usd divided by merged_pr_count — the window's CI cost per merged "
+                "PR. Null when the job-level source isn't synced or nothing merged.",
+                "allow_null": True,
+            },
+            "cost_per_merge_usd_prev": {
+                "help_text": "The same ratio over the previous window. Null when the job-level source isn't "
+                "synced or nothing merged.",
+                "allow_null": True,
+            },
             "merge_queue_billable_minutes": {
                 "help_text": "Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); "
                 "null when the job-level source isn't synced.",
@@ -424,6 +434,110 @@ class RepoOverviewSerializer(DataclassSerializer):
             "merge_queue_billable_minutes_prev": {
                 "help_text": "Merge-queue billable minutes over the previous window; null when the job-level "
                 "source isn't synced.",
+                "allow_null": True,
+            },
+            "merge_queue_merged_pr_count": {
+                "help_text": "PRs merged in the window with at least one corroborated merge-queue gate run — "
+                "the population behind every merge_queue_* landing stat. All authors, bots included."
+            },
+            "merge_queue_merged_pr_count_prev": {"help_text": "Queue-landed merges over the previous window."},
+            "merge_queue_median_first_gate_to_merge_seconds": {
+                "help_text": "Median seconds from a PR's first observed merge-queue gate run starting to the PR "
+                "merging. Pending time before gate testing starts is not included. Null when no queue-landed "
+                "merges.",
+                "allow_null": True,
+            },
+            "merge_queue_median_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p90_first_gate_to_merge_seconds": {
+                "help_text": "p90 of the same first-gate-run-to-merge measure — the tail, where queue pain "
+                "concentrates. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p90_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p90 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p95_first_gate_to_merge_seconds": {
+                "help_text": "p95 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p95_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p95 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p99_first_gate_to_merge_seconds": {
+                "help_text": "p99 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p99_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p99 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_avg_attempts_per_merge": {
+                "help_text": "Mean distinct gate attempts (distinct gate branches, flake-bisection branches "
+                "collapsed) per queue-landed merge. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_avg_attempts_per_merge_prev": {
+                "help_text": "The same mean over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_multi_attempt_merge_share": {
+                "help_text": "Fraction (0-1) of queue-landed merges that needed more than one gate attempt. "
+                "Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_multi_attempt_merge_share_prev": {
+                "help_text": "The same fraction over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_failed_gate_merge_share": {
+                "help_text": "Fraction (0-1) of queue-landed merges with at least one failed gate run before "
+                "merging. Derived from CI run conclusions, not the queue's own eviction records. Null when no "
+                "queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_failed_gate_merge_share_prev": {
+                "help_text": "The same fraction over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_trunk_available": {
+                "help_text": "Whether the team's TrunkIo warehouse source has the opt-in merge-queue endpoint "
+                "synced and readable by the requesting user. When false, every "
+                "merge_queue_failed_or_cancelled_* and merge_queue_skip_the_line_* field is null; "
+                "fall back to merge_queue_failed_gate_merge_share."
+            },
+            "merge_queue_failed_or_cancelled_share": {
+                "help_text": "Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that "
+                "ended failed or cancelled, from the queue's own records. Windowed on each entry's last state "
+                "change. Null when the Trunk source isn't synced or nothing concluded.",
+                "allow_null": True,
+            },
+            "merge_queue_failed_or_cancelled_share_prev": {
+                "help_text": "The same fraction over the previous window. Null when the Trunk source isn't "
+                "synced or nothing concluded.",
+                "allow_null": True,
+            },
+            "merge_queue_skip_the_line_count": {
+                "help_text": "Queue entries flagged skip-the-line (prioritized past the queue order) in the "
+                "window, whatever state they reached. Null when the Trunk source isn't synced.",
+                "allow_null": True,
+            },
+            "merge_queue_skip_the_line_count_prev": {
+                "help_text": "Skip-the-line entries over the previous window. Null when the Trunk source isn't synced.",
+                "allow_null": True,
+            },
+            "median_time_to_green_seconds": {
+                "help_text": "Median wall clock for a PR push round to settle fully green over the window — the "
+                "window-level twin of time_to_green_series, same population and exclusions. Null when no fully "
+                "green rounds.",
+                "allow_null": True,
+            },
+            "median_time_to_green_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when no fully green rounds.",
                 "allow_null": True,
             },
             "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},

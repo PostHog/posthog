@@ -6,6 +6,7 @@ import { IconCheckCircle, IconCopy, IconInfo, IconWarning, IconX } from '@postho
 
 import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatus'
 import { isChristmas } from 'lib/holidays'
+import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { hashCodeForString } from 'lib/utils/strings'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
 
@@ -161,6 +162,18 @@ function ensureToastId<T>(
     return { ...toastOptions, toastId }
 }
 
+/**
+ * Backend error details often embed a raw docs URL ("... see our docs: https://posthog.com/docs/..."),
+ * which as plain toast text is unclickable. `renderDetailWithLinks` links PostHog-host URLs in place,
+ * leaving the prose (and any untrusted URL) untouched, so the copy button still carries the full text.
+ */
+export function withClickableUrls(message: string | JSX.Element): string | JSX.Element {
+    if (typeof message !== 'string' || !message.includes('http')) {
+        return message
+    }
+    return <>{renderDetailWithLinks(message)}</>
+}
+
 function withIncidentNote(message: string | JSX.Element): string | JSX.Element {
     const status = getIncidentStatus()
     if (status === 'operational') {
@@ -268,7 +281,7 @@ export const lemonToast = {
             toast.error(
                 <ToastContent
                     type="error"
-                    message={withIncidentNote(message)}
+                    message={withIncidentNote(withClickableUrls(message))}
                     // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
                     button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
                     id={id}
@@ -314,7 +327,7 @@ export const lemonToast = {
                         return (
                             <ToastContent
                                 type="error"
-                                message={withIncidentNote(data?.message || messages.error)}
+                                message={withIncidentNote(withClickableUrls(data?.message || messages.error))}
                                 button={button}
                                 id={id}
                             />

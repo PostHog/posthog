@@ -14,6 +14,7 @@ from posthog.storage import object_storage
 
 from products.exports.backend.analytics import capture_export_event
 from products.exports.backend.models.exported_asset import ExportedAsset, is_valid_session_recording_id
+from products.exports.backend.source_authentication import assert_export_authorization
 
 from ..types import (
     RASTERIZE_RENDER_MAX_ATTEMPTS,
@@ -55,6 +56,10 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     close_old_connections()
 
     asset = ExportedAsset.objects.select_related("team__organization", "created_by").get(pk=exported_asset_id)
+    try:
+        assert_export_authorization(asset)
+    except ValueError as error:
+        raise ApplicationError(str(error), non_retryable=True) from error
     ctx = asset.export_context or {}
 
     session_id = ctx.get("session_recording_id")

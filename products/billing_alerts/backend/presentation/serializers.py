@@ -27,6 +27,8 @@ from products.billing_alerts.backend.facade.api import (
 _DESTINATIONS_CACHE_KEY = "_billing_alert_destinations_by_alert_id"
 _NOT_PROVIDED = object()
 
+MAX_DESTINATION_IDS_PER_DELETE_REQUEST = 100
+
 
 def _any_field_changed(
     instance: BillingAlertConfiguration,
@@ -160,8 +162,8 @@ class BillingAlertDestinationChangesSerializer(serializers.Serializer):
     delete = serializers.ListField(
         child=serializers.ListField(
             child=serializers.UUIDField(),
-            min_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
-            max_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
+            min_length=1,
+            max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
         ),
         required=False,
         default=list,
@@ -438,8 +440,8 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
 class BillingAlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
-        min_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
-        max_length=len(billing_alerts_api.BILLING_ALERT_EVENT_IDS),
+        min_length=1,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
         help_text="HogFunction IDs to delete as one atomic destination group.",
     )
 

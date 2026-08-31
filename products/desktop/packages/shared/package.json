@@ -51,6 +51,10 @@
     "./posthog-property-headers": {
       "types": "./dist/posthog-property-headers.d.ts",
       "import": "./dist/posthog-property-headers.js"
+    },
+    "./product-engineer-prompt": {
+      "types": "./dist/product-engineer-prompt.d.ts",
+      "import": "./dist/product-engineer-prompt.js"
     }
   },
   "scripts": {

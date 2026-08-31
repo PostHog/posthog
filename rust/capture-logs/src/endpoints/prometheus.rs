@@ -38,7 +38,8 @@ const ROW_OVERHEAD_BYTES: u64 = 256;
 /// below this; only expansion-bomb payloads exceed it.
 const MAX_EXPANSION_FACTOR: u64 = 16;
 
-/// Decode a snappy-compressed Prometheus remote-write v1 payload.
+/// Decode a snappy-compressed Prometheus remote-write v1 payload, returning the
+/// request and its decompressed size in bytes.
 ///
 /// Prometheus sends `Content-Encoding: snappy` using the snappy *block* format
 /// (not the framed format), so we decode the raw body ourselves — the global
@@ -47,7 +48,15 @@ const MAX_EXPANSION_FACTOR: u64 = 16;
 /// The block format's length header is sender-controlled, so the claimed
 /// decompressed size is checked against `max_decompressed_bytes` before any
 /// allocation happens.
-pub fn decode_write_request(body: &[u8], max_decompressed_bytes: usize) -> Result<WriteRequest> {
+///
+/// The size is returned because this route bypasses `RequestDecompressionLayer`,
+/// so the request body is still compressed when the handler sees it. The OTLP and
+/// logs paths report a body that layer already decompressed, and all three feed
+/// the same quota and rate-limiting counters, so the measure has to match.
+pub fn decode_write_request(
+    body: &[u8],
+    max_decompressed_bytes: usize,
+) -> Result<(WriteRequest, u64)> {
     let claimed =
         snap::raw::decompress_len(body).map_err(|e| anyhow!("snappy decode failed: {e}"))?;
     if claimed > max_decompressed_bytes {
@@ -58,8 +67,10 @@ pub fn decode_write_request(body: &[u8], max_decompressed_bytes: usize) -> Resul
     let decompressed = snap::raw::Decoder::new()
         .decompress_vec(body)
         .map_err(|e| anyhow!("snappy decode failed: {e}"))?;
-    WriteRequest::decode(decompressed.as_slice())
-        .map_err(|e| anyhow!("remote-write protobuf decode failed: {e}"))
+    let uncompressed_bytes = decompressed.len() as u64;
+    let request = WriteRequest::decode(decompressed.as_slice())
+        .map_err(|e| anyhow!("remote-write protobuf decode failed: {e}"))?;
+    Ok((request, uncompressed_bytes))
 }
 
 /// Translate a decoded remote-write request into `KafkaMetricRow` records — the
@@ -378,16 +389,17 @@ pub async fn export_prometheus_remote_write_http(
 
     tracing::Span::current().record("token", &token);
 
-    let write_request = match decode_write_request(&body, service.max_request_body_size_bytes) {
-        Ok(request) => request,
-        Err(e) => {
-            error!("Failed to decode remote-write request: {e}");
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("{e}") })),
-            ));
-        }
-    };
+    let (write_request, uncompressed_bytes) =
+        match decode_write_request(&body, service.max_request_body_size_bytes) {
+            Ok(decoded) => decoded,
+            Err(e) => {
+                error!("Failed to decode remote-write request: {e}");
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": format!("{e}") })),
+                ));
+            }
+        };
 
     // 400, not 5xx: a batch that expands past the limit will never fit, so the
     // sender must drop it rather than retry it forever.
@@ -410,7 +422,7 @@ pub async fn export_prometheus_remote_write_http(
 
     if let Err(e) = service
         .sink
-        .write_metrics(&token, rows, body.len() as u64, timestamps_overridden)
+        .write_metrics(&token, rows, uncompressed_bytes, timestamps_overridden)
         .await
     {
         error!("Failed to send remote-write metrics to Kafka: {e}");

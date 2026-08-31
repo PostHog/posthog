@@ -32,6 +32,7 @@ IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
 ExternalReferenceValidationError = external_references.ErrorTrackingExternalReferenceValidationError
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
+SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
@@ -159,7 +160,7 @@ def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
 def list_issues_detailed(
     team_id: int, *, limit: int | None = None, offset: int = 0
 ) -> tuple[list[contracts.ErrorTrackingIssue], int]:
-    qs = logic.get_issue_detail_queryset(team_id)
+    qs = logic.get_issue_detail_queryset(team_id).order_by("-id")
     total = qs.count()
     rows = qs if limit is None else qs[offset : offset + limit]
     return [_to_issue(issue) for issue in rows], total
@@ -178,7 +179,11 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrack
     if issue is None:
         return None
     return contracts.ErrorTrackingIssueBasics(
-        id=issue.id, name=issue.name, description=issue.description, status=issue.status
+        id=issue.id,
+        name=issue.name,
+        description=issue.description,
+        status=issue.status,
+        severity=issue.severity,
     )
 
 
@@ -239,11 +244,12 @@ def list_spike_events(
     order_by: str | None = None,
     limit: int | None = None,
     offset: int = 0,
+    include_total_count: bool = True,
 ) -> tuple[list[contracts.ErrorTrackingSpikeEvent], int]:
     qs = logic.list_spike_events(
         team_id=team_id, issue_ids=issue_ids, date_from=date_from, date_to=date_to, order_by=order_by
     )
-    total = qs.count()
+    total = qs.count() if include_total_count else 0
     rows = qs if limit is None else qs[offset : offset + limit]
     return [_to_spike_event(event) for event in rows], total
 
