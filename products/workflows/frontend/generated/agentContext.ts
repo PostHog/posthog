@@ -64,6 +64,11 @@ export const WORKFLOWS_MCP_TOOLS: McpToolSummary[] = [
             "List a workflow's individual invocations (one execution per person/event), each collapsed to its final outcome — status, error_kind/error_message, distinct_id, person_id, timings. This is the per-recipient failure view: filter status=failed to see who it failed for and why. Filter by distinct_id and time range. Distinct from workflows-list-batch-jobs (the dispatch ledger, which has no per-person outcome) — drill from a failed invocation into workflows-logs for the step-by-step trace.",
     },
     {
+        name: 'workflows-list-proposals',
+        description:
+            "List the suggested changes on a workflow, newest first, with the evidence and rationale behind each and whether a human approved, rejected or applied it. Read this before proposing a change so you don't repeat a suggestion someone already rejected.",
+    },
+    {
         name: 'workflows-list-revisions',
         description:
             "List a workflow's revision history, newest first. Every live-content change (publish, direct edit) appends a version; each entry shows version, when, and by whom. Fetch a version's content with workflows-get-revision; roll back with workflows-restore-revision.",
@@ -97,6 +102,11 @@ export const WORKFLOWS_MCP_TOOLS: McpToolSummary[] = [
         name: 'workflows-stats',
         description:
             "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends with open/click tracking off, which can never register an open or a click.",
+    },
+    {
+        name: 'workflows-suggest',
+        description:
+            'Suggest a change to a workflow for a human to review. Send only the content fields you want to change (usually actions), the evidence behind the suggestion, and a rationale a person can judge without re-deriving your numbers. This changes nothing on its own: a person approves the suggestion, which stages it as a draft, and publishes that draft to make it live. Pass a stable source_id for your run or finding so retrying returns the suggestion you already made instead of creating a second one. There is no tool to approve a suggestion, by design - only a person resolves one.',
     },
     {
         name: 'workflows-test-run',
