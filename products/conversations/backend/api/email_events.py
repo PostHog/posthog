@@ -72,11 +72,13 @@ MAX_ATTACHMENTS = 20
 # an unbounded batch of queries under the held thread lock.
 MAX_RECIPIENTS = 100
 MAX_FORWARDING_CHALLENGE_TOKENS = 10
-# RFC 3834 marks anything but "no" as machine-generated. The Precedence values are the
-# pre-RFC convention autoresponders still use. "list" is excluded on purpose: a mailing
-# list relaying a person's message sets it, so it says nothing about who wrote the mail.
+# Every value here has to mean "a machine wrote this", not "do not auto-reply to this". The two
+# claims look alike and only the first one identifies a loop. RFC 3834 marks any Auto-Submitted
+# value but "no" as machine-generated. Of the pre-RFC Precedence values only "auto_reply" makes
+# the same claim: "bulk", "junk" and "list" all ride on a person's message when a mailing list
+# relays it, so treating them as machine-generated would drop real mail a customer sent.
 AUTO_SUBMITTED_HUMAN_VALUE = "no"
-AUTORESPONDER_PRECEDENCE_VALUES = frozenset({"bulk", "auto_reply", "junk"})
+AUTORESPONDER_PRECEDENCE_VALUES = frozenset({"auto_reply"})
 AUTORESPONDER_HEADERS = ("X-Autoreply", "X-Autorespond")
 # The sender controls the Date header, so a far-future value would latch a thread's last_message_at
 # and freeze its preview. Reject dates beyond a small clock-skew allowance and fall back to the

@@ -2157,7 +2157,7 @@ class TestEmailInboundDmarcRewrite(BaseTest):
 
 
 class TestEmailInboundSelfAddressedAutoreply(BaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.client = Client()
         self.team.conversations_settings = {"email_enabled": True}
@@ -2186,13 +2186,14 @@ class TestEmailInboundSelfAddressedAutoreply(BaseTest):
         [
             ("auto_submitted", {"Auto-Submitted": "auto-replied"}),
             ("auto_submitted_with_parameters", {"Auto-Submitted": "auto-generated; owner-token=abc"}),
-            ("precedence_bulk", {"Precedence": "bulk"}),
             ("precedence_auto_reply", {"Precedence": "auto_reply"}),
             ("x_autoreply", {"X-Autoreply": "yes"}),
         ]
     )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_autoreply_from_the_inbox_itself_is_dropped(self, name, headers, _mock_sig):
+    def test_autoreply_from_the_inbox_itself_is_dropped(
+        self, name: str, headers: dict[str, str], _mock_sig: MagicMock
+    ) -> None:
         self._post(f"<loop-{name}@posthog.com>", {"from": "PostHog Security <security@posthog.com>", **headers})
 
         assert Ticket.objects.filter(team=self.team).count() == 0
@@ -2220,28 +2221,31 @@ class TestEmailInboundSelfAddressedAutoreply(BaseTest):
 
     @parameterized.expand(
         [
-            # A person's mail relayed by a list arrives From the list address, and the list sets
-            # Precedence: list. Dropping it would lose the customer's email.
-            ("relayed_person", {"from": "Alex Smith <security@posthog.com>", "Precedence": "list"}),
+            # A person's mail relayed by a list arrives From the list address, and the list marks it
+            # with a Precedence that only asks receivers not to auto-reply. Reading any of those as
+            # "a machine wrote this" would drop the customer's email.
+            ("relayed_person_precedence_list", {"from": "Alex Smith <security@posthog.com>", "Precedence": "list"}),
+            ("relayed_person_precedence_bulk", {"from": "Alex Smith <security@posthog.com>", "Precedence": "bulk"}),
             ("relayed_person_no_markers", {"from": "Alex Smith <security@posthog.com>"}),
             ("auto_submitted_no", {"from": "Alex Smith <security@posthog.com>", "Auto-Submitted": "no"}),
         ]
     )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_self_addressed_human_mail_still_opens_a_ticket(self, name, headers, _mock_sig):
+    def test_self_addressed_human_mail_still_opens_a_ticket(
+        self, name: str, headers: dict[str, str], _mock_sig: MagicMock
+    ) -> None:
         self._post(f"<human-{name}@posthog.com>", headers)
 
         assert Ticket.objects.filter(team=self.team).count() == 1
 
-    @parameterized.expand(
-        [
-            ("auto_submitted", {"Auto-Submitted": "auto-replied"}),
-            ("precedence_bulk", {"Precedence": "bulk"}),
-        ]
-    )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_external_automated_mail_still_opens_a_ticket(self, name, headers, _mock_sig):
-        self._post(f"<external-{name}@example.com>", {"from": "AWS Notifications <no-reply@example.com>", **headers})
+    def test_external_automated_mail_still_opens_a_ticket(self, _mock_sig: MagicMock) -> None:
+        # Teams route infrastructure alerts to support on purpose, so being machine-generated is
+        # only half the test: the message also has to claim to come from the inbox itself.
+        self._post(
+            "<external-auto-submitted@example.com>",
+            {"from": "Alerts <no-reply@example.com>", "Auto-Submitted": "auto-replied"},
+        )
 
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.email_from == "no-reply@example.com"
