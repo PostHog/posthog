@@ -160,6 +160,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_optimisation import HogFlowOptimisation
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -3618,6 +3619,15 @@ class WorkflowProposalEvidenceField(serializers.JSONField):
     pass
 
 
+class HogFlowOptimisationSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text="Whether PostHog may read this workflow's metrics and suggest changes to it."
+    )
+    last_run_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When a producer last read this workflow's metrics."
+    )
+
+
 class WorkflowProposalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
@@ -3837,6 +3847,15 @@ class ProposalAlreadyResolvedError(exceptions.APIException):
     default_code = "proposal_already_resolved"
 
 
+class WorkflowNotOptimisedError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "This workflow is not set up for suggestions. Turn on 'Suggest improvements' on the workflow "
+        "before proposing a change to it."
+    )
+    default_code = "workflow_not_optimised"
+
+
 class ProposalOutOfDateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -4036,6 +4055,12 @@ class HogFlowViewSet(
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
         # this, these actions declare no scope and reject all personal-API-key (MCP) access.
+        if self.action == "optimisation":
+            # Reading whether a workflow is opted in is workflow-read; turning it on or off decides
+            # whether an agent may read the workflow at all, so it is a workflow write.
+            if request.method in ("GET", "HEAD", "OPTIONS"):
+                return ["hog_flow:read"]
+            return ["hog_flow:write"]
         if self.action == "proposals":
             # Listing suggestions is workflow-read; authoring one is a workflow write, since approving
             # it stages content into the draft.
@@ -5144,6 +5169,12 @@ class HogFlowViewSet(
             page = self.paginate_queryset(queryset)
             return self.get_paginated_response(WorkflowProposalSerializer(page, many=True).data)
 
+        # Reading the queue stays open while the flag is on, so a workflow turned off keeps showing
+        # the suggestions someone already has to resolve. Producing a new one is what the workflow's
+        # own opt-in gates.
+        if not HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).exists():
+            raise WorkflowNotOptimisedError()
+
         param_serializer = WorkflowProposalCreateSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
@@ -5435,6 +5466,41 @@ class HogFlowViewSet(
 
         self._report_workflow_action("hog_flow_proposal_rejected", instance, {"proposal_id": str(locked_proposal.id)})
         return Response(WorkflowProposalSerializer(locked_proposal).data)
+
+    @extend_schema(request=HogFlowOptimisationSerializer, responses={200: HogFlowOptimisationSerializer})
+    @action(detail=True, methods=["GET", "POST"], url_path="optimisation", filter_backends=[])
+    def optimisation(self, request: Request, *args, **kwargs):
+        """Whether PostHog may look at this workflow and suggest changes to it.
+
+        The row is the opt-in, so turning it off deletes it and a producer stops seeing the workflow
+        at all. Suggestions already made are left alone: someone still has them to resolve.
+        """
+        self._require_self_optimising_enabled()
+        instance = self.get_object()
+
+        if request.method == "POST":
+            param_serializer = HogFlowOptimisationSerializer(data=request.data)
+            param_serializer.is_valid(raise_exception=True)
+            if param_serializer.validated_data["enabled"]:
+                HogFlowOptimisation.objects.get_or_create(
+                    team_id=self.team_id,
+                    hog_flow=instance,
+                    defaults={"enabled_by": request.user if request.user.is_authenticated else None},
+                )
+                self._report_workflow_action("hog_flow_optimisation_enabled", instance)
+            else:
+                HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).delete()
+                self._report_workflow_action("hog_flow_optimisation_disabled", instance)
+
+        row = HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).first()
+        return Response(
+            HogFlowOptimisationSerializer(
+                {
+                    "enabled": row is not None,
+                    "last_run_at": row.last_run_at if row else None,
+                }
+            ).data
+        )
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
