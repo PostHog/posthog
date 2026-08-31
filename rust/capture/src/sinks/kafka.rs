@@ -731,9 +731,6 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
     }
 }
 
-/// The prep → publish → fold dance for the outputs layer. The batch-size
-/// histogram is recorded by the outputs facade, uniformly for every
-/// backend, not here.
 #[async_trait]
 impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
