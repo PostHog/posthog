@@ -592,6 +592,17 @@ CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
     get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
 )
 
+# Verifies the scoped JWTs the CDP worker's customer analytics account actions send to the
+# internal account routes (the worker mints, Django verifies;
+# products/customer_analytics/backend/presentation/views/internal.py). Comma-separated,
+# newest first. Empty outside dev/test, so the internal routes reject every request until
+# the secret is provisioned and the worker stays on its legacy auth path (#82564).
+CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS = get_list(
+    get_from_env(
+        "CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET", "local-dev-customer-analytics-accounts-jwt" if DEBUG or TEST else ""
+    )
+)
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table

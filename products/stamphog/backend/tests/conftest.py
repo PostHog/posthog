@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from posthog.models import OAuthApplication
 from posthog.models.scoping import team_scope
+from posthog.temporal.common.errors import describe_failure
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_EU, ARRAY_APP_CLIENT_ID_US
 
 from products.stamphog.backend.temporal.activities import (
@@ -123,7 +124,10 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
         _run_activity(run_review_in_sandbox, inp)
         _run_activity(post_verdict, inp)
     except Exception as e:  # noqa: BLE001 — mirror the workflow's failure path
-        _run_activity(mark_review_failed, MarkReviewFailedInput(review_run_id, team_id, str(e)))
+        _run_activity(
+            mark_review_failed,
+            MarkReviewFailedInput(review_run_id, team_id, describe_failure(e)),
+        )
 
 
 @dataclass
