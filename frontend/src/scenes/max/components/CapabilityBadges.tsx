@@ -156,7 +156,7 @@ export function CapabilitySuggestions({
     const isDocs = capability.variant === 'docs'
     return (
         <div
-            className={cn('w-full h-full px-3 flex flex-col gap-px animate-fade-in', COLORFUL_ICONS, className)}
+            className={cn('w-full h-full px-3 flex flex-col gap-px', COLORFUL_ICONS, className)}
             data-attr="capability-suggestions"
         >
             {capability.suggestions.map((suggestion) => {

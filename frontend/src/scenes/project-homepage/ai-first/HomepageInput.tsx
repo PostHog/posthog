@@ -584,6 +584,7 @@ export function HomepageInput(): JSX.Element {
                                 {selectedCapabilityData ? (
                                     <CapabilitySuggestions
                                         key={selectedCapabilityData.key}
+                                        className="animate-fade-in"
                                         capability={selectedCapabilityData}
                                         onType={setQuery}
                                         onSubmit={() => submitQuery('ai')}
