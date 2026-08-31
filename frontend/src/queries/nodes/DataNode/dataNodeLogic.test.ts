@@ -755,7 +755,7 @@ describe('dataNodeLogic', () => {
         )
     })
 
-    it('re-runs the total count on reload and forces a fresh recompute', async () => {
+    it('refreshCounts re-runs the total count and forces a fresh recompute', async () => {
         // Guards two defects on the persons list header: the count ran once as a lazy loader and
         // never refreshed on reload, and it served a cached value because no refresh was forced.
         mockedQuery.mockResolvedValue({ results: [[42]] })
@@ -775,9 +775,27 @@ describe('dataNodeLogic', () => {
             'force_blocking'
         )
 
-        // A reload must re-run the count instead of leaving the header frozen.
+        // A user reload must re-run the count instead of leaving the header frozen.
+        logic.actions.refreshCounts()
+        await expectLogic(logic).toDispatchActions(['refreshCounts', 'loadTotalCount'])
+    })
+
+    it('does not re-run the total count on a plain data reload', async () => {
+        // The unfiltered total does not change on mount, sort, search, or filter, so loadData must
+        // not re-fire the forced full-table count for those. Only refreshCounts does.
+        mockedQuery.mockResolvedValue({ results: [[42]] })
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.ActorsQuery, select: ['id'] })
+
+        logic = dataNodeLogic({ key: testUniqueKey, query, autoLoad: false })
+        logic.mount()
+
+        logic.actions.loadTotalCount()
+        await expectLogic(logic).toDispatchActions(['loadTotalCountSuccess'])
+
         logic.actions.loadData('force_blocking')
-        await expectLogic(logic).toDispatchActions(['loadDataSuccess', 'loadTotalCount'])
+        await expectLogic(logic)
+            .toDispatchActions(['loadDataSuccess'])
+            .toNotHaveDispatchedActions(['refreshCounts', 'loadTotalCount'])
     })
 
     it('keeps the last good total count when a later refresh fails', async () => {

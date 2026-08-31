@@ -443,6 +443,9 @@ export interface dataNodeLogicActions {
     loadFilteredCount: () => {
         value: true
     }
+    refreshCounts: () => {
+        value: true
+    }
     loadFilteredCountFailure: (
         error: string,
         errorObject?: any
@@ -959,6 +962,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         resetLoadingTimer: true,
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
         loadFilteredCount: true,
+        refreshCounts: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -2020,13 +2024,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
-            // The count runs once as a lazy loader, so a reload leaves the header frozen while new rows
-            // arrive. Re-run it here to keep the header in sync with the rows below it.
-            if (values.shouldCalculateCount) {
-                actions.loadTotalCount()
-                if (values.filteredCountQuery) {
-                    actions.loadFilteredCount()
-                }
+        },
+        refreshCounts: () => {
+            // The count runs once as a lazy loader, so without this a reload leaves the header frozen
+            // while new rows arrive. Re-run the counts that the header already shows, so they stay in
+            // sync with the rows. A filter or sort change does not come through here: the unfiltered
+            // total does not change for those, and the filtered count refreshes from filteredCountQuery.
+            if (!values.shouldCalculateCount) {
+                return
+            }
+            actions.loadTotalCount()
+            if (values.filteredCountQuery) {
+                actions.loadFilteredCount()
             }
         },
         loadDataFailure: () => {
