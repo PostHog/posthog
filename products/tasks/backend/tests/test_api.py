@@ -22,6 +22,7 @@ from django.utils import timezone as django_timezone
 
 import jwt
 import requests
+import redis.exceptions
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -5858,6 +5859,25 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(data["status"], "in_progress")
         # Verify log_url is returned (S3 presigned URL)
         self.assertIn("log_url", data)
+        self.assertIsNotNone(data["log_url"])
+        self.assertTrue(data["log_url"].startswith("http"))
+
+    def test_retrieve_run_survives_tasks_cache_redis_failure(self):
+        # A redis blip on the optional log-url cache must degrade to a fresh presign, not 500 the
+        # run read. The log-url cache sits on every task run serialization.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        run.append_log([{"type": "info", "message": "Test log output"}])
+
+        failing_cache = MagicMock()
+        failing_cache.get.side_effect = redis.exceptions.BusyLoadingError()
+        failing_cache.set.side_effect = redis.exceptions.BusyLoadingError()
+
+        with patch("products.tasks.backend.redis.get_tasks_cache", return_value=failing_cache):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
         self.assertIsNotNone(data["log_url"])
         self.assertTrue(data["log_url"].startswith("http"))
 
