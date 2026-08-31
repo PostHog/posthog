@@ -45,6 +45,7 @@ from products.signals.backend.scout_report import (
     update_scout_report,
 )
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
+from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
 
 PERSISTENCE_MODULE = "products.signals.backend.scout_report.persistence"
 
@@ -631,6 +632,47 @@ class TestScoutReportMetrics(BaseTest):
 
         assert set_report_metrics(team_id=self.team.id, report_id=report_id, metrics=[]) is True
         assert SignalReport.objects.get(id=report_id).metrics == []
+
+
+class TestReportMetricsUnchanged:
+    """Unit coverage for the datetime-tolerant idempotency comparison (no DB)."""
+
+    def _canonical(self, *, value: int = 17, value_at: str = "2026-08-29T12:00:00Z") -> dict[str, object]:
+        return ReportMetric.model_validate(
+            {
+                "metric_id": "affected-users",
+                "title": "Affected users",
+                "kind": "affected_users",
+                "role": "primary",
+                "value": value,
+                "value_at": value_at,
+                "value_format": "count",
+                "unit": "users",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {"date_from": "-30d"},
+                        "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                    },
+                },
+            }
+        ).model_dump(mode="json")
+
+    def test_a_refreshed_utc_offset_snapshot_equals_the_pydantic_z_form(self) -> None:
+        # The refresh worker writes value_at as `+00:00`; set_report_metrics compares against the
+        # pydantic `Z` form. The same instant must read as unchanged, not a new edit.
+        payload = [self._canonical()]
+        stored = [{**payload[0], "value_at": "2026-08-29T12:00:00+00:00"}]
+        assert _report_metrics_unchanged(stored, payload) is True
+
+    def test_a_changed_value_is_not_absorbed_by_normalization(self) -> None:
+        payload = [self._canonical(value=23)]
+        stored = [{**payload[0], "value": 999}]
+        assert _report_metrics_unchanged(stored, payload) is False
+
+    def test_a_malformed_stored_row_counts_as_changed(self) -> None:
+        assert _report_metrics_unchanged([{"metric_id": "affected-users"}], [self._canonical()]) is False
 
 
 class TestScoutReportSuggestedPrompts(BaseTest):

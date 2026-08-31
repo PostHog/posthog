@@ -465,6 +465,27 @@ def set_report_charts(
     return True
 
 
+def _report_metrics_unchanged(stored: object, payload: list[dict[str, object]]) -> bool:
+    """Whether the stored metrics already equal `payload`, tolerant of datetime serialization.
+
+    The refresh worker overwrites `value_at` with `measured_at.isoformat()` (a `+00:00` offset),
+    while this module writes the pydantic `Z` form, so a raw dict comparison would treat an unchanged
+    re-send of a refreshed metric as an edit and break `edit_report` idempotency. Re-serialize the
+    stored rows through ReportMetric to canonicalize both sides before comparing. A row that no
+    longer parses — legacy or malformed — can't be proven equal, so the set counts as changed and is
+    rewritten cleanly.
+    """
+    if stored == payload:
+        return True
+    if not isinstance(stored, list) or len(stored) != len(payload):
+        return False
+    try:
+        canonical = [ReportMetric.model_validate(row).model_dump(mode="json") for row in stored]
+    except ValidationError:
+        return False
+    return canonical == payload
+
+
 def set_report_metrics(
     *,
     team_id: int,
@@ -488,7 +509,7 @@ def set_report_metrics(
         )
         if stored is None:
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
-        if stored == payload:
+        if _report_metrics_unchanged(stored, payload):
             logger.info(
                 "signals_scout.edit_report: metrics unchanged",
                 extra={"team_id": team_id, "report_id": report_id, "count": len(metrics)},
