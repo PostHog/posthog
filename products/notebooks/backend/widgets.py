@@ -107,6 +107,23 @@ class WidgetJobState:
 
 
 @frozen
+class WidgetSecurityFindingState:
+    severity: str
+    title: str
+    details: str
+
+
+@frozen
+class WidgetSecurityReviewState:
+    severity: str
+    summary: str
+    findings: list[WidgetSecurityFindingState]
+    model: str
+    review_version: str
+    reviewed_at: datetime
+
+
+@frozen
 class WidgetStatus:
     lifecycle_status: str
     error_detail: str | None
@@ -117,6 +134,7 @@ class WidgetStatus:
     instance_id: UUID | None
     has_versions: bool
     active_job: WidgetJobState | None
+    security_review: WidgetSecurityReviewState | None
     build_hash: str | None = None
 
 
@@ -134,6 +152,7 @@ class WidgetVersionSummary:
     artifact_url: str | None
     frame_names: list[str]
     is_current: bool
+    security_review: WidgetSecurityReviewState | None
     build_hash: str | None = None
 
 
@@ -156,6 +175,63 @@ def _json_hash(value: object) -> str:
 
 def _json_size(value: object) -> int:
     return len(json.dumps(value, separators=(",", ":"), default=str).encode())
+
+
+def _security_review_state(version: GeneratedWidgetVersion) -> WidgetSecurityReviewState | None:
+    severity = version.security_review_severity
+    reviewed_at = version.security_reviewed_at
+    summary = version.security_review_summary
+    model = version.security_review_model
+    review_version = version.security_review_version
+    raw_findings = version.security_review_findings
+    severity_order = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+    if (
+        severity not in GeneratedWidgetVersion.SecurityReviewSeverity.values
+        or reviewed_at is None
+        or not isinstance(summary, str)
+        or not summary
+        or not isinstance(model, str)
+        or not model
+        or not isinstance(review_version, str)
+        or not review_version
+        or not isinstance(raw_findings, list)
+    ):
+        return None
+    findings: list[WidgetSecurityFindingState] = []
+    for item in raw_findings:
+        if not isinstance(item, dict):
+            return None
+        finding_severity = item.get("severity")
+        title = item.get("title")
+        details = item.get("details")
+        if (
+            finding_severity not in severity_order
+            or not isinstance(title, str)
+            or not title
+            or not isinstance(details, str)
+            or not details
+        ):
+            return None
+        findings.append(
+            WidgetSecurityFindingState(
+                severity=str(finding_severity),
+                title=title,
+                details=details,
+            )
+        )
+    if severity == GeneratedWidgetVersion.SecurityReviewSeverity.NONE:
+        if findings:
+            return None
+    elif not findings or max(severity_order[finding.severity] for finding in findings) != severity_order[severity]:
+        return None
+    return WidgetSecurityReviewState(
+        severity=severity,
+        summary=summary,
+        findings=findings,
+        model=model,
+        review_version=review_version,
+        reviewed_at=reviewed_at,
+    )
 
 
 def normalize_widget_prompt(prompt: str) -> str:
@@ -742,10 +818,12 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
         notebook_integration as canvas_facade,
     )
     from products.notebooks.backend.widget_generation import (  # noqa: PLC0415 — keeps the model client off Django startup
+        WidgetSecurityReviewError,
         WidgetSourceGenerationCancelled,
         WidgetSourceGenerationError,
         WidgetSourceGenerationTimedOut,
         generate_widget_source,
+        review_widget_source,
     )
 
     with transaction.atomic():
@@ -855,6 +933,27 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
         title = generated.title or _display_name(effective_prompt)
         if is_cancelled():
             raise WidgetError("Widget generation was canceled.", "generation_canceled")
+        reviewing = (
+            GeneratedWidgetGenerationJob.objects.for_team(job.team_id)
+            .filter(
+                id=job.id,
+                status=GeneratedWidgetGenerationJob.Status.GENERATING,
+                cancel_requested_at__isnull=True,
+            )
+            .update(phase="reviewing_source", heartbeat_at=timezone.now())
+        )
+        if not reviewing:
+            raise WidgetError("This generation is no longer active.", "generation_abandoned")
+        security_review = review_widget_source(
+            team_id=job.team_id,
+            trace_id=f"notebook-widget-security-review-{job.id}",
+            source=source,
+            input_names=frame_names,
+            is_cancelled=is_cancelled,
+        )
+        security_reviewed_at = timezone.now()
+        if is_cancelled():
+            raise WidgetError("Widget generation was canceled.", "generation_canceled")
         publishing = (
             GeneratedWidgetGenerationJob.objects.for_team(job.team_id)
             .filter(
@@ -923,6 +1022,19 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 generator_version=GENERATOR_VERSION,
                 input_contract=_version_input_contract(job.input_contract),
                 schema_hash=job.schema_hash,
+                security_review_severity=security_review.severity,
+                security_review_summary=security_review.summary,
+                security_review_findings=[
+                    {
+                        "severity": finding.severity,
+                        "title": finding.title,
+                        "details": finding.details,
+                    }
+                    for finding in security_review.findings
+                ],
+                security_review_model=security_review.model,
+                security_review_version=security_review.review_version,
+                security_reviewed_at=security_reviewed_at,
                 created_by=job.requested_by,
             )
             widget.current_version = version
@@ -949,6 +1061,12 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
     except WidgetSourceGenerationError:
         _mark_job_failed(
             job.id, job.team_id, WidgetError("The widget could not be generated. Try again.", "generation_failed")
+        )
+    except WidgetSecurityReviewError:
+        _mark_job_failed(
+            job.id,
+            job.team_id,
+            WidgetError("The widget security review could not be completed. Try again.", "security_review_failed"),
         )
     except canvas_facade.NotebookCanvasVersionConflictError:
         _mark_job_failed(
@@ -1004,6 +1122,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             instance_id=None,
             has_versions=False,
             active_job=None,
+            security_review=None,
             build_hash=None,
         )
     _fail_stale_generation_jobs(notebook.team_id, instance.id)
@@ -1039,6 +1158,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             instance_id=instance.id,
             has_versions=False,
             active_job=active_job,
+            security_review=None,
             build_hash=None,
         )
     state = canvas_facade.get_canvas_generation_state(team_id=notebook.team_id, canvas_id=instance.widget.canvas_id)
@@ -1097,6 +1217,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
         instance_id=instance.id,
         has_versions=True,
         active_job=active_job,
+        security_review=_security_review_state(current_version),
         build_hash=build_hash,
     )
 
@@ -1146,6 +1267,7 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
                     if isinstance(item, dict) and item.get("slot")
                 ],
                 is_current=version.id == current_id,
+                security_review=_security_review_state(version),
                 build_hash=canvas_version.build_hash if canvas_version is not None else None,
             )
         )
@@ -1273,6 +1395,12 @@ def revert_widget_version(
             generator_version=GENERATOR_VERSION,
             input_contract=target.input_contract,
             schema_hash=target.schema_hash,
+            security_review_severity=target.security_review_severity,
+            security_review_summary=target.security_review_summary,
+            security_review_findings=target.security_review_findings,
+            security_review_model=target.security_review_model,
+            security_review_version=target.security_review_version,
+            security_reviewed_at=target.security_reviewed_at,
             created_by_id=user_id,
         )
         widget.current_version = version

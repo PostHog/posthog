@@ -24,6 +24,7 @@ import type {
 import {
     formatWidgetElapsed,
     getWidgetDataDependencyNodeIds,
+    getWidgetWorkingStatus,
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
 import { DEFAULT_WIDGET_PROMPT } from './widgetModels'
@@ -49,6 +50,7 @@ function status(overrides: Partial<WidgetStatusApi> = {}): WidgetStatusApi {
         instance_id: null,
         has_versions: false,
         active_job: null,
+        security_review: null,
         build_hash: null,
         ...overrides,
     }
@@ -109,6 +111,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget.html',
             frame_names: [],
             is_current: true,
+            security_review: null,
             build_hash: 'a'.repeat(64),
         }
         jest.mocked(notebooksWidgetStatus).mockResolvedValue(
@@ -151,6 +154,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget-v1.html',
             frame_names: [],
             is_current: true,
+            security_review: null,
             build_hash: 'b'.repeat(64),
         }
         const currentVersion: WidgetVersionApi = {
@@ -243,6 +247,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget-old.html',
             frame_names: [],
             is_current: false,
+            security_review: null,
             build_hash: 'c'.repeat(64),
         }
         const readyStatus = status({
@@ -289,6 +294,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget-v1.html',
             frame_names: [],
             is_current: true,
+            security_review: null,
             build_hash: 'd'.repeat(64),
         }
         const nextVersionId = '00000000-0000-0000-0000-000000000003'
@@ -339,6 +345,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget-v1.html',
             frame_names: [],
             is_current: true,
+            security_review: null,
             build_hash: 'e'.repeat(64),
         }
         const failedVersion: WidgetVersionApi = {
@@ -588,6 +595,22 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
 
     it('formats elapsed generation time', () => {
         expect(formatWidgetElapsed(65)).toBe('01:05')
+    })
+
+    it('shows the security review phase after source generation', () => {
+        expect(
+            getWidgetWorkingStatus({
+                elapsedSeconds: 30,
+                hasVersions: false,
+                model: 'claude-sonnet-4-6',
+                phase: 'reviewing_source',
+            })
+        ).toEqual({
+            detail: 'Checking the generated source for security issues.',
+            isOverEstimate: false,
+            label: 'Reviewing widget security…',
+            timing: 'This usually takes less than a minute.',
+        })
     })
 
     it('keeps the elapsed clock running when generation hands off to publishing', async () => {

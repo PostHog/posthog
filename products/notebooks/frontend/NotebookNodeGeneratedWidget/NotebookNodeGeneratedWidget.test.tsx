@@ -75,6 +75,7 @@ describe('NotebookNodeGeneratedWidget', () => {
                 created_at: '2026-08-27T12:00:00Z',
                 started_at: '2026-08-27T12:00:00Z',
             },
+            security_review: null,
             build_hash: null,
         })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({ results: [], count: 0, next_offset: null })
@@ -117,6 +118,7 @@ describe('NotebookNodeGeneratedWidget', () => {
             instance_id: '00000000-0000-0000-0000-000000000004',
             has_versions: true,
             active_job: null,
+            security_review: null,
             build_hash: 'a'.repeat(64),
         })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
@@ -134,6 +136,7 @@ describe('NotebookNodeGeneratedWidget', () => {
                     artifact_url: 'https://example.com/widget.html',
                     frame_names: [],
                     is_current: true,
+                    security_review: null,
                     build_hash: 'a'.repeat(64),
                 },
             ],
@@ -180,9 +183,23 @@ describe('NotebookNodeGeneratedWidget', () => {
         expect(screen.getByText('Build changes')).toBeTruthy()
     })
 
-    it('does not mount generated JavaScript until the exact build is run', async () => {
+    it('shows security findings before mounting the exact build', async () => {
         const versionId = '00000000-0000-0000-0000-000000000005'
         const buildHash = 'b'.repeat(64)
+        const securityReview = {
+            severity: 'high' as const,
+            summary: 'The widget may send notebook data to another window.',
+            findings: [
+                {
+                    severity: 'high' as const,
+                    title: 'Notebook data may leave the preview',
+                    details: 'The source sends rows to the parent window without using the approved bridge.',
+                },
+            ],
+            model: 'claude-haiku-4-5',
+            review_version: '1',
+            reviewed_at: '2026-08-31T10:00:00Z',
+        }
         jest.mocked(notebooksWidgetStatus).mockResolvedValue({
             lifecycle_status: 'ready',
             error_detail: null,
@@ -193,6 +210,7 @@ describe('NotebookNodeGeneratedWidget', () => {
             instance_id: '00000000-0000-0000-0000-000000000007',
             has_versions: true,
             active_job: null,
+            security_review: securityReview,
             build_hash: buildHash,
         })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
@@ -210,6 +228,7 @@ describe('NotebookNodeGeneratedWidget', () => {
                     artifact_url: 'https://example.com/untrusted-widget.html',
                     frame_names: [],
                     is_current: true,
+                    security_review: securityReview,
                     build_hash: buildHash,
                 },
             ],
@@ -224,6 +243,9 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
+        await screen.findByText('Security review found potential issues')
+        expect(screen.getByText('Notebook data may leave the preview')).toBeTruthy()
+        expect(screen.getByText('Run widget anyway')).toBeTruthy()
         await waitFor(() => expect(container.querySelector('[data-attr="notebook-widget-run"]')).not.toBeNull())
         const runButton = container.querySelector('[data-attr="notebook-widget-run"]')!
         expect(container.querySelector('iframe')).toBeNull()
@@ -235,5 +257,64 @@ describe('NotebookNodeGeneratedWidget', () => {
         expect(container.querySelector('iframe')?.getAttribute('src')).toBe(
             'https://example.com/untrusted-widget.html#theme=light'
         )
+    })
+
+    it('mounts a widget automatically when the security review passes', async () => {
+        const versionId = '00000000-0000-0000-0000-000000000008'
+        const buildHash = 'c'.repeat(64)
+        const securityReview = {
+            severity: 'none' as const,
+            summary: 'No security issues found.',
+            findings: [],
+            model: 'claude-haiku-4-5',
+            review_version: '1',
+            reviewed_at: '2026-08-31T10:00:00Z',
+        }
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            lifecycle_status: 'ready',
+            error_detail: null,
+            artifact_url: 'https://example.com/reviewed-widget.html',
+            frame_names: [],
+            current_version_id: versionId,
+            widget_id: '00000000-0000-0000-0000-000000000009',
+            instance_id: '00000000-0000-0000-0000-000000000010',
+            has_versions: true,
+            active_job: null,
+            security_review: securityReview,
+            build_hash: buildHash,
+        })
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+            results: [
+                {
+                    id: versionId,
+                    parent_version_id: null,
+                    version: 1,
+                    version_operation: 'initial',
+                    prompt_delta: 'Render a globe',
+                    effective_prompt: 'Render a globe',
+                    model: 'claude-sonnet-4-6',
+                    created_at: '2026-08-31T10:00:00Z',
+                    build_status: 'ready',
+                    artifact_url: 'https://example.com/reviewed-widget.html',
+                    frame_names: [],
+                    is_current: true,
+                    security_review: securityReview,
+                    build_hash: buildHash,
+                },
+            ],
+            count: 1,
+            next_offset: null,
+        })
+        const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
+
+        const { container } = render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull())
+        expect(container.querySelector('[data-attr="notebook-widget-run"]')).toBeNull()
+        expect(screen.getByText('Security review: No issues found')).toBeTruthy()
     })
 })

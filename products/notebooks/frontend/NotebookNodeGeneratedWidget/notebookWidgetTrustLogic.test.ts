@@ -17,21 +17,15 @@ describe('notebookWidgetTrustLogic', () => {
 
     function trustFor({
         userId = 12,
-        projectId = 34,
-        notebookShortId = 'notebook-1',
         buildHash = BUILD_HASH,
     }: {
         userId?: number | null
-        projectId?: number | null
-        notebookShortId?: string
         buildHash?: string | null
     } = {}): NotebookWidgetTrust {
         return getNotebookWidgetTrust({
             trustByUser: notebookWidgetTrustLogic.values.trustByUser,
             sessionBuildHashes: notebookWidgetTrustLogic.values.sessionBuildHashes,
             userId,
-            projectId,
-            notebookShortId,
             buildHash,
         })
     }
@@ -43,23 +37,6 @@ describe('notebookWidgetTrustLogic', () => {
         expect(trustFor({ buildHash: 'b'.repeat(64) }).buildTrusted).toBe(false)
         expect(trustFor({ userId: 13 }).buildTrusted).toBe(false)
         expect(trustFor({ buildHash: 'not-a-build-hash' }).buildTrusted).toBe(false)
-    })
-
-    it('applies and revokes notebook and project trust independently', () => {
-        notebookWidgetTrustLogic.actions.setNotebookTrusted(12, 34, 'notebook-1', true)
-        expect(trustFor()).toMatchObject({ buildTrusted: true, notebookTrusted: true, projectTrusted: false })
-        expect(trustFor({ notebookShortId: 'notebook-2' }).buildTrusted).toBe(false)
-
-        notebookWidgetTrustLogic.actions.setProjectTrusted(12, 34, true)
-        expect(trustFor({ notebookShortId: 'notebook-2' })).toMatchObject({
-            buildTrusted: true,
-            notebookTrusted: false,
-            projectTrusted: true,
-        })
-
-        notebookWidgetTrustLogic.actions.setProjectTrusted(12, 34, false)
-        notebookWidgetTrustLogic.actions.setNotebookTrusted(12, 34, 'notebook-1', false)
-        expect(trustFor().buildTrusted).toBe(false)
     })
 
     it('keeps anonymous approval in the current session only', () => {

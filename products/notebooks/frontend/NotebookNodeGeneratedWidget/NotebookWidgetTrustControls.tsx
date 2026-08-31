@@ -1,49 +1,47 @@
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, type LemonTagType } from '@posthog/lemon-ui'
+
+import type { WidgetSecurityReviewApi } from 'products/notebooks/frontend/generated/api.schemas'
 
 export type NotebookWidgetTrustControlsProps = {
     buildHash: string | null
-    canTrustScopes: boolean
-    notebookTrusted: boolean
-    projectTrusted: boolean
+    securityReview: WidgetSecurityReviewApi | null
     variant: 'gate' | 'toolbar'
     onRun: () => void
     onViewSource: () => void
-    onNotebookTrustedChange: (trusted: boolean) => void
-    onProjectTrustedChange: (trusted: boolean) => void
+}
+
+const SEVERITY_LABELS: Record<WidgetSecurityReviewApi['severity'], string> = {
+    none: 'No issues found',
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
+    critical: 'Critical',
+}
+
+function severityTagType(severity: WidgetSecurityReviewApi['severity']): LemonTagType {
+    if (severity === 'none') {
+        return 'success'
+    }
+    if (severity === 'high' || severity === 'critical') {
+        return 'danger'
+    }
+    return 'warning'
 }
 
 export function NotebookWidgetTrustControls({
     buildHash,
-    canTrustScopes,
-    notebookTrusted,
-    projectTrusted,
+    securityReview,
     variant,
     onRun,
     onViewSource,
-    onNotebookTrustedChange,
-    onProjectTrustedChange,
 }: NotebookWidgetTrustControlsProps): JSX.Element {
-    const scopeDisabledReason = canTrustScopes ? undefined : 'Sign in to save widget trust choices.'
     const shortBuildHash = buildHash ? buildHash.slice(0, 12) : null
-    const scopeControls = (
-        <div className={variant === 'gate' ? 'flex flex-col gap-2' : 'flex flex-wrap items-center gap-3'}>
-            <LemonCheckbox
-                checked={notebookTrusted}
-                onChange={onNotebookTrustedChange}
-                disabledReason={scopeDisabledReason}
-                label="Trust all widgets in this notebook"
-                size="small"
-                data-attr="notebook-widget-trust-notebook"
-            />
-            <LemonCheckbox
-                checked={projectTrusted}
-                onChange={onProjectTrustedChange}
-                disabledReason={scopeDisabledReason}
-                label="Trust all widgets in this project"
-                size="small"
-                data-attr="notebook-widget-trust-project"
-            />
-        </div>
+    const reviewTag = securityReview ? (
+        <LemonTag type={severityTagType(securityReview.severity)}>
+            Security review: {SEVERITY_LABELS[securityReview.severity]}
+        </LemonTag>
+    ) : (
+        <LemonTag type="muted">Not reviewed</LemonTag>
     )
 
     if (variant === 'toolbar') {
@@ -53,23 +51,47 @@ export function NotebookWidgetTrustControls({
                     <LemonButton size="xsmall" onClick={onViewSource} data-attr="notebook-widget-view-source">
                         View source
                     </LemonButton>
+                    {reviewTag}
                     {shortBuildHash ? (
                         <span className="font-mono text-xs text-muted">Build {shortBuildHash}</span>
                     ) : null}
                 </div>
-                {scopeControls}
             </div>
         )
     }
 
+    const hasFindings = securityReview !== null && securityReview.severity !== 'none'
     return (
-        <div className="flex h-full min-h-48 items-center justify-center p-4 text-center">
-            <div className="flex max-w-lg flex-col items-center gap-3">
-                <div className="text-base font-semibold">Run this widget?</div>
-                <div className="text-secondary">
-                    This generated widget contains JavaScript and can request the notebook data declared by its source.
-                    Review the source, then run this exact build.
+        <div className="h-full min-h-48 overflow-auto p-4">
+            <div className="mx-auto flex min-h-full max-w-2xl flex-col justify-center gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-base font-semibold">
+                        {hasFindings
+                            ? 'Security review found potential issues'
+                            : 'This widget has not been security reviewed'}
+                    </div>
+                    {reviewTag}
                 </div>
+                <div className="text-secondary">
+                    {hasFindings
+                        ? securityReview.summary
+                        : 'This version was generated before automated reviews were available. View its source before deciding whether to run it.'}
+                </div>
+                {hasFindings ? (
+                    <ul className="m-0 flex list-disc flex-col gap-2 pl-5 text-left">
+                        {securityReview.findings.map((finding, index) => (
+                            <li key={`${finding.severity}-${finding.title}-${index}`}>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-semibold">{finding.title}</span>
+                                    <LemonTag type={severityTagType(finding.severity)} size="small">
+                                        {SEVERITY_LABELS[finding.severity]}
+                                    </LemonTag>
+                                </div>
+                                <div className="text-secondary">{finding.details}</div>
+                            </li>
+                        ))}
+                    </ul>
+                ) : null}
                 {shortBuildHash ? (
                     <div className="font-mono text-xs text-muted">Build {shortBuildHash}</div>
                 ) : (
@@ -77,17 +99,16 @@ export function NotebookWidgetTrustControls({
                         This preview has no verifiable build hash. Regenerate it before running it.
                     </div>
                 )}
-                <div className="flex flex-wrap justify-center gap-2">
+                <div className="flex flex-wrap gap-2">
                     {buildHash ? (
                         <LemonButton type="primary" onClick={onRun} data-attr="notebook-widget-run">
-                            Run widget
+                            {hasFindings ? 'Run widget anyway' : 'Run widget'}
                         </LemonButton>
                     ) : null}
                     <LemonButton onClick={onViewSource} data-attr="notebook-widget-view-source">
                         View source
                     </LemonButton>
                 </div>
-                <div className="w-full rounded border bg-surface-primary p-3 text-left">{scopeControls}</div>
             </div>
         </div>
     )

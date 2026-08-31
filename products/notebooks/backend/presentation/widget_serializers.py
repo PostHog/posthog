@@ -38,6 +38,27 @@ class WidgetJobSerializer(serializers.Serializer):
     started_at = serializers.DateTimeField(allow_null=True, help_text="When a worker started the job.")
 
 
+class WidgetSecurityFindingSerializer(serializers.Serializer):
+    severity = serializers.ChoiceField(
+        choices=["low", "medium", "high", "critical"],
+        help_text="Severity of this potential security issue.",
+    )
+    title = serializers.CharField(help_text="Short description of the potential security issue.")
+    details = serializers.CharField(help_text="Why the source may be unsafe and what it could do.")
+
+
+class WidgetSecurityReviewSerializer(serializers.Serializer):
+    severity = serializers.ChoiceField(
+        choices=["none", "low", "medium", "high", "critical"],
+        help_text="Highest severity found, or none when the review found no issues.",
+    )
+    summary = serializers.CharField(help_text="Concise result from the automated security review.")
+    findings = WidgetSecurityFindingSerializer(many=True, help_text="Potential security issues found in the source.")
+    model = serializers.CharField(help_text="Fast AI model used for the security review.")
+    review_version = serializers.CharField(help_text="Version of the security review instructions and parser.")
+    reviewed_at = serializers.DateTimeField(help_text="When this exact widget source was reviewed.")
+
+
 class WidgetStatusSerializer(serializers.Serializer):
     lifecycle_status = serializers.ChoiceField(
         choices=["awaiting_generation", "generating", "building", "ready", "failed", "incompatible"],
@@ -58,6 +79,10 @@ class WidgetStatusSerializer(serializers.Serializer):
     instance_id = serializers.UUIDField(allow_null=True, help_text="Placement in this notebook.")
     has_versions = serializers.BooleanField(help_text="Whether the widget has generated history.")
     active_job = WidgetJobSerializer(allow_null=True, help_text="Active generation job, if any.")
+    security_review = WidgetSecurityReviewSerializer(
+        allow_null=True,
+        help_text="Automated review for the selected source, or null for a legacy unreviewed version.",
+    )
     build_hash = serializers.CharField(
         allow_null=True,
         help_text="Hex SHA-256 over the exact immutable artifact manifest selected for display.",
@@ -87,6 +112,10 @@ class WidgetVersionSerializer(serializers.Serializer):
         child=serializers.CharField(), help_text="Logical dataframe slots available to this version."
     )
     is_current = serializers.BooleanField(help_text="Whether this notebook instance currently displays this version.")
+    security_review = WidgetSecurityReviewSerializer(
+        allow_null=True,
+        help_text="Automated review for this source, or null for a legacy unreviewed version.",
+    )
     build_hash = serializers.CharField(
         allow_null=True,
         help_text="Hex SHA-256 over this version's exact immutable artifact manifest.",

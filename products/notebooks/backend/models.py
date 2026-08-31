@@ -285,6 +285,13 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
         IMPROVE = "improve", "improve"
         REVERT = "revert", "revert"
 
+    class SecurityReviewSeverity(models.TextChoices):
+        NONE = "none", "none"
+        LOW = "low", "low"
+        MEDIUM = "medium", "medium"
+        HIGH = "high", "high"
+        CRITICAL = "critical", "critical"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="versions")
     canvas_source_version_id = models.UUIDField()
@@ -300,6 +307,17 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     generator_version = models.CharField(max_length=32)
     input_contract: JSONField = JSONField(default=list)
     schema_hash = models.CharField(max_length=64)
+    security_review_severity = models.CharField(
+        choices=SecurityReviewSeverity,
+        max_length=16,
+        null=True,
+        blank=True,
+    )
+    security_review_summary = models.TextField(null=True, blank=True)
+    security_review_findings: JSONField = JSONField(null=True, blank=True)
+    security_review_model = models.CharField(max_length=64, null=True, blank=True)
+    security_review_version = models.CharField(max_length=32, null=True, blank=True)
+    security_reviewed_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
     )

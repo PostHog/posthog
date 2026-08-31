@@ -269,6 +269,14 @@ export function getWidgetWorkingStatus({
             timing: 'Timing starts when generation begins.',
         }
     }
+    if (phase.startsWith('reviewing')) {
+        return {
+            detail: 'Checking the generated source for security issues.',
+            isOverEstimate: false,
+            label: 'Reviewing widget security…',
+            timing: 'This usually takes less than a minute.',
+        }
+    }
     if (phase.startsWith('publishing')) {
         return {
             detail: 'Preparing the interactive preview.',

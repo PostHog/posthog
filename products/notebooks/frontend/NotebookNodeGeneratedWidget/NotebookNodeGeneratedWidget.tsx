@@ -108,7 +108,7 @@ function ExpandedWidget({
         runDataDependencies,
         setRuntimeError,
     } = useActions(logic)
-    const { setNotebookTrusted, setProjectTrusted, trustBuild } = useActions(trustLogic)
+    const { trustBuild } = useActions(trustLogic)
 
     if (statusLoading && !status) {
         return (
@@ -138,20 +138,20 @@ function ExpandedWidget({
         selectedVersionId === status?.current_version_id
             ? (status?.build_hash ?? null)
             : (selectedVersion?.build_hash ?? null)
+    const selectedSecurityReview =
+        selectedVersionId === status?.current_version_id
+            ? (status?.security_review ?? null)
+            : (selectedVersion?.security_review ?? null)
     const widgetTrust = getNotebookWidgetTrust({
         trustByUser,
         sessionBuildHashes,
         userId: user?.id ?? null,
-        projectId: currentTeamId,
-        notebookShortId,
         buildHash: selectedBuildHash,
     })
     const trustControls = (variant: 'gate' | 'toolbar'): JSX.Element => (
         <NotebookWidgetTrustControls
             buildHash={selectedBuildHash}
-            canTrustScopes={Boolean(user && currentTeamId)}
-            notebookTrusted={widgetTrust.notebookTrusted}
-            projectTrusted={widgetTrust.projectTrusted}
+            securityReview={selectedSecurityReview}
             variant={variant}
             onRun={() => {
                 if (selectedBuildHash) {
@@ -159,16 +159,6 @@ function ExpandedWidget({
                 }
             }}
             onViewSource={openSourceModal}
-            onNotebookTrustedChange={(trusted) => {
-                if (user && currentTeamId) {
-                    setNotebookTrusted(user.id, currentTeamId, notebookShortId, trusted)
-                }
-            }}
-            onProjectTrustedChange={(trusted) => {
-                if (user && currentTeamId) {
-                    setProjectTrusted(user.id, currentTeamId, trusted)
-                }
-            }}
         />
     )
     if (artifactUnavailable && selectedArtifactUrl) {
@@ -185,7 +175,7 @@ function ExpandedWidget({
     }
 
     if (selectedArtifactUrl && selectedVersionId && currentTeamId) {
-        if (!widgetTrust.buildTrusted) {
+        if (selectedSecurityReview?.severity !== 'none' && !widgetTrust.buildTrusted) {
             return (
                 <>
                     {trustControls('gate')}

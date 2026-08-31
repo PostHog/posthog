@@ -86445,6 +86445,59 @@ export namespace Schemas {
       expected_current_version_id: string;
     }
 
+    export interface WidgetSecurityFinding {
+      /** Severity of this potential security issue.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Short description of the potential security issue. */
+      title: string;
+      /** Why the source may be unsafe and what it could do. */
+      details: string;
+    }
+
+    /**
+     * * `none` - none
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical
+     */
+    export type WidgetSecurityReviewSeverityEnum = typeof WidgetSecurityReviewSeverityEnum[keyof typeof WidgetSecurityReviewSeverityEnum];
+
+
+    export const WidgetSecurityReviewSeverityEnum = {
+      None: 'none',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
+    export interface WidgetSecurityReview {
+      /** Highest severity found, or none when the review found no issues.
+       *
+       * * `none` - none
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: WidgetSecurityReviewSeverityEnum;
+      /** Concise result from the automated security review. */
+      summary: string;
+      /** Potential security issues found in the source. */
+      findings: WidgetSecurityFinding[];
+      /** Fast AI model used for the security review. */
+      model: string;
+      /** Version of the security review instructions and parser. */
+      review_version: string;
+      /** When this exact widget source was reviewed. */
+      reviewed_at: string;
+    }
+
     export interface WidgetSource {
       /** Read-only source code for the current widget version. */
       source: string;
@@ -86491,6 +86544,8 @@ export namespace Schemas {
       has_versions: boolean;
       /** Active generation job, if any. */
       active_job: WidgetJob | null;
+      /** Automated review for the selected source, or null for a legacy unreviewed version. */
+      security_review: WidgetSecurityReview | null;
       /**
          * Hex SHA-256 over the exact immutable artifact manifest selected for display.
          * @nullable
@@ -86545,6 +86600,8 @@ export namespace Schemas {
       frame_names: string[];
       /** Whether this notebook instance currently displays this version. */
       is_current: boolean;
+      /** Automated review for this source, or null for a legacy unreviewed version. */
+      security_review: WidgetSecurityReview | null;
       /**
          * Hex SHA-256 over this version's exact immutable artifact manifest.
          * @nullable

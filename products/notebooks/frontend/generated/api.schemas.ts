@@ -778,6 +778,75 @@ export interface WidgetJobApi {
     started_at: string | null
 }
 
+/**
+ * * `none` - none
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `critical` - critical
+ */
+export type WidgetSecurityReviewSeverityEnumApi =
+    (typeof WidgetSecurityReviewSeverityEnumApi)[keyof typeof WidgetSecurityReviewSeverityEnumApi]
+
+export const WidgetSecurityReviewSeverityEnumApi = {
+    None: 'none',
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+/**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `critical` - critical
+ */
+export type ErrorTrackingIssueSeverityRuleEnumApi =
+    (typeof ErrorTrackingIssueSeverityRuleEnumApi)[keyof typeof ErrorTrackingIssueSeverityRuleEnumApi]
+
+export const ErrorTrackingIssueSeverityRuleEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+export interface WidgetSecurityFindingApi {
+    /** Severity of this potential security issue.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity: ErrorTrackingIssueSeverityRuleEnumApi
+    /** Short description of the potential security issue. */
+    title: string
+    /** Why the source may be unsafe and what it could do. */
+    details: string
+}
+
+export interface WidgetSecurityReviewApi {
+    /** Highest severity found, or none when the review found no issues.
+     *
+     * * `none` - none
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity: WidgetSecurityReviewSeverityEnumApi
+    /** Concise result from the automated security review. */
+    summary: string
+    /** Potential security issues found in the source. */
+    findings: WidgetSecurityFindingApi[]
+    /** Fast AI model used for the security review. */
+    model: string
+    /** Version of the security review instructions and parser. */
+    review_version: string
+    /** When this exact widget source was reviewed. */
+    reviewed_at: string
+}
+
 export interface WidgetStatusApi {
     /** Current widget and preview state.
      *
@@ -819,6 +888,8 @@ export interface WidgetStatusApi {
     has_versions: boolean
     /** Active generation job, if any. */
     active_job: WidgetJobApi | null
+    /** Automated review for the selected source, or null for a legacy unreviewed version. */
+    security_review: WidgetSecurityReviewApi | null
     /**
      * Hex SHA-256 over the exact immutable artifact manifest selected for display.
      * @nullable
@@ -915,6 +986,8 @@ export interface WidgetVersionApi {
     frame_names: string[]
     /** Whether this notebook instance currently displays this version. */
     is_current: boolean
+    /** Automated review for this source, or null for a legacy unreviewed version. */
+    security_review: WidgetSecurityReviewApi | null
     /**
      * Hex SHA-256 over this version's exact immutable artifact manifest.
      * @nullable
