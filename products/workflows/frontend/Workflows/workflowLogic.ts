@@ -3803,13 +3803,18 @@ export const workflowLogic = kea<workflowLogicType>([
             if (event.resource_type !== 'HogFlow' || event.resource_id !== props.id) {
                 return
             }
-            // Our own save/reload is mid-flight (originalWorkflowLoading covers both, they share a
-            // loader), or a publish/discard is about to reload: the emit for our own write can beat
-            // its HTTP response back to us, and reacting to that echo against the stale baseline
-            // flashes the conflict banner at ourselves. Park the event instead of reacting; once the
-            // flight settles it replays against the fresh baseline, where our own echo compares equal
-            // (ignored) and a genuine concurrent edit is still strictly newer (reconciled).
-            if (values.originalWorkflowLoading || values.draftActionPending) {
+            // Our own save/reload is mid-flight, or a publish/discard is about to reload: the emit
+            // for our own write can beat its HTTP response back to us, and reacting to that echo
+            // against the stale baseline flashes the conflict banner at ourselves. Park the event
+            // instead of reacting; once the flight settles it replays against the fresh baseline,
+            // where our own echo compares equal (ignored) and a genuine concurrent edit is still
+            // strictly newer (reconciled).
+            // `originalWorkflowLoading` alone is not enough here. It is one boolean for the whole
+            // loader, so the first save of a queued pair clears it while the second still runs, and
+            // that second save's own echo would then read as somebody else's edit. Count the saves
+            // this editor still has outstanding instead.
+            const savesInFlight = ((cache.saveContexts as SaveContext[] | undefined) ?? []).length
+            if (values.originalWorkflowLoading || savesInFlight > 0 || values.draftActionPending) {
                 actions.setDeferredResourceEdited(event)
                 return
             }

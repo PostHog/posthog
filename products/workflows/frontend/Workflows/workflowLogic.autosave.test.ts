@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
+
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
@@ -542,6 +544,71 @@ describe('workflowLogic auto-save', () => {
             // save lands. Attributing it to the auto-save puts it between the two patches.
             expect(events).toEqual(['patch', 'patch', 'schedule'])
             expect(scheduleWrites).toBe(1)
+        })
+
+        it("ignores the second queued save's own edit event", async () => {
+            // The loader's loading flag is one boolean, so the first save clears it while the
+            // second still runs. An echo of the second save arriving in that window used to read
+            // as somebody else's edit, which is the false banner this whole change removes.
+            resourceEditedLogic.mount()
+            // Both saves are held, so the second is provably still open when the echo arrives.
+            const release: (() => void)[] = []
+            let held = 0
+            let sawSecond = (): void => {}
+            const secondPatchSeen = new Promise<void>((resolve) => {
+                sawSecond = resolve
+            })
+            let loads = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => {
+                        loads += 1
+                        return [200, makeWorkflow({ updated_at: serverUpdatedAt })]
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async () => {
+                        held += 1
+                        if (held === 2) {
+                            sawSecond()
+                        }
+                        await new Promise<void>((resolve) => release.push(resolve))
+                        return [200, makeWorkflow({ updated_at: '2026-05-01T00:00:0' + held + '.000Z' })]
+                    },
+                },
+            })
+
+            logic.actions.setWorkflowValue('name', 'Renamed by me')
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            release[0]()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+            await secondPatchSeen
+
+            // The first save has landed and the second is still open. Its own emit arrives now.
+            resourceEditedLogic.actions.resourceEdited({
+                notification_type: 'resource_edited',
+                team_id: 1,
+                resource_type: 'HogFlow',
+                resource_id: WORKFLOW_ID,
+                updated_at: '2027-01-01T00:00:00.000Z',
+                actor_user_id: 1,
+            })
+            await new Promise((resolve) => setTimeout(resolve, 200))
+
+            // Reacting here means treating this editor's own in-flight save as somebody else's:
+            // a reload that resets the form under the person, or the banner.
+            expect({ reloads: loads, banner: logic.values.externallyEdited }).toEqual({
+                reloads: 0,
+                banner: false,
+            })
+
+            release[1]()
+            await new Promise((resolve) => setTimeout(resolve, 300))
         })
 
         it('keeps the form submitting until the queued manual save lands', async () => {
