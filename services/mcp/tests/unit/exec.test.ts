@@ -21,6 +21,7 @@ import {
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecHelpCatalog } from '@/tools/exec-help'
+import { GENERATED_TOOLS } from '@/tools/generated/core'
 import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
@@ -143,6 +144,39 @@ describe('exec tool', () => {
             await expect(
                 exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
             ).rejects.toThrow('Unknown learning topics: "unknown", "missing". Available: analytics, retention-analysis')
+        })
+    })
+
+    describe('user-get uuid contract', () => {
+        // `user-get` fetches the caller's own profile, so CLI clients routinely dispatch
+        // `call user-get` with no body — the exec parser then hands the schema an empty
+        // `{}`. The generated schema defaults `uuid` to `@me`, so that shape must validate
+        // and reach the handler as `@me`. An explicit UUID must still pass through.
+        const userGetFactory = GENERATED_TOOLS['user-get']
+        if (!userGetFactory) {
+            throw new Error('user-get generated tool is missing')
+        }
+        const userGetSchema = userGetFactory().schema
+
+        it.each([
+            { name: 'empty body defaults uuid to @me', command: 'call user-get', expected: { uuid: '@me' } },
+            {
+                name: 'explicit uuid passes through unchanged',
+                command: 'call user-get {"uuid":"00000000-0000-0000-0000-000000000abc"}',
+                expected: { uuid: '00000000-0000-0000-0000-000000000abc' },
+            },
+        ])('$name', async ({ command, expected }) => {
+            let received: Record<string, unknown> | undefined
+            const userGet = makeMockTool({
+                name: 'user-get',
+                schema: userGetSchema,
+                handler: async (_context, params) => {
+                    received = params as Record<string, unknown>
+                    return { ok: true }
+                },
+            })
+            await createExec([userGet]).handler(mockContext, { command })
+            expect(received).toEqual(expected)
         })
     })
 

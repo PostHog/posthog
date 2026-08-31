@@ -299,7 +299,10 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
 })
 
 const UserGetSchema = UsersRetrieveParams.extend({
-    uuid: UsersRetrieveParams.shape['uuid'].describe('User UUID, or `@me` to target the authenticated user.'),
+    uuid: UsersRetrieveParams.shape['uuid']
+        .default('@me')
+        .optional()
+        .describe('User UUID, or `@me` to target the authenticated user.'),
 })
 
 const userGet = (): ToolBase<typeof UserGetSchema, Schemas.User> => ({
