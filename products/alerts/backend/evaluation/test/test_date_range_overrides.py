@@ -1,3 +1,5 @@
+from typing import cast
+
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +25,7 @@ from posthog.tasks.alerts.detector import (
     _resolve_maturation_lag,
 )
 from posthog.tasks.alerts.trends import (
+    TrendResult,
     _date_range_override_for_intervals,
     _drop_incomplete_current_interval,
     query_excludes_incomplete_periods,
@@ -110,7 +113,9 @@ class TestMaturationLag(TestCase):
         ]
     )
     def test_prepare_series_trims_maturation_tail(self, _name, drop_current, maturation_lag, expected_data):
-        row = {"data": [1.0, 2.0, 3.0, 4.0, 5.0], "days": ["d1", "d2", "d3", "d4", "d5"], "label": "s"}
+        row = cast(
+            TrendResult, {"data": [1.0, 2.0, 3.0, 4.0, 5.0], "days": ["d1", "d2", "d3", "d4", "d5"], "label": "s"}
+        )
         prepared = _prepare_series(row, False, drop_current=drop_current, maturation_lag=maturation_lag)
         assert prepared is not None
         self.assertEqual(list(prepared.data), expected_data)
@@ -118,7 +123,7 @@ class TestMaturationLag(TestCase):
 
     def test_prepare_series_keeps_at_least_one_point(self):
         # A short series must still reach the detector's own minimum-length guard, not be emptied here.
-        row = {"data": [1.0, 2.0], "days": ["d1", "d2"], "label": "s"}
+        row = cast(TrendResult, {"data": [1.0, 2.0], "days": ["d1", "d2"], "label": "s"})
         prepared = _prepare_series(row, False, drop_current=True, maturation_lag=5)
         assert prepared is not None
         self.assertEqual(list(prepared.data), [1.0])
