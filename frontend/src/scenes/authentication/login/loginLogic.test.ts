@@ -251,6 +251,43 @@ describe('loginLogic', () => {
         })
     })
 
+    describe('login failure capture', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false }],
+                    '/api/login': () => [401, { code: 'invalid_credentials', detail: 'Invalid email or password.' }],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('captures the failure with its error code', async () => {
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'wrong-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['setGeneralError'])
+
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'login failed',
+                expect.objectContaining({ error_code: 'invalid_credentials' })
+            )
+        })
+    })
+
     describe('precheck dedupe', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckHandler: jest.Mock

@@ -636,6 +636,27 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     listeners(({ values, actions }) => ({
+        // The login page recorded no failure event, so the size of the recovery path was invisible in
+        // product data. Capture every general error with its code and what the precheck knows about the
+        // account, so a funnel can size failures and show whether the reset link and region hint recover
+        // users. This is the single point every terminal login error passes through.
+        setGeneralError: ({ code }) => {
+            const { precheckResponse, availableLoginMethods, codeVerificationRequired, preflight } = values
+            // Trust the precheck's account facts only when it completed for the email now in the form.
+            // A failed or stale precheck reports permissive defaults, which would mislabel the failure.
+            const precheckTrusted =
+                precheckResponse.status === 'completed' &&
+                !precheckResponse.precheckFailed &&
+                precheckResponse.email === values.login.email
+            posthog.capture('login failed', {
+                error_code: code || 'unknown',
+                region: preflight?.region,
+                code_verification_pending: codeVerificationRequired,
+                precheck_failed: precheckResponse.precheckFailed ?? false,
+                sso_enforcement: precheckTrusted ? (precheckResponse.sso_enforcement ?? null) : undefined,
+                login_methods_available: precheckTrusted ? availableLoginMethods : undefined,
+            })
+        },
         submitLoginSuccess: () => {
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
