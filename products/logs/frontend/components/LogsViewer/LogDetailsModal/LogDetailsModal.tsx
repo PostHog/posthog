@@ -142,7 +142,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 timestamp={selectedLog.timestamp}
                                 size="xsmall"
                                 type="secondary"
-                                data-attr="logs-viewer-view-trace"
+                                data-attr="logs-details-view-trace"
                             />
                             {sessionId && (
                                 <ViewRecordingButton

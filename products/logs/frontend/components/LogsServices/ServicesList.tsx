@@ -26,8 +26,12 @@ const HEADER_HEIGHT = 28
 /** Shared by the header and every row so the columns line up either side of the scroller. */
 const COLUMN_TEMPLATE = 'grid grid-cols-[minmax(0,1fr)_6rem_5rem_12rem] items-center gap-2'
 
-/** Width the row actions reserve. The metrics link is flag-gated, so it changes the count. */
-const actionsWidthClass = (withMetricsLink: boolean): string => (withMetricsLink ? 'w-12' : 'w-6')
+/**
+ * Width the row actions reserve, so the header and the no-service placeholder line up with a
+ * normal row. The metrics link is flag-gated, so it changes the count — and two buttons also sit
+ * either side of the row's `gap-2`, which the reservation has to include.
+ */
+const actionsWidthClass = (withMetricsLink: boolean): string => (withMetricsLink ? 'w-14' : 'w-6')
 
 interface ServicesListProps {
     services: ServiceRow[]
