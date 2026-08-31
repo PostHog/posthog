@@ -59,6 +59,7 @@ import {
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
+import { resolveItemValue } from 'lib/components/TaxonomicFilter/utils/resolveItemValue'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
@@ -2226,7 +2227,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem && itemGroup) {
-                    const itemValue = selectedItem ? itemGroup.getValue?.(selectedItem) : null
+                    const itemValue = resolveItemValue(selectedItem, itemGroup)
                     actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
                         position: values.index,
                     })

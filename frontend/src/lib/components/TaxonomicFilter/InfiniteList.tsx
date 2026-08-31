@@ -31,6 +31,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
+import { resolveItemValue } from 'lib/components/TaxonomicFilter/utils/resolveItemValue'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -489,14 +490,7 @@ export const InfiniteListRow = ({
     }
 
     const itemGroup = getItemGroup(item, taxonomicGroups, group)
-    // Recent items are stripped to { name, id? } — getValue on the source group
-    // (e.g. Persons expects distinct_ids) returns undefined. Use the canonical
-    // sourceValue recorded at first selection instead.
-    const itemValue = item
-        ? hasRecentContext(item)
-            ? (item._recentContext.sourceValue ?? itemGroup?.getValue?.(item))
-            : itemGroup?.getValue?.(item)
-        : null
+    const itemValue = resolveItemValue(item, itemGroup)
 
     const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
 
