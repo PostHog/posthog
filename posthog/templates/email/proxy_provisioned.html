@@ -1,4 +1,5 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% extends "email/base.html" %}
+
 {% block preheader %}Your reverse proxy for {{ domain }} is ready to use{% endblock %}
 {% block heading %}Your reverse proxy is ready{% endblock %}
 {% block section %}
