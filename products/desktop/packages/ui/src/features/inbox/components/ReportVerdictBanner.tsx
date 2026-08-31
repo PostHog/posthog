@@ -296,7 +296,7 @@ export function ReportVerdictBanner({
       if (externalPrUrl) {
         event.preventDefault();
         handleOpenPr();
-      } else if (canCreatePr) {
+      } else if (!hasExistingPr && canCreatePr) {
         event.preventDefault();
         handleCreatePr();
       }
@@ -308,6 +308,7 @@ export function ReportVerdictBanner({
     report.status,
     isCreatingPr,
     externalPrUrl,
+    hasExistingPr,
     canCreatePr,
     handleOpenPr,
     handleCreatePr,

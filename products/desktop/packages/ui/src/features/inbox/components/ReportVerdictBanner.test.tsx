@@ -6,12 +6,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  createPrReport,
   discussReport,
   invalidateQueries,
   setQueryData,
   useDiscussReport,
   useReportTasks,
 } = vi.hoisted(() => ({
+  createPrReport: vi.fn(),
   discussReport: vi.fn(),
   invalidateQueries: vi.fn(),
   setQueryData: vi.fn(),
@@ -39,7 +41,7 @@ vi.mock(
 );
 
 vi.mock("@posthog/ui/features/inbox/hooks/useCreatePrReport", () => ({
-  useCreatePrReport: () => ({ createPrReport: vi.fn(), isCreatingPr: false }),
+  useCreatePrReport: () => ({ createPrReport, isCreatingPr: false }),
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useDiscussReport", () => ({
@@ -111,6 +113,21 @@ const discussionTask = {
   startedAt: "2026-08-26T00:00:00.000Z",
 } satisfies ReportTaskData;
 
+const runningImplementationTask = {
+  task: {
+    ...task,
+    title: "Implement fix",
+    latest_run: {
+      id: "run-1",
+      status: "in_progress",
+      output: null,
+    } as Task["latest_run"],
+  },
+  purpose: "implementation",
+  purposeLabel: "Implementation",
+  startedAt: "2026-08-26T00:00:00.000Z",
+} satisfies ReportTaskData;
+
 describe("ReportVerdictBanner", () => {
   let onDiscussionCreated: ((task: Task) => void) | undefined;
 
@@ -120,6 +137,7 @@ describe("ReportVerdictBanner", () => {
       startedTaskIdByReport: {},
     });
     useReportTasks.mockReturnValue({ data: [], isLoading: false });
+    createPrReport.mockReset();
     discussReport.mockReset();
     discussReport.mockResolvedValue(undefined);
     invalidateQueries.mockReset();
@@ -186,5 +204,27 @@ describe("ReportVerdictBanner", () => {
     expect(screen.getByText("Ask about it")).toBeInTheDocument();
     expect(screen.queryByText("Continue the task")).not.toBeInTheDocument();
     expect(screen.queryByText("Fix & monitor")).not.toBeInTheDocument();
+  });
+
+  it("does not start duplicate work while an implementation is running", async () => {
+    const user = userEvent.setup();
+    useReportTasks.mockReturnValue({
+      data: [runningImplementationTask],
+      isLoading: false,
+    });
+
+    render(
+      <ReportVerdictBanner
+        report={{ ...report, actionability: "immediately_actionable" }}
+        actionHotkey="f"
+      />,
+    );
+
+    expect(screen.getByText("Ask about it")).toBeInTheDocument();
+    expect(screen.queryByText("Fix & monitor")).not.toBeInTheDocument();
+
+    await user.keyboard("f");
+
+    expect(createPrReport).not.toHaveBeenCalled();
   });
 });
