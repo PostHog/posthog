@@ -17,7 +17,9 @@ ROOT_HEADLINES = {
 }
 DEFAULT_HEADLINE = "🔴 Issue alert"
 
-MAX_TITLE_LENGTH = 150
+# Slack rejects header blocks whose complete text exceeds 150 characters, so the
+# headline and title are truncated as one composed string.
+MAX_HEADER_LENGTH = 150
 MAX_DESCRIPTION_LENGTH = 500
 
 
@@ -51,10 +53,14 @@ def _link_block(inputs: AlertDeliveryWorkflowInputs) -> dict:
     }
 
 
+def _header_text(inputs: AlertDeliveryWorkflowInputs, headline: str) -> str:
+    title = inputs.issue_name or "Unknown issue"
+    return _truncate(f"{headline}: {title}", MAX_HEADER_LENGTH)
+
+
 def _build_blocks(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> list[dict]:
-    title = _truncate(inputs.issue_name or "Unknown issue", MAX_TITLE_LENGTH)
     blocks: list[dict] = [
-        {"type": "header", "text": {"type": "plain_text", "text": f"{headline}: {title}", "emoji": True}}
+        {"type": "header", "text": {"type": "plain_text", "text": _header_text(inputs, headline), "emoji": True}}
     ]
     if inputs.issue_description:
         blocks.append(
@@ -79,20 +85,18 @@ def _build_blocks(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> list
 
 def build_root_message(inputs: AlertDeliveryWorkflowInputs) -> dict:
     headline = root_headline(inputs.event)
-    title = _truncate(inputs.issue_name or "Unknown issue", MAX_TITLE_LENGTH)
     return {
         "blocks": _build_blocks(inputs, headline=headline),
-        "text": f"{headline}: {escape_slack_text(title)}",
+        "text": escape_slack_text(_header_text(inputs, headline)),
         "headline": headline,
     }
 
 
 def build_root_edit(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> dict:
     # The headline never changes on edit: it is the thread's identity.
-    title = _truncate(inputs.issue_name or "Unknown issue", MAX_TITLE_LENGTH)
     return {
         "blocks": _build_blocks(inputs, headline=headline),
-        "text": f"{headline}: {escape_slack_text(title)}",
+        "text": escape_slack_text(_header_text(inputs, headline)),
     }
 
 

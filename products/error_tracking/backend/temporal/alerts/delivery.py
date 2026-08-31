@@ -88,6 +88,11 @@ def plan_alert_deliveries(inputs: AlertDeliveryWorkflowInputs) -> list[PlannedDe
     planned: list[PlannedDelivery] = []
     for alert in alerts:
         trigger_matched = trigger is not None and trigger in alert.triggers
+        if trigger_matched and _has_configured_filters(alert):
+            # Until the filter-evaluation layer lands, alerts with configured
+            # filters never open threads: missing an opener is better than posting
+            # issues the user filtered out.
+            trigger_matched = False
         for destination in destinations_by_alert.get(alert.id, []):
             thread = threads_by_destination.get(destination.id)
             if thread is None and not trigger_matched:
@@ -95,11 +100,20 @@ def plan_alert_deliveries(inputs: AlertDeliveryWorkflowInputs) -> list[PlannedDe
                 # unclaimed so a later opener can still start the conversation cleanly.
                 continue
             # Only the first matching transition opens; once a destination has a
-            # thread, every later transition is a reply into it, even a repeated
-            # opener event (e.g. spiking again, or reopen after resolve).
-            is_opener = trigger_matched and thread is None
+            # rooted thread, every later transition is a reply into it, even a
+            # repeated opener event (e.g. spiking again, or reopen after resolve).
+            # An unrooted row is a failed root post: the next opener roots it.
+            rooted = thread is not None and bool(thread.external_ref.get("ts"))
+            is_opener = trigger_matched and not rooted
             planned.append(PlannedDelivery(alert=alert, destination=destination, is_opener=is_opener, thread=thread))
     return planned
+
+
+def _has_configured_filters(alert: ErrorTrackingAlert) -> bool:
+    # Empty filters still carry trivially-true compiled bytecode, so look at the
+    # configured predicate keys instead.
+    filters = alert.filters or {}
+    return any(filters.get(key) for key in ("events", "actions", "properties", "filter_test_accounts"))
 
 
 def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
