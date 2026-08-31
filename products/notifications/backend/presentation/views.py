@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 from typing import cast
 from uuid import UUID
@@ -358,7 +359,9 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"updated": len(eligible_ids)})
 
-    def _archive_events(self, user: User, event_ids: list[UUID]) -> None:
+    # `Sequence`, not `list`: the viewset defines a `list` action, which shadows the builtin
+    # when this annotation is evaluated in the class body.
+    def _archive_events(self, user: User, event_ids: Sequence[UUID]) -> None:
         # Archiving takes a notification out of the unread count, so the read state has to follow.
         # Read and archive are independent tables, so without this an archived notification keeps
         # `read: false` and the archived list shows it as unread.
