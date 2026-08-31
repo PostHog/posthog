@@ -75,20 +75,36 @@ describe("TeachingTip", () => {
   });
 
   // A lesson nobody answers must still end, or a recurring occasion (the
-  // artifacts mark returns on every restart) nags forever.
-  it("stops offering itself once it runs out of showings", async () => {
-    const { rerender } = render(tip("tip-counted", true, 1));
-    for (let occasion = 1; occasion <= DEFAULT_HINT_MAX; occasion++) {
-      rerender(tip("tip-counted", true, occasion));
-      await findTip();
-      fireEvent.keyDown(document.body, { key: "Escape" });
+  // artifacts mark returns on every restart) nags forever. What runs out is
+  // showings on screen, not occasions: one artifact a person ignores through
+  // several turns puts the tip back up on each of them, and each one counts.
+  it.each([
+    ["a new artifact ends each showing", "dismissed" as const],
+    ["one artifact outlasts several turns", "turn-restarted" as const],
+  ])(
+    "stops offering itself once it runs out of showings: %s",
+    async (_ending, howShowingsEnd) => {
+      // A turn starting takes the tip down and leaves `moment` where it was.
+      const momentFor = (showing: number) =>
+        howShowingsEnd === "dismissed" ? showing : 1;
+      const { rerender } = render(tip("tip-counted", true, momentFor(1)));
+
+      for (let showing = 1; showing <= DEFAULT_HINT_MAX; showing++) {
+        rerender(tip("tip-counted", true, momentFor(showing)));
+        await findTip();
+        if (howShowingsEnd === "dismissed") {
+          fireEvent.keyDown(document.body, { key: "Escape" });
+        } else {
+          rerender(tip("tip-counted", false, momentFor(showing)));
+        }
+        await expectNoTip();
+      }
+
+      rerender(tip("tip-counted", true, momentFor(DEFAULT_HINT_MAX + 1)));
+
       await expectNoTip();
-    }
-
-    rerender(tip("tip-counted", true, DEFAULT_HINT_MAX + 1));
-
-    await expectNoTip();
-  });
+    },
+  );
 
   // "Hide" writes the same `hints` entry the toast hints answer, so a lesson
   // learned from either surface ends for both.
