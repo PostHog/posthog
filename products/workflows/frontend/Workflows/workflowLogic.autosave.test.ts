@@ -676,7 +676,7 @@ describe('workflowLogic auto-save', () => {
             // ago. The undo then looks like no change at all, so its payload carries no content and
             // the draft keeps the step the user just deleted, which publishing would deploy.
             const patched: Record<string, any>[] = []
-            let releaseFirst: (() => void) | null = null
+            let releaseFirst: () => void = () => {}
             let seen = 0
             const base = staged.actions
             const withStep = [
@@ -735,7 +735,7 @@ describe('workflowLogic auto-save', () => {
             logic.actions.saveWorkflow(logic.values.workflow)
             await new Promise((resolve) => setTimeout(resolve, 50))
 
-            releaseFirst?.()
+            releaseFirst()
             await new Promise((resolve) => setTimeout(resolve, 400))
 
             // The undo must reach the draft, not be dropped as "nothing changed".
@@ -747,7 +747,7 @@ describe('workflowLogic auto-save', () => {
             // The disable request is held open, so the save below queues behind it and carries the
             // form's stale status. Landing that would put a stopped workflow back into sending.
             const patched: Record<string, any>[] = []
-            let releaseDisable: (() => void) | null = null
+            let releaseDisable: () => void = () => {}
             let seen = 0
             useMocks({
                 patch: {
@@ -771,7 +771,7 @@ describe('workflowLogic auto-save', () => {
             logic.actions.submitWorkflow()
             await new Promise((resolve) => setTimeout(resolve, 50))
 
-            releaseDisable?.()
+            releaseDisable()
             await new Promise((resolve) => setTimeout(resolve, 300))
 
             expect(patched[0].status).toBe('draft')
