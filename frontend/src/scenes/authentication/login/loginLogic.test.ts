@@ -253,14 +253,16 @@ describe('loginLogic', () => {
 
     describe('login failure capture', () => {
         let logic: ReturnType<typeof loginLogic.build>
+        let precheckHandler: jest.Mock
         const originalVendor = window.navigator.vendor
 
         beforeEach(() => {
             setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            precheckHandler = jest.fn(() => [200, { saml_available: false }])
             useMocks({
                 get: { '/api/users/@me/': () => [200, {}] },
                 post: {
-                    '/api/login/precheck': () => [200, { saml_available: false }],
+                    '/api/login/precheck': precheckHandler,
                     '/api/login': () => [401, { code: 'invalid_credentials', detail: 'Invalid email or password.' }],
                 },
             })
@@ -276,15 +278,62 @@ describe('loginLogic', () => {
             jest.clearAllMocks()
         })
 
+        function capturedLoginFailed(): Record<string, any> | undefined {
+            return (posthog.capture as jest.Mock).mock.calls.find(([event]) => event === 'login failed')?.[1]
+        }
+
         it('captures the failure with its error code', async () => {
             logic.actions.setLoginValues({ email: 'user@example.com', password: 'wrong-password' })
             logic.actions.submitLogin()
             await expectLogic(logic).toDispatchActions(['setGeneralError'])
 
-            expect(posthog.capture).toHaveBeenCalledWith(
-                'login failed',
-                expect.objectContaining({ error_code: 'invalid_credentials' })
-            )
+            expect(capturedLoginFailed()).toMatchObject({ error_code: 'invalid_credentials' })
+        })
+
+        // precheck_failed must distinguish "the precheck ran and failed" from "no current precheck
+        // exists" — a pending or stale-email result would otherwise be misattributed to this attempt.
+        it.each([
+            [
+                'no precheck has run',
+                async (): Promise<void> => {
+                    logic.actions.setLoginValues({ email: 'user@example.com', password: 'wrong' })
+                },
+                undefined,
+            ],
+            [
+                'the precheck completed for a different email',
+                async (): Promise<void> => {
+                    logic.actions.precheck({ email: 'someone-else@example.com' })
+                    await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+                    logic.actions.setLoginValues({ email: 'user@example.com', password: 'wrong' })
+                },
+                undefined,
+            ],
+            [
+                'the precheck failed for the current email',
+                async (): Promise<void> => {
+                    precheckHandler.mockImplementationOnce(() => [429, { detail: 'Request was throttled.' }])
+                    logic.actions.setLoginValues({ email: 'user@example.com', password: 'wrong' })
+                    logic.actions.precheck({ email: 'user@example.com' })
+                    await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+                },
+                true,
+            ],
+            [
+                'the precheck succeeded for the current email',
+                async (): Promise<void> => {
+                    logic.actions.setLoginValues({ email: 'user@example.com', password: 'wrong' })
+                    logic.actions.precheck({ email: 'user@example.com' })
+                    await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+                },
+                false,
+            ],
+        ])('reports precheck_failed only for a current precheck: %s', async (_name, setup, expected) => {
+            await setup()
+            logic.actions.setGeneralError('invalid_credentials', 'Invalid email or password.')
+            await expectLogic(logic).toDispatchActions(['setGeneralError']).toFinishAllListeners()
+
+            expect(capturedLoginFailed()?.precheck_failed).toBe(expected)
         })
     })
 
