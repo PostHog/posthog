@@ -119,6 +119,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     task_run.publish_stream_state_event()
     observe_wizard_run_unbound(task_run)
 
+    if input.status in _TERMINAL_STATUSES and old_status != input.status:
+        task_run.close_ci_progress_step()
+
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and old_status != input.status:
         _capture_terminal_analytics(task_run, input)
 

@@ -18,6 +18,8 @@ from products.context_layer.backend.presentation.serializers import (
     ChannelWikiPageSerializer,
     CommitBundleSerializer,
     ContextLayerStatusSerializer,
+    DreamRunDetailSerializer,
+    DreamRunListSerializer,
     HeadConflictSerializer,
     LintErrorSerializer,
     WikiExportSerializer,
@@ -44,6 +46,8 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
         raise Throttled(detail=str(error))
     if isinstance(error, facade.PageNotFoundError):
         raise NotFound(str(error)) from error
+    if isinstance(error, facade.DreamNotFoundError):
+        raise NotFound(str(error)) from error
     if isinstance(error, facade.HeadConflictError):
         return Response(
             {
@@ -58,6 +62,11 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
         return Response(
             {"detail": "The change violates the wiki structure.", "errors": error.errors},
             status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(error, facade.DependencyUnavailableError):
+        return Response(
+            {"detail": "The context layer is temporarily unavailable. Try again later."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
     raise error
 
@@ -239,7 +248,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = "context-layer"
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "organization"
-    scope_object_read_actions = ["status", "tree", "page", "report", "channel_page", "export"]
+    scope_object_read_actions = ["status", "tree", "page", "report", "channel_page", "export", "dreams", "dream"]
     scope_object_write_actions = ["enable", "update_page", "commits"]
 
     # No sandbox-token override here: a run token carries `scoped_teams`, which
@@ -359,6 +368,40 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["POST"], detail=False, parser_classes=[MultiPartParser, FormParser])
     def commits(self, request: Request, **kwargs) -> Response:
         return _land_commits(self.organization.id, request)
+
+    @extend_schema(
+        operation_id="context_layer_dreams_list",
+        responses={200: DreamRunListSerializer, 404: OpenApiResponse(description="The context layer is not enabled.")},
+        summary="List dream runs",
+        description=(
+            "The active dreaming task, when present, plus every landed run newest first. A landed run is one "
+            "merge commit `dream: <date>` whose body is the summary; its changes are on the detail read."
+        ),
+    )
+    @action(methods=["GET"], detail=False)
+    def dreams(self, request: Request, **kwargs) -> Response:
+        try:
+            dream_list = facade.list_dream_runs(self.organization.id)
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        return Response(DreamRunListSerializer(dream_list).data)
+
+    @extend_schema(
+        operation_id="context_layer_dreams_retrieve",
+        responses={
+            200: DreamRunDetailSerializer,
+            404: OpenApiResponse(description="No dream run at this sha, or the context layer is not enabled."),
+        },
+        summary="Read one dream run",
+        description="One dreaming run with the per-file unified patches it landed.",
+    )
+    @action(methods=["GET"], detail=False, url_path=r"dreams/(?P<sha>[0-9a-f]{40})")
+    def dream(self, request: Request, sha: str, **kwargs) -> Response:
+        try:
+            detail = facade.get_dream_run(self.organization.id, sha)
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        return Response(DreamRunDetailSerializer(detail).data)
 
     @extend_schema(
         responses={200: WikiExportSerializer},

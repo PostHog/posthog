@@ -650,6 +650,12 @@ database "posthog" {
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -873,62 +879,6 @@ database "posthog" {
     }
   }
 
-  table "kafka_logs_avro" {
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "body" {
-      type = "String"
-    }
-    column "severity_text" {
-      type = "String"
-    }
-    column "severity_number" {
-      type = "Int32"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "event_name" {
-      type = "String"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    engine "kafka" {
-      broker_list          = "warpstream_logs"
-      topic_list           = "kafka_topic_list = 'clickhouse_logs'"
-      group_name           = "kafka_group_name = 'clickhouse-logs-avro-new'"
-      format               = "kafka_format = 'Avro'"
-      num_consumers        = 8
-      skip_broken_messages = 100
-      poll_timeout_ms      = 3000
-      poll_max_batch_size  = 1000
-      thread_per_consumer  = true
-    }
-  }
-
   table "logs34" {
     order_by     = ["team_id", "time_bucket", "service_name", "resource_fingerprint", "severity_text", "timestamp"]
     partition_by = "toDate(original_expiry_timestamp)"
@@ -1044,6 +994,12 @@ database "posthog" {
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -1102,77 +1058,6 @@ SQL
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.logs34"
       replica_name = "{replica}"
-    }
-  }
-
-  materialized_view "kafka_logs34_avro_mv" {
-    to_table = "posthog.logs34"
-    query = file("sql/kafka_logs34_avro_mv.sql")
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "body" {
-      type = "String"
-    }
-    column "severity_text" {
-      type = "String"
-    }
-    column "severity_number" {
-      type = "Int32"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "event_name" {
-      type = "String"
-    }
-    column "attributes_map_str" {
-      type = "Map(String, String)"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    column "_topic" {
-      type = "LowCardinality(String)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_record_count" {
-      type = "Int64"
-    }
-    column "_bytes_uncompressed" {
-      type = "Nullable(Int64)"
-    }
-    column "_bytes_compressed" {
-      type = "Nullable(Int64)"
     }
   }
 

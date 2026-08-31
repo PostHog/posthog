@@ -123,7 +123,8 @@ Reference each chart once: a repeated reference reads as pointing back at the ch
 Two references in one paragraph sit side by side, so put a pair you want compared in a paragraph of their own.
 A reference inside a code span, a table cell, or a heading has no room to draw — its chart falls to the end of the report instead.
 
-**The summary has to read without the charts.** A report can also be delivered to Slack, where nothing draws and each reference degrades to the plain label it was given.
+**The summary has to read without the charts.** A report can also be delivered to Slack, where each reference degrades to the plain label it was given and the charts follow the prose as images rather than sitting inline.
+Only `InsightVizNode` and `SavedInsightNode` charts render there, at most three per report with referenced charts first; a `DataVisualizationNode` chart shows only in the inbox.
 "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
 
 **Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.

@@ -196,6 +196,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyType,
     SurveyStatsResponse,
     TeamType,
     TwilioPhoneNumberType,
@@ -2401,10 +2402,7 @@ const api = {
         ): Promise<CountedPaginatedResponse<ScheduledChangeType>> {
             return await new ApiRequest().featureFlagScheduledChanges(teamId, featureFlagId).get()
         },
-        async createScheduledChange(
-            teamId: TeamType['id'],
-            data: any
-        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+        async createScheduledChange(teamId: TeamType['id'], data: any): Promise<ScheduledChangeType> {
             return await new ApiRequest().featureFlagCreateScheduledChange(teamId).create({ data })
         },
         async deleteScheduledChange(
@@ -3641,7 +3639,7 @@ const api = {
 
         async listForOrg(
             organizationId: OrganizationType['id'],
-            params: { limit?: number; offset?: number } = {}
+            params: { limit?: number; offset?: number; search?: string } = {}
         ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
@@ -4775,7 +4773,9 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | '_create_in_folder'>>
+            data: Partial<
+                Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | 'variables' | '_create_in_folder'>
+            >
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -4923,6 +4923,7 @@ const api = {
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+                variables?: { name: string; type: 'string' | 'number' | 'boolean' | 'date'; value: unknown }[]
                 node_type?: 'hogql' | 'python'
                 output_name?: string
                 connection_id?: string | null
@@ -5052,7 +5053,8 @@ const api = {
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
         ): Promise<PaginatedResponse<RawBatchExportRun>> {
-            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
+            // Explode arrays, as the runs endpoint reads repeated parameters (`?status=Failed&status=Running`).
+            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params, true)).get()
         },
         async createBackfill(
             id: BatchExportConfiguration['id'],
@@ -5451,7 +5453,10 @@ const api = {
                 offset?: number
                 search?: string
                 archived?: boolean
+                created_by?: number
                 ids?: string
+                status?: 'draft' | 'running' | 'complete'
+                type?: SurveyType
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }
@@ -6665,6 +6670,9 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
+            type?: 'messaging' | 'automation'
+            /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
+            trigger?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {

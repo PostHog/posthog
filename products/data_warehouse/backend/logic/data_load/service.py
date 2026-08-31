@@ -30,13 +30,13 @@ from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
     a_delete_schedule,
+    a_describe_schedule,
     a_schedule_exists,
     a_trigger_schedule,
     a_unpause_schedule,
     a_update_schedule,
     create_schedule,
     delete_schedule,
-    describe_schedule,
     pause_schedule,
     schedule_exists,
     trigger_schedule,
@@ -618,7 +618,7 @@ async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
     schedule_id = _get_cdc_extraction_schedule_id(source_id)
     temporal = await async_connect()
     try:
-        desc = await describe_schedule(temporal, schedule_id=schedule_id)
+        desc = await a_describe_schedule(temporal, schedule_id=schedule_id)
     except temporalio.service.RPCError as e:
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             return False
@@ -637,7 +637,7 @@ async def cdc_extraction_schedule_has_running_action(source_id: str) -> bool:
     schedule_id = _get_cdc_extraction_schedule_id(source_id)
     temporal = await async_connect()
     try:
-        desc = await describe_schedule(temporal, schedule_id=schedule_id)
+        desc = await a_describe_schedule(temporal, schedule_id=schedule_id)
     except temporalio.service.RPCError as e:
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             return False

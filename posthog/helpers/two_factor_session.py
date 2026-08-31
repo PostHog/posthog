@@ -1,6 +1,8 @@
+import re
 import json
 import time
 import datetime
+import unicodedata
 from dataclasses import dataclass
 from typing import Optional
 
@@ -290,6 +292,19 @@ def is_sso_authentication_backend(request: HttpRequest):
 CODE_LENGTH = 6
 CODE_TTL_SECONDS = 1800  # 30 minutes
 CODE_MAX_ATTEMPTS = 5
+
+# Characters an email client or manual entry can inject around/within the code without the
+# user seeing them: whitespace, the zero-width family, word joiner, BOM, soft hyphen, and the
+# hyphen someone types when grouping the code as "123-456".
+CODE_NOISE_RE = re.compile(r"[\s\u200b-\u200d\u2060\ufeff\u00ad-]")
+
+
+def normalize_verification_code(value: str) -> str:
+    """Fold compatibility forms (fullwidth digits become ASCII) then drop the noise an email client
+    or manual grouping injects. Callers still validate the result is exactly CODE_LENGTH digits."""
+    return CODE_NOISE_RE.sub("", unicodedata.normalize("NFKC", value or ""))
+
+
 # Failed-attempt budget for a pending login is tracked in Redis so the cap is enforced atomically
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"

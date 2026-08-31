@@ -1,4 +1,5 @@
 import ipaddress
+from dataclasses import replace
 
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +10,7 @@ import dns.resolver
 from parameterized import parameterized
 
 from posthog.api import proxy_record_diagnostics as diagnostics
-from posthog.models.proxy_record import is_valid_proxy_domain
+from posthog.models.proxy_record import is_reserved_proxy_domain, is_valid_proxy_domain
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
@@ -135,8 +136,7 @@ class TestCheckCloudflare(TestCase):
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     def test_fail_when_hostname_blocked_despite_active_cert(self, _name, status, remediation_word, get_mock):
         # An active SSL certificate must not let a blocked or moved hostname pass the check.
-        info = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
-        info.status = status
+        info = replace(_hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE), status=status)
         get_mock.return_value = info
 
         result, _ = diagnostics._check_cloudflare(_record())
@@ -406,6 +406,35 @@ class TestIsValidProxyDomain(TestCase):
     )
     def test_rejects_non_hostname_shapes(self, _name, domain):
         self.assertFalse(is_valid_proxy_domain(domain))
+
+
+class TestIsReservedProxyDomain(TestCase):
+    @parameterized.expand(
+        [
+            ("apex", "posthog.com"),
+            ("subdomain", "app.posthog.com"),
+            ("deep_subdomain", "us.i.posthog.com"),
+            ("other_tld", "posthog.dev"),
+            ("mixed_case", "App.PostHog.COM"),
+            # The literal Cloudflare CNAME target every other tenant's domain already
+            # points to (CLOUDFLARE_PROXY_BASE_CNAME in prod-eu). Claiming it collides
+            # with every other customer's proxy routing, not just PostHog's own traffic.
+            ("shared_cloudflare_target", "cf-prod-eu-proxy.europehog.com"),
+        ]
+    )
+    def test_rejects_posthog_owned_domains(self, _name, domain):
+        self.assertTrue(is_reserved_proxy_domain(domain))
+
+    @parameterized.expand(
+        [
+            ("unrelated_domain", "e.example.com"),
+            # Shares a label with a reserved domain but isn't a subdomain of it.
+            ("lookalike_suffix", "notposthog.com"),
+            ("lookalike_prefix", "posthog.com.attacker.example"),
+        ]
+    )
+    def test_accepts_domains_that_are_not_posthog_owned(self, _name, domain):
+        self.assertFalse(is_reserved_proxy_domain(domain))
 
 
 CF_TARGET = "abc.cf-prod-eu-proxy.europehog.com."

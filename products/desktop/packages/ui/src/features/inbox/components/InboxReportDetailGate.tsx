@@ -1,3 +1,4 @@
+import { resolveInboxReportForRender } from "@posthog/core/inbox/inboxQuery";
 import {
   isDismissedReport,
   isPullRequestReport,
@@ -85,7 +86,7 @@ export function InboxReportDetailGate({
     isFetching,
     isFetchedAfterMount,
   } = useInboxReportById(reportId);
-  const resolvedReport = report ?? cachedReport;
+  const resolvedReport = resolveInboxReportForRender(report, cachedReport);
 
   // Keep the report on the route that matches its status. A status↔route mismatch
   // happens when a URL goes stale — browser history, a bookmark, a copied deep

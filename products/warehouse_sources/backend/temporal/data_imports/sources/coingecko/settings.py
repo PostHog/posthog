@@ -1,9 +1,11 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class CoinGeckoEndpointConfig:
     name: str
     path: str
@@ -13,6 +15,12 @@ class CoinGeckoEndpointConfig:
     # Whether the endpoint supports page/per_page pagination. Reference endpoints (e.g. /coins/list)
     # return the whole collection in one response and ignore pagination params.
     paginated: bool = False
+    # per_page value to request. None means the source default (250). Some endpoints cap it lower
+    # (e.g. /insights allows at most 20), so it is overridable per endpoint.
+    page_size: int | None = None
+    # Hard cap on the page number to request, for endpoints the API refuses to page past
+    # (e.g. /insights rejects page > 20). None means walk until a short/empty page.
+    max_pages: int | None = None
     # Extra static query params (e.g. vs_currency for /coins/markets).
     extra_params: dict[str, str] = field(default_factory=dict)
     should_sync_default: bool = True
@@ -58,6 +66,16 @@ COINGECKO_ENDPOINTS: dict[str, CoinGeckoEndpointConfig] = {
     "asset_platforms": CoinGeckoEndpointConfig(
         name="asset_platforms",
         path="/asset_platforms",
+    ),
+    # Latest coin insights published on CoinGecko (Pro/Enterprise). Paginated, but the API caps both
+    # per_page and page at 20. Insight rows carry no id, so key on title + posted_at.
+    "insights": CoinGeckoEndpointConfig(
+        name="insights",
+        path="/insights",
+        paginated=True,
+        page_size=20,
+        max_pages=20,
+        primary_keys=["title", "posted_at"],
     ),
 }
 

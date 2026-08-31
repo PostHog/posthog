@@ -1174,6 +1174,8 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
     The request authenticates as a synthetic InternalAPIUser bound to the token's team.
     When the URL carries a team_id, the token's team_id claim must match it, so a token
     minted for one team can never read another's data even if both hit the same route.
+    The verified claims become request.auth, so views can enforce entity-level claims
+    (e.g. that the token's ticket_id matches the URL's).
 
     require_team=False is for fleet-scoped purposes (cron-style calls with no team in the
     URL or claims); team-scoped purposes must keep the default so a token without a team
@@ -1183,7 +1185,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
     purpose: ClassVar[ScopedServiceJwtPurpose]
     require_team: ClassVar[bool] = True
 
-    def authenticate(self, request: Request) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Request) -> Optional[tuple[Any, dict[str, Any]]]:
         header = authentication.get_authorization_header(request).split()
         # No bearer header: return None (not raise) so the view's other authenticators,
         # if any, still get their turn.
@@ -1216,13 +1218,13 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
 
         return self._authenticate_claims(request, claims)
 
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, None]:
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         claim_team_id = claims.get("team_id")
 
         if claim_team_id is None:
             if self.require_team:
                 raise AuthenticationFailed("Service token is missing its team claim.")
-            return InternalAPIUser(), None
+            return InternalAPIUser(), claims
 
         url_team_id = _team_id_from_request_path(request)
         if url_team_id is not None and str(claim_team_id) != url_team_id:
@@ -1234,7 +1236,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
         except (Team.DoesNotExist, ValueError, TypeError):
             raise AuthenticationFailed("Invalid service token team.")
 
-        return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), None
+        return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), claims
 
     def authenticate_header(self, request: Request) -> str:
         # Without a challenge value DRF renders every AuthenticationFailed from this class as
@@ -1475,3 +1477,27 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request: Request) -> str:
         return "WebhookSignature"
+
+
+# services/mcp sends this user agent on its API calls (USER_AGENT in its
+# oauth-constants.ts). The two runtimes cannot share one constant, so this value
+# mirrors that one. If they diverge, this check stops matching MCP traffic and the
+# read-only policy stops applying. A client controls its own user agent. The match applies MCP
+# policy to the normal MCP pathway only. It does not stop a hostile key holder.
+# The same credential keeps its full scopes under a different user agent. A future
+# change can reduce the credential's scopes when the token is created.
+MCP_USER_AGENT_MARKER = "posthog/mcp-server"
+
+
+def is_mcp_request(request: Union[HttpRequest, Request]) -> bool:
+    """Returns True when a token-authenticated request comes through the MCP server."""
+    authenticator = getattr(request, "successful_authenticator", None)
+    # Every user-delegated scoped-token type the MCP server can authenticate with. ID-JAG
+    # (XAA) tokens are served from the same OAuth token endpoint and carry scopes, so a
+    # write on that pathway must be classified as MCP like a personal key or OAuth token.
+    if isinstance(
+        authenticator,
+        PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication | IDJagAccessTokenAuthentication,
+    ):
+        return MCP_USER_AGENT_MARKER in (request.headers.get("User-Agent") or "")
+    return False
