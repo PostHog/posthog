@@ -251,7 +251,7 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
     })),
 
     actions({
-        loadInsights: () => ({}),
+        loadInsights: () => {},
         filterByBand: (filters: BandFilter[]) => ({ filters }),
     }),
 
