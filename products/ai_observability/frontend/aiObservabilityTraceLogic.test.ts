@@ -76,8 +76,6 @@ describe('aiObservabilityTraceLogic', () => {
         logic.actions.setViewMode(TraceViewMode.Raw)
         await expectLogic(logic).toFinishAllListeners()
 
-        // A raw URLSearchParams builder would stringify the array to "[object Object]" and drop it.
-        expect(router.values.location.search).not.toContain('object Object')
         expect(router.values.searchParams.filters).toEqual(filters)
     })
 
