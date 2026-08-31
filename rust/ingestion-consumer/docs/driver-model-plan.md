@@ -18,61 +18,77 @@ A rebalance increments it, and every sub-batch carries it.
 
 These components stay as they are: the stream runners, the P2C router, the aperture, the worker registry, the commit sentinel, the commit monitor, and the key-order sentinel.
 
-## Rules for the sequence
+## The cycle model
+
+Work proceeds in cycles.
+Each cycle delivers one outcome: a property of the system that holds from then on.
+A cycle has four phases:
+
+1. **Prepare**: structure changes that carve the seams. No behavior change.
+2. **Implement**: build the new component, fully tested, not selected.
+3. **Switchover**: config selects the new component. Staged where possible: shadow, then canary, then all lanes. The config is the rollback.
+4. **Cleanup**: one deletion removes the old component and the switch.
+
+Rules:
 
 - Each change is one PR.
-- A change is a structure change or a logic change, never both.
-- A structure change does not change behavior. The e2e tests must pass without edits.
-- Structure prepares logic. Every logic change comes after the structure changes that make it small. A new implementation ships unselected in a structure change; a logic change selects it.
+- Prepare, implement, and cleanup changes do not change behavior. The e2e tests must pass without edits.
+- Only a switchover may change behavior. Some do not (a switchover with identical output is still staged and reversible).
+- Old code is deleted in cleanup, never edited.
+- A cycle's cleanup lands only after its switchover holds on all lanes.
 - Swap the smallest piece that removes the most complexity. Components that already match the target design are not rebuilt.
-- A logic change ships behind a config switch when a switch is possible. When a switch is not possible, it ships as a canary on one lane.
-- Old code is deleted, not edited. When a cutover holds on all lanes, one structure change removes the old implementation whole.
-- The commit sentinel and the key-order sentinel stay enabled through the migration. They verify each step in production.
+- The commit sentinel and the key-order sentinel stay enabled through every cycle.
 
-## Changes
+The cycles run in order, with one exception: cycle 2 does not depend on cycle 1, so it can start while cycle 1 soaks.
+Cycle 3 needs both.
 
-Part 1 prepares the structure (changes 1 to 6).
-Behavior does not change.
-The offset ledger and the key-table scheduler are both built here, tested, and left unselected.
-
-Part 2 cuts over and simplifies (changes 7 to 16).
-Each cutover is a switch flip made small by part 1, with the switch as the rollback.
-Each deletion follows its cutover.
-
-The swap unit inside the batcher is the **scheduler**: the decision core that says which runs may go to a worker now, and where.
+The swap unit in cycle 2 is the **scheduler**: the decision core that says which runs may go to a worker now, and where.
 That is where the complexity concentrates — the pins, the stash, and the flush interplay.
-Placement (P2C, aperture) and send execution (stream runners) already match the target design and are not rebuilt.
-The single-owner event loop is only plumbing once the scheduler is simple, so it moves last.
+The single-owner event loop is only plumbing once the scheduler is simple, so it lands as cleanup.
 
 Each change ends with its interface impact: the types it adds, modifies, or removes.
 
-| # | Type | Change |
-| --- | --- | --- |
-| 1 | Structure | Add the offset ledger module |
-| 2 | Structure | Run the ledger in shadow mode |
-| 3 | Structure | Demux polls into groups |
-| 4 | Structure | Encapsulate the worker batcher |
-| 5 | Structure | Extract the scheduler seam |
-| 6 | Structure | Build the key-table scheduler |
-| 7 | Structure | Commit from the ledger frontier |
-| 8 | Logic | Switch to the key-table scheduler |
-| 9 | Structure | Delete the old scheduler |
-| 10 | Structure | Remove the stream fences |
-| 11 | Structure | Collapse the batcher into one event loop |
-| 12 | Logic | Complete batches in any order |
-| 13 | Logic | Replace the batch window with budget B |
-| 14 | Logic | Pack requests toward target T |
-| 15 | Logic | Add the RTT dispatch governor |
-| 16 | Logic | Add the bounded revocation drain |
+| # | Cycle | Phase | Change |
+| --- | --- | --- | --- |
+| 1 | 1 frontier commits | Implement | Add the offset ledger module |
+| 2 | 1 frontier commits | Switchover | Run the ledger in shadow mode |
+| 3 | 1 frontier commits | Switchover | Commit from the ledger frontier |
+| 4 | 1 frontier commits | Cleanup | Delete the old commit computation |
+| 5 | 2 per-key order | Prepare | Demux polls into groups |
+| 6 | 2 per-key order | Prepare | Encapsulate the worker batcher |
+| 7 | 2 per-key order | Prepare | Extract the scheduler seam |
+| 8 | 2 per-key order | Implement | Build the key-table scheduler |
+| 9 | 2 per-key order | Switchover | Switch to the key-table scheduler |
+| 10 | 2 per-key order | Cleanup | Delete the old scheduler |
+| 11 | 2 per-key order | Cleanup | Remove the stream fences |
+| 12 | 2 per-key order | Cleanup | Collapse the batcher into one event loop |
+| 13 | 3 decoupled commits | Switchover | Complete polls in any order |
+| 14 | 3 decoupled commits | Cleanup | Delete the ordered completion path |
+| 15 | 4 bounded replay | Implement | Add the budget accounting |
+| 16 | 4 bounded replay | Switchover | Enable the budget |
+| 17 | 4 bounded replay | Cleanup | Remove the batch window |
+| 18 | 5 target-sized requests | Implement | Add the packer |
+| 19 | 5 target-sized requests | Switchover | Set the packing targets |
+| 20 | 6 adaptive concurrency | Implement | Add the governor |
+| 21 | 6 adaptive concurrency | Switchover | Enable RTT adaptation |
+| 22 | 6 adaptive concurrency | Cleanup | Remove the fixed per-worker cap |
+| 23 | 7 clean handoff | Prepare | Add revoke and drained markers |
+| 24 | 7 clean handoff | Implement | Build the drain |
+| 25 | 7 clean handoff | Switchover | Enable the drain |
+| 26 | 7 clean handoff | Cleanup | Delete the no-drain path |
 
-### 1. Add the offset ledger module (structure)
+## Cycle 1: commits come from the frontier
+
+Outcome: commit contiguity is a property of a data structure, not of completion order.
+
+### 1. Add the offset ledger module (implement)
 
 **Task:** Create `ledger.rs` with a per-partition offset ring. Do not wire it in.
 
 **Goal:** Make commit contiguity a property of a data structure.
 
 - One ledger per partition. The ledger is a dense ring of delivered offsets.
-- Each slot records: complete or not, event count, byte count. The counts serve the budget in change 13.
+- Each slot records: complete or not, event count, byte count. The counts serve the budget in change 15.
 - Operations: `charge` adds a delivered offset. `complete` marks an offset done. `frontier` removes the contiguous done prefix and returns the highest removed offset.
 - Completions can arrive in any order. The frontier moves only over completed slots.
 - Kafka delivers offsets with gaps (transactions, compaction). Contiguity means the prefix of delivered offsets, not offset arithmetic.
@@ -82,15 +98,15 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 
 - Add `OffsetLedger` in `ledger.rs`: `charge`, `complete`, `frontier`. No callers yet. The name avoids a clash with the stream runner's internal un-acked ledger.
 
-### 2. Run the ledger in shadow mode (structure)
+### 2. Run the ledger in shadow mode (switchover)
 
 **Task:** Wire the ledger next to the commit path. Compare its frontier with each real commit. Do not change what the consumer commits.
 
 **Goal:** Prove the ledger against production traffic before it owns the commits.
 
-- New config: the ledger mode, `off`, `shadow`, or `active`. This change ships `shadow`. Change 7 ships `active`.
+- New config: the ledger mode, `off`, `shadow`, or `active`. This change ships `shadow`. Change 3 ships `active`.
 - Charge every delivered offset into its partition ledger during `collect_batch`.
-- When a batch completes, mark all its offsets complete.
+- When a poll completes, mark all its offsets complete.
 - At each commit, compare the partition's frontier with the offset the current path commits. With oldest-first completion, the two must be equal.
 - On a mismatch: increment a counter and log the partition with both offsets. Do not block the commit.
 - On revoke, drop the partition's ledger. This mirrors the commit sentinel's `forget_partitions`.
@@ -99,10 +115,43 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 **Interfaces:**
 
 - Modify `Config`: add the ledger mode.
-- Modify `IngestionConsumer`: own one `OffsetLedger` per partition. Charge in `collect_batch`, complete on batch completion, compare in `commit_offsets`.
+- Modify `IngestionConsumer`: own one `OffsetLedger` per partition. Charge in `collect_batch`, complete on poll completion, compare in `commit_offsets`.
 - Modify the revoke path (`SentinelContext`): drop revoked partitions' ledgers.
 
-### 3. Demux polls into groups (structure)
+### 3. Commit from the ledger frontier (switchover)
+
+**Task:** Set the ledger mode to `active`. The frontier becomes the committed offset. Keep oldest-first completion.
+
+**Goal:** The frontier produces the same commits as the old code, and change 2 already proved that.
+
+- Commit each partition's frontier instead of the poll's max offset.
+- With oldest-first completion, the output is identical to the old path.
+- The commit sentinel stays on and checks contiguity and monotonicity.
+- Rollback is the config switch back to `shadow`.
+
+**Interfaces:**
+
+- Modify `Config`: default the ledger mode to `active`.
+- Modify `IngestionConsumer::commit_offsets`: read the committed offset from `OffsetLedger::frontier`. The old computation survives as the shadow comparison until change 4.
+
+### 4. Delete the old commit computation (cleanup)
+
+**Task:** Remove the old commit computation after `active` holds on all lanes.
+
+**Goal:** The frontier is the only commit source.
+
+- Remove the old per-poll commit computation and the shadow comparison.
+
+**Interfaces:**
+
+- Modify `IngestionConsumer::commit_offsets`: frontier only.
+- Modify `Config`: remove the ledger mode.
+
+## Cycle 2: one rule preserves per-key order
+
+Outcome: at most one outstanding request per key is the only ordering mechanism. Pins, the stash, and the flush paths are gone.
+
+### 5. Demux polls into groups (prepare)
 
 **Task:** Change `collect_batch` to output groups. A group is one poll's consecutive messages for one routing key on one partition.
 
@@ -110,7 +159,7 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 
 - Group messages per partition first, then per routing key. Keep offset order inside each group.
 - The dispatcher flattens the groups back into one message list. Sub-batch assembly does not change.
-- Change 4 submits them to the batcher as the accumulator.
+- Change 6 submits them to the batcher as the accumulator.
 
 **Interfaces:**
 
@@ -118,7 +167,7 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 - Modify `CollectedBatch`: carries `Vec<Group>` instead of a flat message list.
 - Modify `Dispatcher::assign_and_send`: takes groups and flattens them. `group_messages_by_routing_key` moves to the collect path.
 
-### 4. Encapsulate the worker batcher (structure)
+### 6. Encapsulate the worker batcher (prepare)
 
 **Task:** Put today's dispatch machinery behind one boundary. The consumer loop and the batcher exchange plain values.
 
@@ -132,7 +181,7 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 - Move inside the boundary: assignment, scatter, the deferred flush, the eager flush, the worker registry, the router, and the stream runners.
 - The facade replicates today's behavior exactly, including the oldest-first flush pacing. This is code motion, not redesign.
 - The consumer loop keeps: poll collection, commits, the sentinels, and the batch window. It tracks each poll's offset spans and completes the poll when completions cover them, so completion and commit behavior do not change.
-- Changes 5 and 6 carve the scheduler seam inside this boundary.
+- Changes 7 and 8 carve the scheduler seam inside this boundary.
 
 **Interfaces:**
 
@@ -143,7 +192,7 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 - Modify `main.rs`: construct one `Batcher`. The consumer no longer sees the dispatcher or the transport.
 - Internalize `Dispatcher`'s resolve and accounting methods (`on_sub_batch_*`, `defer_failed`, `eager_flush_*`, `take_eager_accepted`): only the batcher calls them.
 
-### 5. Extract the scheduler seam (structure)
+### 7. Extract the scheduler seam (prepare)
 
 **Task:** Move every ordering and placement decision inside the batcher behind one interface. Keep the current semantics.
 
@@ -163,7 +212,7 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 - Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, `on_sub_batch_resolved`, and the eager release. It owns `PinTable` and `Stash` unchanged.
 - Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, and seam calls.
 
-### 6. Build the key-table scheduler (structure)
+### 8. Build the key-table scheduler (implement)
 
 **Task:** Write the target scheduler as a second implementation of the seam. Do not select it.
 
@@ -180,24 +229,7 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 
 - Add `KeyTableScheduler` and `KeyTable` in `key_table.rs`: per-key FIFO, outstanding flag, parked list. Implements `Scheduler`. Tests only, no production callers.
 
-### 7. Commit from the ledger frontier (structure)
-
-**Task:** Set the ledger mode to `active`. The frontier becomes the committed offset. Keep oldest-first batch completion.
-
-**Goal:** The frontier produces the same commits as the old code, and change 2 already proved that.
-
-- Commit each partition's frontier instead of the batch's max offset.
-- With oldest-first completion, the output is identical to the old path.
-- The commit sentinel stays on and checks contiguity and monotonicity.
-- Rollback is the config switch back to `shadow`.
-- Delete the old commit computation after `active` holds on all lanes.
-
-**Interfaces:**
-
-- Modify `Config`: default the ledger mode to `active`.
-- Modify `IngestionConsumer::commit_offsets`: read the committed offset from `OffsetLedger::frontier`. The old computation survives only as the shadow comparison, then is deleted.
-
-### 8. Switch to the key-table scheduler (logic)
+### 9. Switch to the key-table scheduler (switchover)
 
 **Task:** Select the key-table scheduler with config. Canary one lane, then roll out.
 
@@ -215,14 +247,14 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 - Modify the batcher construction: select `KeyTableScheduler` or `PinStashScheduler`.
 - No interface shapes change.
 
-### 9. Delete the old scheduler (structure)
+### 10. Delete the old scheduler (cleanup)
 
-**Task:** Remove the old scheduler implementation after change 8 holds on all lanes.
+**Task:** Remove the old scheduler implementation after change 9 holds on all lanes.
 
 **Goal:** The old concurrency goes in one deletion, not in edits.
 
 - Removes: the pin table, the stash, both flush drivers, the eager-flush channel and its credits, `DISPATCHER_EAGER_DEFERRED_FLUSH`, and the scheduler switch.
-- The plan never edits this machinery. It is isolated in change 5, bypassed in change 8, and deleted here.
+- The plan never edits this machinery. It is isolated in change 7, bypassed in change 9, and deleted here.
 
 **Interfaces:**
 
@@ -230,13 +262,13 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 - Remove from `Config`: `DISPATCHER_EAGER_DEFERRED_FLUSH` and the scheduler selection.
 - Modify `Dispatcher`: remove the dead resolve plumbing (`clears_deferral`, `send_failed`, the flush drivers).
 
-### 10. Remove the stream fences (structure)
+### 11. Remove the stream fences (cleanup)
 
 **Task:** Delete `FenceGuard` and the fence-settle loop from `grpc_transport.rs`.
 
 **Goal:** Keep only the failure logic the new invariant needs.
 
-- After change 9, the scheduler blocks every key with a failed request: the key is not runnable, so no newer send for it can enter a stream.
+- After change 10, the scheduler blocks every key with a failed request: the key is not runnable, so no newer send for it can enter a stream.
 - A stream failure returns each request's messages to the key table. That is sufficient.
 - Keep: retry classification, busy (503) handling, the ack watchdog, and ack-prefix resolution.
 
@@ -246,7 +278,7 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 - Modify `SendError`: drop the fence-guard field.
 - Keep `TransportError` and the `WorkerStreamRunner` reconnect logic.
 
-### 11. Collapse the batcher into one event loop (structure)
+### 12. Collapse the batcher into one event loop (cleanup)
 
 **Task:** Move the scheduler and its plumbing into one single-owner task.
 
@@ -261,64 +293,126 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 - Modify `Batcher`: one single-owner task replaces the lock, the resolve callbacks, and the per-send tasks. `Dispatcher` dissolves into the loop and is removed.
 - Keep `Scheduler` as the loop's decision component. The consumer-facing interface does not change.
 
-### 12. Complete batches in any order (logic)
+## Cycle 3: a stalled key stalls only its partition
 
-**Task:** Replace the oldest-first await with completion events.
+Outcome: commits advance per partition as groups complete. Needs cycles 1 and 2.
 
-**Goal:** A stalled batch stalls only its own partitions. Other partitions continue to commit.
+### 13. Complete polls in any order (switchover)
 
-- Changes 7 and 9 are the prerequisites. Commits come from the frontier, and the old flush, whose per-key order depended on oldest-first completion, is gone. Only commits depend on completion order now, and the frontier gates those.
-- Mark each group's offsets in the ledger when its completion event arrives. Stop aggregating completions per poll before commits.
+**Task:** Add a completion mode, `ordered` or `any`. In `any` mode, mark the ledger per group and stop waiting for whole polls.
+
+**Goal:** A stalled key stalls only its own partition. Other partitions continue to commit.
+
+- Cycles 1 and 2 are the prerequisites. Commits come from the frontier, and the old flush, whose per-key order depended on oldest-first completion, is gone. Only commits depend on completion order now, and the frontier gates those.
+- In `any` mode, mark each group's offsets in the ledger when its completion event arrives. Do not aggregate per poll before commits.
 - The frontier gates each partition's commit.
-- Keep `max_in_flight_batches` as the bound on outstanding work. A batch slot frees when all its groups are accepted.
-- Behavior change: commit timing decouples across partitions and batches. Replay exposure stays inside the batch window.
+- Keep `max_in_flight_batches` as the bound on outstanding work. A poll's slot frees when all its groups are accepted.
+- Behavior change: commit timing decouples across partitions and polls. Replay exposure stays inside the window.
+- Rollback is the mode switch back to `ordered`.
 
 **Interfaces:**
 
-- Modify `IngestionConsumer::process`: select over `GroupCompletion` events. Remove the ordered `InFlightBatch` queue and the per-poll aggregation from change 4.
-- Modify the batch bookkeeping: a batch is only a window slot that frees when its groups are accepted.
+- Modify `Config`: add the completion mode.
+- Modify `IngestionConsumer::process`: in `any` mode, select over `GroupCompletion` events. The ordered path stays for rollback.
 
-### 13. Replace the batch window with budget B (logic)
+### 14. Delete the ordered completion path (cleanup)
 
-**Task:** Poll only while uncommitted work is below B. B counts events and bytes.
+**Task:** Remove the ordered completion path after `any` holds on all lanes.
 
-**Goal:** Bound replay exposure directly. Poll continuously when workers keep up.
+**Goal:** Group completions are the only completion signal.
+
+**Interfaces:**
+
+- Remove the ordered `InFlightBatch` queue, the per-poll aggregation from change 6, and the completion mode from `Config`.
+
+## Cycle 4: replay exposure is bounded by B
+
+Outcome: uncommitted work never exceeds the budget, in events and bytes. The batch window is gone.
+
+### 15. Add the budget accounting (implement)
+
+**Task:** Track uncommitted work in events and bytes. Ship with no budget set: the window still governs alone.
+
+**Goal:** The budget exists and reports before it constrains.
 
 - Charge each message on poll. The ledger slots already carry the costs (change 1).
 - Refund the charge when the commit that covers the message is issued.
-- Remove `max_in_flight_batches`. The batch reduces to a per-poll accumulator.
-- Pause and resume the poll at the budget limit. Do not stop servicing Kafka callbacks.
-- New config: the budget in events and in bytes.
+- Gauge the outstanding charge per partition and in total.
+- New config: the budget in events and in bytes. Unset means no constraint.
 
 **Interfaces:**
 
-- Modify `Config`: add the budget; remove `max_in_flight_batches`.
-- Modify `IngestionConsumer`: gate polling on the outstanding charge. Refund from `OffsetLedger` on commit. Remove the window-slot bookkeeping from change 12.
+- Modify `Config`: add the budget, default unset.
+- Modify `IngestionConsumer`: track charge and refund through `OffsetLedger`. No polling change while the budget is unset.
 
-### 14. Pack requests toward target T (logic)
+### 16. Enable the budget (switchover)
 
-**Task:** Add the packer to the scheduler, with target size T and `PACK_LATENCY_BUDGET`.
+**Task:** Set the budget per lane. Pause the poll at the limit and resume on refund.
 
-**Goal:** Request size becomes deliberate. Fan-out becomes demand-driven.
+**Goal:** Replay exposure is bounded directly.
 
+- A charts values PR sets the budget lane by lane. The window and the budget both bound work during the transition.
+- Pause and resume the poll at the budget limit. Do not stop servicing Kafka callbacks.
+- Watch the pause gauge and consumer lag. Rollback is unsetting the values.
+
+**Interfaces:**
+
+- None in this repository. Config values only.
+
+### 17. Remove the batch window (cleanup)
+
+**Task:** Remove `max_in_flight_batches` after the budget holds on all lanes.
+
+**Goal:** The budget is the only bound. The batch reduces to a per-poll accumulator.
+
+**Interfaces:**
+
+- Remove `max_in_flight_batches` from `Config` and the window bookkeeping from `IngestionConsumer`.
+
+## Cycle 5: workers receive target-sized requests
+
+Outcome: request size tracks target T, and fan-out is demand-driven. No cleanup: body splitting stays as a defence.
+
+### 18. Add the packer (implement)
+
+**Task:** Add the packer to the scheduler, with target size T and `PACK_LATENCY_BUDGET`. Ship with the pack budget at zero: send-on-arrival, behavior unchanged.
+
+**Goal:** The packing machinery exists before it changes any request.
+
+- Check the worker side first: a packed request spans polls and keys. Confirm the worker's `concurrentBatches` accounting and the meaning of `batch_id` still hold.
 - Pack runs from multiple runnable keys into one request near T. T counts events and bytes.
 - Emit immediately when the ready work can fill the free permits with near-T requests. Otherwise arm the pack deadline.
 - When the deadline expires, emit partial requests.
-- `PACK_LATENCY_BUDGET = 0` restores send-on-arrival. That is the off switch.
 - Router order inside a pass: fill open requests on healthy workers first, then pick a worker with P2C from the aperture slice. Partition affinity is a tie-breaker only.
-- Check the worker side first: a request now spans polls and keys. Confirm the worker's `concurrentBatches` accounting and the meaning of `batch_id` still hold.
 
 **Interfaces:**
 
 - Add `Packer` inside `KeyTableScheduler`.
 - Modify `Dispatch`: one request may carry runs from several keys.
-- Modify `Config`: add T and `PACK_LATENCY_BUDGET`. The worker proto does not change.
+- Modify `Config`: add T and `PACK_LATENCY_BUDGET`, default zero. The worker proto does not change.
 
-### 15. Add the RTT dispatch governor (logic)
+### 19. Set the packing targets (switchover)
 
-**Task:** Replace the fixed per-worker un-acked cap with a permit pool that request RTT governs.
+**Task:** Set T and the pack budget per lane.
 
-**Goal:** Reduce crash exposure when the worker pool is unhealthy.
+**Goal:** Workers receive target-sized requests.
+
+- A charts values PR sets the targets lane by lane.
+- Watch request size, worker occupancy, and end-to-end latency. Rollback is a pack budget of zero.
+
+**Interfaces:**
+
+- None in this repository. Config values only.
+
+## Cycle 6: concurrency adapts to worker health
+
+Outcome: request RTT governs the number of requests in flight.
+
+### 20. Add the governor (implement)
+
+**Task:** Add the permit pool and the RTT EWMA. Ship with adaptation off: permits mirror the current per-worker cap.
+
+**Goal:** The governor exists and observes before it constrains.
 
 - Grow the pool by one when ready work waits, no permit is free, and RTT is within budget.
 - Shrink the pool by one when the RTT EWMA exceeds `REQUEST_LATENCY_BUDGET`.
@@ -328,28 +422,86 @@ Each change ends with its interface impact: the types it adds, modifies, or remo
 
 **Interfaces:**
 
-- Add `Governor` in the batcher loop: the permit pool and the RTT EWMA.
-- Modify `GrpcTransport`: governor permits replace the per-worker `max_unacked` cap. Stream channels get `DEPTH_MAX` capacity.
+- Add `Governor` in the batcher loop: the permit pool and the RTT EWMA, adaptation off.
 - Modify `Config`: add `REQUEST_LATENCY_BUDGET`, the permit bounds, and `DEPTH_MAX`.
 
-### 16. Add the bounded revocation drain (logic)
+### 21. Enable RTT adaptation (switchover)
 
-**Task:** Implement the drain sequence from section 4 of the design doc.
+**Task:** Turn adaptation on. Request RTT governs the permit pool.
 
-**Goal:** A revoked partition hands off cleanly. A wedged partition fails the process instead of hanging forever.
+**Goal:** Concurrency shrinks when the worker pool is unhealthy.
 
-- On revoke, send an in-band marker to the batcher, after earlier accumulators.
+- Canary one lane. Watch permit counts, RTT, and throughput under induced worker latency.
+- Rollback is the adaptation switch.
+
+**Interfaces:**
+
+- Modify `Config`: enable adaptation.
+
+### 22. Remove the fixed per-worker cap (cleanup)
+
+**Task:** Remove the per-worker `max_unacked` cap after adaptation holds on all lanes.
+
+**Goal:** Governor permits are the only in-flight bound.
+
+**Interfaces:**
+
+- Modify `GrpcTransport`: remove the per-worker cap and its config. Stream channels keep `DEPTH_MAX`.
+
+## Cycle 7: partitions hand off cleanly
+
+Outcome: a revocation drains in bounded time, and a wedged partition fails the process instead of hanging. Needs cycle 2.
+
+### 23. Add revoke and drained markers (prepare)
+
+**Task:** Extend the batcher boundary with a revoke marker in and a drained marker out. Nothing consumes them yet.
+
+**Goal:** The boundary carries the drain protocol before any drain logic exists.
+
+**Interfaces:**
+
+- Modify `Batcher`: add the marker types to the submit and completion channels. `GroupCompletion` does not change shape.
+
+### 24. Build the drain (implement)
+
+**Task:** Implement the drain sequence from section 4 of the design doc, behind a config switch that ships off.
+
+**Goal:** The drain exists and is tested. Off means today's behavior: replay without drain.
+
+- On revoke, send the in-band marker to the batcher, after earlier accumulators.
 - The batcher drops queued unsent work for the partition. Kafka replays it for the next owner.
-- Wait only for requests in flight. Send a drained marker after the final completion.
+- Wait only for requests in flight. Send the drained marker after the final completion.
 - The loop issues one final commit, refunds the remaining charge, and unassigns the partition.
 - Check completions against the assignment epoch. The epoch already exists on master.
 - Add a stall deadline per partition. Outside a rebalance, an expired deadline fails the process. Replay is at most B.
 
 **Interfaces:**
 
-- Modify `Batcher`: add a revoke marker input and a drained marker output. `GroupCompletion` does not change shape.
-- Modify `KeyTableScheduler`: drop queued work per partition on revoke.
-- Modify `IngestionConsumer` and `OffsetLedger`: the final commit, the refund of abandoned charge, and the per-partition stall deadline.
+- Modify `KeyTableScheduler`: drop queued work per partition on the revoke marker.
+- Modify `IngestionConsumer` and `OffsetLedger`: the final commit, the refund of abandoned charge, and the stall deadline.
+- Modify `Config`: add the drain switch, default off.
+
+### 25. Enable the drain (switchover)
+
+**Task:** Turn the drain on. Canary one lane through a rebalance.
+
+**Goal:** Rebalances hand partitions off with a bounded drain.
+
+- Watch rebalance duration, replay volume, and the drained markers. Rollback is the switch.
+
+**Interfaces:**
+
+- Modify `Config`: enable the drain.
+
+### 26. Delete the no-drain path (cleanup)
+
+**Task:** Remove the no-drain revoke path after the drain holds on all lanes.
+
+**Goal:** The drain is the only revoke behavior.
+
+**Interfaces:**
+
+- Remove the no-drain path and the drain switch from `Config`. Keep the epoch checks.
 
 ## Later work
 
