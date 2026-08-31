@@ -90,7 +90,7 @@ describe('LemonTable', () => {
             return 1
         })
 
-        fireEvent.mouseDown(screen.getAllByRole('button', { name: 'Resize column' })[0], { button: 0, clientX: 100 })
+        fireEvent.mouseDown(screen.getAllByLabelText('Resize column')[0], { button: 0, clientX: 100 })
         fireEvent.mouseMove(window, { clientX: 175 })
         fireEvent.mouseUp(window)
 
