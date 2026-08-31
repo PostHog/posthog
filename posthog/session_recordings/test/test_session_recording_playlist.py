@@ -810,8 +810,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert len(result["results"]) == 1
         assert result["results"][0]["id"] == session_one
 
-    def test_collection_recordings_keep_one_year_search_bound(self) -> None:
-        # long retention keeps the old recording alive, so only the collections -1y bound excludes it
+    def test_collection_recordings_are_not_date_bounded(self) -> None:
+        # a collection is a hand-picked list, so an old pinned recording must not vanish
+        # behind the default date window while retention still keeps it alive
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team, name="collection", created_by=self.user, type="collection"
         )
@@ -838,7 +839,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
         )
         assert response.status_code == status.HTTP_200_OK
-        assert {x["id"] for x in response.json()["results"]} == {recent_session}
+        assert {x["id"] for x in response.json()["results"]} == {recent_session, over_a_year_old_session}
 
     @parameterized.expand(
         [

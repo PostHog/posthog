@@ -1043,6 +1043,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             limit: 30,
                             order: '-last_modified_at',
                             type: 'collection',
+                            // Built-in collections can't be added to, so keep them out of the list.
+                            collection_type: 'custom',
                             search: values.addToCollectionSearch || undefined,
                         })
                     )
@@ -1549,25 +1551,29 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings()
             },
             handleBulkAddToPlaylist: async ({ short_id }: { short_id: string }) => {
+                const requestedCount = values.selectedRecordingsIds.length
+                let addedCount = 0
                 await lemonToast.promise(
                     (async () => {
-                        try {
-                            await api.recordings.bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
-                            actions.setSelectedRecordingsIds([])
-
-                            // Reload the playlist to show the new recordings
-                            handleLoadCollectionRecordings(short_id)
-                        } catch (e) {
-                            posthog.captureException(e)
+                        const result = await api.recordings.bulkAddRecordingsToPlaylist(
+                            short_id,
+                            values.selectedRecordingsIds
+                        )
+                        // The endpoint answers 200 even when it saved nothing, so trust added_count.
+                        if (result.added_count === 0) {
+                            throw new Error('No recordings were added to the collection')
                         }
+                        addedCount = result.added_count
+                        actions.setSelectedRecordingsIds([])
+
+                        // Reload the playlist to show the new recordings
+                        handleLoadCollectionRecordings(short_id)
                     })(),
                     {
-                        success: `${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
-                        } added to collection!`,
+                        success: () => `${addedCount} recording${addedCount > 1 ? 's' : ''} added to collection!`,
                         error: 'Failed to add to collection!',
-                        pending: `Adding ${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        pending: `Adding ${requestedCount} recording${
+                            requestedCount > 1 ? 's' : ''
                         } to the collection...`,
                     },
                     {

@@ -93,6 +93,12 @@ class SessionRecordingPlaylistPagination(LimitOffsetPagination):
     max_limit = PLAYLIST_LIST_MAX_LIMIT
 
 
+# Built-in (synthetic) collections have no DB row and derive their contents per request,
+# so recordings cannot be pinned to them. Guard the write paths with a clear message.
+SYNTHETIC_PLAYLIST_ADD_ERROR = (
+    "This is a built-in collection, so you can't add recordings to it. Create your own collection to save recordings."
+)
+
 DEFAULT_PLAYLIST_ORDER = "-last_modified_at"
 # Orders the list endpoint supports. An unrecognised `order` normalises to the
 # default so the DB slice and the synthetic-rank maths can't disagree on an unknown
@@ -987,14 +993,23 @@ class SessionRecordingPlaylistViewSet(
 
         # For collections, create a minimal query with only session_ids
         if playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION:
-            query = RecordingsQuery(session_ids=playlist_items, date_from="-1y", date_to=None)
+            # A collection is a hand-picked list, so it must not hide recordings older than the
+            # default window. bypass_date_window_for_session_ids widens the range to retention.
+            query = RecordingsQuery(session_ids=playlist_items, date_to=None)
+            bypass_date_window = True
         else:
             data_dict = query_as_params_to_dict(request.GET.dict())
             query = RecordingsQuery.model_validate(data_dict)
             query.session_ids = playlist_items
+            bypass_date_window = False
 
         return list_recordings_response(
-            list_recordings_from_query(query, cast(User, request.user), team=self.team),
+            list_recordings_from_query(
+                query,
+                cast(User, request.user),
+                team=self.team,
+                bypass_date_window_for_session_ids=bypass_date_window,
+            ),
             context=self.get_serializer_context(),
         )
 
@@ -1013,6 +1028,9 @@ class SessionRecordingPlaylistViewSet(
         **kwargs: Any,
     ) -> response.Response:
         playlist = self.get_object()
+
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError(SYNTHETIC_PLAYLIST_ADD_ERROR)
 
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
@@ -1054,6 +1072,9 @@ class SessionRecordingPlaylistViewSet(
         **kwargs: Any,
     ) -> response.Response:
         playlist = self.get_object()
+
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError(SYNTHETIC_PLAYLIST_ADD_ERROR)
 
         # Get session_recording_ids from request body
         session_recording_ids = request.data.get("session_recording_ids", [])
