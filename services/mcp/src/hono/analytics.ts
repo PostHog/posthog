@@ -15,6 +15,7 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
+import { resolveScopePreset } from '@/lib/scope-preset'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
@@ -64,6 +65,9 @@ function buildBaseProperties(
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
         $mcp_auth_method: requestContext.authMethod,
+        // Which kind of caller minted this token — scout, research run, implementation run, or
+        // ordinary user — so scratchpad and notes calls split by caller in one breakdown.
+        $mcp_scope_preset: resolveScopePreset(state.apiKeyScopes),
         ...(analyticsContext
             ? {
                   $mcp_organization_id: analyticsContext.organizationId,

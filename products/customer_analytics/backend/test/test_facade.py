@@ -762,7 +762,7 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
         assert not CustomPropertySource.objects.for_team(self.team.id).filter(id=source.id).exists()
 
     @parameterized.expand([("enabled", True, True), ("disabled", False, False)])
-    def test_create_enqueues_initial_sync_only_when_enabled(self, _name, is_enabled, expect_enqueued):
+    def test_create_enqueues_initial_account_property_sync(self, _name, is_enabled, expect_enqueued):
         with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
             self._create(is_enabled=is_enabled)
 
@@ -774,7 +774,7 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
         else:
             mock_app.send_task.assert_not_called()
 
-    def test_reenabling_a_source_enqueues_a_sync(self):
+    def test_reenabling_a_source_enqueues_an_initial_account_property_sync(self):
         source = self._create(is_enabled=False)
 
         with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
@@ -792,7 +792,7 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
             ("column_change", {"source_column": "org_id"}, True),
         ]
     )
-    def test_update_enqueues_only_on_meaningful_change(self, _name, fields, expect_enqueued):
+    def test_update_enqueues_initial_sync_only_after_a_meaningful_change(self, _name, fields, expect_enqueued):
         source = self._create()
 
         with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):

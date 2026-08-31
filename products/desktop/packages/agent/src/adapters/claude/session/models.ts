@@ -89,6 +89,7 @@ const MODEL_EFFORT_LEVELS: Readonly<Record<string, readonly EffortLevel[]>> = {
   "claude-fable-5": EXTENDED_EFFORT_LEVELS,
   "@cf/zai-org/glm-5.2": ["high", "max"],
   "zai-org/glm-5.3": ["high", "max"],
+  "zai-org/glm-5.3-flash": ["high", "max"],
 };
 
 export function supportsEffort(modelId: string): boolean {

@@ -1462,8 +1462,8 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     model = models.CharField(max_length=200, null=True, blank=True)
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
-    # config columns. A Slack destination is active only when both its integration and channel
-    # are present; the UI may persist the integration first while the user chooses a channel.
+    # config columns. A Slack destination is active only when its integration and a target — a channel,
+    # or a member to DM — are present; the UI may persist the integration first while the user chooses.
     output_destinations = models.JSONField(default=dict, db_default={})
     # Free-form labels for grouping the fleet ("revenue", "on-call", "experimental"). Normalized
     # to lowercase and deduped at the API boundary, so a tag means the same thing whoever typed
@@ -1978,6 +1978,11 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="scratchpads_created",
     )
+    # Who wrote the entry when `created_by_run` cannot say. A scout run names its skill through
+    # the FK; a report-pipeline stage has no `SignalScoutRun` row, so it stamps a `pipeline:*`
+    # identity here instead (see `scout_harness/note_targets.py`). Written on create only, so an
+    # upsert by a later writer keeps the original creator — same rule as `created_by_run`.
+    created_by_identity = models.CharField(max_length=64, null=True, blank=True)
     # Null = durable (the default). Set to drop the entry out of scout searches once
     # its shelf life is up. Mirrors `SignalScoutNote.expires_at`.
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -2002,7 +2007,10 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     steering channel for feedback and pointers that don't warrant editing a scout's skill
     body — "look into X", "stop flagging Y", "we shipped Z on Tuesday". A note targets one
     scout (`skill_name`) or the whole fleet (blank `skill_name`); each run lists the notes
-    addressed to it as prior context and weighs them like any other input.
+    addressed to it as prior context and weighs them like any other input. A stage of the
+    report pipeline can be addressed too, through a reserved `pipeline:*` audience that rides
+    the same column (see `PIPELINE_AUDIENCES` in `scout_harness/note_targets.py`); no scout ever
+    reads one, because the run-time list matches `skill_name` exactly.
 
     Trust model: scouts read note content verbatim while holding privileged sandbox tools,
     so writing a note is gated to skill-authoring-level authorization — API keys need
@@ -2050,8 +2058,9 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         related_name="signal_scout_notes",
     )
-    # Target scout's skill name (`signals-scout-*`). Blank = a general note addressed to the
-    # whole fleet — every scout's run sees it alongside its own skill-scoped notes.
+    # Who the note is addressed to: a scout's skill name (`signals-scout-*`), a reserved
+    # pipeline audience (`pipeline:*`), or blank for the whole fleet. A blank target is seen by
+    # every reader alongside its own targeted notes.
     skill_name = models.CharField(max_length=200, blank=True, default="", db_default="")
     # Prose the scout reads verbatim. Bounded by the create serializer, not the column.
     content = models.TextField()

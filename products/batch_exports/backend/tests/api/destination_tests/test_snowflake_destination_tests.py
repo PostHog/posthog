@@ -81,7 +81,7 @@ def snowflake_config(database, schema) -> dict[str, str]:
         config["authentication_type"] = "password"
     else:
         raise ValueError("Either password or private key must be set")
-    return config
+    return config  # ty: ignore[invalid-return-type]
 
 
 @pytest.fixture
