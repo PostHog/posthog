@@ -2106,6 +2106,20 @@ class GitHubIntegrationBase:
             "updated_at": updated_at,
         }
 
+    def cached_default_branch(self, repo: str) -> str | None:
+        """The repository's default branch as the branch cache already knows it, else ``None``.
+
+        Cache-only, so a caller on a request path can ask: it never calls GitHub, never writes, and
+        never raises. It reads the same entry that serves the branch pickers, so it answers with the
+        branch name a client picked its default from. Use ``get_default_branch`` when the answer has
+        to be authoritative.
+        """
+        cached = self._get_branch_cache(repo)
+        if cached is None:
+            return None
+        default_branch = cached.get("default_branch")
+        return default_branch if isinstance(default_branch, str) else None
+
     def branch_cache_is_stale(self, repo: str) -> bool:
         cached = self._get_branch_cache(repo)
         if cached is None:

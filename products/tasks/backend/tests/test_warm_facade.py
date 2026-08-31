@@ -708,6 +708,27 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         run.refresh_from_db()
         assert "await_user_message" not in run.state
 
+    @parameterized.expand(
+        [
+            # The PostHog AI composer warms without a branch while its picker resolves the default, then
+            # submits on the resolved name. Both name the branch the sandbox already checked out.
+            ("warm_before_the_picker_resolved", None, "main", True),
+            ("submit_leaves_the_branch_to_the_default", "main", None, True),
+            ("branch_the_user_picked", None, "feature/x", False),
+        ]
+    )
+    def test_reuses_a_repo_warm_across_the_default_branch(self, _name, warm_branch, submit_branch, expect_reuse):
+        warm_task, _ = self._warm_run(branch=warm_branch)
+
+        with (
+            patch("posthog.models.integration.GitHubIntegration.cached_default_branch", return_value="main"),
+            patch(f"{FACADE}.signal_task_run_user_message", return_value=True),
+            patch(f"{TITLE_SRC}.generate_task_title", return_value="T"),
+        ):
+            dto = self._create(branch=submit_branch)
+
+        assert (str(dto.id) == str(warm_task.id)) is expect_reuse
+
     def test_create_endpoint_returns_structured_compute_quota_denial_before_warm_activation(self):
         warm_task, run = self._warm_run()
 

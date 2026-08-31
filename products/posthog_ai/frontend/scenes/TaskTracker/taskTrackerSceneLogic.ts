@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { githubBranchSearchLogic } from 'lib/integrations/githubBranchSearchLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
@@ -72,24 +73,33 @@ export interface TaskTrackerSceneLogicProps {
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
 
 /**
- * The warm request for the current composer selection, or `null` when this selection can't be warmed.
+ * The branch a warm sandbox boots on, or `null` to leave it on the repo's default branch.
  *
- * A repo-scoped warm must already know its branch: the backend matches branch as a `None`-normalized
- * exact value, so warming while `GitHubBranchCombobox` is still resolving the repo's default would
- * book a sandbox on `null` and then miss on submit. Repo-less drafts carry `null` on both sides and
- * warm immediately.
+ * A draft on the default branch warms as `null`, which is both what the sandbox checks out anyway and
+ * what the backend matches such a warm on. That holds the selection steady while `GitHubBranchCombobox`
+ * resolves the default: warming on the resolved name instead would change the selection mid-draft, and
+ * the composer answers a changed selection by cancelling the sandbox that is already booting and
+ * starting a second one. A branch the user picked is sent as-is.
+ */
+function warmBranch({ integrationId, repository, branch }: RepositoryConfig): string | null {
+    if (!repository || !branch || integrationId === undefined) {
+        return null
+    }
+    const defaultBranch = githubBranchSearchLogic.findMounted({ integrationId, repo: repository })?.values.defaultBranch
+    return branch === defaultBranch ? null : branch
+}
+
+/**
+ * The warm request for the current composer selection, or `null` when this selection can't be warmed.
  */
 function buildWarmRequest(form: TaskCreateForm, catalogue: ModelChoiceApi[]): WarmTaskRequestApi | null {
     const { repositoryConfig, model, reasoningEffort, permissionMode } = form
-    if (repositoryConfig.repository && !repositoryConfig.branch) {
-        return null
-    }
     const runRequest = buildRunCreateRequest(
         catalogue,
         model,
         resolveEffortForModel(catalogue, reasoningEffort, model),
         permissionMode,
-        { branch: repositoryConfig.branch ?? null }
+        { branch: warmBranch(repositoryConfig) }
     )
     if (!('runtime_adapter' in runRequest)) {
         return null

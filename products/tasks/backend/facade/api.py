@@ -6176,6 +6176,48 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
     return _can_mint(team_id)
 
 
+def _warm_branch_predicate(
+    branch: str | None, *, team_id: int, repository: str | None, github_integration_id: int | None
+) -> Q:
+    """Branch predicate for warm reuse, where "no branch" and "the repository's default branch" name the
+    same checkout.
+
+    A repository-scoped warm booted without a branch clones the repository's default branch, so a submit
+    that names that branch explicitly is asking for the sandbox that is already up. The composer sends no
+    branch until its branch picker has resolved the default, which lands after the first keystroke — an
+    exact match would miss that pair and cold-boot a second sandbox.
+
+    Best-effort in both directions: the default branch is read from the branch cache the pickers are
+    served from, and an unknown default falls back to an exact match, which costs the warm and nothing
+    else. A branch the user picked never widens to anything.
+    """
+    wanted = branch or None
+    if repository is None or github_integration_id is None:
+        return Q(branch=wanted)
+    default_branch = _cached_default_branch(team_id, github_integration_id, repository)
+    if default_branch is None or wanted not in (None, default_branch):
+        return Q(branch=wanted)
+    return Q(branch__isnull=True) | Q(branch=default_branch)
+
+
+def _cached_default_branch(team_id: int, github_integration_id: int, repository: str) -> str | None:
+    """This team's cached default branch for ``repository``, or ``None`` when nothing has cached one."""
+    from posthog.models.integration import (  # noqa: PLC0415 — keep the GitHub client off the api import path
+        GitHubIntegration,
+    )
+
+    # Deferred columns on purpose: the cache read needs the integration id alone, and `repository_cache`
+    # holds every repository the installation can see.
+    integration = (
+        Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github")
+        .only("id", "kind", "team_id")
+        .first()
+    )
+    if integration is None:
+        return None
+    return GitHubIntegration(integration).cached_default_branch(repository)
+
+
 def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
@@ -6198,7 +6240,9 @@ def _find_idling_warm_run(
     awaiting its first user message (the ``await_user_message`` state marker). This is the backend's single
     source of truth for the warm pool: it dedupes warm provisioning (so a repeated ``warm`` call reuses the
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
-    warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
+    warm Run on submit. Team + user scoped; branch compared as a ``None``-normalized exact match, except
+    that a single-repository lookup also treats "no branch" and that repository's default branch as the
+    same target (see :func:`_warm_branch_predicate`).
 
     ``origin_product`` is required and never defaulted: it selects the OAuth app, the warm quota gate, the
     pool caps, and PR authorship, all of which are fixed when the warm boots and cannot be changed at
@@ -6216,15 +6260,20 @@ def _find_idling_warm_run(
         return None
     normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
     repository_filter = {"task__repository__iexact": repository} if repository else {"task__repository__isnull": True}
+    # Only a single-repository sandbox checks out a branch, so only that lookup has a default branch to
+    # widen to.
+    branch_repository = repository if len(normalized_repositories) == 1 else None
     candidates = (
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
+            _warm_branch_predicate(
+                branch, team_id=team_id, repository=branch_repository, github_integration_id=github_integration_id
+            ),
             task__team_id=team_id,
             task__created_by_id=user_id,
             task__origin_product=origin_product,
             task__deleted=False,
             task__github_integration_id=github_integration_id,
             state__await_user_message=True,
-            branch=branch or None,
             **repository_filter,
         )
         .exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)

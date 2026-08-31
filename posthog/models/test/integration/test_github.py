@@ -1597,6 +1597,32 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_default_branch.assert_not_called()
         assert REGISTRY.get_sample_value("github_integration_cache_accesses_total", labels) == previous_count + 1
 
+    @parameterized.expand(
+        [
+            ("cached", True, "main"),
+            ("not_cached", False, None),
+        ]
+    )
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
+    def test_cached_default_branch_answers_without_calling_github(
+        self, _name, is_cached, expected, mock_default_branch, mock_list_branches
+    ):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        if is_cached:
+            cache.set(
+                GitHubIntegration(integration)._get_branch_cache_key(repo),
+                {"branches": ["main"], "default_branch": "main", "updated_at": time.time()},
+            )
+
+        assert GitHubIntegration(integration).cached_default_branch(repo) == expected
+        mock_list_branches.assert_not_called()
+        mock_default_branch.assert_not_called()
+
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
     def test_list_cached_branches_filters_search_before_pagination(self, mock_default_branch, mock_list_branches):
