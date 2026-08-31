@@ -109,8 +109,14 @@ export function InsightEmptyState({
             posthog.capture('insight sample data shown', {
                 variant: sampleDataVariant ?? 'line',
                 dashboard_id: insightProps?.dashboardId ?? null,
+                // `dashboardItemId` also carries synthetic ad-hoc keys ('new' or 'new-...') for
+                // unsaved insights and the table placeholder. Keep only real short IDs in telemetry.
                 insight_short_id:
-                    typeof insightProps?.dashboardItemId === 'string' ? insightProps.dashboardItemId : null,
+                    typeof insightProps?.dashboardItemId === 'string' &&
+                    insightProps.dashboardItemId !== 'new' &&
+                    !insightProps.dashboardItemId.startsWith('new-')
+                        ? insightProps.dashboardItemId
+                        : null,
             })
             return
         }
