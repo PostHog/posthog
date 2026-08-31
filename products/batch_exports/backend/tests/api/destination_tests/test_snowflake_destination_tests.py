@@ -94,7 +94,7 @@ def snowflake_cursor(snowflake_config):
         if snowflake_config.get("private_key") is None:
             raise ValueError("Private key is required for keypair authentication")
 
-        private_key = load_private_key(snowflake_config["private_key"], snowflake_config["private_key_passphrase"])
+        private_key = load_private_key(snowflake_config["private_key"], snowflake_config.get("private_key_passphrase"))
     else:
         password = snowflake_config["password"]
 
