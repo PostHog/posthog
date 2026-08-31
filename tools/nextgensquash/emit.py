@@ -125,6 +125,10 @@ class Emitter:
         # _collect_index_runsql_ops; emit writes them to DROPPED_RUNSQL.txt so
         # every drop is auditable instead of silent.
         self.dropped_runsql: list[str] = []
+        # Constraint names added by forwarded `ALTER TABLE ... ADD CONSTRAINT
+        # ... FOREIGN KEY` RunSQL (composite FKs Django fields can't express).
+        # _stateless_constraint_ops pairs Validate ops against this set.
+        self._forwarded_fk_constraint_names: set[str] = set()
 
     def _models_in_app(self) -> list[Any]:
         return [ms for (app, _), ms in self.state.models.items() if app == self.app]
@@ -429,18 +433,29 @@ class Emitter:
         loader = MigrationLoader(connection=None, ignore_no_migrations=True)
         claimed_keys = {migr.ref.key for migr in self.squasher.old.values() if migr.ref.app == self.app}
         out: list[Any] = []
+        # Validate ops only make sense for constraints the squash actually
+        # produces: a forwarded AddForeignKeyNotValid, a forwarded raw FK-add
+        # RunSQL (run before this collector), or a final-state Meta constraint.
+        available = set(self._forwarded_fk_constraint_names) | self._final_state_index_names()
 
-        def walk(ops: list[Any]) -> None:
+        def walk(mig_name: str, ops: list[Any]) -> None:
             for op in ops:
-                if op.__class__.__name__ in self.STATELESS_CONSTRAINT_OP_NAMES:
+                kind = op.__class__.__name__
+                if kind == "AddForeignKeyNotValid":
+                    available.add(op.name)
                     out.append(op)
+                elif kind in self.STATELESS_CONSTRAINT_OP_NAMES:
+                    if op.name in available:
+                        out.append(op)
+                    else:
+                        self.dropped_runsql.append(f"{self.app}.{mig_name} [unpaired-validate]: {op.name}")
                 elif isinstance(op, dj_migrations.SeparateDatabaseAndState):
-                    walk(list(op.database_operations))
+                    walk(mig_name, list(op.database_operations))
 
         for (app, name), m in sorted(loader.graph.nodes.items()):
             if app != self.app or (app, name) not in claimed_keys:
                 continue
-            walk(list(m.operations))
+            walk(name, list(m.operations))
         return out
 
     @staticmethod
@@ -535,12 +550,25 @@ class Emitter:
                     sql_text = self._runsql_text(op)
                     if "CREATE EXTENSION" in sql_text.upper():
                         continue  # handled by stub
+                    sql_upper = sql_text.upper()
+                    # Composite-key FK constraints live only in raw SQL (a
+                    # Django field can't express them), so their ADD must be
+                    # forwarded — the paired ValidateForeignKey ops rely on it.
+                    if (
+                        "ADD CONSTRAINT" in sql_upper
+                        and "FOREIGN KEY" in sql_upper
+                        and "CREATE TABLE" not in sql_upper
+                        and "DROP TABLE" not in sql_upper
+                    ):
+                        kept.append(dj_migrations.RunSQL(sql=op.sql, reverse_sql=op.reverse_sql, hints=op.hints))
+                        for cname in re.findall(r"ADD\s+CONSTRAINT\s+\"?([a-zA-Z0-9_]+)\"?", sql_text, re.IGNORECASE):
+                            self._forwarded_fk_constraint_names.add(cname)
+                        continue
                     # Skip any RunSQL that mixes table/column DDL with index
                     # creation. Our squash's CreateModel + finalize_fks already
                     # produce those tables and columns from final-state walk;
                     # forwarding a CREATE TABLE / ALTER TABLE here would
                     # collide. We only forward *pure* index work.
-                    sql_upper = sql_text.upper()
                     if any(kw in sql_upper for kw in ("CREATE TABLE", "ALTER TABLE", "DROP TABLE")):
                         self.dropped_runsql.append(f"{self.app}.{mig_name} [table-ddl]: {sql_text[:160]}")
                         continue
