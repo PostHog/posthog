@@ -522,6 +522,9 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
     class _FakeSandbox:
         # A test can set this on the class to make teardown blow up (destroy-must-not-mask coverage).
         destroy_error: Exception | None = None
+        # A test can set this to make provisioning blow up, which is the first step of the review's
+        # paid phase (retry-boundary coverage).
+        create_error: Exception | None = None
         # Every SandboxConfig passed to create(), so a test can assert what the sandbox was given
         # (environment variables, egress allowlist).
         created_configs: list[Any] = []
@@ -529,6 +532,8 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
         @classmethod
         def create(cls, config: Any) -> _FakeSandbox:
             cls.created_configs.append(config)
+            if cls.create_error is not None:
+                raise cls.create_error
             return cls()
 
         def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:

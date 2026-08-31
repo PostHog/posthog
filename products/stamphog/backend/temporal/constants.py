@@ -80,7 +80,26 @@ ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(minutes=1),
 )
 
-# The sandbox review provisions a box, clones the repo, and runs the reviewer agent —
-# expensive and side-effecting, so a transient failure fails the run rather than
-# silently paying for it twice. The workflow-level wrapper marks the run FAILED.
-SANDBOX_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
+
+class SandboxPhaseError(Exception):
+    """Marks the review activity's paid phase: the attempt provisioned a sandbox, or found that an
+    earlier attempt already did.
+
+    SANDBOX_RETRY_POLICY refuses to retry it, so a box that was provisioned and a reviewer agent
+    that ran are never paid for twice.
+    """
+
+
+# The review activity reads the database, fetches a GitHub installation token, and mints a gateway
+# token before it creates the sandbox. That setup costs nothing and has no external effect, so a
+# transient failure there is safe to repeat: a worker that cannot momentarily reach Postgres or
+# GitHub must not consume the run. From sandbox creation on, the work is paid for, and
+# SandboxPhaseError stops the retries. The activity also records that the paid phase began, because
+# a start-to-close timeout and a lost worker are enforced by Temporal and raise nothing this policy
+# can classify. The workflow-level wrapper marks the run FAILED.
+SANDBOX_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=3,
+    initial_interval=timedelta(seconds=5),
+    backoff_coefficient=2.0,
+    non_retryable_error_types=[SandboxPhaseError.__name__],
+)
