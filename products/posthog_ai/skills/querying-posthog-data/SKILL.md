@@ -132,7 +132,7 @@ Schema reference for PostHog's core system models, organized by domain:
 
 ## Analytics Query Examples
 
-Use these examples only after choosing the SQL path. They show how to write optimized analytical queries.
+These examples show query specs for trends, funnels, and other analytics, rendered as HogQL. Use them to understand the corresponding typed `query-*` input and SQL fallback. Prefer the typed tool when it supports the question.
 
 - [Trends (unique users, specific time range, single series)](./references/example-trends-unique-users.md)
 - [Trends (total count with multiple breakdowns)](./references/example-trends-breakdowns.md)
