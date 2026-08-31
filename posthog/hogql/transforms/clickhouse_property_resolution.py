@@ -1402,7 +1402,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             and call.args[1].value == 0
         ):
             call = call.args[0]
-        if not isinstance(call, ast.Call) or call.name != "multiSearchAnyCaseInsensitive":
+        if not isinstance(call, ast.Call) or call.name.lower() != "multisearchanycaseinsensitive":
             return None
         if len(call.args) != 2:
             return None
