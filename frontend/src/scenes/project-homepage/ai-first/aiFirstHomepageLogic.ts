@@ -2,16 +2,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
-import {
-    Capability,
-    CapabilityGrouping,
-    capabilitiesForGrouping,
-    capabilityGroupingFromVariant,
-} from 'scenes/max/maxCapabilities'
 import { type PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic, parseCommandString } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -28,7 +20,6 @@ import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { DashboardBasicType, SidePanelTab } from '~/types'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Node } from '../../../queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '../../../types'
 import type { DashboardType, QueryBasedInsightModel } from '../../../types'
@@ -88,7 +79,6 @@ function savePreviousHomepage(tab: SceneTab | null): void {
 export interface aiFirstHomepageLogicValues {
     dashboardsLoading: boolean // dashboardsModel
     pinnedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[] // dashboardsModel
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
     conversationId: string | null // maxLogic
     threadLogicKey: string // maxLogic
@@ -100,8 +90,6 @@ export interface aiFirstHomepageLogicValues {
     chatDraftFor: (tabId: string | undefined) => string // tabUiStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     animationPhase: AnimationPhase
-    capabilities: Capability[]
-    capabilityGrouping: CapabilityGrouping | null
     fillInHint: string | null
     gridItems: HomepageGridItem[]
     layoutState: LayoutState
@@ -182,8 +170,6 @@ export interface aiFirstHomepageLogicMeta {
         starredItemsLoading: (shortcutDataHasLoaded: boolean) => boolean
         mode: (layoutState: LayoutState) => HomepageMode
         animationPhase: (layoutState: LayoutState) => AnimationPhase
-        capabilityGrouping: (featureFlags: FeatureFlagsSet) => CapabilityGrouping | null
-        capabilities: (capabilityGrouping: CapabilityGrouping | null) => Capability[]
         pinnedDashboardItems: (
             pinnedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
         ) => HomepageGridItem[]
@@ -221,8 +207,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['shortcutData as cachedStarred', 'shortcutDataHasLoaded'],
             tabUiStateLogic,
             ['chatDraftFor'],
-            featureFlagLogic,
-            ['featureFlags'],
             maxGlobalLogic,
             ['effectivePhaiView'],
         ],
@@ -335,16 +319,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         animationPhase: [
             (s) => [s.layoutState],
             (layoutState: LayoutState): AnimationPhase => layoutState.animationPhase,
-        ],
-        capabilityGrouping: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): CapabilityGrouping | null =>
-                capabilityGroupingFromVariant(featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES]),
-        ],
-        capabilities: [
-            (s) => [s.capabilityGrouping],
-            (capabilityGrouping: CapabilityGrouping | null): Capability[] =>
-                capabilityGrouping ? capabilitiesForGrouping(capabilityGrouping) : [],
         ],
         pinnedDashboardItems: [
             (s) => [s.pinnedDashboards],

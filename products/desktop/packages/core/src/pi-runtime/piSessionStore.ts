@@ -16,11 +16,6 @@ import type {
 } from "@posthog/shared";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
-export interface PiProjectTrustState {
-  trusted: boolean;
-  hasProjectResources: boolean;
-}
-
 export interface PiSessionError {
   id: string;
   scope: "connection" | "operation";
@@ -48,7 +43,6 @@ export interface PiControllerSessionState {
   authRestoring: boolean;
   isBashRunning: boolean;
   mcpToolPermissionRequests: Map<string, McpToolPermissionRequest>;
-  projectTrust?: PiProjectTrustState;
 }
 
 export interface PiSessionState {

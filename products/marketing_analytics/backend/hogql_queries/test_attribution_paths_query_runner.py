@@ -1,4 +1,7 @@
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+
+from parameterized import parameterized
 
 from posthog.schema import (
     BaseMathType,
@@ -8,6 +11,9 @@ from posthog.schema import (
     MarketingAnalyticsAttributionPathsQuery,
     PropertyMathType,
 )
+
+from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
@@ -395,3 +401,26 @@ class TestMarketingAnalyticsAttributionPathsQueryRunner(ClickhouseTestMixin, Bas
         ctes = runner.to_query().ctes
         assert ctes is not None
         self.assertTrue(ctes["per_conversion_path"].materialized)
+
+    # Same three shapes as the attribution table: direct read, alias normalization, classifier.
+    @parameterized.expand(
+        [
+            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN),
+            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE),
+            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL),
+        ]
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_attribution_paths_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
+        query = MarketingAnalyticsAttributionPathsQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            breakdownBy=breakdown,
+            conversionGoalId=GOAL_ID,
+            properties=[],
+        )
+        runner = MarketingAnalyticsAttributionPathsQueryRunner(query=query, team=self.team)
+        context = runner._shared_hogql_context
+        context.enable_select_queries = True
+        printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        sql = printed[0] if isinstance(printed, tuple) else printed
+        assert pretty_print_in_tests(sql, self.team.pk) == self.snapshot
