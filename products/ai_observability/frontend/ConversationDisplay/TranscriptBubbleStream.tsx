@@ -154,6 +154,50 @@ function pillSideFor(labels: string[]): 'left' | 'right' {
     return labels.length > 0 && AGENT_SIDE_LABELS.has(labels[0]) ? 'left' : 'right'
 }
 
+// Structured ask-the-user tools carry the text shown to the user inside the call arguments.
+const TOOL_CALL_TEXT_ARG_KEYS = ['question', 'prompt', 'message', 'text']
+
+function toolCallArgumentText(message: CompatMessage): string {
+    for (const call of message.tool_calls ?? []) {
+        let args: unknown = call.function?.arguments
+        if (typeof args === 'string') {
+            try {
+                args = JSON.parse(args)
+            } catch {
+                continue
+            }
+        }
+        if (typeof args !== 'object' || args === null) {
+            continue
+        }
+        for (const key of TOOL_CALL_TEXT_ARG_KEYS) {
+            const value = (args as Record<string, unknown>)[key]
+            if (typeof value === 'string' && value.trim().length > 0) {
+                return value
+            }
+        }
+    }
+    return ''
+}
+
+// A tool call the stream ends on is the assistant handing the turn to the user, for example
+// asking a question through a structured tool, so it is the turn's content rather than an
+// intermediate step. Any later substantive message means the turn moved on past the call.
+function isTurnEndingToolCall(messages: CompatMessage[], index: number): boolean {
+    const message = messages[index]
+    if (message.role !== 'assistant' || !isToolCallMessage(message)) {
+        return false
+    }
+    for (let j = index + 1; j < messages.length; j++) {
+        const later = messages[j]
+        if (HIDDEN_ROLES.has(later.role) || later.role === INTERNAL_THINKING_ROLE) {
+            continue
+        }
+        return false
+    }
+    return true
+}
+
 function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
     const result: SessionEntry[] = []
     for (let i = 0; i < messages.length; i++) {
@@ -168,6 +212,13 @@ function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
         }
         const text = extractText(message)
         const nonText = hasNonTextContent(message)
+        if (isTurnEndingToolCall(messages, i)) {
+            const bubbleText = text || toolCallArgumentText(message)
+            if (bubbleText) {
+                result.push({ kind: 'bubble', message, text: bubbleText, nonText })
+                continue
+            }
+        }
         if (text.length === 0 && !nonText) {
             continue
         }

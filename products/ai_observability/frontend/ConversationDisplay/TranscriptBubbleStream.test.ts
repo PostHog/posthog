@@ -526,3 +526,46 @@ describe('captureUnrenderableMessageOnce', () => {
         expect(mockedCapture).toHaveBeenCalledTimes(2)
     })
 })
+
+describe('buildStreamItems — turn-ending tool call', () => {
+    const askUserToolCall = (args: Record<string, unknown>, text = ''): CompatMessage =>
+        ({
+            role: 'assistant',
+            content: text,
+            tool_calls: [{ id: 'call_1', function: { name: 'ask_user_question', arguments: JSON.stringify(args) } }],
+        }) as unknown as CompatMessage
+
+    it('renders the question from the call arguments when the turn ends on the call', () => {
+        const items = buildStreamItems([
+            thinking('deciding who to ask'),
+            askUserToolCall({ question: 'Which workspace should I use?', singleSelect: true }),
+        ])
+
+        expect(items.map((item) => item.kind)).toEqual(['internal-group', 'bubble'])
+        expect(items[1]).toMatchObject({ kind: 'bubble', text: 'Which workspace should I use?' })
+    })
+
+    it('prefers the message own text over the call arguments', () => {
+        const items = buildStreamItems([askUserToolCall({ question: 'From args' }, 'Which one do you prefer?')])
+
+        expect(items).toHaveLength(1)
+        expect(items[0]).toMatchObject({ kind: 'bubble', text: 'Which one do you prefer?' })
+    })
+
+    it('keeps a mid-turn tool call internal when a result follows', () => {
+        const items = buildStreamItems([
+            askUserToolCall({ question: 'Which region?' }),
+            toolResult('eu'),
+            assistant('Done, deployed to EU.'),
+        ])
+
+        expect(items.map((item) => item.kind)).toEqual(['internal-group', 'bubble'])
+        expect(items[1]).toMatchObject({ kind: 'bubble', text: 'Done, deployed to EU.' })
+    })
+
+    it('changes nothing when the trailing call carries no readable text', () => {
+        const items = buildStreamItems([askUserToolCall({ options: [1, 2, 3] })])
+
+        expect(items).toEqual([])
+    })
+})
