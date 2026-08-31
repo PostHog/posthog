@@ -207,6 +207,26 @@ tools:
     integrations-twilio-phone-numbers-retrieve:
         operation: integrations_twilio_phone_numbers_retrieve
         enabled: false
+    integrations-users-retrieve:
+        operation: integrations_users_retrieve
+        enabled: true
+        scopes:
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List integration Slack members
+        description: >
+            List the Slack workspace members a Slack integration can send direct messages to. Slack-only — non-Slack
+            integration ids return an error (400 if the integration is otherwise visible, 404 if it isn't). Returns each
+            member's id (e.g. U0123ABC), name (handle without the leading @), and display_name; bots, deactivated
+            accounts, and Slackbot are excluded. Supports `search` (fuzzy match on display name and handle, plus
+            id-contains), `limit`, `offset`, and a `user_id` query parameter for a direct lookup. Results are cached for
+            1 hour (no force-refresh exposed via MCP). Use this to find member ids when configuring a scout's Slack DM
+            destination — pass them as `output_destinations.slack.users` entries (`member_id|@display-name`) via
+            scout-config-update or scout-create. Requires the Slack integration's id; use integrations-list (filter by
+            kind=slack) to find it.
     posthog-connection-forward:
         operation: posthog_connections_forward_create
         enabled: true
