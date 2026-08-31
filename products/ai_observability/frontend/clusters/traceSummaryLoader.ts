@@ -16,7 +16,7 @@ export async function loadTraceSummaries(
     existingSummaries: Record<string, TraceSummary>,
     windowStart: string,
     windowEnd: string,
-    level: ClusteringLevel = 'trace',
+    level: ClusteringLevel,
     detectorEvaluationIds: string[]
 ): Promise<Record<string, TraceSummary>> {
     const missingItemIds = itemIds.filter((id) => !existingSummaries[id])
