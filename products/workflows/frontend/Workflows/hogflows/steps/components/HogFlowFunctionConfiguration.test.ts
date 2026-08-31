@@ -65,8 +65,8 @@ describe('HogFlowFunctionConfiguration', () => {
                 { type: 'internal-event', filters: { source: 'internal-events', events: [{ id: '$other' }] } },
                 ['prompt'],
             ],
-            // The backfill has rewritten these, so the legacy shape is no longer a Slack trigger.
-            ['legacy slack-message', { type: 'slack-message', filters: {} }, ['prompt']],
+            // Stored before the rename: still a Slack trigger until the backfill rewrites it.
+            ['legacy slack-message', { type: 'slack-message', filters: {} }, ['prompt', 'reply_in_slack_thread']],
         ])('for the AI task step on a %s trigger shows %j', (_name, trigger, expectedKeys) => {
             const filtered = filterInputsSchemaForTrigger('template-posthog-create-task', trigger, aiTaskSchema)
             expect(filtered.map((s) => s.key)).toEqual(expectedKeys)

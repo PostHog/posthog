@@ -87,6 +87,8 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-table",
     "data-warehouse-view",
     "internal-event",
+    # Stored before the internal-event rename. Removed once the backfill has run everywhere.
+    "slack-message",
 }
 
 
