@@ -249,9 +249,8 @@ def test_failure_once_the_sandbox_exists_is_not_retried(team, stamphog_chain: St
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.FAILED
-    # The record names the marker and the failing type, and carries nothing from the sandbox: run.error
-    # is readable with stamphog:read by people who need no access to the repository, and everything in
-    # this phase derives from an untrusted PR head.
+    # The record names the marker and the type, and nothing from the sandbox. Anyone with
+    # stamphog:read can read run.error, and this phase reads an untrusted PR head.
     assert run.error == "SandboxPhaseError: the sandbox phase failed with RuntimeError"
     assert "modal refused the box" not in (run.error or "")
 
@@ -281,9 +280,8 @@ def test_a_second_attempt_never_provisions_a_second_sandbox(team, stamphog_chain
 
 
 def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
-    # PyYAML names the offending construct on its first line, and that line is what mark_review_failed
-    # persists into run.error, which is readable with stamphog:read by people who need no access to
-    # the repository. The default branch it comes from is private to that repository.
+    # PyYAML names the bad tag on its first line, and run.error keeps that line. Anyone with
+    # stamphog:read can read it without access to the repository the policy file comes from.
     with pytest.raises(RuntimeError) as raised:
         activities._overlay_policy_yaml("acme/widgets", "version: 1\n", "!a-private-internal-tag {}\n")
 
@@ -300,10 +298,8 @@ def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
 def test_a_failed_run_says_so_on_the_pull_request(
     team, stamphog_chain: StamphogChain, review_mode: ReviewMode, self_driving: bool
 ) -> None:
-    # A failed run used to leave the author with a vanished eyes reaction and nothing else, which
-    # reads exactly like a review still running. The retry line names a push in every mode because
-    # that is the only route that always starts a run: a failure leaves the trigger label in place,
-    # so re-adding it is rejected by the per-PR cooldown, and a self-driving run ignores labels.
+    # A failure keeps the trigger label, so the per-PR cooldown rejects a re-added one and a
+    # self-driving run ignores labels. A push is the only route that starts a run in every mode.
     repo_config = _repo_config(team.id)
     repo_config.review_mode = review_mode
     repo_config.save()
@@ -337,11 +333,9 @@ def test_a_failed_run_says_so_on_the_pull_request(
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_superseded_run_posts_no_failure_notice(team, stamphog_chain: StamphogChain) -> None:
-    # A superseded run must not tell the author their review did not complete: the replacement is
-    # still running against the same head, or has already approved it. Two guards produce that, the
-    # terminal-status return this case reaches and the marked_failed gate that catches a run
-    # superseded after the load. The race between them cannot be driven from here without mocking
-    # the load, so this pins the outcome both exist for.
+    # A superseded run must stay quiet: its replacement holds the same head. Two guards give that,
+    # the terminal-status return this case reaches and the marked_failed gate. Driving the race
+    # between them needs a mocked load, so this pins the outcome they share.
     repo_config = _repo_config(team.id)
     head_sha = "sha-superseded"
     stamphog_chain.recorder.register_pr(REPO, 115, _pr_object(115, "devex-dev", head_sha))
@@ -361,9 +355,8 @@ def test_a_superseded_run_posts_no_failure_notice(team, stamphog_chain: Stamphog
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_no_failure_notice_once_a_newer_run_holds_the_same_head(team, stamphog_chain: StamphogChain) -> None:
-    # `reopened` is a relevant action that does not move the head, and supersession skips terminal
-    # states, so a replacement can be queued at the unchanged head after this run failed. That
-    # replacement may already have approved the very commit the notice would call unreviewed.
+    # `reopened` does not move the head, and supersession skips terminal states, so a replacement
+    # can hold the same head. That replacement can approve the commit this notice calls unreviewed.
     repo_config = _repo_config(team.id)
     head_sha = "sha-reopened"
     stamphog_chain.recorder.register_pr(REPO, 118, _pr_object(118, "devex-dev", head_sha))
@@ -386,9 +379,8 @@ def test_no_failure_notice_once_a_newer_run_holds_the_same_head(team, stamphog_c
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_notice_github_error_fails_the_activity_so_temporal_retries(team, stamphog_chain: StamphogChain) -> None:
-    # Swallowing the error completes the activity, so Temporal never retries and the run stays FAILED
-    # with nothing on the PR, which is the silence this path removes. A rate limit is exactly when
-    # that happens. The FAILED update has already committed, so raising cannot undo it.
+    # A hidden error completes the activity, so Temporal does not retry and the PR keeps no notice.
+    # A rate limit does this. The FAILED update is committed, so raising cannot undo it.
     repo_config = _repo_config(team.id)
     head_sha = "sha-notice-error"
     stamphog_chain.recorder.register_pr(REPO, 117, _pr_object(117, "devex-dev", head_sha))
@@ -409,9 +401,8 @@ def test_a_notice_github_error_fails_the_activity_so_temporal_retries(team, stam
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_retry_finishes_a_notice_the_previous_attempt_never_posted(team, stamphog_chain: StamphogChain) -> None:
-    # The activity marks the run FAILED, then removes its reaction and sweeps GitHub, then posts. An
-    # attempt that dies in that window leaves a FAILED run with no notice, and the retry meets its own
-    # terminal status. Returning there would restore the silence this path exists to remove.
+    # The activity marks the run FAILED, removes its reaction, sweeps GitHub, then posts. An attempt
+    # that dies in that window leaves a FAILED run with no notice, and the retry finds it terminal.
     repo_config = _repo_config(team.id)
     head_sha = "sha-resumed"
     stamphog_chain.recorder.register_pr(REPO, 116, _pr_object(116, "devex-dev", head_sha))

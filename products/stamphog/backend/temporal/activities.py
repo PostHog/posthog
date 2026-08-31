@@ -949,10 +949,9 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     first_error_line = (input.error.splitlines() or [""])[0][:300]
     if run.status in TERMINAL_STATUSES:
         activity.logger.warning(f"Run {run.id} already {run.status}; keeping it, error was: {first_error_line}")
-        # A retry that died between the FAILED save below and the notice finds its own run already
-        # terminal. The status is right and must not be rewritten, but the author is still owed the
-        # notice, so finish that one step rather than returning into the silence this path removes.
-        # Only for FAILED: any other terminal state belongs to a run that delivered a verdict.
+        # A retry that died between the FAILED save and the notice finds its own run terminal. Keep
+        # the status, but post the notice the author is still owed. Only FAILED resumes: every other
+        # terminal state belongs to a run that gave a verdict.
         if run.status == ReviewRunStatus.FAILED:
             _post_failure_notice(StamphogGitHubClient(run.pull_request.repo_config.installation_id), run, input.team_id)
         return
@@ -1007,17 +1006,8 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
             },
         )
 
-    # Until now a failed run told the author nothing: the 👀 went away and no verdict ever arrived,
-    # which reads exactly like a review still in progress. Say so on the same COMMENT-review surface
-    # a non-approval uses, so every outcome for a head lands in one list.
-    #
-    # Only when this run is the one that reached FAILED. A newer delivery can supersede it between the
-    # load above and that update, which leaves the update matching no rows; posting anyway would tell
-    # the author their review did not complete while its replacement is still running, or has already
-    # approved the same head.
-    #
-    # Last, because it is the one step here that raises. The event above must be captured on this
-    # attempt: a retry returns through the terminal guard, which posts the notice and nothing else.
+    # Last, because this step raises. A retry returns through the terminal guard, which posts the
+    # notice and nothing else, so the event above must reach PostHog on this attempt.
     if marked_failed:
         _post_failure_notice(client, run, input.team_id)
 
@@ -1361,29 +1351,23 @@ FAILURE_NOTICE_BODY = (
 
 
 def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: int) -> None:
-    """Tell the PR that this run produced no verdict, once.
+    """Tell the PR that this run gave no verdict, once.
 
-    A new commit is the retry route for every repository, which is why the notice names no other.
-    A failure leaves the trigger label in place, so in label mode a push carries the label and
-    starts a run, while re-adding the label does nothing for ten minutes (the per-PR cooldown
-    `process_pull_request_event` arms rejects it). A self-driving run ignores the label either way:
-    it bypasses review mode and re-reviews only on synchronize, reopen and base retarget.
+    The notice names a push, because that route works in every mode. A failure keeps the trigger
+    label, so a push carries it and starts a run, while a re-added label waits out the per-PR
+    cooldown. A self-driving run ignores labels and re-reviews only on synchronize, reopen and base
+    retarget.
 
-    No error text. The cause is infrastructure detail the author cannot act on, and this lands on a
-    public pull request; it stays on the run and in the worker logs instead.
+    The notice gives no error text, because this is a public pull request.
 
-    Nothing is posted once a newer run holds the same head. Supersession skips terminal states, so a
-    `reopened` delivery queues a replacement at the unchanged head after this run failed, and that
-    replacement may already have approved the very commit this notice would call unreviewed. A newer
-    run on a different head is left alone: that notice is still true of the head it names. The read
-    is writer-pinned because it gates a GitHub write.
+    A newer run at the same head stops the notice. Supersession skips terminal states, so a
+    `reopened` delivery can queue a replacement at the unchanged head, and that replacement can
+    approve the commit this notice would call unreviewed. A newer run at a different head is not a
+    replacement. The read uses the writer, because it gates a GitHub write.
 
-    A GitHub error propagates rather than being swallowed. Swallowing it completes the activity, so
-    Temporal never retries and the run stays FAILED with nothing on the PR, which is the silence this
-    exists to remove; a rate limit is exactly when that happens. Raising is safe here because the
-    FAILED update has already committed, so a retry cannot undo it, and it lands in the terminal
-    guard, which finishes this one step. `_post_non_approval_review` records its review id, so the
-    retry that follows a successful post is a no-op.
+    A GitHub error propagates. If this function hides it, the activity completes, Temporal does not
+    retry, and the PR keeps no notice. Raising is safe: the FAILED update is committed, and the retry
+    finishes the post through the terminal guard.
     """
     replaced_at_same_head = (
         ReviewRun.objects.for_team(team_id)
