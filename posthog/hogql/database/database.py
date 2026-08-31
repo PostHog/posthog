@@ -2016,14 +2016,12 @@ class Database(BaseModel):
                                 # For a chain of type a.b.c, we want to create a nested table node
                                 # where a is the parent, b is the child of a, and c is the child of b
                                 # where a.b.c will contain the table.
-                                # Snowflake stores identifiers uppercase but resolves them
-                                # case-insensitively, so mark its nodes so `from tpch_sf1.nation`
-                                # (any case) resolves to the canonical `TPCH_SF1.NATION`.
+                                case_insensitive = table.external_data_source.direct_engine in {"snowflake", "trino"}
                                 warehouse_tables.add_child(
                                     TableNode.create_nested_for_chain(
                                         table_chain,
                                         table_for_key,
-                                        case_insensitive=table.external_data_source.is_direct_snowflake,
+                                        case_insensitive=case_insensitive,
                                     ),
                                     table_conflict_mode=table_conflict_mode,
                                 )
@@ -2071,9 +2069,10 @@ class Database(BaseModel):
                             TableNode.create_nested_for_chain(
                                 table_key.split("."),
                                 virtual_table,
-                                # Snowflake resolves identifiers case-insensitively; the model's
-                                # is_direct_snowflake prop is False for synced sources, so key off type.
-                                case_insensitive=(virtual_source.source_type == ExternalDataSourceType.SNOWFLAKE),
+                                case_insensitive=(
+                                    virtual_source.source_type
+                                    in {ExternalDataSourceType.SNOWFLAKE, ExternalDataSourceType.TRINO}
+                                ),
                             ),
                             table_conflict_mode="override",
                         )
@@ -2400,7 +2399,6 @@ class Database(BaseModel):
 
 
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
-
     if source is None:
         return table_name
 
@@ -2765,7 +2763,6 @@ def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -
 
 
 def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:
-
     source = warehouse_table.external_data_source
     if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT and direct_query:
         return [warehouse_table.name]
@@ -2778,7 +2775,6 @@ def _should_include_connection_table(
     *,
     connection_id: str,
 ) -> bool:
-
     source = warehouse_table.external_data_source
     if source is None or source.access_method != ExternalDataSourceAccessMethod.DIRECT:
         return False

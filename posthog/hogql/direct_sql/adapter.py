@@ -65,8 +65,7 @@ class DirectSQLAdapter(Protocol):
     """Contract every direct-query engine implements. The registry keys adapters by ``engine``.
 
     ``dialect`` is the HogQL printer dialect the engine compiles to, or ``None`` for raw-only
-    engines (no printer — only ``sendRawQuery`` works). Phase 1 engines (Postgres, MySQL) both
-    have a dialect; raw-only engines arrive in Phase 2.
+    engines where only ``sendRawQuery`` works.
     """
 
     engine: str

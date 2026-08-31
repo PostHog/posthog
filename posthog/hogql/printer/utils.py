@@ -28,6 +28,7 @@ from posthog.hogql.printer.mysql import MySQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
+from posthog.hogql.printer.trino import TrinoPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
@@ -56,6 +57,7 @@ PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
     "snowflake": SnowflakePrinter,
     "redshift": RedshiftPrinter,
     "hogql": HogQLPrinter,
+    "trino": TrinoPrinter,
 }
 
 
