@@ -23,6 +23,10 @@ class FKField:
     field_name: str
     to_app: str
     to_model: str
+    # False for MTI parent links and primary-key FKs: lifting one into
+    # finalize_fks would leave the CreateModel without a primary key, so these
+    # may never defer — the apply order must place their target first.
+    deferrable: bool = True
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -50,6 +54,15 @@ class CycleBreaker:
         self.deferred |= self._compute_intra_app_deferred(state)
 
     @staticmethod
+    def _is_deferrable(field: Any) -> bool:
+        remote = getattr(field, "remote_field", None)
+        if getattr(field, "primary_key", False):
+            return False
+        if remote is not None and getattr(remote, "parent_link", False):
+            return False
+        return True
+
+    @staticmethod
     def _collect_cross_app_fks(state: ProjectState) -> list[FKField]:
         out: list[FKField] = []
         for (app, model_name), ms in state.models.items():
@@ -61,7 +74,9 @@ class CycleBreaker:
                 t_app, t_model = CycleBreaker._target_app_and_model(target)
                 if not t_app or t_app == app:
                     continue
-                out.append(FKField(app, model_name, field_name, t_app, t_model))
+                out.append(
+                    FKField(app, model_name, field_name, t_app, t_model, deferrable=CycleBreaker._is_deferrable(field))
+                )
         return out
 
     @staticmethod
@@ -107,9 +122,11 @@ class CycleBreaker:
         are picked to minimize the *number of deferred FK fields* (not edges)."""
         # Per-direction FK counts: (to_app, from_app) -> #fks. The app graph has
         # edges to->from (apply order), so this is the natural weight.
+        # Non-deferrable edges (MTI parent links) get a weight no combination of
+        # ordinary edges can outvote, so the ordering always honors them.
         weights: dict[tuple[str, str], int] = defaultdict(int)
         for fk in fks:
-            weights[(fk.to_app, fk.from_app)] += 1
+            weights[(fk.to_app, fk.from_app)] += 1 if fk.deferrable else 1_000_000
 
         condensed = nx.condensation(app_graph)
         order: list[str] = []
@@ -189,16 +206,19 @@ class CycleBreaker:
                 remote = getattr(field, "remote_field", None)
                 if remote is None:
                     continue
+                deferrable = self._is_deferrable(field)
                 # The model-target (FK or M2M 'other side').
                 t_app, t_model = self._target_app_and_model(getattr(remote, "model", None))
                 if t_app == app and t_model and t_model != model_name:
-                    intra_fks_by_app[app].append(FKField(app, model_name, fname, t_app, t_model))
+                    intra_fks_by_app[app].append(FKField(app, model_name, fname, t_app, t_model, deferrable=deferrable))
                 # The M2M through-table model (when explicit).
                 through = getattr(remote, "through", None)
                 if through is not None:
                     th_app, th_model = self._target_app_and_model(through)
                     if th_app == app and th_model and th_model != model_name:
-                        intra_fks_by_app[app].append(FKField(app, model_name, fname, th_app, th_model))
+                        intra_fks_by_app[app].append(
+                            FKField(app, model_name, fname, th_app, th_model, deferrable=deferrable)
+                        )
 
         out: set[FKField] = set()
         for _app, fks in intra_fks_by_app.items():
@@ -212,12 +232,16 @@ class CycleBreaker:
                 weights: dict[tuple[str, str], int] = defaultdict(int)
                 for fk in fks:
                     if fk.from_model in scc and fk.to_model in scc:
-                        weights[(fk.to_model, fk.from_model)] += 1
+                        weights[(fk.to_model, fk.from_model)] += 1 if fk.deferrable else 1_000_000
                 inner_order = self._best_inner_order(comp, weights)
                 pos = {n: i for i, n in enumerate(inner_order)}
                 for fk in fks:
                     if fk.from_model in pos and fk.to_model in pos:
                         if pos[fk.to_model] >= pos[fk.from_model]:
+                            if not fk.deferrable:
+                                raise RuntimeError(
+                                    f"intra-app model order leaves non-deferrable FK {fk.key} as a back edge"
+                                )
                             out.add(fk)
         return out
 
@@ -227,7 +251,14 @@ class CycleBreaker:
         # to_app applies before from_app iff pos[to_app] < pos[from_app].
         # So an FK is "forward" (no defer) when pos[to_app] < pos[from_app].
         # Otherwise it's a back edge -> defer.
-        return {fk for fk in fks if fk.to_app in pos and fk.from_app in pos and pos[fk.to_app] >= pos[fk.from_app]}
+        back = {fk for fk in fks if fk.to_app in pos and fk.from_app in pos and pos[fk.to_app] >= pos[fk.from_app]}
+        undeferrable = sorted(str(fk.key) for fk in back if not fk.deferrable)
+        if undeferrable:
+            raise RuntimeError(
+                "apply order leaves non-deferrable FK fields (MTI parent links / PK FKs) "
+                f"as back edges — the squash cannot break these cycles: {undeferrable}"
+            )
+        return back
 
     def deferred_for_app(self, app: str) -> list[FKField]:
         return [fk for fk in self.deferred if fk.from_app == app]

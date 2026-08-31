@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field as dc_field,
+)
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,7 @@ class SquashFile:
     dependencies: list[tuple[str, str]]
     replaces: list[tuple[str, str]]
     atomic: bool = True
+    run_before: list[tuple[str, str]] = dc_field(default_factory=list)
 
 
 class Emitter:
@@ -287,6 +291,22 @@ class Emitter:
                     )
         return sorted(deps)
 
+    def _carried_run_before(self) -> list[tuple[str, str]]:
+        """Preserve run_before guarantees of claimed migrations whose target is
+        outside the old set (third-party or young) — e.g. posthog.0745 must run
+        before oauth2_provider.0001 because the oauth2_provider models are
+        swapped into posthog. Folding drops the attribute silently otherwise;
+        MigrationWriter doesn't serialize run_before, so FileWriter injects it.
+        """
+        out: set[tuple[str, str]] = set()
+        for m in self.squasher.old.values():
+            if m.ref.app != self.app:
+                continue
+            for rb in m.run_before:
+                if rb.key not in self.squasher.old_keys:
+                    out.add(rb.key)
+        return sorted(out)
+
     def _third_party_dependencies(self) -> list[tuple[str, str]]:
         """Carry forward deps of claimed migrations into apps this repo does not
         manage (e.g. posthog.0886 -> social_django.0010_uid_db_index). These are
@@ -361,12 +381,40 @@ class Emitter:
                     if sig not in seen:
                         seen.add(sig)
                         out.append(op)
-                elif kind == "RunSQL":
+                # isinstance, not class-name match: CreateIndexConcurrently and
+                # friends subclass RunSQL and must not slip past.
+                elif isinstance(op, dj_migrations.RunSQL):
                     sql = op.sql if isinstance(op.sql, str) else str(op.sql)
                     if "CREATE EXTENSION" in sql.upper():
                         if sql not in seen:
                             seen.add(sql)
                             out.append(op)
+        return out
+
+    # Stateless constraint ops from posthog.migration_helpers: their DDL exists
+    # only in database_forwards (state_forwards is a no-op), so a from-state
+    # CreateModel loses it. Forward them verbatim into schema_addons — all are
+    # idempotent (skip when the constraint already exists / is validated).
+    STATELESS_CONSTRAINT_OP_NAMES: frozenset[str] = frozenset(
+        {"AddForeignKeyNotValid", "ValidateForeignKey", "ValidateConstraint"}
+    )
+
+    def _stateless_constraint_ops(self) -> list[Any]:
+        loader = MigrationLoader(connection=None, ignore_no_migrations=True)
+        claimed_keys = {migr.ref.key for migr in self.squasher.old.values() if migr.ref.app == self.app}
+        out: list[Any] = []
+
+        def walk(ops: list[Any]) -> None:
+            for op in ops:
+                if op.__class__.__name__ in self.STATELESS_CONSTRAINT_OP_NAMES:
+                    out.append(op)
+                elif isinstance(op, dj_migrations.SeparateDatabaseAndState):
+                    walk(list(op.database_operations))
+
+        for (app, name), m in sorted(loader.graph.nodes.items()):
+            if app != self.app or (app, name) not in claimed_keys:
+                continue
+            walk(list(m.operations))
         return out
 
     @staticmethod
@@ -453,8 +501,11 @@ class Emitter:
 
         def walk(mig_name: str, ops: list[Any]) -> None:
             for op in ops:
-                kind = op.__class__.__name__
-                if kind == "RunSQL":
+                # isinstance, not class-name match: CreateIndexConcurrently /
+                # DropIndexConcurrently subclass RunSQL, and a name match let
+                # their index SQL vanish without a trace (lost partial index on
+                # posthog_dashboardtile in the Aug 2026 tree).
+                if isinstance(op, dj_migrations.RunSQL):
                     sql_text = self._runsql_text(op)
                     if "CREATE EXTENSION" in sql_text.upper():
                         continue  # handled by stub
@@ -494,7 +545,7 @@ class Emitter:
                     )
                     kept.append(safe_op)
                     create_position[idx_name] = len(kept) - 1
-                elif kind == "SeparateDatabaseAndState":
+                elif isinstance(op, dj_migrations.SeparateDatabaseAndState):
                     walk(mig_name, list(op.database_operations))
 
         for (app, name), m in sorted(loader.graph.nodes.items()):
@@ -594,21 +645,23 @@ class Emitter:
             operations=initial_ops,
             dependencies=initial_deps,
             replaces=self._replaces(),
+            run_before=self._carried_run_before(),
         )
 
-        # RunSQL-created indexes from claimed migrations (Phase A). Emitted as
-        # a separate trailing 0003_schema_addons file — it can exist with or
-        # without a 0002_finalize_fks.
-        index_runsql_ops = self._collect_index_runsql_ops()
+        # RunSQL-created indexes plus stateless constraint DDL from claimed
+        # migrations (Phase A). Emitted as a separate trailing
+        # 0003_schema_addons file — it can exist with or without a
+        # 0002_finalize_fks.
+        addon_ops = self._collect_index_runsql_ops() + self._stateless_constraint_ops()
 
         deferred_fks = self.cycle_breaker.deferred_for_app(self.app)
         if not deferred_fks and not deferred_indexes and not deferred_constraints and not deferred_togethers:
-            if not index_runsql_ops:
+            if not addon_ops:
                 return [stub, initial]
             addons = SquashFile(
                 app=self.app,
                 name=self.SCHEMA_ADDONS_NAME,
-                operations=index_runsql_ops,
+                operations=addon_ops,
                 dependencies=self._schema_addons_deps(prior_squash=self.INITIAL_NAME),
                 replaces=[],
                 atomic=False,  # CREATE INDEX CONCURRENTLY can't run inside a transaction
@@ -662,12 +715,12 @@ class Emitter:
             dependencies=finalize_deps,
             replaces=[],
         )
-        if not index_runsql_ops:
+        if not addon_ops:
             return [stub, initial, finalize]
         addons = SquashFile(
             app=self.app,
             name=self.SCHEMA_ADDONS_NAME,
-            operations=index_runsql_ops,
+            operations=addon_ops,
             dependencies=self._schema_addons_deps(prior_squash=self.FINALIZE_NAME),
             replaces=[],
             atomic=False,
@@ -699,5 +752,13 @@ class FileWriter:
         if not sq.atomic:
             # MigrationWriter doesn't emit `atomic` even when False — inject it.
             text = text.replace("    initial = True\n", "    initial = True\n    atomic = False\n", 1)
+        if sq.run_before:
+            # MigrationWriter doesn't serialize run_before either.
+            entries = "".join(f'        ("{a}", "{n}"),\n' for a, n in sq.run_before)
+            text = text.replace(
+                "    initial = True\n",
+                f"    initial = True\n\n    run_before = [\n{entries}    ]\n",
+                1,
+            )
         path.write_text(text)
         return path

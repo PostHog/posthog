@@ -70,6 +70,7 @@ class Migration:
     commit_date: date | None
     dependencies: list[MigrationRef]
     replaces: list[MigrationRef]
+    run_before: list[MigrationRef]
     operations: list[OpInfo]
 
 
@@ -175,6 +176,7 @@ class MigrationTree:
                 commit_date=dates.get(file_path),
                 dependencies=[MigrationRef(a, n) for (a, n) in m.dependencies],
                 replaces=[MigrationRef(a, n) for (a, n) in (m.replaces or [])],
+                run_before=[MigrationRef(a, n) for (a, n) in (m.run_before or [])],
                 operations=[_summarize_op(op) for op in m.operations],
             )
         return cls(out)
