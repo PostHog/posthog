@@ -25,6 +25,7 @@ describe('workflowProposalsLogic', () => {
     let approveBodies: Record<string, any>[]
     let approveStatus: number
     let proposalsListStatus: number
+    let workflowVersion: number
 
     const proposal = {
         id: PROPOSAL_ID,
@@ -50,20 +51,24 @@ describe('workflowProposalsLogic', () => {
         approveBodies = []
         approveStatus = 200
         proposalsListStatus = 200
+        workflowVersion = 3
         ;(LemonDialog.open as jest.Mock).mockClear()
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': {
-                    id: WORKFLOW_ID,
-                    name: 'Test',
-                    version: 3,
-                    status: 'active',
-                    actions: [],
-                    edges: [],
-                    draft: { actions: [] },
-                    draft_updated_at: DRAFT_STAMP,
-                    updated_at: '2026-05-01T00:00:00.000Z',
-                },
+                '/api/environments/:team_id/hog_flows/:id/': () => [
+                    200,
+                    {
+                        id: WORKFLOW_ID,
+                        name: 'Test',
+                        version: workflowVersion,
+                        status: 'active',
+                        actions: [],
+                        edges: [],
+                        draft: { actions: [] },
+                        draft_updated_at: DRAFT_STAMP,
+                        updated_at: '2026-05-01T00:00:00.000Z',
+                    },
+                ],
                 '/api/projects/:team_id/hog_flows/:id/proposals/': () =>
                     proposalsListStatus === 200
                         ? [200, { count: 1, results: [proposal] }]
@@ -111,9 +116,26 @@ describe('workflowProposalsLogic', () => {
         proposalsListStatus = 404
         await expectLogic(logic, () => {
             logic.actions.loadProposals()
-        }).toDispatchActions(['loadProposalsSuccess'])
+        }).toDispatchActions(['loadProposals', 'loadProposalsSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.pendingProposals).toEqual([])
+    })
+
+    // Publishing resolves through the workflow, not this panel, so without this the person who just
+    // published keeps reading the queue as it was: no applied card, and a suggestion written against
+    // the old version still offered for approval.
+    it('reloads the queue when the workflow version moves', async () => {
+        const flowLogic = workflowLogic({ id: WORKFLOW_ID })
+        flowLogic.mount()
+        await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadProposalsSuccess'])
+
+        workflowVersion = 4
+        await expectLogic(logic, () => {
+            flowLogic.actions.loadWorkflow()
+        }).toDispatchActions(['loadProposals', 'loadApplied'])
+        expect(logic.values.lastSeenVersion).toBe(4)
     })
 
     // The fence is the whole point: approve must carry the draft stamp the human confirmed against,
