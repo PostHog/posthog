@@ -48,11 +48,6 @@ export interface GithubTriggerFilters {
     additional: Record<string, any>[]
 }
 
-/** The picker round-trips a repository as `owner/name|id`, but the event carries `owner/name`. */
-export function repositoryName(value: string): string {
-    return value.split('|')[0]
-}
-
 function find(properties: Record<string, any>[], key: string): Record<string, any> | undefined {
     return properties.find((property) => property?.key === key)
 }
@@ -95,7 +90,7 @@ export function decodeGithubFilters(properties: Record<string, any>[] | undefine
     }
 
     return {
-        repository: values(repository).length ? repositoryName(values(repository)[0]) : null,
+        repository: values(repository).length ? values(repository)[0] : null,
         eventTypes: values(eventTypes),
         actorMode,
         actorLogins,
@@ -107,7 +102,7 @@ export function encodeGithubFilters(filters: GithubTriggerFilters): Record<strin
     const properties: Record<string, any>[] = []
 
     if (filters.repository) {
-        properties.push(exact('repository', [repositoryName(filters.repository)]))
+        properties.push(exact('repository', [filters.repository]))
     }
 
     if (filters.eventTypes.length) {

@@ -46,7 +46,9 @@ const ADVANCED_PROPERTIES: { key: string; type: PropertyType }[] = [
     { key: 'body', type: PropertyType.String },
     { key: 'branch', type: PropertyType.String },
     { key: 'author_association', type: PropertyType.String },
-    { key: 'repository_private', type: PropertyType.Boolean },
+    // A string ('private'/'public'), not a boolean - GitHub deliveries never reach ClickHouse, so
+    // an exact-match filter has no stored property definition to coerce a raw boolean against.
+    { key: 'repository_visibility', type: PropertyType.String },
     // Only carried by a pull request review: approved, changes_requested or commented.
     { key: 'review_state', type: PropertyType.String },
 ]
@@ -109,6 +111,7 @@ function StepTriggerConfigurationGithubEvent({ node }: { node: any }): JSX.Eleme
                     integrationId={githubIntegrations[0].id}
                     value={filters.repository ?? ''}
                     onChange={(value) => update({ repository: value })}
+                    valueKey="full_name"
                 />
             </LemonField.Pure>
 

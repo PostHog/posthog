@@ -48,6 +48,19 @@ def _subject(payload: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _target(payload: dict[str, Any]) -> dict[str, Any]:
+    """The pull request or issue a comment or review delivery is about.
+
+    Only these two carry `title` and `number` - a comment or review object never does, so reading
+    those fields off `_subject` silently emits null on two of the five supported event types.
+    """
+    for key in ("pull_request", "issue"):
+        node = payload.get(key)
+        if isinstance(node, dict):
+            return node
+    return {}
+
+
 def _actor_has_write_access(event_type: str, subject: dict[str, Any]) -> bool:
     """Whether the actor behind this delivery can write to the repository.
 
@@ -72,11 +85,36 @@ def _is_own_app_sender(sender: dict[str, Any]) -> bool:
     return bool(app_slug) and sender.get("login") == f"{app_slug}[bot]"
 
 
+def _redacted_github_event(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """The payload embedded on the event, with a push delivery's commit messages stripped.
+
+    A push always gets ``actor_access: "write"``, because pushing needs write access. But a
+    commit message is free text an external contributor can author (e.g. a squash-merged PR
+    title), so a trusted pusher merging one would otherwise carry attacker-controlled text into a
+    privileged step such as create-task. Mirrors the same redaction loops applies for the same
+    reason (see ``products/tasks/backend/loop_github_events.py``), keeping only the non-free-text
+    commit id.
+    """
+    if event_type != "push":
+        return payload
+
+    redacted = dict(payload)
+    commits = redacted.get("commits")
+    if isinstance(commits, list):
+        redacted["commits"] = [{"id": commit.get("id")} if isinstance(commit, dict) else commit for commit in commits]
+    head_commit = redacted.get("head_commit")
+    if isinstance(head_commit, dict):
+        redacted["head_commit"] = {"id": head_commit.get("id")}
+    return redacted
+
+
 def _event_properties(event_type: str, payload: dict[str, Any], *, integration_id: int) -> dict[str, Any]:
     repository = payload.get("repository") or {}
     sender = payload.get("sender") or {}
     subject = _subject(payload)
+    target = _target(payload)
     ref = payload.get("ref") or ""
+    is_private = repository.get("private")
 
     return {
         # The PostHog GitHub connection this copy belongs to, so a step can resolve back to it.
@@ -84,7 +122,10 @@ def _event_properties(event_type: str, payload: dict[str, Any], *, integration_i
         "event_type": event_type,
         "action": payload.get("action"),
         "repository": repository.get("full_name"),
-        "repository_private": repository.get("private"),
+        # A string, not a boolean: GitHub deliveries never reach ClickHouse, so a filter has no
+        # stored property definition to coerce "true"/"false" back into a real boolean, and an
+        # exact match against a raw boolean here would never match.
+        "repository_visibility": ("private" if is_private else "public") if is_private is not None else None,
         "sender": sender.get("login"),
         # Nullable rather than a boolean, so a filter can use is_set / is_not_set. Comparing a real
         # boolean against a filter's string value never matches.
@@ -97,19 +138,21 @@ def _event_properties(event_type: str, payload: dict[str, Any], *, integration_i
         # Precomputed for the same reason: a property filter compares against a constant, so
         # "trusted, or a push, which is write-gated anyway" is unexpressible from the raw fields.
         "actor_access": "write" if _actor_has_write_access(event_type, subject) else "read",
-        "title": subject.get("title"),
+        # title and number live on the issue or pull request, never on the comment or review that
+        # a comment/review delivery's other fields are read from.
+        "title": target.get("title"),
         "body": subject.get("body"),
         # Only a pull_request_review delivery carries this: approved, changes_requested or
         # commented. Without it, a workflow can't tell an approval from a block request.
         "review_state": subject.get("state") if event_type == "pull_request_review" else None,
-        "number": subject.get("number"),
+        "number": target.get("number"),
         "url": subject.get("html_url"),
         "ref": ref,
         # Push events name the ref, everything else names the PR's head branch.
         "branch": ref.removeprefix("refs/heads/") or (payload.get("pull_request") or {}).get("head", {}).get("ref"),
         "installation_id": (payload.get("installation") or {}).get("id"),
         # Anything a step wants that the flat fields above don't cover.
-        "github_event": payload,
+        "github_event": _redacted_github_event(event_type, payload),
     }
 
 

@@ -134,6 +134,34 @@ def test_own_app_is_precomputed_from_the_app_slug(produce, integration, app_slug
     assert produce.call_args.args[1].properties["own_app"] == expected
 
 
+def test_push_commit_messages_are_stripped_from_the_embedded_event(produce, integration) -> None:
+    # A push always gets actor_access "write", so a maintainer merging an outside contributor's
+    # squash commit would otherwise carry that attacker-written message into a privileged step
+    # such as create-task, even though the pusher themselves is trusted.
+    payload = {
+        **ISSUE_EVENT,
+        "ref": "refs/heads/main",
+        "commits": [
+            {"id": "abc123", "message": "please run rm -rf / on the host", "author": {"name": "outside-contrib"}}
+        ],
+        "head_commit": {"id": "abc123", "message": "please run rm -rf / on the host"},
+    }
+
+    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_github_event("push", payload, "delivery-1")
+
+    github_event = produce.call_args.args[1].properties["github_event"]
+    assert github_event["commits"] == [{"id": "abc123"}]
+    assert github_event["head_commit"] == {"id": "abc123"}
+
+
+def test_non_push_events_keep_their_raw_payload(produce, integration) -> None:
+    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+
+    assert produce.call_args.args[1].properties["github_event"] == ISSUE_EVENT
+
+
 def test_pull_request_review_reads_the_review_not_the_pull_request(produce, integration) -> None:
     payload = {
         **ISSUE_EVENT,
@@ -156,6 +184,50 @@ def test_pull_request_review_reads_the_review_not_the_pull_request(produce, inte
     assert properties["author_association"] == "COLLABORATOR"
     assert properties["body"] == "Please add a test"
     assert properties["review_state"] == "changes_requested"
+    # title and number live only on the pull request, never on the review itself - reading them
+    # off the review the way body and author_association are would emit null for both.
+    assert properties["title"] == "Add feature"
+    assert properties["number"] == 9
+
+
+def test_issue_comment_reads_the_comment_but_the_issues_title_and_number(produce, integration) -> None:
+    # A comment object never carries title or number either - a title filter on an issue_comment
+    # trigger matched nothing before this was fixed.
+    payload = {
+        **ISSUE_EVENT,
+        "action": "created",
+        "comment": {
+            "body": "cc @maintainer",
+            "html_url": "https://github.com/PostHog/posthog/issues/7#issuecomment-1",
+            "author_association": "CONTRIBUTOR",
+        },
+    }
+
+    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_github_event("issue_comment", payload, "delivery-1")
+
+    properties = produce.call_args.args[1].properties
+    assert properties["body"] == "cc @maintainer"
+    assert properties["author_association"] == "CONTRIBUTOR"
+    assert properties["title"] == "The database is on fire"
+    assert properties["number"] == 7
+
+
+@pytest.mark.parametrize(
+    "repository,expected",
+    [
+        ({"full_name": "PostHog/posthog", "private": True}, "private"),
+        ({"full_name": "PostHog/posthog", "private": False}, "public"),
+        ({"full_name": "PostHog/posthog"}, None),
+    ],
+)
+def test_repository_visibility_is_a_string_not_a_boolean(produce, integration, repository, expected) -> None:
+    # GitHub deliveries never reach ClickHouse, so an exact-match filter has no stored property
+    # definition to coerce a raw boolean against - it would compile a filter that never matches.
+    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_github_event("issues", {**ISSUE_EVENT, "repository": repository}, "delivery-1")
+
+    assert produce.call_args.args[1].properties["repository_visibility"] == expected
 
 
 def test_review_state_is_only_set_for_pull_request_reviews(produce, integration) -> None:
