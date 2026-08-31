@@ -20,15 +20,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
-TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.lifecycle.lifecycle_data_warehouse"
+TEST_BUCKET = "test_storage_bucket-products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_data_warehouse"
 
 
 class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):

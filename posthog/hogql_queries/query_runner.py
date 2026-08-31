@@ -611,7 +611,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "RetentionQuery":
-        from .insights.retention.retention_query_runner import RetentionQueryRunner
+        from products.product_analytics.backend.facade.queries import RetentionQueryRunner
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | dict[str, Any], query),
@@ -667,7 +667,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "LifecycleQuery":
-        from .insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
+        from products.product_analytics.backend.facade.queries import LifecycleQueryRunner
 
         return LifecycleQueryRunner(
             query=cast(LifecycleQuery | dict[str, Any], query),

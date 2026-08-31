@@ -1137,69 +1137,6 @@ class TestApplySeriesCustomNames(BaseTest):
     @parameterized.expand(
         [
             (
-                "patches_all_lifecycle_statuses",
-                [
-                    {"action": {"order": 0, "custom_name": None}, "status": "new", "data": [1]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "returning", "data": [2]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "resurrecting", "data": [3]},
-                    {"action": {"order": 0, "custom_name": None}, "status": "dormant", "data": [4]},
-                ],
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "returning", "data": [2]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "resurrecting", "data": [3]},
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "dormant", "data": [4]},
-                ],
-                True,
-            ),
-            (
-                "not_modified_when_lifecycle_names_match",
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                ],
-                [
-                    {"action": {"order": 0, "custom_name": "My Lifecycle"}, "status": "new", "data": [1]},
-                ],
-                False,
-            ),
-        ]
-    )
-    def test_apply_lifecycle_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ):
-        from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
-
-        from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
-
-        query = LifecycleQuery(
-            series=[
-                EventsNode(event="$pageview", custom_name="My Lifecycle"),
-            ]
-        )
-
-        runner = LifecycleQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedLifecycleQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(patched_response.results, expected_results)
-        self.assertEqual(was_modified, expect_modified)
-
-    @parameterized.expand(
-        [
-            (
                 "modified_when_name_changes",
                 TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
                 [{"action": {"order": 0, "custom_name": "Old Name"}, "data": [1]}],
