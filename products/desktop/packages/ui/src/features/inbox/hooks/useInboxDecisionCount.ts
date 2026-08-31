@@ -62,7 +62,7 @@ export function useInboxDecisionCount(options?: {
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
-      limit: 1,
+      count_only: true,
     },
     {
       enabled: enabled && scopeReady,

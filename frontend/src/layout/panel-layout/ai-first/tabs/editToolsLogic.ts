@@ -6,7 +6,7 @@ import api from 'lib/api'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getItemId } from '~/layout/panel-layout/ProjectTree/utils'
-import { UserProductListItem, UserProductListReason } from '~/queries/schema/schema-general'
+import { UserProductListItem } from '~/queries/schema/schema-general'
 
 const PRODUCTS_ROOT = 'products://'
 
@@ -143,8 +143,6 @@ export const editToolsLogic = kea<editToolsLogicType>([
                             id: '',
                             product_path: toolPath,
                             enabled: true,
-                            reason: UserProductListReason.PRODUCT_INTENT,
-                            reason_text: null,
                             created_at: now,
                             updated_at: now,
                         })

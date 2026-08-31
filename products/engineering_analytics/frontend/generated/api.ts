@@ -38,6 +38,7 @@ import type {
     EngineeringAnalyticsTeamCiActivityParams,
     EngineeringAnalyticsTeamCiHealthParams,
     EngineeringAnalyticsTeamMergeTrendParams,
+    EngineeringAnalyticsTrunkQuarantineParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
     EngineeringAnalyticsWorkflowRunActivityParams,
@@ -58,6 +59,7 @@ import type {
     TeamCIActivityApi,
     TeamCIHealthListApi,
     TeamMergeTrendApi,
+    TrunkQuarantineDebtApi,
     WorkflowCostApi,
     WorkflowHealthItemApi,
     WorkflowJobAggregateApi,
@@ -819,6 +821,40 @@ export const engineeringAnalyticsTeamMergeTrend = async (
     options?: RequestInit
 ): Promise<TeamMergeTrendApi> => {
     return apiMutator<TeamMergeTrendApi>(getEngineeringAnalyticsTeamMergeTrendUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTrunkQuarantineUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsTrunkQuarantineParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/trunk_quarantine/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/trunk_quarantine/`
+}
+
+/**
+ * The standing Trunk quarantine debt: every test Trunk currently quarantines (failures suppressed in CI), attributed to its owning team from the per-test CI spans, aged against a TTL, and rolled up per team with the most indebted first. A quarantine only masks a test; it never fixes it, so this is the work queue of tests someone still has to repair or delete. `available` is false when no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error.
+ * @summary Trunk quarantine debt by owning team
+ */
+export const engineeringAnalyticsTrunkQuarantine = async (
+    projectId: string,
+    params?: EngineeringAnalyticsTrunkQuarantineParams,
+    options?: RequestInit
+): Promise<TrunkQuarantineDebtApi> => {
+    return apiMutator<TrunkQuarantineDebtApi>(getEngineeringAnalyticsTrunkQuarantineUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
