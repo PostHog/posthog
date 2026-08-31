@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { evaluationMetricsLogic, EvaluationStats } from './evaluationMetricsLogic'
+import { evaluationMetricsLogic, EvaluationStatsRow } from './evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { LLMJudgeEvaluation } from './types'
 
@@ -45,12 +45,11 @@ const evaluation = (id: string, directoryId: string | null, name = `Evaluation $
     updated_at: '2024-01-01T00:00:00Z',
 })
 
-const stats = (evaluationId: string, runsCount: number): EvaluationStats => ({
+const stats = (evaluationId: string, runsCount: number, trueCount = runsCount): EvaluationStatsRow => ({
     evaluation_id: evaluationId,
     runs_count: runsCount,
     applicable_count: runsCount,
-    pass_count: runsCount,
-    pass_rate: 100,
+    true_count: trueCount,
     applicability_rate: 100,
 })
 
@@ -130,5 +129,35 @@ describe('evaluationMetricsLogic', () => {
         expect(metricsLogic.values.chartQuery?.breakdownFilter?.breakdown).toContain(directoryEvaluation.name)
         expect(metricsLogic.values.chartQuery?.breakdownFilter?.breakdown).not.toContain(firstRootEvaluation.id)
         expect(metricsLogic.values.summaryMetrics.total_runs).toBe(2)
+    })
+
+    it('reads a detector pass rate from its false results', () => {
+        const detector = { ...evaluation('detector', null), output_config: { true_is_failure: true } }
+        const quality = evaluation('quality', null)
+
+        evaluationsLogic.actions.loadEvaluationsSuccess([detector, quality])
+        metricsLogic.actions.loadStatsSuccess([stats('detector', 100, 80), stats('quality', 100, 80)])
+
+        expect(metricsLogic.values.evaluationsWithMetrics).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ id: 'detector', stats: expect.objectContaining({ pass_rate: 20 }) }),
+                expect.objectContaining({ id: 'quality', stats: expect.objectContaining({ pass_rate: 80 }) }),
+            ])
+        )
+    })
+
+    it('scopes the chart pass expression to a detector among the enabled evaluations', () => {
+        const detector = { ...evaluation('detector', null), output_config: { true_is_failure: true } }
+        const quality = evaluation('quality', null)
+
+        evaluationsLogic.actions.loadEvaluationsSuccess([detector, quality])
+        metricsLogic.actions.loadStatsSuccess([stats('detector', 10, 2), stats('quality', 10, 8)])
+
+        expect(metricsLogic.values.chartQuery?.series?.[0].math_hogql).toContain(
+            "properties.$ai_evaluation_id IN ('detector')"
+        )
+        expect(metricsLogic.values.chartQuery?.series?.[0].math_hogql).toContain(
+            "properties.$ai_evaluation_result = 'false'"
+        )
     })
 })
