@@ -1,4 +1,7 @@
+from collections.abc import Iterable
+
 from django.db import models
+from django.db.models.base import ModelBase
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
@@ -10,7 +13,6 @@ def default_content_autopilot_package() -> dict[str, object]:
         "title": "",
         "description": "",
         "slug": "",
-        "markdown": "",
         "frontmatter": [],
         "internal_links": [],
         "source_notes": [],
@@ -60,13 +62,13 @@ class ContentAutopilotRun(TeamScopedRootMixin, UUIDModel):
         "posthog.Team",
         on_delete=models.CASCADE,
         db_constraint=False,
+        db_index=False,
         related_name="+",
     )
     profile = models.ForeignKey(ContentAutopilotSiteProfile, on_delete=models.CASCADE, related_name="runs")
     run_status = models.CharField(max_length=32, choices=RunStatus.choices, default=RunStatus.PENDING)
     input_snapshot = models.JSONField(default=dict)
     errors = models.JSONField(default=list)
-    workflow_id = models.CharField(max_length=255, blank=True, default="")
     triggered_by_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -75,6 +77,25 @@ class ContentAutopilotRun(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "posthog_contentautopilotrun"
         indexes = [models.Index(fields=["team", "-created_at"], name="content_auto_run_team_created")]
+
+    def save(
+        self,
+        *,
+        force_insert: bool | tuple[ModelBase, ...] = False,
+        force_update: bool = False,
+        using: str | None = None,
+        update_fields: Iterable[str] | None = None,
+    ) -> None:
+        profile_team_id = self.profile.team_id
+        if self.team_id is not None and self.team_id != profile_team_id:
+            raise ValueError("ContentAutopilotRun must belong to the same team as its profile.")
+        self.team_id = profile_team_id
+        super().save(
+            force_insert=force_insert,
+            force_update=force_update,
+            using=using,
+            update_fields=update_fields,
+        )
 
 
 class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
@@ -89,16 +110,11 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
         EXPORTED = "exported", "Exported"
         FAILED = "failed", "Failed"
 
-    class DeliveryState(models.TextChoices):
-        NOT_DELIVERED = "not_delivered", "Not delivered"
-        DELIVERING = "delivering", "Delivering"
-        DELIVERED = "delivered", "Delivered"
-        FAILED = "failed", "Failed"
-
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         db_constraint=False,
+        db_index=False,
         related_name="+",
     )
     run = models.ForeignKey(ContentAutopilotRun, on_delete=models.CASCADE, related_name="proposals")
@@ -116,13 +132,6 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
     content_package = models.JSONField(default=default_content_autopilot_package)
     original_markdown = models.TextField(blank=True, default="")
     proposed_markdown = models.TextField(blank=True, default="")
-    delivery_state = models.CharField(
-        max_length=32,
-        choices=DeliveryState.choices,
-        default=DeliveryState.NOT_DELIVERED,
-    )
-    delivery_reference = models.CharField(max_length=1024, blank=True, default="")
-    delivery_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -131,3 +140,22 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "lifecycle_status", "-created_at"], name="content_auto_prop_status"),
         ]
+
+    def save(
+        self,
+        *,
+        force_insert: bool | tuple[ModelBase, ...] = False,
+        force_update: bool = False,
+        using: str | None = None,
+        update_fields: Iterable[str] | None = None,
+    ) -> None:
+        run_team_id = self.run.team_id
+        if self.team_id is not None and self.team_id != run_team_id:
+            raise ValueError("ContentAutopilotProposal must belong to the same team as its run.")
+        self.team_id = run_team_id
+        super().save(
+            force_insert=force_insert,
+            force_update=force_update,
+            using=using,
+            update_fields=update_fields,
+        )

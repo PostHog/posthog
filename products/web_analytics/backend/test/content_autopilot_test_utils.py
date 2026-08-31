@@ -67,7 +67,6 @@ def create_content_autopilot_proposal(
             "title": "Improved guide",
             "description": "A clearer guide.",
             "slug": "example",
-            "markdown": markdown,
             "frontmatter": [{"key": "title", "value": "Improved guide"}],
             "internal_links": ["https://example.com/docs"],
             "source_notes": [],

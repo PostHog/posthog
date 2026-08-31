@@ -8,7 +8,6 @@ from posthog.models.team import Team
 from products.web_analytics.backend.content_autopilot.lifecycle import (
     ContentAutopilotLifecycleError,
     cancel_run,
-    claim_proposal_for_delivery,
     edit_proposal,
     regenerate_proposal,
     reject_proposal,
@@ -46,6 +45,11 @@ class TestContentAutopilotLifecycle(BaseTest):
         self.assertEqual(ContentAutopilotSiteProfile.objects.for_team(self.team.id).count(), 1)
         self.assertEqual(ContentAutopilotSiteProfile.objects.for_team(other_team.id).count(), 1)
 
+        with self.assertRaisesRegex(ValueError, "same team as its profile"):
+            create_content_autopilot_run(other_team, profile)
+        with self.assertRaisesRegex(ValueError, "same team as its run"):
+            create_content_autopilot_proposal(other_team, run)
+
     def test_each_site_has_its_own_active_run_boundary(self) -> None:
         first_profile = create_content_autopilot_profile(self.team, search_console_enabled=True)
         second_profile = create_content_autopilot_profile(self.team, domain="https://docs.example.com")
@@ -78,12 +82,9 @@ class TestContentAutopilotLifecycle(BaseTest):
         with self.assertRaises(ContentAutopilotLifecycleError):
             reject_proposal(proposal=rejected)
 
-    def test_edit_invalidates_validation_and_delivery_state(self) -> None:
+    def test_edit_keeps_markdown_single_sourced_and_invalidates_validation(self) -> None:
         profile = create_content_autopilot_profile(self.team)
         proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
-        proposal.delivery_state = ContentAutopilotProposal.DeliveryState.DELIVERED
-        proposal.delivery_reference = "previous.md"
-        proposal.save(update_fields=["delivery_state", "delivery_reference"])
 
         edited = edit_proposal(
             proposal=proposal,
@@ -91,11 +92,10 @@ class TestContentAutopilotLifecycle(BaseTest):
             content_package={**proposal.content_package, "markdown": "# Stale draft"},
         )
 
-        self.assertEqual(edited.content_package["markdown"], "# Reviewed draft")
+        self.assertNotIn("markdown", edited.content_package)
+        self.assertEqual(edited.proposed_markdown, "# Reviewed draft")
         self.assertEqual(edited.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.GENERATING)
         self.assertEqual(edited.validation_report, {"passed": False, "checks": []})
-        self.assertEqual(edited.delivery_state, ContentAutopilotProposal.DeliveryState.NOT_DELIVERED)
-        self.assertEqual(edited.delivery_reference, "")
 
     @parameterized.expand(
         [
@@ -121,20 +121,3 @@ class TestContentAutopilotLifecycle(BaseTest):
         regenerated = regenerate_proposal(proposal=proposal)
         self.assertEqual(regenerated.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.GENERATING)
         self.assertEqual(regenerated.validation_report, {"passed": False, "checks": []})
-
-    def test_export_claim_rejects_unvalidated_and_in_flight_proposals(self) -> None:
-        profile = create_content_autopilot_profile(self.team)
-        proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
-        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
-            delivery_state=ContentAutopilotProposal.DeliveryState.DELIVERING,
-        )
-
-        with self.assertRaises(ContentAutopilotLifecycleError, msg="a claimed proposal must not be claimed twice"):
-            claim_proposal_for_delivery(team_id=self.team.id, proposal_id=str(proposal.id))
-
-        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
-            delivery_state=ContentAutopilotProposal.DeliveryState.NOT_DELIVERED,
-            validation_report={"passed": False, "checks": []},
-        )
-        with self.assertRaises(ContentAutopilotLifecycleError):
-            claim_proposal_for_delivery(team_id=self.team.id, proposal_id=str(proposal.id))

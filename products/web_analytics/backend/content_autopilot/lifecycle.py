@@ -77,9 +77,6 @@ def reject_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopilotPr
 def _reset_for_regeneration(proposal: ContentAutopilotProposal) -> None:
     proposal.lifecycle_status = ContentAutopilotProposal.LifecycleStatus.GENERATING
     proposal.validation_report = default_content_autopilot_validation_report()
-    proposal.delivery_state = ContentAutopilotProposal.DeliveryState.NOT_DELIVERED
-    proposal.delivery_reference = ""
-    proposal.delivery_error = ""
 
 
 def regenerate_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopilotProposal:
@@ -91,15 +88,12 @@ def regenerate_proposal(*, proposal: ContentAutopilotProposal) -> ContentAutopil
             ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW,
             ContentAutopilotProposal.LifecycleStatus.FAILED,
         }:
-            raise ContentAutopilotLifecycleError("This proposal cannot be regenerated in its current state.")
+            raise ContentAutopilotLifecycleError("Only proposals ready for review or failed can be regenerated.")
         _reset_for_regeneration(locked_proposal)
         locked_proposal.save(
             update_fields=[
                 "lifecycle_status",
                 "validation_report",
-                "delivery_state",
-                "delivery_reference",
-                "delivery_error",
                 "updated_at",
             ]
         )
@@ -121,7 +115,7 @@ def edit_proposal(
         if locked_proposal.lifecycle_status != ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW:
             raise ContentAutopilotLifecycleError("Only a proposal ready for review can be edited.")
         locked_proposal.proposed_markdown = proposed_markdown
-        locked_proposal.content_package = {**content_package, "markdown": proposed_markdown}
+        locked_proposal.content_package = {key: value for key, value in content_package.items() if key != "markdown"}
         _reset_for_regeneration(locked_proposal)
         locked_proposal.save(
             update_fields=[
@@ -129,43 +123,7 @@ def edit_proposal(
                 "content_package",
                 "lifecycle_status",
                 "validation_report",
-                "delivery_state",
-                "delivery_reference",
-                "delivery_error",
                 "updated_at",
             ]
         )
         return locked_proposal
-
-
-def claim_proposal_for_delivery(*, team_id: int, proposal_id: str) -> ContentAutopilotProposal:
-    with transaction.atomic():
-        try:
-            proposal = ContentAutopilotProposal.objects.for_team(team_id).select_for_update().get(id=proposal_id)
-        except ContentAutopilotProposal.DoesNotExist as error:
-            raise ContentAutopilotLifecycleError("That proposal could not be found.") from error
-        if proposal.lifecycle_status != ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW:
-            raise ContentAutopilotLifecycleError("Only a proposal ready for review can be exported.")
-        if proposal.validation_report.get("passed") is not True:
-            raise ContentAutopilotLifecycleError("This proposal must pass blocking validation before export.")
-        if proposal.delivery_state == ContentAutopilotProposal.DeliveryState.DELIVERING:
-            raise ContentAutopilotLifecycleError("This proposal is already being exported.")
-
-        now = timezone.now()
-        ContentAutopilotProposal.objects.for_team(team_id).filter(id=proposal_id).update(
-            delivery_state=ContentAutopilotProposal.DeliveryState.DELIVERING,
-            delivery_reference="",
-            delivery_error="",
-            updated_at=now,
-        )
-        proposal.delivery_state = ContentAutopilotProposal.DeliveryState.DELIVERING
-        proposal.updated_at = now
-        return proposal
-
-
-def mark_delivery_failed(*, team_id: int, proposal_id: str, message: str) -> None:
-    ContentAutopilotProposal.objects.for_team(team_id).filter(id=proposal_id).update(
-        delivery_state=ContentAutopilotProposal.DeliveryState.FAILED,
-        delivery_error=message[:1024],
-        updated_at=timezone.now(),
-    )
