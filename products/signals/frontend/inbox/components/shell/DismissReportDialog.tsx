@@ -16,6 +16,8 @@ interface OpenDismissReportDialogParams {
     reportTitle?: string | null
     /** When greater than 1, copy reflects a bulk dismiss of the current selection. */
     selectedCount?: number
+    /** Whether the report has an implementation PR that is still open. Dismissing closes it, so the copy says so. */
+    hasOpenPr?: boolean
     /** Show a digit keycap on each reason and let 1..9 pick it. On for triage mode, where the whole flow is keyboard-driven. */
     hotkeys?: boolean
     /** Preselect this reason. The context menu's "Something else…" opens the dialog with it set,
@@ -40,6 +42,7 @@ const REASON_RADIO_OPTIONS: LemonRadioOption<DismissalReasonValue>[] = DISMISSAL
 export function openDismissReportDialog({
     reportTitle,
     selectedCount = 1,
+    hasOpenPr = false,
     hotkeys = false,
     initialReason,
     onConfirm,
@@ -49,8 +52,12 @@ export function openDismissReportDialog({
         ? `Dismiss ${selectedCount} reports?`
         : `Dismiss report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
     const description = isBulk
-        ? 'These reports leave your inbox. Your feedback is saved on each report, and your note goes to the agents that filed them.'
-        : 'This report leaves your inbox. Your feedback is saved on the report, and your note goes to the agent that filed it.'
+        ? `These reports leave your inbox. Your feedback is saved on each report, and your note goes to the agents that filed them.${
+              hasOpenPr ? ' Any open pull request for these reports is closed.' : ''
+          }`
+        : `This report leaves your inbox. Your feedback is saved on the report, and your note goes to the agent that filed it.${
+              hasOpenPr ? ' The pull request opened for this report is closed.' : ''
+          }`
 
     LemonDialog.openForm({
         title,

@@ -137,9 +137,11 @@ function ReportContextMenuItems({
         dismissReport(report.id, reason, note)
     }
 
-    // "Something else…" needs the note the other reasons don't, so it goes through the dialog.
+    // "Something else…" needs the note the other reasons don't, so it goes through the dialog. So does
+    // any reason while the report still has an open implementation PR: resolving or dismissing closes
+    // that PR, so the dialog's warning and its confirm step stand in for the instant apply.
     const pickResolveReason = (reason: ResolveReasonValue): void => {
-        if (reason === 'other') {
+        if (reason === 'other' || hasOpenImplementationPr(report)) {
             onOpenDialog()
             openResolveReportDialog({
                 reportTitle,
@@ -153,10 +155,11 @@ function ReportContextMenuItems({
     }
 
     const pickDismissReason = (reason: DismissalReasonValue): void => {
-        if (reason === 'other') {
+        if (reason === 'other' || hasOpenImplementationPr(report)) {
             onOpenDialog()
             openDismissReportDialog({
                 reportTitle,
+                hasOpenPr: hasOpenImplementationPr(report),
                 initialReason: reason,
                 onConfirm: ({ reason, note }) => dismissWithReason(reason, note),
             })
