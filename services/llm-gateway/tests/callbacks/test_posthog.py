@@ -234,6 +234,34 @@ class TestPostHogCallback:
         assert call_kwargs["groups"] == expected_groups
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("event_method", ["_on_success", "_on_failure"])
+    @pytest.mark.parametrize("request_id", ["req-abc-123", ""])
+    async def test_span_id_carries_gateway_request_id(
+        self,
+        callback: PostHogCallback,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+        auth_user: AuthenticatedUser,
+        event_method: str,
+        request_id: str,
+    ) -> None:
+        """Both paths stamp the request id, so an event joins to its access log line."""
+        _, mock_client = mock_posthog_client
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_request_id", return_value=request_id),
+        ):
+            await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        span_id = mock_client.capture.call_args.kwargs["properties"]["$ai_span_id"]
+        if request_id:
+            assert span_id == request_id
+        else:
+            assert _is_uuid(span_id)
+
+    @pytest.mark.asyncio
     async def test_on_success_invalid_header_team_id_falls_back_to_auth_team(
         self,
         callback: PostHogCallback,

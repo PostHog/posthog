@@ -19,6 +19,7 @@ from llm_gateway.request_context import (
     get_posthog_flags,
     get_posthog_properties,
     get_product,
+    get_request_id,
     get_time_to_first_token,
     get_traceparent_trace_id,
 )
@@ -235,7 +236,9 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_latency": standard_logging_object.get("response_time", 0.0),
             "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
-            "$ai_span_id": str(uuid4()),
+            # The gateway's own request id, so an event joins to its access log
+            # line. A random id would make that join impossible.
+            "$ai_span_id": get_request_id() or str(uuid4()),
             # Stamped explicitly to bypass the SDK's group_type_index lookup.
             # The AI usage report hardcodes `$group_1` (posthog/tasks/usage_report.py)
             # so the gateway must guarantee that slot regardless of how the
@@ -355,6 +358,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_model": standard_logging_object.get("model", ""),
             "$ai_provider": standard_logging_object.get("custom_llm_provider", ""),
             "$ai_trace_id": trace_id,
+            "$ai_span_id": get_request_id() or str(uuid4()),
             "$ai_is_error": True,
             "$ai_error": standard_logging_object.get("error_str", ""),
             "$group_1": self._region_url,
