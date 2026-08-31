@@ -389,6 +389,31 @@ describe('scoutCreateModalLogic', () => {
         expect(scoutCreateModalLogicKey(initialValues)).toBe(expectedKey)
     })
 
+    it('keys a name-less template draft apart from the blank create form', () => {
+        // A deep-link template can prefill a description and body but carry no valid name. Keying on
+        // name alone would put it in the blank form's 'new' slot, so a restored draft from one context
+        // would clobber the other. Each context must get its own key.
+        const blankKey = scoutCreateModalLogicKey({})
+        const templateKey = scoutCreateModalLogicKey({
+            description: 'Investigates recurring checkout failures.',
+            body: 'Inspect checkout failure signals and report meaningful regressions.',
+        })
+        const otherTemplateKey = scoutCreateModalLogicKey({
+            description: 'Watches signup latency.',
+            body: 'Report signup latency spikes.',
+        })
+
+        expect(templateKey).not.toBe(blankKey)
+        expect(templateKey).not.toBe(otherTemplateKey)
+        // The same payload keys the same slot, so a template keeps its own draft across a remount.
+        expect(
+            scoutCreateModalLogicKey({
+                description: 'Investigates recurring checkout failures.',
+                body: 'Inspect checkout failure signals and report meaningful regressions.',
+            })
+        ).toBe(templateKey)
+    })
+
     // With the redesign flag off the field holds the whole skill name, so the prefix must be typed.
     describe('with the redesign flag off', () => {
         beforeEach(() => setRedesignFlag(false))

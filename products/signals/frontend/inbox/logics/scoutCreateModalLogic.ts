@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { hashCodeForString } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { MCPServiceAccountServerApi } from 'products/mcp_store/frontend/generated/api.schemas'
@@ -101,7 +102,21 @@ export function getScoutCreateFormValues(
  * of the same context — `useId()` would mint a new key each mount and lose the draft.
  */
 export function scoutCreateModalLogicKey(initialValues: ScoutCreateInitialValues | undefined): string {
-    return initialValues?.name?.trim() || 'new'
+    const name = initialValues?.name?.trim()
+    if (name) {
+        return name
+    }
+    const description = initialValues?.description?.trim()
+    const body = initialValues?.body?.trim()
+    if (description || body) {
+        // A prefilled template can omit a valid name, because the deep-link decoder drops an invalid
+        // one. Keying on name alone then returns 'new' for that template, the same key the blank
+        // create form uses, so their persisted drafts share one slot and each overwrites the other.
+        // Key a name-less prefill by a stable hash of its content instead, so every opening context
+        // keeps its own draft. Hash the two fields apart so a description/body split cannot collide.
+        return `template-${hashCodeForString(description ?? '')}-${hashCodeForString(body ?? '')}`
+    }
+    return 'new'
 }
 
 /**
