@@ -10,6 +10,8 @@ import {
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
+    ErrorTrackingReleasesOrderBy,
+    ErrorTrackingReleasesQuery,
     EventsQuery,
     InsightVizNode,
     NodeKind,
@@ -29,6 +31,7 @@ import {
 } from '~/types'
 
 import { LIMIT_ITEMS } from './components/Breakdowns/consts'
+import { RELEASE_TIMELINE_RESOLUTION } from './components/IssueReleases/issueReleases'
 import {
     ERROR_TRACKING_DETAILS_RESOLUTION,
     ERROR_TRACKING_LISTING_RESOLUTION,
@@ -362,5 +365,36 @@ export const errorTrackingBreakdownsQuery = ({
         tags: {
             productKey: ProductKey.ERROR_TRACKING,
         },
+    })
+}
+
+export const errorTrackingReleasesQuery = ({
+    issueId,
+    dateRange,
+    filterGroup,
+    filterTestAccounts,
+    appNamespace,
+    maxReleases,
+    orderBy,
+}: {
+    issueId: string
+    dateRange: DateRange
+    filterGroup: UniversalFiltersGroup
+    filterTestAccounts: boolean
+    appNamespace?: string
+    maxReleases: number
+    orderBy: ErrorTrackingReleasesOrderBy
+}): ErrorTrackingReleasesQuery => {
+    return setLatestVersionsOnQuery({
+        kind: NodeKind.ErrorTrackingReleasesQuery,
+        issueId,
+        dateRange,
+        filterGroup: filterGroup as PropertyGroupFilter,
+        filterTestAccounts,
+        appNamespace,
+        maxReleases,
+        orderBy,
+        resolution: RELEASE_TIMELINE_RESOLUTION,
+        tags: { productKey: ProductKey.ERROR_TRACKING },
     })
 }

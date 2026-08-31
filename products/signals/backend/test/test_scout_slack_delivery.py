@@ -331,15 +331,16 @@ class TestScoutSlackDelivery(BaseTest):
         assert not any(text.endswith("…") for text in section_texts)
         assert any(tail_marker in text for text in section_texts)
 
-    def test_threaded_short_report_with_headings_posts_a_single_message(self) -> None:
-        # Threading must track content size, not heading count: a short report that fits one Slack
-        # section posts as one message however many headings it has, so it never floods a thread.
+    def test_threaded_short_report_posts_one_reply_per_heading_section(self) -> None:
+        # The bug: threading only kicked in past the section cap, so a typical digest that fits one
+        # section posted as one wall of text. A report with headings now threads at any length, and
+        # a sub-heading rides in its parent's reply instead of opening one of its own.
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
             title="Checkout failures",
-            summary="Lead line.\n\n## First\nshort body\n\n## Second\nshort body",
+            summary="Lead line.\n\n## First\nshort body\n\n### Detail\ndeeper body\n\n## Second\nshort body",
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
@@ -358,30 +359,29 @@ class TestScoutSlackDelivery(BaseTest):
                 thread_reports=True,
             )
 
-        # Only the lead message and the unconditional @PostHog follow-up reply — no per-heading replies.
+        # The lead, one reply per top-level section, then the unconditional @PostHog follow-up.
         calls = fake_client.chat_postMessage.call_args_list
-        assert len(calls) == 2
+        assert len(calls) == 4
         assert "thread_ts" not in calls[0].kwargs
-        section_texts = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
-        assert len(section_texts) == 1
-        assert "First" in section_texts[0] and "Second" in section_texts[0]
-        assert calls[1].kwargs["blocks"][0]["type"] == "context"
+        lead_sections = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
+        assert lead_sections == ["Lead line."]
+        first_reply, second_reply = calls[1].kwargs, calls[2].kwargs
+        assert first_reply["thread_ts"] == "1785418710.000600"
+        assert "First" in first_reply["blocks"][0]["text"]["text"]
+        assert "Detail" in first_reply["blocks"][0]["text"]["text"]
+        assert "Second" not in first_reply["blocks"][0]["text"]["text"]
+        assert "Second" in second_reply["blocks"][0]["text"]["text"]
+        assert calls[3].kwargs["blocks"][0]["type"] == "context"
 
-    def test_threaded_report_packs_many_small_headings_into_few_replies(self) -> None:
-        # A report past the section cap made of many small heading sections must pack adjacent
-        # sections up to the Slack limit, not post one reply per heading. Otherwise the reply count
-        # tracks heading count and a heading-dense report bursts a request per heading into the thread.
+    def test_threaded_report_without_headings_posts_a_single_message(self) -> None:
+        # Headings are the seams threading splits on. A summary with none has nothing to split, so it
+        # stays one channel message rather than being cut mid-prose.
         emission = self._make_emission()
-        heading_count = 50
-        summary = "".join(
-            f"## Section {i}\nBody line for section {i} with a bit of detail to add length.\n\n"
-            for i in range(heading_count)
-        )
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
             title="Checkout failures",
-            summary=summary,
+            summary="One paragraph of prose.\n\nAnd a second one, still without a heading.",
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
@@ -400,15 +400,14 @@ class TestScoutSlackDelivery(BaseTest):
                 thread_reports=True,
             )
 
+        # Only the lead message and the unconditional @PostHog follow-up reply.
         calls = fake_client.chat_postMessage.call_args_list
-        section_texts = [
-            block["text"]["text"] for call in calls for block in call.kwargs["blocks"] if block["type"] == "section"
-        ]
-        # Packed: far fewer sections than headings, each within the cap, and no section is dropped.
-        assert len(section_texts) < heading_count // 5
-        assert all(len(text) <= 2900 for text in section_texts)
-        joined = "\n".join(section_texts)
-        assert all(f"Section {i}" in joined for i in range(heading_count))
+        assert len(calls) == 2
+        assert "thread_ts" not in calls[0].kwargs
+        section_texts = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
+        assert len(section_texts) == 1
+        assert "second one" in section_texts[0]
+        assert calls[1].kwargs["blocks"][0]["type"] == "context"
 
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.

@@ -30,7 +30,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerType
+from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerModel, ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE, SAMPLE_RATE_PRECISION
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     PREVIEW_ESTIMATE_BUDGET,
@@ -146,6 +147,10 @@ class ScannerDraft:
     sampling_mode: str | None = None
     sampling_rate: float | None = None
     estimated_monthly_observations: int | None = None
+    # The observation model the goal-based flow chose, and the monthly credit cap set to the stated
+    # budget so a mis-estimate cannot overspend it. None on the legacy path.
+    model: str | None = None
+    credit_limit: int | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -574,6 +579,14 @@ class _LlmDraftV2(BaseModel):
         default="comprehensive",
         description="Which sessions deserve the budget when it cannot cover everything; see the drafting rules.",
     )
+    model: Literal["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.7-flash"] = Field(
+        default="gemini-3-flash-preview",
+        description="The model that watches each recording. Pick by how much judgment the goal needs: "
+        "'gemini-3.5-flash-lite' (cheapest, 2 credits) for a simple yes/no check, 'gemini-3-flash-preview' "
+        "(balanced, 5 credits) for an everyday scanner, 'gemini-3.7-flash' (most capable, 15 credits) for "
+        "nuanced scoring, summarizing, or subtle judgment. A pricier model watches fewer recordings for the "
+        "same budget, so only step up when the goal truly needs the extra judgment.",
+    )
 
 
 _SYSTEM_PROMPT_V2 = """
@@ -630,9 +643,17 @@ Pick the single type that best fits the goal, then draft the scanner:
   - balanced: drops only the least eventful sessions. For general questions tilted toward engaged usage.
   - focused: keeps only clearly eventful sessions. Only when the goal explicitly hunts intense moments:
     rage, frustration, heavy usage, power users.
-- rationale: one or two sentences, addressed to the user, explaining why the chosen type and settings fit
-  their goal (e.g. why a classifier rather than a scorer, or which pages the filter covers and why). It is
-  shown next to the draft; plain language, and don't restate the config itself.
+- model: which model watches each recording, chosen by how much judgment the goal needs, NOT by budget
+  (the budget is spent by watching fewer recordings, never by dropping to a weaker model):
+  - gemini-3.5-flash-lite (cheapest): a simple, unambiguous yes/no monitor where the answer is obvious
+    from the recording ("did the user reach the confirmation page?").
+  - gemini-3-flash-preview (balanced): the default. Most everyday monitors and classifiers, where the
+    judgment is moderate.
+  - gemini-3.7-flash (most capable): scoring intensity, summarizing, or any goal needing subtle reading
+    of intent, emotion, or a hard multi-step judgment.
+- rationale: one or two sentences, addressed to the user, explaining why the chosen type, model, and
+  settings fit their goal (e.g. why a scorer on the capable model, or which pages the filter covers and
+  why). It is shown next to the draft; plain language, and don't restate the config itself.
 
 The briefing may include the company's name, its business context, and the team's existing scanners:
 - Use the business context to make the name, description, and prompt specific to THIS company's product,
@@ -756,10 +777,14 @@ def _solve_budget(
     team: Team,
     user: User,
     query: dict[str, Any] | None,
-    monthly_scan_budget: int,
+    monthly_credit_budget: int,
+    credits_per_observation: int,
     model_mode: str,
 ) -> _BudgetSolution:
-    """Set the two dials from the stated budget.
+    """Set the two dials from the stated credit budget.
+
+    The budget is credits, so the number of recordings it buys depends on the chosen model's price:
+    a pricier model buys fewer recordings. Convert to an observation budget first, then solve.
 
     Budget covers everything: watch everything. No quality filter, no sampling — a filter would only
     hide sessions the budget could have paid for.
@@ -770,6 +795,7 @@ def _solve_budget(
 
     Raises on estimate failure; the caller degrades to an uncosted draft.
     """
+    monthly_scan_budget = monthly_credit_budget // max(1, credits_per_observation)
     recordings_query = RecordingsQuery.model_validate(query or {"kind": "RecordingsQuery"})
     comprehensive = estimate_scanner_session_volume(
         team=team,
@@ -861,6 +887,7 @@ def _finalize_v2(
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
         query=query,
         sampling_mode=parsed.sampling_mode,
+        model=parsed.model,
     )
 
 
@@ -869,12 +896,12 @@ def draft_scanner_from_goal_v2(
     team: Team,
     user: User,
     goal: str,
-    monthly_scan_budget: int,
+    monthly_credit_budget: int,
     user_access_control: UserAccessControl,
     include_business_context: bool = True,
 ) -> ScannerDraft:
     """The goal-based flow: ground the goal in the team's real pages, draft the whole scanner in one
-    model call, then solve the sampling dials from the stated monthly budget.
+    model call, then solve the sampling dials from the stated monthly credit budget.
 
     Raises DraftError on model failure. A costing failure does not fail the draft: the sampling
     fields come back None and the wizard keeps its defaults.
@@ -913,13 +940,17 @@ def draft_scanner_from_goal_v2(
         allowed_events=events,
         team_id=team.id,
     )
+    # The cap is the stated budget, so a mis-estimate stops the scanner at the credits the user
+    # agreed to rather than overspending. Kept even when costing fails, so the guardrail survives.
+    draft = replace(draft, credit_limit=monthly_credit_budget)
 
     try:
         solution = _solve_budget(
             team=team,
             user=user,
             query=draft.query,
-            monthly_scan_budget=monthly_scan_budget,
+            monthly_credit_budget=monthly_credit_budget,
+            credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
             model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
         )
     except Exception:

@@ -1,8 +1,10 @@
 import abc
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 
 from django.conf import settings
 from django.db.models import Q
@@ -33,7 +35,7 @@ from posthog.dags.common.staged_dictionary import (
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import resolve_placements, sweep_clusters
+from posthog.models.deletion_targets import COVERAGE_DOC, resolve_placements, surviving_rows_sql, sweep_clusters
 from posthog.models.event.deletion import events_data_tables
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
@@ -70,6 +72,12 @@ class DeleteConfig(dagster.Config):
     max_memory_usage: int = pydantic.Field(
         default=0,
         description="The maximum amount of memory to use for the dictionary, or 0 to use an unlimited amount.",
+    )
+    verification_max_execution_time: int = pydantic.Field(
+        default=300,
+        description="Seconds to spend counting rows the sweep should have removed but did not. Proving none "
+        "survive is a full scan, so the count is bounded and a count that runs out of time is reported as "
+        "unknown rather than as zero.",
     )
 
     @property
@@ -108,6 +116,16 @@ class MonthlyCleanupConfig(dagster.Config):
         default=13,
         description="Minimum age in months for events to be deleted",
     )
+
+
+# Reads only team_id, person_id, timestamp and uuid, which every registered target declares, so it
+# applies unchanged to all of them. Shared with the post-sweep count so what gets verified is
+# exactly what got deleted.
+_DELETE_PREDICATE = """or(
+    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))),
+    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
+    (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid)))
+)"""
 
 
 ShardMutations = dict[int, MutationWaiters]
@@ -674,26 +692,16 @@ def delete_events(
     )
 
     # Every registered target must get this delete, or rows survive on the table that got skipped.
-    # The predicate below reads only team_id, person_id, timestamp and uuid, which every target
-    # declares, so it applies unchanged to all of them.
     placements = resolve_placements(cluster)
     delete_mutation_runners = [
         (
             placement,
             LightweightDeleteMutationRunner(
                 table=placement.target.data_table,
-                predicate="""or(
-            (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))),
-            (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
-            (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid)))
-        )
-        """,
-                parameters={
-                    "pending_deletes_dictionary": load_and_verify_deletes_dictionary.qualified_name,
-                    "person_deletion_type": DeletionType.Person,
-                    "team_deletion_type": DeletionType.Team,
-                    "adhoc_event_deletes_dictionary": load_and_verify_adhoc_event_deletes_dictionary.qualified_name,
-                },
+                predicate=_DELETE_PREDICATE,
+                parameters=_delete_predicate_params(
+                    load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
+                ),
             ),
         )
         for placement in placements
@@ -824,12 +832,122 @@ class VerifiedDeletionResources:
     adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary
 
 
+def _delete_predicate_params(
+    pending_deletes_dictionary: "PendingDeletesDictionary",
+    adhoc_event_deletes_dictionary: "AdhocEventDeletesDictionary",
+) -> dict[str, str | int]:
+    return {
+        "pending_deletes_dictionary": pending_deletes_dictionary.qualified_name,
+        "person_deletion_type": DeletionType.Person,
+        "team_deletion_type": DeletionType.Team,
+        "adhoc_event_deletes_dictionary": adhoc_event_deletes_dictionary.qualified_name,
+    }
+
+
+def _rows_from_any_host(cluster: ClickhouseCluster, query: Query) -> list:
+    return [cluster.any_host_by_role(query, NodeRole.DATA).result()]
+
+
+def _rows_per_shard(cluster: ClickhouseCluster, query: Query) -> list:
+    return list(cluster.map_one_host_per_shard(query).result().values())
+
+
+def _count_through(
+    context: dagster.OpExecutionContext,
+    runner: Callable[[Query], list],
+    table: str,
+    params: dict[str, str | int],
+    max_execution_time: int,
+) -> int | None:
+    """Survivors on ``table``, or None when the count could not be taken.
+
+    None is deliberately not zero: a count that errored or ran out of time says nothing about
+    whether rows remain, and reporting it as clean is the mistake worth avoiding here.
+    """
+    query = Query(
+        surviving_rows_sql(table, _DELETE_PREDICATE),
+        params,
+        settings={"max_execution_time": str(max_execution_time)},
+    )
+    try:
+        return sum(int(rows[0][0]) if rows else 0 for rows in runner(query))
+    except Exception as e:
+        context.log.warning(f"Could not count what survived the sweep in {table}: {e}")
+        return None
+
+
+def _count_unswept_rows(
+    context: dagster.OpExecutionContext,
+    cluster: ClickhouseCluster,
+    pending_deletes_dictionary: "PendingDeletesDictionary",
+    adhoc_event_deletes_dictionary: "AdhocEventDeletesDictionary",
+    max_execution_time: int,
+) -> dict[str, int | None]:
+    """Count rows this run was supposed to remove and that are still readable, per table.
+
+    Two counts, because neither alone is trustworthy.
+
+    The Distributed proxy sees rows no mutation reached, including a shard this handle does not
+    enumerate. But it only reads the cluster its engine names, and this repo builds the events_json
+    proxy against CLICKHOUSE_CLUSTER, so on a deployment whose storage moved elsewhere the proxy
+    can read an empty table and report a clean sweep.
+
+    So a target stored on another cluster is also counted on its storage table, through the handle
+    that holds it. That answers "did the mutation we dispatched actually remove these" without
+    depending on how the proxy is defined. Targets on the job's own cluster skip it, since there
+    the proxy already names the cluster the rows are on.
+
+    Proving zero survivors is a full scan of the events tables, so each count is bounded rather
+    than left to run for as long as it takes.
+    """
+    params = _delete_predicate_params(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
+    counts: dict[str, int | None] = {}
+    for placement in resolve_placements(cluster):
+        counts[placement.target.read_table] = _count_through(
+            context,
+            partial(_rows_from_any_host, cluster),
+            placement.target.read_table,
+            params,
+            max_execution_time,
+        )
+        if placement.cluster is not cluster:
+            counts[placement.target.data_table] = _count_through(
+                context,
+                partial(_rows_per_shard, placement.cluster),
+                placement.target.data_table,
+                params,
+                max_execution_time,
+            )
+    return counts
+
+
 @dagster.op
 def mark_deletions_verified(
+    context: dagster.OpExecutionContext,
+    config: DeleteConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     pending_deletions_dictionary: PendingDeletesDictionary,
     adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
 ) -> VerifiedDeletionResources:
+    # Only a report. The mutations have already run, the requests are marked verified either way,
+    # and failing here would strand the run without undoing anything. It exists so a sweep that
+    # removed nothing leaves a trace rather than passing as a clean run.
+    unswept = _count_unswept_rows(
+        context,
+        cluster,
+        pending_deletions_dictionary,
+        adhoc_event_deletes_dictionary,
+        config.verification_max_execution_time,
+    )
+    remaining = {table: count for table, count in unswept.items() if count}
+    if remaining:
+        context.log.error(
+            "The sweep finished and rows it should have removed are still readable: "
+            + ", ".join(f"{table}={count}" for table, count in remaining.items())
+            + f". Marking these requests verified anyway. See {COVERAGE_DOC}."
+        )
+    context.add_output_metadata({"unswept_rows": dagster.MetadataValue.json(unswept)})
+
     now = timezone.now()
     deletion_ids = [
         id
