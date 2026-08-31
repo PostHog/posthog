@@ -10,6 +10,7 @@ import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
+import { UNFILED_DASHBOARDS_FOLDER } from 'scenes/dashboard/dashboardConstants'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -82,6 +83,10 @@ export interface dashboardsLogicValues {
     filedDashboardIds: Set<number>
     filteredTags: string[]
     filters: DashboardsFilters
+    folderOptions: {
+        label: string
+        value: string
+    }[]
     isFiltering: boolean
     searchedDashboards: DashboardBasicType[] | null
     searchedDashboardsLoading: boolean
@@ -173,6 +178,19 @@ export interface dashboardsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isFiltering: (filters: DashboardsFilters) => boolean
         filteredTags: (tags: string[], tagSearch: string) => string[]
+        folderOptions: (
+            nameSortedDashboards: (
+                | DashboardBasicType
+                | import('~/types').DashboardType<
+                      import('~/types').QueryBasedInsightModel<
+                          import('~/queries/schema/schema-general').Node<Record<string, any>>
+                      >
+                  >
+            )[]
+        ) => {
+            label: string
+            value: string
+        }[]
         dashboards: (
             nameSortedDashboards: (
                 | DashboardBasicType
@@ -352,6 +370,24 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     return tags || []
                 }
                 return (tags || []).filter((tag) => tag.toLowerCase().includes(search.toLowerCase()))
+            },
+        ],
+        // Folders that actually hold dashboards, sourced from the full model list so the options
+        // stay stable while a folder filter is applied. The default `Unfiled/Dashboards` folder is
+        // dropped because the user never chose it. An empty string is the project root.
+        folderOptions: [
+            () => [dashboardsModel.selectors.nameSortedDashboards],
+            (allDashboards: DashboardBasicType[]): { label: string; value: string }[] => {
+                const folders = new Set<string>()
+                for (const dashboard of allDashboards) {
+                    const folder = dashboard.folder
+                    if (folder != null && folder !== UNFILED_DASHBOARDS_FOLDER) {
+                        folders.add(folder)
+                    }
+                }
+                return Array.from(folders)
+                    .sort()
+                    .map((folder) => ({ label: folder || 'Project root', value: folder }))
             },
         ],
         dashboards: [

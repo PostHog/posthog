@@ -272,6 +272,12 @@ describe('dashboardsLogic', () => {
         })
     })
 
+    it('offers each real folder once, dropping dashboards with no chosen folder', async () => {
+        await expectLogic(logic).toMatchValues({
+            folderOptions: [{ label: 'Marketing/Website', value: 'Marketing/Website' }],
+        })
+    })
+
     it('shows dashboards from all selected creators when multiple are chosen', async () => {
         // Multi-select is a union: selecting both users returns every dashboard, since each was
         // created by one of them.

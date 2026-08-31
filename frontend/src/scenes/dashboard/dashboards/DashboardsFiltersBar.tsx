@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
-import { LemonInput, Popover } from '@posthog/lemon-ui'
+import { IconChevronDown, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { LemonInput, LemonSelect, Popover } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,8 +12,17 @@ interface DashboardsFiltersBarProps {
     extraActions?: JSX.Element | JSX.Element[]
 }
 
+// LemonSelect only renders its clear (×) affordance for truthy values, but the project-root folder
+// filter is the empty string, so map it to a non-empty sentinel here to keep that filter clearable.
+const PROJECT_ROOT_FOLDER_VALUE = '__project_root__'
+
+const folderToSelectValue = (folder: string | null | undefined): string | null =>
+    folder == null ? null : folder === '' ? PROJECT_ROOT_FOLDER_VALUE : folder
+
+const selectValueToFolder = (value: string | null): string | null => (value === PROJECT_ROOT_FOLDER_VALUE ? '' : value)
+
 export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
-    const { filters, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
+    const { filters, currentTab, filteredTags, tagSearch, showTagPopover, folderOptions } = useValues(dashboardsLogic)
     const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
 
     const createdByIds = filters.createdBy === 'All users' ? [] : filters.createdBy
@@ -30,6 +39,22 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
             selected.add(tag)
         }
         setFilters({ tags: Array.from(selected) })
+    }
+
+    // Keep the active folder selectable even after it drops out of folderOptions (its dashboards were
+    // moved or deleted, or the filter was restored from the URL), so its clear (×) affordance stays
+    // reachable instead of the select vanishing and stranding the list behind an unclearable filter.
+    const folderSelectOptions = folderOptions.map((option) =>
+        option.value === '' ? { ...option, value: PROJECT_ROOT_FOLDER_VALUE } : option
+    )
+    if (filters.folder != null) {
+        const activeValue = folderToSelectValue(filters.folder)
+        if (activeValue !== null && !folderSelectOptions.some((option) => option.value === activeValue)) {
+            folderSelectOptions.push({
+                label: filters.folder === '' ? 'Project root' : filters.folder,
+                value: activeValue,
+            })
+        }
     }
 
     return (
@@ -146,19 +171,16 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                             Shared
                         </LemonButton>
                     </div>
-                    {filters.folder != null && (
-                        <LemonButton
-                            active
-                            type="secondary"
+                    {folderSelectOptions.length > 0 && (
+                        <LemonSelect
                             size="small"
-                            className="max-w-full"
-                            icon={<IconFolder />}
-                            sideIcon={<IconX />}
-                            onClick={() => setFilters({ folder: null })}
-                            tooltip="Clear folder filter"
-                        >
-                            <span className="truncate">{filters.folder || 'Project root'}</span>
-                        </LemonButton>
+                            placeholder="Folder"
+                            allowClear
+                            value={folderToSelectValue(filters.folder)}
+                            onChange={(value) => setFilters({ folder: selectValueToFolder(value) })}
+                            options={folderSelectOptions}
+                            dropdownMatchSelectWidth={false}
+                        />
                     )}
                 </div>
                 {currentTab !== DashboardsTab.Yours && (
