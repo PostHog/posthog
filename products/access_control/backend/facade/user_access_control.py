@@ -172,8 +172,8 @@ def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[AP
         # Check if the field has access control metadata
         if hasattr(field, "_access_control_resource") and hasattr(field, "_access_control_level"):
             field_access_map[field.name] = (
-                cast("APIScopeObject", field._access_control_resource),
-                cast("AccessControlLevel", field._access_control_level),
+                cast(APIScopeObject, field._access_control_resource),
+                cast(AccessControlLevel, field._access_control_level),
             )
 
     return field_access_map

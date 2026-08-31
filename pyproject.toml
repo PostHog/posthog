@@ -504,6 +504,7 @@ exclude = [
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
     # PEP 723 scripts with their own deps; mypy excludes these dirs too
+    "products/*/skills/*/scripts/**",
     "products/stamphog/packages/**",
     "tools/**",
     "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**",
@@ -844,3 +845,10 @@ deprecated = "ignore"
 # These rules catch real bugs in new code, so they stay enabled.
 # invalid-type-form is the exception: generated code + ty limitations on valid patterns.
 invalid-type-form = "ignore"
+
+[[tool.ty.overrides]]
+# Scanner schemas are built with create_model at runtime, so every kwarg looks extra to ty
+include = ["products/replay_vision/backend/tests/test_scanners.py"]
+
+[tool.ty.overrides.rules]
+pydantic-discarded-extra-argument = "ignore"

@@ -251,7 +251,6 @@ def get_earliest_timestamp_from_series(
         else:
             nodes.append(node)
 
-    timestamps: list[datetime] = []
     if len(nodes) == 1 or settings.IN_UNIT_TESTING:
         timestamps = [_get_earliest_timestamp_from_node(team, node, user) for node in nodes]
 

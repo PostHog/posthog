@@ -377,9 +377,9 @@ class TestClassifierScanner:
         schema_class = scanner.llm_response_schema
         # Unknown tag rejected at parse time (schema-level Literal enforcement).
         with pytest.raises(ValidationError):
-            schema_class(tags=["a", "z"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+            schema_class(tags=["a", "z"], reasoning="r", confidence=0.9)
         # Subset accepted.
-        ok = schema_class(tags=["a"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        ok = schema_class(tags=["a"], reasoning="r", confidence=0.9)
         assert ok.tags == ["a"]  # type: ignore[attr-defined]
 
     def test_full_pipeline_finalize_returns_classifier_output(self) -> None:
@@ -388,7 +388,7 @@ class TestClassifierScanner:
                 scanner_type=ScannerType.CLASSIFIER, scanner_config={"prompt": "x", "tags": ["a", "b"]}
             )
         )
-        llm_response = scanner.llm_response_schema(tags=["a"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        llm_response = scanner.llm_response_schema(tags=["a"], reasoning="r", confidence=0.9)
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ClassifierOutput)
         assert scanner.validate_semantics(finalized) is None
@@ -402,10 +402,10 @@ class TestClassifierScanner:
         )
         schema_class = scanner.llm_response_schema
         with pytest.raises(ValidationError):
-            schema_class(tags=["a", "b"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+            schema_class(tags=["a", "b"], reasoning="r", confidence=0.9)
         with pytest.raises(ValidationError):
-            schema_class(tags=[], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
-        ok = schema_class(tags=["a"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+            schema_class(tags=[], reasoning="r", confidence=0.9)
+        ok = schema_class(tags=["a"], reasoning="r", confidence=0.9)
         assert ok.tags == ["a"]  # type: ignore[attr-defined]
 
     def test_freeform_default_off_rejects_freeform_in_validate(self) -> None:
@@ -429,10 +429,10 @@ class TestClassifierScanner:
             )
         )
         schema_class = scanner.llm_response_schema
-        ok = schema_class(tags=["a"], tags_freeform=["custom_one", "custom_two"], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        ok = schema_class(tags=["a"], tags_freeform=["custom_one", "custom_two"], reasoning="r", confidence=0.9)
         assert ok.tags_freeform == ["custom_one", "custom_two"]  # type: ignore[attr-defined]
         with pytest.raises(ValidationError):
-            schema_class(tags=["a"], tags_freeform=[f"t{i}" for i in range(6)], reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+            schema_class(tags=["a"], tags_freeform=[f"t{i}" for i in range(6)], reasoning="r", confidence=0.9)
 
     def test_freeform_prompt_block_only_when_enabled(self) -> None:
         on = scanner_from_db(
@@ -475,7 +475,7 @@ class TestClassifierScanner:
             tags_freeform=["loginfailure", "ONBOARDING", "billing"],
             reasoning="r",
             confidence=0.9,
-        )  # ty: ignore[pydantic-discarded-extra-argument]
+        )
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ClassifierOutput)
         assert finalized.tags_freeform == ["billing"]
@@ -492,7 +492,7 @@ class TestClassifierScanner:
             tags_freeform=["Password Reset", "PASSWORD reset", "  rate-limit  ", "Slow Checkout!"],
             reasoning="r",
             confidence=0.9,
-        )  # ty: ignore[pydantic-discarded-extra-argument]
+        )
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ClassifierOutput)
         assert finalized.tags_freeform == ["password_reset", "rate-limit", "slow_checkout"]
@@ -587,7 +587,7 @@ class TestScorerScanner:
         schema_class = scanner.llm_response_schema
         # Out-of-range value rejected at the LLM-response layer.
         with pytest.raises(ValidationError):
-            schema_class(score=99, reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+            schema_class(score=99, reasoning="r", confidence=0.9)
 
     def test_finalize_stamps_label_from_config(self) -> None:
         scanner = scanner_from_db(
@@ -596,7 +596,7 @@ class TestScorerScanner:
                 scanner_config={"prompt": "rate", "scale": {"min": 1, "max": 5, "label": "frustration"}},
             )
         )
-        llm_response = scanner.llm_response_schema(score=3, reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        llm_response = scanner.llm_response_schema(score=3, reasoning="r", confidence=0.9)
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ScorerOutput)
         assert finalized.score == 3
@@ -608,7 +608,7 @@ class TestScorerScanner:
                 scanner_type=ScannerType.SCORER, scanner_config={"prompt": "rate", "scale": {"min": 0, "max": 1}}
             )
         )
-        llm_response = scanner.llm_response_schema(score=0.5, reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        llm_response = scanner.llm_response_schema(score=0.5, reasoning="r", confidence=0.9)
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ScorerOutput)
         assert finalized.label is None
@@ -620,7 +620,7 @@ class TestScorerScanner:
                 scanner_config={"prompt": "rate", "scale": {"min": 1, "max": 5, "label": "frustration"}},
             )
         )
-        llm_response = scanner.llm_response_schema(score=4, reasoning="r", confidence=0.9)  # ty: ignore[pydantic-discarded-extra-argument]
+        llm_response = scanner.llm_response_schema(score=4, reasoning="r", confidence=0.9)
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, ScorerOutput)
         assert finalized.label == "frustration"
