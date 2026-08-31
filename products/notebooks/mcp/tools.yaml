@@ -45,7 +45,7 @@ tools:
             memory_gb values notebooks-configure-compute accepts. The rates are the same for every notebook in the
             region, so fetch this once per session rather than per notebook. Use it to quote a price before you start or
             resize a sandbox: a shape costs cpu_cores x cpu_rate_per_core_hour + memory_gb x memory_rate_per_gb_hour per
-            hour, and each preset carries that total as hourly_price.
+            hour, rounded to four decimal places, and each preset carries that total as hourly_price.
         feature_flag: revamped-py-notebooks
     notebooks-configure-compute:
         operation: notebooks_kernel_config_create

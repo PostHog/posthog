@@ -26,6 +26,25 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const NotebooksComputeOptionsSchema = z.object({})
+
+const notebooksComputeOptions = (): ToolBase<
+    typeof NotebooksComputeOptionsSchema,
+    Schemas.NotebookComputeOptionsResponse
+> => ({
+    name: 'notebooks-compute-options',
+    schema: NotebooksComputeOptionsSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof NotebooksComputeOptionsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookComputeOptionsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/kernel/compute_options/`,
+        })
+        return result
+    },
+})
+
 const NotebooksConfigureComputeSchema = NotebooksKernelConfigCreateParams.omit({ project_id: true }).extend(
     NotebooksKernelConfigCreateBody.shape
 )
@@ -52,25 +71,6 @@ const notebooksConfigureCompute = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/kernel/config/`,
             body,
-        })
-        return result
-    },
-})
-
-const NotebooksComputeOptionsSchema = z.object({})
-
-const notebooksComputeOptions = (): ToolBase<
-    typeof NotebooksComputeOptionsSchema,
-    Schemas.NotebookComputeOptionsResponse
-> => ({
-    name: 'notebooks-compute-options',
-    schema: NotebooksComputeOptionsSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof NotebooksComputeOptionsSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.NotebookComputeOptionsResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/kernel/compute_options/`,
         })
         return result
     },
@@ -301,8 +301,8 @@ const notebooksRunCellResult = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'notebooks-configure-compute': notebooksConfigureCompute,
     'notebooks-compute-options': notebooksComputeOptions,
+    'notebooks-configure-compute': notebooksConfigureCompute,
     'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,
     'notebooks-get': notebooksGet,
