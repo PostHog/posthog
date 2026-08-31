@@ -548,6 +548,35 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).toMatchValues({ response: { result: [1, 2, 3] } })
     })
 
+    it('reloads a dashboard insight when the edited query no longer matches its cached results', async () => {
+        const pageviewSeries = { kind: NodeKind.EventsNode, event: '$pageview' }
+        const cachedQuery = setLatestVersionsOnQuery({ kind: NodeKind.TrendsQuery, series: [pageviewSeries] })
+        // A dashboard card hands the insight its full stored model: the query it was computed for
+        // plus a `result`, which every real insight model carries.
+        const cachedResults = {
+            query: { kind: NodeKind.InsightVizNode, source: cachedQuery },
+            result: [{ label: '$pageview', data: [1, 2, 3] }],
+        } as any
+
+        logic = dataNodeLogic({ key: 'insight-1/on-dashboard-5', query: cachedQuery, cachedResults })
+        logic.mount()
+        // The cache matches the query on mount, so nothing loads.
+        expect(performQuery).toHaveBeenCalledTimes(0)
+
+        // Editing the date range changes the query away from the cache, so the stale payload must reload.
+        mockedQuery.mockResolvedValueOnce({ results: [] })
+        dataNodeLogic({
+            key: 'insight-1/on-dashboard-5',
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.TrendsQuery,
+                series: [pageviewSeries],
+                dateRange: { date_from: '-30d' },
+            }),
+            cachedResults,
+        })
+        expect(performQuery).toHaveBeenCalledTimes(1)
+    })
+
     it('passes filtersOverride to api', async () => {
         const filtersOverride: DashboardFilter = {
             date_from: '2022-12-24T17:00:41.165000Z',

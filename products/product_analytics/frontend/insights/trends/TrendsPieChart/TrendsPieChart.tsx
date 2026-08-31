@@ -27,6 +27,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
@@ -256,9 +257,11 @@ export function TrendsPieChart({
         ]
     )
 
-    // An all-hidden pie must keep rendering the legend (dimmed rows) so the hidden slices can be
-    // restored — only a truly empty result set gets the empty state.
-    if (!(indexedResults ?? []).length) {
+    // Gate the empty state on the shared trends check. The pie now agrees with the line, bar,
+    // lifecycle, and stickiness charts on the same result set. Hidden slices keep their
+    // aggregated_value, so an all-hidden pie still has data and keeps its legend (dimmed rows)
+    // for restore. Only a result set without any value gets the empty state.
+    if (!hasTrendsChartData(indexedResults)) {
         return (
             <InsightEmptyState
                 heading={context?.emptyStateHeading}
