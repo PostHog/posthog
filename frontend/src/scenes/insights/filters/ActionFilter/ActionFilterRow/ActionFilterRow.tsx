@@ -665,7 +665,16 @@ export function ActionFilterRow({
                         </div>
                         {/* right section fixed */}
                         {(rowEndElements.length > 0 || showPopupMenu) && (
-                            <div className="ActionFilterRow__end @max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1 @max-[400px]/editor-panel:gap-1 @max-[400px]/editor-panel:[height:auto]">
+                            <div
+                                className={clsx(
+                                    'ActionFilterRow__end @max-[400px]/editor-panel:gap-1 @max-[400px]/editor-panel:[height:auto]',
+                                    // Only drop the actions to their own row when the row has a start
+                                    // section. Start-less rows (retention, nested groups) keep the
+                                    // actions inline, so a lone button never floats on an empty line.
+                                    rowStartElements.length > 0 &&
+                                        '@max-[400px]/editor-panel:basis-full @max-[400px]/editor-panel:order-1'
+                                )}
+                            >
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
