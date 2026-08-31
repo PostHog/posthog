@@ -20,7 +20,7 @@ function setVendor(vendor: string): void {
 }
 
 describe('passkeyLogic', () => {
-    describe('startConditionalPasskeyLogin (WebKit-only passkey autofill)', () => {
+    describe('startConditionalPasskeyLogin (passkey autofill)', () => {
         let logic: ReturnType<typeof passkeyLogic.build>
         let beginHandler: jest.Mock
         const originalVendor = window.navigator.vendor
@@ -68,14 +68,15 @@ describe('passkeyLogic', () => {
             expect(options.optionsJSON.allowCredentials).toEqual([])
         })
 
-        it('does nothing on a non-WebKit browser (those use the auto-modal instead)', async () => {
+        it('requests a passkey via browser autofill on Chromium too', async () => {
             setVendor(CHROMIUM_VENDOR)
 
             logic.actions.startConditionalPasskeyLogin()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(beginHandler).not.toHaveBeenCalled()
-            expect(startAuthentication).not.toHaveBeenCalled()
+            expect(beginHandler).toHaveBeenCalledTimes(1)
+            expect(startAuthentication).toHaveBeenCalledTimes(1)
+            expect((startAuthentication as jest.Mock).mock.calls[0][0].useBrowserAutofill).toBe(true)
         })
 
         it('does nothing when the browser does not support autofill', async () => {

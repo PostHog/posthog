@@ -15,8 +15,7 @@ export const scene: SceneExport = {
 export function Login(): JSX.Element {
     const { startConditionalPasskeyLogin } = useActions(passkeyLogic)
 
-    // WebKit (Safari/iOS) can't open the passkey modal without a user gesture, so we show
-    // passkeys via the email field's autofill instead. Other browsers keep the auto-modal.
+    // Start conditional UI so browsers can offer a passkey from the email field, like Google login.
     useEffect(() => {
         startConditionalPasskeyLogin()
     }, [startConditionalPasskeyLogin])

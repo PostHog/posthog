@@ -14,7 +14,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
-import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
@@ -208,9 +207,8 @@ export function LoginForm(): JSX.Element {
                                     type="email"
                                     autoFocus
                                     placeholder="you@yourcompany.com"
-                                    // The `webauthn` token enables passkey autofill (conditional UI),
-                                    // which we only offer on WebKit; elsewhere the auto-modal handles passkeys.
-                                    autoComplete={isWebKitBrowser() ? 'username webauthn' : 'email'}
+                                    // The `webauthn` token enables the browser's native passkey autofill.
+                                    autoComplete="username webauthn"
                                     value={value ?? ''}
                                     onChange={onChange}
                                     // `autoAttempt` is only ever set on this explicit gesture, so
