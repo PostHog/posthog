@@ -179,6 +179,9 @@ impl AggregateFunnelRow {
                 // We ignore strict steps and exclusions in this case
                 // The behavior here is mostly dictated by how it was handled in the old style
 
+                // Treat every event in the group as firing at the group's first timestamp,
+                // so a reordered pair reports a 0 ms gap instead of a negative conversion time.
+                let group_timestamp = simultaneous_events[0].timestamp;
                 let sorted_events = simultaneous_events
                     .iter()
                     .flat_map(|&event| {
@@ -188,6 +191,7 @@ impl AggregateFunnelRow {
                             .filter(|&&step| step > 0)
                             .map(|&step| Event {
                                 steps: vec![step],
+                                timestamp: group_timestamp,
                                 ..event.clone()
                             })
                     })
@@ -354,26 +358,34 @@ impl AggregateFunnelRow {
 mod tests {
     use super::*;
 
-    // step_reached is 0-indexed: 1 means both steps of a 2-step funnel matched.
-    fn step_reached(events_json: &str) -> i8 {
+    fn run_events(events_json: &str) -> Vec<Result> {
         let input = format!(
             r#"{{"num_steps":2,"conversion_window_limit":3600,"breakdown_attribution_type":"first_touch","funnel_order_type":"ordered","prop_vals":["en"],"optional_steps":[],"value":{events_json}}}"#
         );
         let args = parse_args(&input).unwrap();
-        let results = run(&args);
+        run(&args)
+    }
+
+    // step_reached is 0-indexed: 1 means both steps of a 2-step funnel matched.
+    fn step_reached(events_json: &str) -> i8 {
+        let results = run_events(events_json);
         assert_eq!(results.len(), 1);
         results[0].0
     }
 
     // Step 2 fires 10 ms before step 1 on the same page load. The arrival race must not
-    // decide the conversion: both steps fall in one simultaneity window and match.
+    // decide the conversion: both steps fall in one simultaneity window and match. The
+    // reordered pair reports a 0 ms gap, never a negative conversion time.
     #[test]
     fn near_simultaneous_out_of_order_steps_convert() {
         let events = r#"[
             {"timestamp":1.00,"uuid":"00000000-0000-0000-0000-000000000002","breakdown":"en","steps":[2]},
             {"timestamp":1.01,"uuid":"00000000-0000-0000-0000-000000000001","breakdown":"en","steps":[1]}
         ]"#;
-        assert_eq!(step_reached(events), 1);
+        let results = run_events(events);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, 1);
+        assert_eq!(results[0].2, vec![0.0]);
     }
 
     // Events further apart than the window keep their order, so an out-of-order step 2
