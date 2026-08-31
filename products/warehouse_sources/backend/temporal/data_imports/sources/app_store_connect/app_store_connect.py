@@ -1365,8 +1365,12 @@ def _get_analytics_report(
         if snapshot_plan is None:
             continue
         if snapshot_plan.state == "pending" and report_id is not None:
-            # Only an app whose ongoing report is live can strand its history by emitting ahead
-            # of the snapshot; an unentitled app never will, so it must not stall the others.
+            # A live ongoing report is the only in-module evidence that the app is entitled to
+            # this report at all. An app that is entitled to nothing stays "pending" forever, so
+            # holding on it would keep the whole table empty forever. The accepted cost: an
+            # entitled app whose ongoing report is still generating does not hold, so a sibling
+            # app's emission can ratchet the shared watermark past it and leave that app's
+            # history to a resync.
             hold_for_snapshot = True
         snapshot_cutoff = min((processing_date for _, processing_date in ongoing_instances), default=None)
         for instance_id, processing_date in snapshot_plan.instances:
@@ -1470,7 +1474,6 @@ def _get_analytics_report(
                                 # and they don't shift when the cutoff moves, so a re-run
                                 # re-emits identical keys and the merge folds it to no-ops.
                                 row["_line"] = -line
-                            row["app_id"] = walk_instance.app_id
                             batch.append(row)
                             if len(batch) >= ANALYTICS_ROWS_PER_BATCH:
                                 yield batch
