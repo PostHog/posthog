@@ -24,7 +24,13 @@ import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { workflowLogic } from './workflowLogic'
-import { WorkflowStatusFilter, workflowsLogic } from './workflowsLogic'
+import {
+    WORKFLOW_TRIGGER_TYPE_OPTIONS,
+    WorkflowStatusFilter,
+    WorkflowTriggerTypeFilter,
+    WorkflowTypeFilter,
+    workflowsLogic,
+} from './workflowsLogic'
 
 const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
     active: { label: 'Active', type: 'success' },
@@ -34,8 +40,10 @@ const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default'
 
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
     const hasMessagingAction = useMemo(() => {
+        // Keep in sync with MESSAGING_ACTION_TYPES in products/workflows/backend/models/hog_flow/hog_flow.py,
+        // which the list API's `type` filter uses - the tag and the filter must agree on what "Messaging" is.
         return workflow.actions.some((action) => {
-            return ['function_email', 'function_sms', 'function_slack'].includes(action.type)
+            return ['function_email', 'function_sms', 'function_push'].includes(action.type)
         })
     }, [workflow.actions])
 
@@ -228,11 +236,16 @@ export function WorkflowsTable(): JSX.Element {
                     <Link to={urls.workflow(id, 'metrics')}>
                         <AppMetricsSparkline
                             logicKey={id}
+                            successMetricNames={['triggered']}
+                            metricLabels={{ triggered: 'Started', failed: 'Failed' }}
                             forceParams={{
-                                appSource: 'hog_flow',
-                                appSourceId: id,
-                                metricKind: ['success', 'failure'],
-                                breakdownBy: 'metric_kind',
+                                // The versioned mirror keys every run's metrics (including batch runs,
+                                // which the plain hog_flow source keys under the batch job id) as
+                                // `<flow id>/<version>`, so a prefix match covers all activity.
+                                appSource: 'hog_flow_version',
+                                appSourceIdPrefix: `${id}/`,
+                                metricName: ['triggered', 'failed'],
+                                breakdownBy: 'metric_name',
                                 interval: 'day',
                                 dateFrom: '-7d',
                             }}
@@ -334,6 +347,8 @@ export function WorkflowsTable(): JSX.Element {
         !filters.search &&
         !filters.createdBy &&
         filters.status === 'all' &&
+        filters.type === 'all' &&
+        filters.triggerType === 'all' &&
         // An empty page is not an empty project, so never offer onboarding while paging
         filters.page === 1
 
@@ -362,7 +377,7 @@ export function WorkflowsTable(): JSX.Element {
                             onChange={(search) => setFilters({ search })}
                             value={filters.search}
                         />
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                             <span>
                                 <b>Status</b>
                             </span>
@@ -377,6 +392,30 @@ export function WorkflowsTable(): JSX.Element {
                                     { label: 'Archived', value: 'archived' },
                                 ]}
                                 value={filters.status}
+                            />
+                            <span className="ml-1">
+                                <b>Type</b>
+                            </span>
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                size="small"
+                                onChange={(value) => setFilters({ type: value as WorkflowTypeFilter })}
+                                options={[
+                                    { label: 'All', value: 'all' },
+                                    { label: 'Messaging', value: 'messaging' },
+                                    { label: 'Automation', value: 'automation' },
+                                ]}
+                                value={filters.type}
+                            />
+                            <span className="ml-1">
+                                <b>Trigger</b>
+                            </span>
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                size="small"
+                                onChange={(value) => setFilters({ triggerType: value as WorkflowTriggerTypeFilter })}
+                                options={WORKFLOW_TRIGGER_TYPE_OPTIONS}
+                                value={filters.triggerType}
                             />
                             <span className="ml-1">
                                 <b>Created by</b>
