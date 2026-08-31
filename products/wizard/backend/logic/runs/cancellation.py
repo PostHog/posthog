@@ -10,8 +10,7 @@ logger = logging.getLogger(__name__)
 
 def dispatch_cancellation(team_id: int, run_id: UUID) -> bool:
     if store.get_workflow_id(team_id, run_id) is None:
-        store.mark_cancellation_dispatched(team_id, run_id)
-        return True
+        return False
 
     try:
         temporal_client.cancel_wizard_run_workflow(run_id)

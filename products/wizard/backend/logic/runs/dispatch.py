@@ -1,7 +1,10 @@
 from uuid import UUID
 
 from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStatus
-from products.wizard.backend.logic.runs import store
+from products.wizard.backend.logic.runs import (
+    cancellation as cancellation_service,
+    store,
+)
 from products.wizard.backend.logic.runs.errors import WizardRunDispatchError
 from products.wizard.backend.logic.workers.config import local_wizard_source_root
 from products.wizard.backend.observability.contracts import WizardRunDispatchOutcome
@@ -32,4 +35,6 @@ def dispatch_created_cloud_wizard_run_to_temporal_worker(team_id: int, run_id: U
         raise WizardRunDispatchError(exhausted=exhausted) from error
 
     store.mark_dispatch_succeeded(team_id, run_id, wizard_run_workflow_id(run_id))
+    if store.cancellation_requested(team_id, run_id):
+        cancellation_service.dispatch_cancellation(team_id, run_id)
     wizard_observability.dispatch_finished(run, WizardRunDispatchOutcome.SUCCEEDED)

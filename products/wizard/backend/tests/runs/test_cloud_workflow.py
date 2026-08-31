@@ -95,7 +95,7 @@ async def test_cloud_workflow_completes_after_worker_execution(
     assert execute_activity.await_args_list[2].kwargs["retry_policy"].maximum_attempts == 1
     assert execute_activity.await_args_list[3].kwargs["retry_policy"].maximum_attempts == 3
     assert execute_activity.await_args_list[0].kwargs["retry_policy"].maximum_attempts == 1
-    assert execute_activity.await_args_list[4].kwargs["retry_policy"].maximum_attempts == 5
+    assert execute_activity.await_args_list[4].kwargs["retry_policy"].maximum_attempts == 3
 
 
 @pytest.mark.asyncio

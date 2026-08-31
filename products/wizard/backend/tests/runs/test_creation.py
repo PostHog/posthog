@@ -21,6 +21,7 @@ from products.wizard.backend.facade.errors import (
     WizardProgramEnvironmentNotSupportedError,
 )
 from products.wizard.backend.models import WizardRun
+from products.wizard.backend.temporal.contracts import WizardRunActivityInput
 from products.wizard.backend.temporal.errors import WizardTemporalError
 
 PROGRAM_DEFINITION = {
@@ -193,6 +194,46 @@ def test_cloud_run_dispatches_after_persistence(team, user) -> None:
 
     dispatch_wizard_run.assert_called_once_with(team.id, run.id)
     assert run.status == WizardRunStatus.CREATED
+
+
+@pytest.mark.django_db(transaction=True)
+def test_cloud_run_cancellation_during_dispatch_reaches_temporal(team, user) -> None:
+    def cancel_during_dispatch(input: WizardRunActivityInput) -> None:
+        wizard_facade.cancel_run(input.team_id, input.run_id)
+
+    with (
+        patch(
+            "products.wizard.backend.logic.runs.repository_access.repo_selection.resolve_team_github_integration_id",
+            return_value=123,
+        ),
+        patch(
+            "products.wizard.backend.logic.runs.repository_access.repo_selection.repository_accessible_via_integration",
+            return_value=True,
+        ),
+        patch(
+            "products.wizard.backend.logic.runs.dispatch.temporal_client.start_wizard_run_workflow",
+            side_effect=cancel_during_dispatch,
+        ),
+        patch(
+            "products.wizard.backend.logic.runs.cancellation.temporal_client.cancel_wizard_run_workflow"
+        ) as cancel_workflow,
+    ):
+        run = wizard_facade.create_run(
+            CreateWizardRunInput(
+                team_id=team.id,
+                created_by_id=user.id,
+                program_id="posthog-integration",
+                environment=WizardRunEnvironment.CLOUD,
+                idempotency_key="cloud-run-cancel-during-dispatch",
+                workspace=GitRepositoryWorkspace(repository="posthog/posthog"),
+            )
+        )
+
+    record = WizardRun.objects.for_team(team.id).get(id=run.id)
+    cancel_workflow.assert_called_once_with(run.id)
+    assert record.status == WizardRunStatus.CANCELLED.value
+    assert record.cancellation_requested_at is not None
+    assert record.cancellation_dispatched_at is not None
 
 
 @pytest.mark.django_db(transaction=True)
