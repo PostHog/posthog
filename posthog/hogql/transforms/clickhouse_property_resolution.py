@@ -1391,13 +1391,24 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         if not isinstance(node.right, ast.Constant) or node.right.value != 0:
             return None
-        if not isinstance(node.left, ast.Call) or node.left.name != "multiSearchAnyCaseInsensitive":
+        call = node.left
+        # The lambda below reads non-null array elements, so the inner call can never return null and the `ifNull` a
+        # caller wrapped it in has nothing left to do.
+        if (
+            isinstance(call, ast.Call)
+            and call.name == "ifNull"
+            and len(call.args) == 2
+            and isinstance(call.args[1], ast.Constant)
+            and call.args[1].value == 0
+        ):
+            call = call.args[0]
+        if not isinstance(call, ast.Call) or call.name != "multiSearchAnyCaseInsensitive":
             return None
-        if len(node.left.args) != 2:
+        if len(call.args) != 2:
             return None
 
-        prop = self._materialized_string_array_property(node.left.args[0], allow_to_string=True)
-        values = self._extract_string_constants(node.left.args[1])
+        prop = self._materialized_string_array_property(call.args[0], allow_to_string=True)
+        values = self._extract_string_constants(call.args[1])
         if prop is None or values is None:
             return None
 
