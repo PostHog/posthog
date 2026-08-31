@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { isMermaidCodeBlock } from './documentModel'
-import { NotebookBlockNode, NotebookCodeBlockNode } from './types'
+import { NotebookBlockNode, NotebookCodeBlockNode, NotebookMode } from './types'
 
 jest.mock('kea', () => ({
     useValues: () => ({ isDarkModeOn: false }),
@@ -33,6 +33,26 @@ function codeNode(text: string, language: string | undefined): NotebookCodeBlock
     return { id: 'block-1', type: 'code', language, text }
 }
 
+function renderBlock(
+    node: NotebookCodeBlockNode,
+    mode: NotebookMode,
+    overrides: Partial<Parameters<typeof NotebookMermaidBlock>[0]> = {}
+): ReturnType<typeof render> {
+    return render(
+        <NotebookMermaidBlock
+            node={node}
+            mode={mode}
+            setBlockRef={jest.fn()}
+            updateNode={jest.fn()}
+            deleteNode={jest.fn()}
+            deleteSelectedNotebookBlocks={jest.fn(() => false)}
+            insertParagraphAfterNode={jest.fn()}
+            moveFocusToAdjacentNode={jest.fn(() => false)}
+            {...overrides}
+        />
+    )
+}
+
 describe('NotebookMermaidBlock', () => {
     afterEach(() => {
         cleanup()
@@ -54,14 +74,7 @@ describe('NotebookMermaidBlock', () => {
         renderMock.mockResolvedValue({ svg: '<svg data-testid="rendered"><g/></svg>' })
         const setBlockRef = jest.fn()
 
-        render(
-            <NotebookMermaidBlock
-                node={codeNode('flowchart LR; A-->B', 'mermaid')}
-                mode="view"
-                setBlockRef={setBlockRef}
-                updateNode={jest.fn()}
-            />
-        )
+        renderBlock(codeNode('flowchart LR; A-->B', 'mermaid'), 'view', { setBlockRef })
 
         const container = await screen.findByTestId('mermaid-rendered')
         expect(container.innerHTML).toContain('rendered')
@@ -73,14 +86,7 @@ describe('NotebookMermaidBlock', () => {
     it('falls back to the plain source when the diagram fails to render', async () => {
         renderMock.mockRejectedValue(new Error('Parse error: bad syntax'))
 
-        render(
-            <NotebookMermaidBlock
-                node={codeNode('not-a-real-diagram', 'mermaid')}
-                mode="view"
-                setBlockRef={jest.fn()}
-                updateNode={jest.fn()}
-            />
-        )
+        renderBlock(codeNode('not-a-real-diagram', 'mermaid'), 'view')
 
         const errorContainer = await screen.findByTestId('mermaid-error')
         expect(errorContainer).toHaveTextContent('not-a-real-diagram')
@@ -95,7 +101,7 @@ describe('NotebookMermaidBlock', () => {
                 : Promise.resolve({ svg: '<svg data-testid="rendered"><g/></svg>' })
         )
 
-        render(<NotebookMermaidBlock node={node} mode="edit" setBlockRef={jest.fn()} updateNode={updateNode} />)
+        renderBlock(node, 'edit', { updateNode })
 
         fireEvent.click(screen.getByLabelText('Edit diagram'))
         const definition = screen.getByLabelText('Mermaid definition')
@@ -118,14 +124,7 @@ describe('NotebookMermaidBlock', () => {
     it('debounces the live preview so rapid edits do not each start a render', async () => {
         renderMock.mockResolvedValue({ svg: '<svg data-testid="rendered"><g/></svg>' })
 
-        render(
-            <NotebookMermaidBlock
-                node={codeNode('flowchart LR; A-->B', 'mermaid')}
-                mode="edit"
-                setBlockRef={jest.fn()}
-                updateNode={jest.fn()}
-            />
-        )
+        renderBlock(codeNode('flowchart LR; A-->B', 'mermaid'), 'edit')
 
         fireEvent.click(screen.getByLabelText('Edit diagram'))
         const definition = screen.getByLabelText('Mermaid definition')
@@ -139,4 +138,27 @@ describe('NotebookMermaidBlock', () => {
         expect(renderMock).not.toHaveBeenCalledWith(expect.any(String), 'flowchart LR; A-->C')
         expect(renderMock).not.toHaveBeenCalledWith(expect.any(String), 'flowchart LR; A-->CD')
     })
+
+    it.each([
+        [false, 1],
+        [true, 0],
+    ])(
+        'deletes the focused diagram block on Backspace when a multi-block selection handled it is %p',
+        (multiBlockHandled, expectedDeleteNodeCalls) => {
+            const deleteNode = jest.fn()
+            const deleteSelectedNotebookBlocks = jest.fn(() => multiBlockHandled)
+            const { container } = renderBlock(codeNode('flowchart LR; A-->B', 'mermaid'), 'edit', {
+                deleteNode,
+                deleteSelectedNotebookBlocks,
+            })
+
+            const block = container.querySelector('.MarkdownNotebook__mermaid-block') as HTMLElement
+            expect(block).toHaveAttribute('tabindex', '0')
+            block.focus()
+            fireEvent.keyDown(block, { key: 'Backspace' })
+
+            expect(deleteSelectedNotebookBlocks).toHaveBeenCalledTimes(1)
+            expect(deleteNode).toHaveBeenCalledTimes(expectedDeleteNodeCalls)
+        }
+    )
 })

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react'
+import { KeyboardEvent, Suspense, lazy, useState } from 'react'
 
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { updateNotebookCodeBlockText } from './documentModel'
+import { InsertMenuSelectionDirection } from './editorTypes'
 import { NotebookBlockNode, NotebookCodeBlockNode, NotebookMode } from './types'
 
 // Loaded on demand so the mermaid library ships in its own chunk rather than the notebook bundle.
@@ -23,11 +24,19 @@ export function NotebookMermaidBlock({
     mode,
     setBlockRef,
     updateNode,
+    deleteNode,
+    deleteSelectedNotebookBlocks,
+    insertParagraphAfterNode,
+    moveFocusToAdjacentNode,
 }: {
     node: NotebookCodeBlockNode
     mode: NotebookMode
     setBlockRef: (element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    deleteNode: () => void
+    deleteSelectedNotebookBlocks: () => boolean
+    insertParagraphAfterNode: () => void
+    moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
 }): JSX.Element {
     const [isEditorOpen, setIsEditorOpen] = useState(false)
     const [draft, setDraft] = useState(node.text)
@@ -54,6 +63,35 @@ export function NotebookMermaidBlock({
             })
         }
         setIsEditorOpen(false)
+    }
+
+    // The rendered diagram takes no caret, so mirror the atomic-block keyboard contract used by
+    // DividerBlock: a focused block deletes on Backspace or Delete, moves focus on the arrow keys,
+    // and inserts a paragraph below on Enter.
+    const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        if (mode !== 'edit' || event.target !== event.currentTarget) {
+            return
+        }
+
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+            event.preventDefault()
+            if (!deleteSelectedNotebookBlocks()) {
+                deleteNode()
+            }
+            return
+        }
+
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            if (moveFocusToAdjacentNode(node.id, event.key === 'ArrowDown' ? 'next' : 'previous', 0)) {
+                event.preventDefault()
+            }
+            return
+        }
+
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            insertParagraphAfterNode()
+        }
     }
 
     const renderPreview = (code: string, naturalWidth: boolean): JSX.Element => (
@@ -91,7 +129,9 @@ export function NotebookMermaidBlock({
             className="MarkdownNotebook__mermaid-block"
             ref={setBlockRef}
             contentEditable={false}
+            tabIndex={mode === 'edit' ? 0 : undefined}
             data-markdown-notebook-node-id={node.id}
+            onKeyDown={handleKeyDown}
         >
             <div className="MarkdownNotebook__mermaid-preview">{renderPreview(node.text, true)}</div>
             {mode === 'edit' ? (

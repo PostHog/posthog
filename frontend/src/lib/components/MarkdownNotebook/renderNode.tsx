@@ -233,7 +233,18 @@ export function renderNode({
 
     if (node.type === 'code') {
         if (isMermaidCodeBlock(node)) {
-            return <NotebookMermaidBlock node={node} mode={mode} setBlockRef={setBlockRef} updateNode={updateNode} />
+            return (
+                <NotebookMermaidBlock
+                    node={node}
+                    mode={mode}
+                    setBlockRef={setBlockRef}
+                    updateNode={updateNode}
+                    deleteNode={deleteNode}
+                    deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
+                    insertParagraphAfterNode={insertParagraphAfterNode}
+                    moveFocusToAdjacentNode={moveFocusToAdjacentNode}
+                />
+            )
         }
 
         return (
