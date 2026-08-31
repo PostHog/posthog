@@ -3032,6 +3032,10 @@ export interface AccountsTableAssignedToFilter {
     userIds: integer[]
 }
 
+export interface AccountsTableAssignedFilter {
+    kind: 'assigned'
+}
+
 export interface AccountsTableUnassignedFilter {
     kind: 'unassigned'
 }
@@ -3094,6 +3098,7 @@ export type AccountsTableFilter =
     | AccountsTableSearchFilter
     | AccountsTableTagsFilter
     | AccountsTableAssignedToFilter
+    | AccountsTableAssignedFilter
     | AccountsTableUnassignedFilter
     | AccountsTableAccountIdFilter
     | AccountsTableAccountFieldFilter

@@ -19,6 +19,7 @@ from posthog.schema import (
     AccountsTableAccountIdFilter,
     AccountsTableAggregateMetric,
     AccountsTableAggregation,
+    AccountsTableAssignedFilter,
     AccountsTableAssignedToFilter,
     AccountsTableCountMetric,
     AccountsTableCountThresholdMetric,
@@ -456,6 +457,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             user=self.user,
         )
 
+        assigned_response = self._run(AccountsTableQuery(columns=[], filters=[AccountsTableAssignedFilter()]))
         unassigned_response = self._run(AccountsTableQuery(columns=[], filters=[AccountsTableUnassignedFilter()]))
         account_response = self._run(
             AccountsTableQuery(
@@ -464,6 +466,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             )
         )
 
+        assert [row.id for row in assigned_response.results] == [str(assigned_account.id)]
         assert [row.id for row in unassigned_response.results] == [str(unassigned_account.id)]
         assert [row.id for row in account_response.results] == [str(assigned_account.id)]
 
