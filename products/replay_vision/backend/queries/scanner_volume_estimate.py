@@ -10,8 +10,11 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import (
+    ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
@@ -30,6 +33,22 @@ ESTIMATE_WINDOW_DAYS = 30
 # Fallback sample rate for events subqueries; matched counts are corrected back up.
 _ESTIMATE_EVENTS_SAMPLE_FACTOR = 0.1
 _EXACT_ATTEMPT_BUDGET_FRACTION = 0.5
+
+# The exact attempt shares the dedicated `replay_vision` pool with the sweep and backfill workers. Under
+# load it can time out, be rejected as too slow, hit a memory limit, be rejected at capacity, or be killed
+# while still queued (code 394). Each means the exact plan did not run, not that no answer exists, so fall
+# back to the cheaper sampled plan. 394 is opt-in here: the shared CH_TRANSIENT_ERRORS leaves it out
+# because a deploy and a hand-kill look alike, but a saturated pool dropping a queued estimate is the
+# retryable case, not an operator shedding load. ClickHouseClusterMemoryLimitExceeded is covered by its
+# ClickHouseQueryMemoryLimitExceeded base.
+_EXACT_ATTEMPT_FALLBACK_ERRORS = (
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseAtCapacity,
+    ConcurrencyLimitExceeded,
+    CHQueryErrorQueryWasCancelled,
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -99,9 +118,10 @@ def estimate_scanner_session_volume(
     """Count sessions matching `query` over a recent window, for the scanner cost preview.
 
     Reuses `SessionRecordingListFromQuery`'s filter compilation so the estimate and the real
-    recordings list agree on what "matches". The exact count runs first; when it times out, is
-    rejected as too slow, or hits a memory limit, it retries with sampled events subqueries and
-    corrects the count back up (`sampled=True` on the result).
+    recordings list agree on what "matches". The exact count runs first; when it fails for a reason
+    that means the exact plan did not run (a timeout, a too-slow rejection, a memory limit, a capacity
+    rejection, or a pending-state cancellation under pool pressure), it retries with sampled events
+    subqueries and corrects the count back up (`sampled=True` on the result).
 
     `user` is the principal the experiment_exposure filter's access check runs as. With no
     principal (a genuinely userless caller, or a scanner whose creator was deleted) the exposure
@@ -163,11 +183,7 @@ def estimate_scanner_session_volume(
             scan_window_days=scan_window_days,
             ch_user=ch_user,
         )
-    except (
-        ClickHouseQueryTimeOut,
-        ClickHouseEstimatedQueryExecutionTimeTooLong,
-        ClickHouseQueryMemoryLimitExceeded,
-    ):
+    except _EXACT_ATTEMPT_FALLBACK_ERRORS:
         # Full budget: halving it fails teams whose sampled count needs more than half.
         return _execute_estimate_query(
             sampled_plan,

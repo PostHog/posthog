@@ -15,6 +15,14 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import CHQueryErrorQueryWasCancelled
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
@@ -22,7 +30,7 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.experiments.backend.models.experiment import Experiment
-from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
+from products.replay_vision.backend.api.scanners import ESTIMATE_MAX_ATTEMPTS, ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
@@ -43,7 +51,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.models.vision_action import VisionAction
-from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
+from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET, ScannerVolumeEstimate
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
@@ -3472,6 +3480,62 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         resp = self.client.post(self.estimate_url, data={"scanner_id": str(other_scanner.id)}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "scanner_id")
+
+    @parameterized.expand(
+        [
+            ("capacity", ClickHouseAtCapacity),
+            ("concurrency", ConcurrencyLimitExceeded),
+            ("cancelled", lambda: CHQueryErrorQueryWasCancelled("cancelled")),
+        ]
+    )
+    @patch("products.replay_vision.backend.api.scanners.time.sleep")
+    @patch("products.replay_vision.backend.api.scanners.estimate_scanner_session_volume")
+    def test_estimate_retries_a_saturated_pool_then_succeeds(
+        self, _name: str, error_factory: Any, mock_estimate: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        # The cost preview shares the dedicated pool with background scanning and loses the race under
+        # load. A fast-failing capacity error is transient, so one retry returns the estimate.
+        mock_estimate.side_effect = [
+            error_factory(),
+            ScannerVolumeEstimate(matched_sessions=7, effective_window_days=7),
+        ]
+        resp = self.client.post(self.estimate_url, data={}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["matched_sessions_in_window"], 7)
+        self.assertEqual(mock_estimate.call_count, 2)
+
+    @patch("products.replay_vision.backend.api.scanners.time.sleep")
+    @patch("products.replay_vision.backend.api.scanners.estimate_scanner_session_volume")
+    def test_estimate_maps_a_persistently_busy_pool_to_an_actionable_503(
+        self, mock_estimate: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        mock_estimate.side_effect = ClickHouseAtCapacity()
+        resp = self.client.post(self.estimate_url, data={}, format="json")
+        # A raw 500 reached the cost card before; now it maps to an actionable message after one retry.
+        self.assertEqual(resp.status_code, 503, resp.json())
+        self.assertIn("busy", resp.json()["detail"])
+        self.assertEqual(mock_estimate.call_count, ESTIMATE_MAX_ATTEMPTS)
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut, 504),
+            ("too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong, 512),
+            ("memory", ClickHouseQueryMemoryLimitExceeded, 513),
+        ]
+    )
+    @patch("products.replay_vision.backend.api.scanners.time.sleep")
+    @patch("products.replay_vision.backend.api.scanners.estimate_scanner_session_volume")
+    def test_estimate_keeps_a_budget_spent_errors_native_status_without_re_running(
+        self, _name: str, error_class: type, expected_status: int, mock_estimate: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        # A query that already spent its budget won't finish on a re-run. Each failure keeps its own
+        # actionable status and "narrow your filters" guidance instead of the busy-pool 503, and is
+        # not retried.
+        mock_estimate.side_effect = error_class()
+        resp = self.client.post(self.estimate_url, data={}, format="json")
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+        self.assertNotIn("busy", resp.json()["detail"])
+        self.assertEqual(mock_estimate.call_count, 1)
 
 
 class TestScannerSpend(_VisionAPITestCase):
