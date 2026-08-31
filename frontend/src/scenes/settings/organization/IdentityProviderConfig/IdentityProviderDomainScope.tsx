@@ -15,7 +15,7 @@ export function IdentityProviderDomainScope({
 }): JSX.Element {
     return (
         <div className="space-y-4">
-            <LemonField name="domain_scope" label="Domain scope">
+            <LemonField name="domain_scope" label="Domains">
                 {({ value, onChange }) => (
                     <LemonRadio
                         value={value}
@@ -40,7 +40,7 @@ export function IdentityProviderDomainScope({
                 )}
             </LemonField>
             {domainScope === DomainScopeEnumApi.Selected && (
-                <LemonField name="organization_domain_ids" label="Domains">
+                <LemonField name="organization_domain_ids">
                     <LemonInputSelect
                         mode="multiple"
                         options={domains.map((domain) => ({
