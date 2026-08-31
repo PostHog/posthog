@@ -431,6 +431,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             try {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    // No team resolved yet (e.g. a hard load straight onto a clusters URL).
+                    // Settle the flag anyway so callers gated on it — waitForEvaluationsSettled —
+                    // don't wait forever for a fetch that was never going to happen.
+                    actions.loadEvaluationsFailure()
                     return
                 }
 

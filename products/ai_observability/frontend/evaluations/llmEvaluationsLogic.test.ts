@@ -1,6 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -381,6 +382,20 @@ describe('llmEvaluationsLogic', () => {
                     evaluationWithOutputConfig('legacy', {}),
                 ])
             }).toMatchValues({ detectorEvaluationIds: ['detector'] })
+        })
+    })
+
+    describe('evaluationsLoading', () => {
+        it('clears when no team is available, instead of hanging forever', async () => {
+            // A hard load straight onto a scene before the team resolves is a real way to hit
+            // this: currentTeamId reads null, and the loader must still settle.
+            teamLogic.actions.loadCurrentTeamSuccess(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluations()
+            }).toDispatchActions(['loadEvaluations', 'loadEvaluationsFailure'])
+
+            expect(logic.values.evaluationsLoading).toBe(false)
         })
     })
 })
