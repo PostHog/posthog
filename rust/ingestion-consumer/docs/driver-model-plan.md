@@ -2,7 +2,7 @@
 
 Status: **draft, for discussion**.
 
-This plan implements the [driver-model redesign](https://github.com/PostHog/posthog/blob/pl/ingestion/consumer-redesign-doc/rust/ingestion-consumer/docs/driver-model.md) (#89277) in small steps.
+This plan implements the [driver-model redesign](https://github.com/PostHog/posthog/blob/pl/ingestion/consumer-redesign-doc/rust/ingestion-consumer/docs/driver-model.md) ([#89277](https://github.com/PostHog/posthog/pull/89277)) in small steps.
 Each step is one PR.
 
 ## Starting point
@@ -10,8 +10,8 @@ Each step is one PR.
 The plan starts from current master.
 Master already contains two parts of the design:
 
-- The routing key is the opaque Kafka message key (#90282). A message without a key gets a synthetic per-message key.
-- Each worker has one long-lived ordered gRPC stream (#85238, #90790). The stream runner keeps an un-acked ledger, resolves acks in send order, applies an ack watchdog, and fences on failure.
+- The routing key is the opaque Kafka message key ([#90282](https://github.com/PostHog/posthog/pull/90282)). A message without a key gets a synthetic per-message key.
+- Each worker has one long-lived ordered gRPC stream ([#85238](https://github.com/PostHog/posthog/pull/85238), [#90790](https://github.com/PostHog/posthog/pull/90790)). The stream runner keeps an un-acked ledger, resolves acks in send order, applies an ack watchdog, and fences on failure.
 
 An assignment epoch also exists.
 A rebalance increments it, and every sub-batch carries it.
@@ -49,11 +49,12 @@ After that, the cycles run in order, with two exceptions.
 Cycle 3 does not depend on cycle 2, so it can proceed while cycle 2 soaks.
 Cycle 4 needs only cycle 3's switchover, so it can proceed while cycle 3's cleanup soaks.
 Cycle 8 needs cycles 2 and 3.
+The numbered order is one valid schedule, not the only one: the [cycle dependency graph](#cycle-dependencies) at the end shows the full ordering freedom.
 
 The swap unit in cycle 3 is the **scheduler**: the decision core that says which runs may go to a worker now, and where.
 That is where the complexity concentrates — the pins, the stash, and the flush interplay.
 Packing follows at once (cycle 4): the performance win depends only on the key-table scheduler, not on the event loop, decoupled commits, or the budget.
-The request time budget follows packing (cycle 5): its enforcement precondition is the one-outstanding-request-per-key rule (#89995), and its budget sizes against the packed request size.
+The request time budget follows packing (cycle 5): its enforcement precondition is the one-outstanding-request-per-key rule ([#89995](https://github.com/PostHog/posthog/pull/89995)), and its budget sizes against the packed request size.
 The governor follows (cycle 6): it needs the scheduler's ready queue for its growth signal, and it comes after packing and the time budget, so RTT (request round-trip time) tunes once, against the final request shape.
 The single-owner event loop follows as its own outcome (cycle 7), once the scheduler is simple.
 
@@ -399,8 +400,8 @@ Outcome: a worker stops a request at the consumer's time budget, acks the finish
 Today one slow message holds every message behind it until the ack watchdog fences the whole stream, and everything unacked replays with duplicate work.
 This budget is time per request. It is not B, the uncommitted-work budget of cycle 9.
 
-It needs #89995 merged on the worker side (`soft_budget_ms` on the wire, the `PARTIAL` ack).
-It needs cycle 3: one outstanding request per key is #89995's stated enforcement precondition.
+It needs [#89995](https://github.com/PostHog/posthog/pull/89995) merged on the worker side (`soft_budget_ms` on the wire, the `PARTIAL` ack).
+It needs cycle 3: one outstanding request per key is [#89995](https://github.com/PostHog/posthog/pull/89995)'s stated enforcement precondition.
 It sizes the budget against cycle 4's request size. Its cap on request RTT matters for cycle 6: set `REQUEST_LATENCY_BUDGET` below the soft budget, or the governor never shrinks.
 
 **Verify:** a generous budget on one lane enforces rarely and exercises the real partial-ack path at negligible volume.
@@ -414,7 +415,7 @@ Exit criterion: partial acks resolve and their remainders redeliver in order, ze
 
 - The stream runner parses `PARTIAL` and resolves the send with the accepted index list, instead of fencing it as busy.
 - The scheduler's partial arm is the failure arm plus a completed prefix: complete each key's finished prefix as group completions, return the remainder to the front of its queue, and keep the key blocked until the redelivery settles.
-- The prototype against the old machinery (#91480) showed the cost of doing this earlier: concurrent polls and per-batch accounting push partial handling through the deferral paths. Behind the key table it is one `on_settled` arm.
+- The prototype against the old machinery ([#91480](https://github.com/PostHog/posthog/pull/91480)) showed the cost of doing this earlier: concurrent polls and per-batch accounting push partial handling through the deferral paths. Behind the key table it is one `on_settled` arm.
 - Stamp `soft_budget_ms` on each request from config. Unset sends no budget.
 
 **Interfaces:**
@@ -707,6 +708,53 @@ The steady-state dashboard after the migration:
 - Rebalance: `ingestion_consumer_drain_duration_seconds` and `ingestion_consumer_drain_dropped_messages_total`.
 
 The budget occupancy and the request-size histograms are also the worker-autoscaling signals from section 5 of the design doc.
+
+## Cycle dependencies
+
+The cycles do not have to run linearly.
+A solid arrow is a hard dependency.
+A dashed arrow is an ordering preference: its reason is stated in the target cycle's intro, and breaking it costs retuning or a larger diff, not correctness.
+
+```mermaid
+flowchart LR
+    C1["1: one resolve protocol"]
+    C2["2: frontier commits"]
+    C3["3: one request per key"]
+    C4["4: target-sized requests"]
+    C5["5: partial redelivery"]
+    C6["6: adaptive concurrency"]
+    C7["7: single-owner batcher"]
+    C8["8: decoupled commits"]
+    C9["9: bounded replay"]
+    C10["10: clean handoff"]
+    PR(["#89995 worker side"])
+
+    C1 --> C3
+    C3 --> C4
+    C3 --> C5
+    C3 --> C6
+    C3 --> C7
+    C3 --> C8
+    C3 --> C10
+    C2 --> C8
+    C2 --> C9
+    PR --> C5
+    C4 -.-> C5
+    C4 -.-> C6
+    C5 -.-> C6
+    C6 -.-> C7
+    C8 -.-> C9
+    C9 -.-> C10
+```
+
+What the graph permits:
+
+- Cycles 1 and 2 start in parallel. Neither depends on the other.
+- After cycle 3, four tracks can run side by side: the request track (4, then 5, then 6), the collapse (7), decoupled commits (8, once cycle 2 is done), and the drain (10).
+- Cycle 9 hard-depends only on cycle 2. The dashed edge from cycle 8 exists because group-level completion makes the refunds fine-grained before the admission cap is removed.
+- The dashed edges into cycle 6 are the tune-once argument: packing makes request sizes uniform, and the time budget caps RTT, so the governor tunes against the final distribution.
+- The dashed edge into cycle 7 saves a move: the loop takes the scheduler, packer, and governor in one transformation instead of re-homing components later.
+- The dashed edge into cycle 10 covers one detail: the drain refunds budget charge, which exists after cycle 9. Without cycle 9 the drain refunds nothing and still works.
 
 ## Later work
 
