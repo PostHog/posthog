@@ -22,7 +22,9 @@ from products.skills.backend.models.skills import LLMSkill
 logger = logging.getLogger(__name__)
 
 # Naming contract for review perspectives (mirrors `SIGNALS_SCOUT_SKILL_PREFIX`): any team skill with
-# this prefix is a perspective. Canonical and custom are identical except canonicals auto-seed enabled.
+# this prefix is a perspective. Canonical and custom are identical in shape; only default-enabled
+# canonicals auto-seed enabled, while opt-in canonicals and customs stay off until a user switches
+# them on.
 REVIEW_HOG_PERSPECTIVE_PREFIX = "review-hog-perspective-"
 
 # Canonical perspectives that auto-seed ENABLED on a user's first run. `PerspectiveType` is just this
