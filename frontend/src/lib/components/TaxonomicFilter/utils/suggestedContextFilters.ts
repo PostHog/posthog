@@ -52,16 +52,24 @@ export function filterRecentsForContext(
     return expandRecentsForDisplay(inScope, selectingKeyOnly)
 }
 
-/** Pinned items whose source group is one of the picker's groups. */
+/** Pinned items whose source group is one of the picker's groups, with the group's
+ *  excluded values dropped. */
 export function filterPinnedForContext(
     pinnedFilterItems: TaxonomicDefinitionTypes[],
-    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes: TaxonomicFilterGroupType[],
+    excludedProperties?: ExcludedProperties
 ): TaxonomicDefinitionTypes[] {
     if (!pinnedFilterItems?.length) {
         return []
     }
     const availableTypes = new Set(taxonomicGroupTypes)
-    return pinnedFilterItems.filter(
-        (item) => hasPinnedContext(item) && availableTypes.has(item._pinnedContext.sourceGroupType)
-    )
+    return pinnedFilterItems.filter((item) => {
+        if (!hasPinnedContext(item) || !availableTypes.has(item._pinnedContext.sourceGroupType)) {
+            return false
+        }
+        // A pin outlives the picker it was made in, so a value pinned elsewhere reaches a picker
+        // that forbids it. Recents drop excluded values for the same reason.
+        const excludedValues = excludedProperties?.[item._pinnedContext.sourceGroupType]
+        return !(excludedValues?.length && excludedValues.includes(item._pinnedContext.value))
+    })
 }
