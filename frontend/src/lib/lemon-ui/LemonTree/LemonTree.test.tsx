@@ -94,6 +94,38 @@ describe('LemonTree', () => {
         expect(onFolderClick).not.toHaveBeenCalled()
     })
 
+    it('does not expand an empty-children leaf on ArrowRight', () => {
+        const onFolderClick = jest.fn()
+        const treeRef = createRef<LemonTreeRef>()
+        // A node without a chevron must not toggle hidden expansion state from the keyboard.
+        const data: TreeDataItem[] = [{ id: 'events', name: 'events', children: [] }]
+
+        render(<LemonTree ref={treeRef} data={data} onFolderClick={onFolderClick} />)
+        act(() => {
+            treeRef.current?.focusItem('events')
+        })
+        fireEvent.keyDown(screen.getByLabelText('tree item: events'), { key: 'ArrowRight' })
+
+        expect(onFolderClick).not.toHaveBeenCalled()
+    })
+
+    it('toggles an explicit empty folder on Enter instead of activating it', () => {
+        const onItemClick = jest.fn()
+        const onFolderClick = jest.fn()
+        const treeRef = createRef<LemonTreeRef>()
+        // A directory typed as a folder with lazily-filled children still reads as a folder.
+        const data: TreeDataItem[] = [{ id: 'dir', name: 'dir', record: { type: 'folder' }, children: [] }]
+
+        render(<LemonTree ref={treeRef} data={data} onItemClick={onItemClick} onFolderClick={onFolderClick} />)
+        act(() => {
+            treeRef.current?.focusItem('dir')
+        })
+        fireEvent.keyDown(screen.getByLabelText('tree item: dir'), { key: 'Enter' })
+
+        expect(onFolderClick).toHaveBeenCalledTimes(1)
+        expect(onItemClick).not.toHaveBeenCalled()
+    })
+
     it('renders only the visible window while scrolling', async () => {
         const data: TreeDataItem[] = [
             {

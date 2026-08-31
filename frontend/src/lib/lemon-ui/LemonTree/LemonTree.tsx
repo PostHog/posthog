@@ -42,6 +42,7 @@ import {
     TreeNodeDisplayIcon,
     TreeNodeDraggable,
     TreeNodeDroppable,
+    isTreeItemFolder,
 } from './LemonTreeUtils'
 
 export type LemonTreeDragEndEvent = DragEndEvent & { position: TreeDropPosition }
@@ -297,7 +298,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
         const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
 
         const displayName = item.displayName ?? item.name
-        const isFolder = (item.children && item.children.length > 0) || item.record?.type === 'folder'
+        const isFolder = isTreeItemFolder(item)
         const isEmptyFolder = item.type === 'empty-folder'
         const folderLinesOffset = DEPTH_OFFSET
         const emptySpaceOffset = DEPTH_OFFSET
@@ -1030,7 +1031,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 isKeyboardAction = false,
                 event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
             ): void => {
-                const isFolder = (item?.children && item?.children?.length > 0) || item?.record?.type === 'folder'
+                const isFolder = isTreeItemFolder(item)
 
                 // Handle click on a node
                 if (!isFolder) {
@@ -1042,7 +1043,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             focusContent()
                         }
                     }
-                } else if (isFolder) {
+                } else if (isFolder && item) {
                     // Handle click on a folder
                     if (onFolderClick) {
                         // Update expanded state
@@ -1104,11 +1105,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         e.preventDefault()
                         const currentItem = visibleItems[currentIndex]
                         // Expand folder if current item is an unexpanded, non-disabled folder
-                        if (
-                            currentItem?.children &&
-                            currentItem?.children?.length >= 0 &&
-                            !currentItem.disabledReason
-                        ) {
+                        if (isTreeItemFolder(currentItem) && !currentItem.disabledReason) {
                             // If folder is not expanded, expand it
                             if (!expandedItemIdsState.includes(currentItem.id)) {
                                 onFolderClick?.(currentItem, false)
@@ -1135,11 +1132,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         const currentItem = visibleItems[currentIndex]
 
                         // If current item is an expanded folder, collapse it
-                        if (
-                            currentItem?.children &&
-                            currentItem?.children?.length >= 0 &&
-                            expandedItemIdsState.includes(currentItem.id)
-                        ) {
+                        if (isTreeItemFolder(currentItem) && expandedItemIdsState.includes(currentItem.id)) {
                             const newExpandedIds = expandedItemIdsState.filter((id) => id !== currentItem.id)
                             setExpandedItemIdsState(newExpandedIds)
                             onSetExpandedItemIds && onSetExpandedItemIds(newExpandedIds)
@@ -1251,7 +1244,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
                         // Skip if item is disabled
                         if (!currentItem.disabledReason) {
-                            if (currentItem.children && currentItem.children?.length > 0) {
+                            if (isTreeItemFolder(currentItem)) {
                                 // Toggle folder expanded state
                                 if (expandedItemIdsState.includes(currentItem.id)) {
                                     onFolderClick?.(currentItem, false)
