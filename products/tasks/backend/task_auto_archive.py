@@ -27,12 +27,13 @@ _NON_TERMINAL_RUN_STATUSES = (
 
 def _archivable_tasks(*, channel_id: UUID, team_id: int, cutoff: datetime, now: datetime) -> QuerySet[Task]:
     active_run = TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
-        task_id=OuterRef("pk"), status__in=_NON_TERMINAL_RUN_STATUSES
+        task_id=OuterRef("pk"), team_id=team_id, status__in=_NON_TERMINAL_RUN_STATUSES
     )
-    pin = TaskPin.objects.filter(task_id=OuterRef("pk"))
-    active_presence = TaskPresence.objects.unscoped().filter(
-        task_id=OuterRef("pk"), team_id=team_id, expires_at__gt=now
+    pin = TaskPin.objects.filter(
+        task_id=OuterRef("pk"),
+        task__team_id=team_id,
     )
+    active_presence = TaskPresence.objects.for_team(team_id).filter(task_id=OuterRef("pk"), expires_at__gt=now)
     return (
         Task.objects.filter(  # nosemgrep: celery-task-team-scope-audit
             channel_id=channel_id,

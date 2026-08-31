@@ -99,3 +99,26 @@ class TestTaskAutoArchive(TestCase):
         no_longer_viewed.refresh_from_db()
         self.assertFalse(viewed.archived)
         self.assertTrue(no_longer_viewed.archived)
+
+    def test_sweep_scopes_protection_checks_to_the_task_team(self) -> None:
+        other_team = Team.objects.create(organization=self.team.organization, name="Other Team")
+        channel = self._channel(name="scoped", inactivity_days=1)
+        stale = self._task(channel=channel, age_days=3)
+        push_token = UserPushToken.objects.create(
+            user=self.user,
+            token="ExponentPushToken[other-team-auto-archive-test]",
+            platform=UserPushToken.Platform.IOS,
+        )
+        TaskRun.objects.create(task=stale, team=other_team, status=TaskRun.Status.IN_PROGRESS)
+        TaskPresence.objects.for_team(other_team.id).create(
+            team=other_team,
+            task=stale,
+            user=self.user,
+            push_token=push_token,
+            expires_at=self.now + timedelta(minutes=1),
+        )
+
+        self.assertEqual(sweep_inactive_tasks(at=self.now), 1)
+
+        stale.refresh_from_db()
+        self.assertTrue(stale.archived)
