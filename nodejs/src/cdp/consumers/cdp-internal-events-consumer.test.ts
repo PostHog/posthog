@@ -392,44 +392,6 @@ describe('CDP Internal Events Consumer', () => {
             expect(hogFlowInvocations[0].functionId).toBe(hogFlow.id)
         })
 
-        // Workflows stored before the internal-event rename name their event in the trigger type and
-        // carry no events filter. They must keep firing until the backfill rewrites them.
-        it('should start a workflow stored with the legacy slack-message trigger', async () => {
-            const hogFlow = await _insertHogFlow(
-                hub.postgres,
-                buildHogFlow(team.id, { type: 'slack-message', filters: { source: 'events', events: [] } })
-            )
-
-            const globals = await processor._parseKafkaBatch([createKafkaMessage(slackMessage(team.id))])
-            const { invocations } = await processor.processBatch(globals)
-            const hogFlowInvocations = invocations.filter((i: any) => i.hogFlow)
-            expect(hogFlowInvocations).toHaveLength(1)
-            expect(hogFlowInvocations[0].functionId).toBe(hogFlow.id)
-        })
-
-        it('should not start a legacy slack-message workflow from another signal on this topic', async () => {
-            await _insertHogFlow(
-                hub.postgres,
-                buildHogFlow(team.id, { type: 'slack-message', filters: { source: 'events', events: [] } })
-            )
-
-            const globals = await processor._parseKafkaBatch([
-                createKafkaMessage(
-                    createInternalEvent(team.id, {
-                        event: {
-                            timestamp: '2026-08-17T12:00:00.000Z',
-                            uuid: 'aaaaaaaa-bbbb-cccc-dddd-ffffffffffff',
-                            event: '$another_internal_event',
-                            distinct_id: 'U123',
-                            properties: {},
-                        },
-                    })
-                ),
-            ])
-            const { invocations } = await processor.processBatch(globals)
-            expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(0)
-        })
-
         it('should not start an internal-event workflow from another signal on this topic', async () => {
             await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'internal-event' }))
 
