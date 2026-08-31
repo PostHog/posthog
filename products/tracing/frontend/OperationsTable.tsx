@@ -135,6 +135,10 @@ function buildColumns(windowMs: number): VirtualizedTableColumn<AggregatedSpanRo
     ]
 }
 
+function operationRowKey(row: AggregatedSpanRow): string {
+    return `${row.service_name}::${row.name}`
+}
+
 export interface OperationsTableProps {
     rows: AggregatedSpanRow[]
     loading: boolean
@@ -152,7 +156,7 @@ export function OperationsTable({ rows, loading, windowMs, onRowClick }: Operati
             columns={columns}
             dataSource={rows}
             loading={loading}
-            rowKey={(row) => `${row.service_name}::${row.name}`}
+            rowKey={operationRowKey}
             onRowClick={onRowClick}
             defaultSort={{ columnKey: 'total_time', order: -1 }}
             emptyLabel="No operations found for these filters"

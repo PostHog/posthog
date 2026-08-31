@@ -72,26 +72,15 @@ function SpanHeaderCell({
     sort,
 }: {
     columnKey: string
-    label: string
+    /** Omit for a column with no heading, e.g. row actions. */
+    label?: string
     widths: Record<string, number>
     columns: ResizableColumns
     sort?: { column: TracingOrderBy } & SortProps
 }): JSX.Element {
     const active = sort ? sort.orderBy === sort.column : false
     return (
-        <TableHeaderCell
-            width={widths[columnKey]}
-            resize={
-                columns.isResizable(columnKey)
-                    ? {
-                          columnLabel: label,
-                          onResizeStart: (event) => columns.startResize(columnKey, event),
-                          onNudge: (direction) => columns.nudgeWidth(columnKey, direction),
-                          onReset: () => columns.resetWidth(columnKey),
-                      }
-                    : undefined
-            }
-        >
+        <TableHeaderCell width={widths[columnKey]} resize={columns.resizeHandleProps(columnKey, label ?? columnKey)}>
             {sort ? (
                 <button
                     type="button"
@@ -105,7 +94,7 @@ function SpanHeaderCell({
                     <SortingIndicator order={active ? (sort.orderDirection === 'ASC' ? 1 : -1) : null} />
                 </button>
             ) : (
-                label
+                (label ?? null)
             )}
         </TableHeaderCell>
     )
@@ -144,7 +133,7 @@ function SpanRowHeader({
             <SpanHeaderCell {...shared} columnKey="status" label="Status" />
             <SpanHeaderCell {...shared} columnKey="traceId" label="Trace ID" />
             {/* Row actions need no heading. */}
-            <TableHeaderCell width={widths.actions}>{null}</TableHeaderCell>
+            <SpanHeaderCell {...shared} columnKey="actions" />
         </div>
     )
 }

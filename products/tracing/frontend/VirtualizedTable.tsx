@@ -54,14 +54,7 @@ function HeaderCell({
     onSort: (key: string) => void
 }): JSX.Element {
     const label = column.tooltip ? <Tooltip title={column.tooltip}>{column.title}</Tooltip> : column.title
-    const resize = columns.isResizable(column.key)
-        ? {
-              columnLabel: typeof column.title === 'string' ? column.title : column.key,
-              onResizeStart: (event: React.PointerEvent) => columns.startResize(column.key, event),
-              onNudge: (direction: -1 | 1) => columns.nudgeWidth(column.key, direction),
-              onReset: () => columns.resetWidth(column.key),
-          }
-        : undefined
+    const resize = columns.resizeHandleProps(column.key, typeof column.title === 'string' ? column.title : column.key)
     const active = sortKey === column.key
     return (
         <TableHeaderCell width={width} align={column.align} resize={resize}>

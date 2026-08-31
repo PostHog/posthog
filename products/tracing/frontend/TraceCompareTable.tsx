@@ -126,20 +126,7 @@ function CompareHeaderCell({
 } & SortProps): JSX.Element {
     const active = sortColumn === column
     return (
-        <TableHeaderCell
-            width={widths[column]}
-            align={align}
-            resize={
-                columns.isResizable(column)
-                    ? {
-                          columnLabel: label,
-                          onResizeStart: (event) => columns.startResize(column, event),
-                          onNudge: (direction) => columns.nudgeWidth(column, direction),
-                          onReset: () => columns.resetWidth(column),
-                      }
-                    : undefined
-            }
-        >
+        <TableHeaderCell width={widths[column]} align={align} resize={columns.resizeHandleProps(column, label)}>
             <button
                 type="button"
                 className={cn(
