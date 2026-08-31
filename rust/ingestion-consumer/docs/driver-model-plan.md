@@ -44,6 +44,8 @@ That is where the complexity concentrates — the pins, the stash, and the flush
 Placement (P2C, aperture) and send execution (stream runners) already match the target design and are not rebuilt.
 The single-owner event loop is only plumbing once the scheduler is simple, so it moves last.
 
+Each change ends with its interface impact: the types it adds, modifies, or removes.
+
 | # | Type | Change |
 | --- | --- | --- |
 | 1 | Structure | Add the offset ledger module |
@@ -76,6 +78,10 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - Kafka delivers offsets with gaps (transactions, compaction). Contiguity means the prefix of delivered offsets, not offset arithmetic.
 - Add property tests: out-of-order completion, monotonic frontier, offset gaps, ring capacity.
 
+**Interfaces:**
+
+- Add `OffsetLedger` in `ledger.rs`: `charge`, `complete`, `frontier`. No callers yet. The name avoids a clash with the stream runner's internal un-acked ledger.
+
 ### 2. Run the ledger in shadow mode (structure)
 
 **Task:** Wire the ledger next to the commit path. Compare its frontier with each real commit. Do not change what the consumer commits.
@@ -90,6 +96,12 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - On revoke, drop the partition's ledger. This mirrors the commit sentinel's `forget_partitions`.
 - Soak on all lanes. The exit criterion is a mismatch count of zero across deploys and rebalances.
 
+**Interfaces:**
+
+- Modify `Config`: add the ledger mode.
+- Modify `IngestionConsumer`: own one `OffsetLedger` per partition. Charge in `collect_batch`, complete on batch completion, compare in `commit_offsets`.
+- Modify the revoke path (`SentinelContext`): drop revoked partitions' ledgers.
+
 ### 3. Demux polls into groups (structure)
 
 **Task:** Change `collect_batch` to output groups. A group is one poll's consecutive messages for one routing key on one partition.
@@ -99,6 +111,12 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - Group messages per partition first, then per routing key. Keep offset order inside each group.
 - The dispatcher flattens the groups back into one message list. Sub-batch assembly does not change.
 - Change 4 uses the groups as the unit of the batcher interface.
+
+**Interfaces:**
+
+- Add `Group` in `types.rs`: partition, routing key, messages in offset order.
+- Modify `CollectedBatch`: carries `Vec<Group>` instead of a flat message list.
+- Modify `Dispatcher::assign_and_send`: takes groups and flattens them. `group_messages_by_routing_key` moves to the collect path.
 
 ### 4. Encapsulate the worker batcher (structure)
 
@@ -114,6 +132,14 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - The consumer loop keeps: poll collection, commits, the sentinels, and the batch window. It aggregates group completions per batch, so completion and commit behavior do not change.
 - Changes 5 and 6 carve the scheduler seam inside this boundary.
 
+**Interfaces:**
+
+- Add `Batcher` in `batcher.rs`: `submit(batch_id, Vec<Group>)` in, a channel of `GroupCompletion` out. It owns `Dispatcher`, `GrpcTransport`, `WorkerRegistry`, and the send tasks.
+- Add `GroupCompletion`: batch id, partition, offsets, accepted count.
+- Modify `IngestionConsumer`: drop `scatter`, `flush_deferred`, and the eager-flush loop — they move into the batcher. Keep collect, commit, and the window. Aggregate completions per batch.
+- Modify `main.rs`: construct one `Batcher`. The consumer no longer sees the dispatcher or the transport.
+- Internalize `Dispatcher`'s resolve and accounting methods (`on_sub_batch_*`, `defer_failed`, `eager_flush_*`, `take_eager_accepted`): only the batcher calls them.
+
 ### 5. Extract the scheduler seam (structure)
 
 **Task:** Move every ordering and placement decision inside the batcher behind one interface. Keep the current semantics.
@@ -126,6 +152,13 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - The first implementation preserves today's semantics: pins, the stash, deferral on drain, the flush pacing, and the eager release. This is code motion from `assign`, `flush_deferred`, `on_sub_batch_resolved`, and the eager path.
 - The plumbing (tasks, channels, the mutex) stays as it is. Only the decisions move.
 - The seam makes today's implicit ordering rules explicit and reviewable in one place.
+
+**Interfaces:**
+
+- Add the `Scheduler` trait in `scheduler.rs`: `on_groups`, `on_settled`, `on_deadline` in; `Vec<Dispatch>` out.
+- Add `Dispatch`: one run of one key, with the chosen worker.
+- Add `PinStashScheduler`: the current semantics, moved out of `Dispatcher::assign`, `flush_deferred`, `on_sub_batch_resolved`, and the eager release. It owns `PinTable` and `Stash` unchanged.
+- Modify `Dispatcher`: shrinks to plumbing — the lock, in-flight load, metrics, and seam calls.
 
 ### 6. Build the key-table scheduler (structure)
 
@@ -140,6 +173,10 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - Placement is stateless: the existing P2C and aperture pick a worker per dispatch. There are no pins.
 - The seam is events in, dispatches out. Test the scheduler deterministically: script arrivals, settlements, and failures. Assert per-key order.
 
+**Interfaces:**
+
+- Add `KeyTableScheduler` and `KeyTable` in `key_table.rs`: per-key FIFO, outstanding flag, parked list. Implements `Scheduler`. Tests only, no production callers.
+
 ### 7. Commit from the ledger frontier (structure)
 
 **Task:** Set the ledger mode to `active`. The frontier becomes the committed offset. Keep oldest-first batch completion.
@@ -151,6 +188,11 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - The commit sentinel stays on and checks contiguity and monotonicity.
 - Rollback is the config switch back to `shadow`.
 - Delete the old commit computation after `active` holds on all lanes.
+
+**Interfaces:**
+
+- Modify `Config`: default the ledger mode to `active`.
+- Modify `IngestionConsumer::commit_offsets`: read the committed offset from `OffsetLedger::frontier`. The old computation survives only as the shadow comparison, then is deleted.
 
 ### 8. Switch to the key-table scheduler (logic)
 
@@ -164,6 +206,12 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - Watch: the key-order sentinel, ack latency, and the no-progress watchdog.
 - Rollback is the config switch back to the old scheduler.
 
+**Interfaces:**
+
+- Modify `Config`: add the scheduler selection.
+- Modify the batcher construction: select `KeyTableScheduler` or `PinStashScheduler`.
+- No interface shapes change.
+
 ### 9. Delete the old scheduler (structure)
 
 **Task:** Remove the old scheduler implementation after change 8 holds on all lanes.
@@ -172,6 +220,12 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 
 - Removes: the pin table, the stash, both flush drivers, the eager-flush channel and its credits, `DISPATCHER_EAGER_DEFERRED_FLUSH`, and the scheduler switch.
 - The plan never edits this machinery. It is isolated in change 5, bypassed in change 8, and deleted here.
+
+**Interfaces:**
+
+- Remove `PinStashScheduler`, `PinTable`, `Stash`, `sticky_pin_for`, `EagerFlush`, and the eager credits.
+- Remove from `Config`: `DISPATCHER_EAGER_DEFERRED_FLUSH` and the scheduler selection.
+- Modify `Dispatcher`: remove the dead resolve plumbing (`clears_deferral`, `send_failed`, the flush drivers).
 
 ### 10. Remove the stream fences (structure)
 
@@ -183,6 +237,12 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - A stream failure returns each request's messages to the key table. That is sufficient.
 - Keep: retry classification, busy (503) handling, the ack watchdog, and ack-prefix resolution.
 
+**Interfaces:**
+
+- Remove `FenceGuard` from `transport.rs` and `Fence` with its settle loop from `grpc_transport.rs`.
+- Modify `SendError`: drop the fence-guard field.
+- Keep `TransportError` and the `WorkerStreamRunner` reconnect logic.
+
 ### 11. Collapse the batcher into one event loop (structure)
 
 **Task:** Move the scheduler and its plumbing into one single-owner task.
@@ -192,6 +252,11 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - The seam's events become the loop's events: accumulators, settlements, deadlines. The scheduler is already event-shaped, so the loop owns it directly.
 - State becomes task-local. The worker-health snapshot stays the only shared read.
 - This is the batcher event loop of the design doc. It is plumbing now: the decisions it drives are already simple.
+
+**Interfaces:**
+
+- Modify `Batcher`: one single-owner task replaces the lock, the resolve callbacks, and the per-send tasks. `Dispatcher` dissolves into the loop and is removed.
+- Keep `Scheduler` as the loop's decision component. The consumer-facing interface does not change.
 
 ### 12. Complete batches in any order (logic)
 
@@ -205,6 +270,11 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - Keep `max_in_flight_batches` as the bound on outstanding work. A batch slot frees when all its groups are accepted.
 - Behavior change: commit timing decouples across partitions and batches. Replay exposure stays inside the batch window.
 
+**Interfaces:**
+
+- Modify `IngestionConsumer::process`: select over `GroupCompletion` events. Remove the ordered `InFlightBatch` queue and the per-batch aggregation from change 4.
+- Modify the batch bookkeeping: a batch is only a window slot that frees when its groups are accepted.
+
 ### 13. Replace the batch window with budget B (logic)
 
 **Task:** Poll only while uncommitted work is below B. B counts events and bytes.
@@ -216,6 +286,11 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - Remove `max_in_flight_batches`. The batch reduces to a per-poll accumulator.
 - Pause and resume the poll at the budget limit. Do not stop servicing Kafka callbacks.
 - New config: the budget in events and in bytes.
+
+**Interfaces:**
+
+- Modify `Config`: add the budget; remove `max_in_flight_batches`.
+- Modify `IngestionConsumer`: gate polling on the outstanding charge. Refund from `OffsetLedger` on commit. Remove the window-slot bookkeeping from change 12.
 
 ### 14. Pack requests toward target T (logic)
 
@@ -230,6 +305,12 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - Router order inside a pass: fill open requests on healthy workers first, then pick a worker with P2C from the aperture slice. Partition affinity is a tie-breaker only.
 - Check the worker side first: a request now spans polls and keys. Confirm the worker's `concurrentBatches` accounting and the meaning of `batch_id` still hold.
 
+**Interfaces:**
+
+- Add `Packer` inside `KeyTableScheduler`.
+- Modify `Dispatch`: one request may carry runs from several keys.
+- Modify `Config`: add T and `PACK_LATENCY_BUDGET`. The worker proto does not change.
+
 ### 15. Add the RTT dispatch governor (logic)
 
 **Task:** Replace the fixed per-worker un-acked cap with a permit pool that request RTT governs.
@@ -241,6 +322,12 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - Bound the pool with a configured minimum and maximum.
 - Keep the 503 backoff in the transport. Exclude 503 waits from the RTT signal.
 - Cap each stream channel at `DEPTH_MAX`.
+
+**Interfaces:**
+
+- Add `Governor` in the batcher loop: the permit pool and the RTT EWMA.
+- Modify `GrpcTransport`: governor permits replace the per-worker `max_unacked` cap. Stream channels get `DEPTH_MAX` capacity.
+- Modify `Config`: add `REQUEST_LATENCY_BUDGET`, the permit bounds, and `DEPTH_MAX`.
 
 ### 16. Add the bounded revocation drain (logic)
 
@@ -254,6 +341,12 @@ The single-owner event loop is only plumbing once the scheduler is simple, so it
 - The loop issues one final commit, refunds the remaining charge, and unassigns the partition.
 - Check completions against the assignment epoch. The epoch already exists on master.
 - Add a stall deadline per partition. Outside a rebalance, an expired deadline fails the process. Replay is at most B.
+
+**Interfaces:**
+
+- Modify `Batcher`: add a revoke marker input and a drained marker output. `GroupCompletion` does not change shape.
+- Modify `KeyTableScheduler`: drop queued work per partition on revoke.
+- Modify `IngestionConsumer` and `OffsetLedger`: the final commit, the refund of abandoned charge, and the per-partition stall deadline.
 
 ## Later work
 
