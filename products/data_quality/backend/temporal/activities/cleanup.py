@@ -181,7 +181,12 @@ def _delete_dead_checks(team_id: int, live: _LiveSubjects, grace: datetime) -> i
 
 
 def _delete_dead_runs(team_id: int, live: _LiveSubjects, grace: datetime) -> int:
-    dead = DataQualityCheckRun.objects.for_team(team_id).filter(created_at__lt=grace).exclude(live.alive_q())
+    dead = (
+        DataQualityCheckRun.objects.for_team(team_id)
+        .filter(created_at__lt=grace)
+        .exclude(suite_run__status=SuiteRunStatus.RUNNING)
+        .exclude(live.alive_q())
+    )
     deleted = 0
     while True:
         with transaction.atomic():

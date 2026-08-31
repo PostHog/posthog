@@ -298,6 +298,24 @@ class TestRetentionSweep(BaseTest):
         sweep.refresh_from_db()
         assert (sweep.checks_failed, sweep.checks_passed) == (1, 0)
 
+    def test_dead_subject_runs_wait_for_a_running_suite_to_finish(self) -> None:
+        doomed = self._view("temp_orders")
+        suite = self._suite(status=SuiteRunStatus.RUNNING, checks_failed=1)
+        run = self._run(
+            age_days=1,
+            suite_run=suite,
+            subject_uuid=doomed.id,
+            status=CheckRunStatus.FAILED,
+        )
+        doomed.delete()
+
+        outcome = _cleanup()
+
+        suite.refresh_from_db()
+        assert outcome.check_runs_deleted == 0
+        assert DataQualityCheckRun.objects.unscoped().filter(id=run.id).exists()
+        assert suite.checks_failed == 1
+
     def test_dead_subject_runs_are_deleted_one_batch_at_a_time(self) -> None:
         doomed = self._view("temp_orders")
         for _ in range(3):
