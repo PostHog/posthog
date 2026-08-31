@@ -16,7 +16,6 @@ from posthog.query_cache import (
     storage as qc_storage,
 )
 from posthog.query_cache.serialization import QUERY_CACHE_SPLIT_MAGIC, encode_split_cached_response
-from posthog.query_cache.size_tracker import TeamCacheSizeTracker
 from posthog.query_cache.storage import (
     S3_POINTER_MAGIC,
     ZSTD_FRAME_MAGIC,
@@ -33,7 +32,6 @@ from posthog.storage.object_storage import ObjectStorageError
 class FakeObjectStorage:
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
-        self.written_keys: list[str] = []
         self.fail_writes = False
         self.fail_reads = False
 
@@ -41,7 +39,6 @@ class FakeObjectStorage:
         if self.fail_writes:
             raise ObjectStorageError("write failed")
         self.objects[(bucket, key)] = content
-        self.written_keys.append(key)
 
     def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> bytes | None:
         if self.fail_reads:
@@ -51,9 +48,6 @@ class FakeObjectStorage:
                 return None
             raise ObjectStorageError("read failed")
         return self.objects[(bucket, key)]
-
-    def delete(self, bucket: str, key: str) -> None:
-        self.objects.pop((bucket, key), None)
 
 
 class TestS3PointerCodec(SimpleTestCase):
@@ -257,21 +251,9 @@ class TestQueryCacheS3Routing(BaseTest):
             assert self._redis_holds_pointer(cache_key)
             older_upload()
 
-        # The superseded upload deletes its own blob; only the winning upload's object remains.
-        assert len(self.storage.objects) == 1
         entry = cache.lookup().entry
         assert entry is not None
         assert entry.as_full_response() == newer
-
-        # A lost reply makes the redis client retry the swap script after it already landed.
-        # The retry must report swapped even though `expected` no longer matches, because a
-        # False return sends the upload down the superseded path, which deletes the blob the
-        # live entry now points at.
-        raw_pointer = _redis_raw(cache_key)
-        assert raw_pointer is not None
-        tracker = TeamCacheSizeTracker(team_id=self.team.pk)
-        assert tracker.replace_value(cache_key, raw_pointer, ttl=600, expected=b"stale-inline-bytes") is True
-        assert _redis_raw(cache_key) == raw_pointer
 
     def test_on_mode_large_result_round_trips_via_pointer(self):
         cache_key = f"s3_on_large_{self.team.pk}"
@@ -287,7 +269,7 @@ class TestQueryCacheS3Routing(BaseTest):
         assert entry is not None
         assert entry.as_full_response() == response
 
-    def test_replacing_a_pointer_entry_deletes_the_replaced_blob(self):
+    def test_each_upload_writes_a_fresh_object(self):
         cache_key = f"s3_fresh_object_{self.team.pk}"
         cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
         first = self._large_response()
@@ -298,10 +280,7 @@ class TestQueryCacheS3Routing(BaseTest):
             cache.store_result(response=second, target_age=None)
 
         # A shared object key would let overlapping recomputes overwrite each other's blob.
-        assert len(set(self.storage.written_keys)) == 2
-        # The second store replaced the first store's pointer, which enqueued a delete for its
-        # blob (Celery runs eagerly under TEST); only the second store's object remains.
-        assert len(self.storage.objects) == 1
+        assert len(self.storage.objects) == 2
         entry = cache.lookup().entry
         assert entry is not None
         assert entry.as_full_response() == second
