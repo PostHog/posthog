@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
@@ -205,6 +206,31 @@ class TestMigrateVisionActions(APIBaseTest):
         for key in ("replay-vision-alerts", "replay-vision-scout-digests"):
             flag = FeatureFlag.objects.get(team=self.team, key=key)
             assert flag.filters["groups"][0]["properties"][0]["value"] == [str(self.team.organization_id)]
+
+    def test_one_unconvertible_row_blocks_its_whole_org(self) -> None:
+        good = self._make_action(alert_config={"frequency": "every_match"})
+        bad = self._make_action(
+            name="Fortnightly digest",
+            mode=ActionMode.GROUP_SUMMARY,
+            is_scanner_digest=False,
+            # cron cannot express a fortnightly cadence, so this row cannot migrate.
+            trigger_config={"rrule": "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO;BYHOUR=9;BYMINUTE=0", "timezone": "UTC"},
+        )
+        with (
+            patch(f"{_CMD}.Command._create_destinations"),
+            patch("products.signals.backend.facade.api.create_scout_for_source") as create_scout,
+        ):
+            # The run reports the blocked rows and exits non-zero so an operator sees them.
+            with self.assertRaises(CommandError):
+                self._run()
+        create_scout.assert_not_called()
+        # Nothing moved: the good row is untouched rather than half-migrating the org.
+        assert VisionAlertConfiguration.objects.for_team(self.team.id).count() == 0
+        for action in (good, bad):
+            action.refresh_from_db()
+            assert action.enabled is True
+        flag = FeatureFlag.objects.get(team=self.team, key="replay-vision-alerts")
+        assert flag.filters["groups"][0]["properties"][0]["value"] == []
 
     def test_rerun_skips_migrated_rows(self) -> None:
         self._make_action(alert_config={"frequency": "every_match"})

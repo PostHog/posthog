@@ -174,6 +174,7 @@ class Command(BaseCommand):
         # the legacy surface with their legacy actions disabled — no alerting at all.
         migrated_any = False
         org_problems = 0
+        pending: list[VisionAction] = []
         for action in org_actions:
             stamp_field = "alert_config" if action.mode == ActionMode.ALERT else "synthesis_config"
             stamps = getattr(action, stamp_field) or {}
@@ -181,10 +182,24 @@ class Command(BaseCommand):
                 report.skipped_already += 1
                 migrated_any = True
                 continue
+            pending.append(action)
+
+        # Check the whole organization before writing any of it. A row that fails halfway through
+        # otherwise leaves the org part-migrated and unflagged: some rows moved, the rest still
+        # live on the legacy surface, and nobody switched over.
+        blockers = [problem for action in pending if (problem := self._validation_problem(action))]
+        if blockers:
+            for problem in blockers:
+                report.problems.append(problem)
+            report.problems.append(f"org {org_id}: not migrated, {len(blockers)} row(s) need attention")
+            return
+
+        for action in pending:
             try:
-                if action.mode == ActionMode.ALERT:
+                plan = self._plan(action)
+                if plan == "alert":
                     migrated_any |= self._migrate_alert(action, execute, report)
-                elif action.delivery_config or not action.is_scanner_digest:
+                elif plan == "digest":
                     migrated_any |= self._migrate_digest(action, execute, report)
                 else:
                     # Retiring a default is a completed migration for that row: the new Overview
@@ -204,6 +219,29 @@ class Command(BaseCommand):
             return
         if migrated_any:
             self._flag_org(org_id, execute, flag_team_id, report)
+
+    def _plan(self, action: VisionAction) -> str:
+        """What this row becomes. Shared by the check and the write so they cannot disagree."""
+        if action.mode == ActionMode.ALERT:
+            return "alert"
+        if action.delivery_config or not action.is_scanner_digest:
+            return "digest"
+        return "retire"
+
+    def _validation_problem(self, action: VisionAction) -> str | None:
+        """Why this row cannot migrate, or None. Reads only; never writes."""
+        where = f"{action.mode} {action.id} ({action.name!r}, team {action.team_id})"
+        plan = self._plan(action)
+        if plan == "retire":
+            return None
+        if _acting_user(action) is None and (plan == "digest" or action.delivery_config):
+            return f"{where}: no active user in the organization to own the migrated row"
+        if plan == "digest":
+            try:
+                rrule_to_cron((action.trigger_config or {}).get("rrule") or "FREQ=DAILY;BYHOUR=8;BYMINUTE=0")
+            except ValueError as error:
+                return f"{where}: {error}"
+        return None
 
     def _migrate_alert(self, action: VisionAction, execute: bool, report: _Report) -> bool:
         config = action.alert_config or {}
