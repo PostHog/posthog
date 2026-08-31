@@ -533,6 +533,36 @@ class TestVisionActionsShim(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert flag.call_count == 1
 
+    def test_reenable_runs_the_state_machine(self) -> None:
+        from products.replay_vision.backend.models.vision_alert import VisionAlertEvent, VisionAlertState
+
+        alert = VisionAlertConfiguration.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            scanner=self.scanner,
+            name="Firing",
+            kind=VisionAlertKind.METRIC,
+            threshold=1,
+            state=VisionAlertState.FIRING,
+            consecutive_failures=2,
+            selection={},
+        )
+        assert self.client.patch(f"{self.base_url}{alert.id}/", {"enabled": False}, format="json").status_code == 200
+        assert self.client.patch(f"{self.base_url}{alert.id}/", {"enabled": True}, format="json").status_code == 200
+        alert.refresh_from_db()
+        # A re-enabled alert starts clean; without the state machine it would still be FIRING.
+        assert alert.state == VisionAlertState.NOT_FIRING
+        assert alert.consecutive_failures == 0
+        kinds = set(VisionAlertEvent.objects.filter(alert=alert).values_list("kind", flat=True))
+        assert {VisionAlertEvent.Kind.ENABLE, VisionAlertEvent.Kind.DISABLE} <= kinds
+
+    def test_run_on_a_shim_served_row_does_not_crash(self) -> None:
+        alert = VisionAlertConfiguration.objects.for_team(self.team.id).create(
+            team_id=self.team.id, scanner=self.scanner, name="No run", kind=VisionAlertKind.MATCH, selection={}
+        )
+        with patch(f"{_SHIM}.signals_facade.list_scouts_for_source", return_value=[]):
+            response = self.client.post(f"{self.base_url}{alert.id}/run/", {}, format="json")
+        assert response.status_code == 400, response.status_code
+
     def test_unflagged_requests_keep_legacy_behavior(self) -> None:
         self._flag.stop()
         with patch("posthog.ph_client.feature_enabled_or_false", return_value=False):

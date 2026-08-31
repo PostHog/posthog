@@ -28,6 +28,7 @@ from products.alerts.backend.facade.api import (
     create_alert_destination_hog_functions,
     soft_delete_all_alert_destinations,
 )
+from products.alerts.backend.state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.replay_vision.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     MATCH_EVENT_KINDS,
@@ -35,8 +36,13 @@ from products.replay_vision.backend.alert_destinations import (
     VISION_ALERT_EVENT_IDS,
     VISION_ALERT_SLACK_CONTEXT_ELEMENTS,
 )
+from products.replay_vision.backend.alert_state_machine import apply_outcome
 from products.replay_vision.backend.models.vision_action import ActionMode, VisionAction
-from products.replay_vision.backend.models.vision_alert import VisionAlertConfiguration, VisionAlertKind
+from products.replay_vision.backend.models.vision_alert import (
+    VisionAlertConfiguration,
+    VisionAlertEvent,
+    VisionAlertKind,
+)
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.facade.api import ScoutSummary
@@ -57,6 +63,19 @@ def redact_webhook_url(url: str) -> str:
         authority = f"{host}:{parsed.port}" if parsed.port else host
         return f"{parsed.scheme}://{authority}/…"
     return "(hidden)"
+
+
+def unmigrated(queryset: Any) -> Any:
+    """Legacy rows the migration has not moved.
+
+    A migrated row is disabled and its successor is live, so listing it invites someone to
+    re-enable it, which re-arms the legacy sweep and its destinations alongside the new alert.
+    """
+    return (
+        queryset.exclude(alert_config__has_key="migrated_to")
+        .exclude(synthesis_config__has_key="migrated_to")
+        .exclude(synthesis_config__has_key="retired")
+    )
 
 
 def _is_uuid(value: str) -> bool:
@@ -592,18 +611,38 @@ def _update_one(team: Team, kind: str, entity: Any, data: dict[str, Any], user: 
         if data.get("enabled") and not entity.enabled:
             _enforce_enabled_alert_cap(team, str(entity.scanner_id), exclude_id=str(entity.id))
         update_fields: list[str] = []
-        for key in ("name", "enabled", "selection"):
+        for key in ("name", "selection"):
             if key in data:
                 setattr(entity, key, data[key])
                 update_fields.append(key)
+        threshold_changed = False
         if config and entity.kind == VisionAlertKind.METRIC:
             for key in ("metric", "direction", "threshold", "window_days"):
-                if key in config:
+                if key in config and config[key] != getattr(entity, key):
                     setattr(entity, key, config[key])
                     update_fields.append(key)
+                    threshold_changed = True
+        enabled_change = data["enabled"] if "enabled" in data and data["enabled"] != entity.enabled else None
         with transaction.atomic():
+            # Lifecycle fields belong to the state machine: setting `enabled` directly would leave a
+            # re-enabled alert still FIRING with its old failure count, and write no audit row.
+            snapshot = entity.to_snapshot()
+            if enabled_change is True:
+                entity.enabled = True
+                update_fields.extend(apply_outcome(entity, apply_enable(snapshot), kind=VisionAlertEvent.Kind.ENABLE))
+            elif enabled_change is False:
+                entity.enabled = False
+                update_fields.extend(apply_outcome(entity, apply_disable(snapshot), kind=VisionAlertEvent.Kind.DISABLE))
+            elif threshold_changed:
+                update_fields.extend(
+                    apply_outcome(entity, apply_threshold_change(snapshot), kind=VisionAlertEvent.Kind.THRESHOLD_CHANGE)
+                )
+                entity.clear_next_check()
+                update_fields.append("next_check_at")
+            if enabled_change is not None:
+                update_fields.append("enabled")
             if update_fields:
-                entity.save(update_fields=[*update_fields, "updated_at"])
+                entity.save(update_fields=[*set(update_fields), "updated_at"])
             if "delivery_config" in data:
                 # Destinations are hog functions, not columns: without rebuilding them, a caller
                 # who edits delivery_config gets a 200 while notifications keep going to the old

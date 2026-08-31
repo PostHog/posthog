@@ -504,13 +504,9 @@ class VisionActionSerializer(serializers.ModelSerializer):
         duplicates = VisionAction.objects.for_team(team.id).filter(name=name)
         if self.instance is not None:
             duplicates = duplicates.exclude(pk=self.instance.pk)
-        # A migrated or retired row is disabled and invisible to every read path, so holding its
-        # name against a new one rejects a name nothing shows the caller.
-        duplicates = (
-            duplicates.exclude(alert_config__has_key="migrated_to")
-            .exclude(synthesis_config__has_key="migrated_to")
-            .exclude(synthesis_config__has_key="retired")
-        )
+        # A migrated row is invisible to every read path, so holding its name against a new one
+        # rejects a name nothing shows the caller.
+        duplicates = vision_actions_shim.unmigrated(duplicates)
         if duplicates.exists():
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
 
@@ -896,6 +892,11 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Run this summary now, without waiting for its schedule — synthesizes a group summary over the
         observations since the last summary (or the last 24h). The recurring schedule is untouched: the
         engine advances next_run_at only at scheduled claim time, never in the run itself."""
+        if self._serves_new_systems:
+            # safely_get_object returns the scanner in shim mode, and there is no legacy run to
+            # start: scouts run on their own schedule and from the scout surface.
+            self.get_object()
+            raise ValidationError("On-demand runs moved to the scout that replaced this summary.")
         # get_object() runs safely_get_object, which object-checks the bound scanner's access.
         action_obj = self.get_object()
         # The summary reads recording-derived observations and delivers off-platform, so require

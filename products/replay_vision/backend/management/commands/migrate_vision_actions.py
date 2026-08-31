@@ -38,7 +38,7 @@ from products.replay_vision.backend.alert_destinations import (
     VISION_ALERT_SLACK_CONTEXT_ELEMENTS,
 )
 from products.replay_vision.backend.api.vision_actions_shim import _parse_rrule, compose_scout_body, rrule_to_cron
-from products.replay_vision.backend.models.vision_action import ActionMode, VisionAction
+from products.replay_vision.backend.models.vision_action import ActionMode, AlertFrequency, VisionAction
 from products.replay_vision.backend.models.vision_alert import (
     ALERT_WINDOW_DAYS,
     VisionAlertConfiguration,
@@ -207,7 +207,7 @@ class Command(BaseCommand):
 
     def _migrate_alert(self, action: VisionAction, execute: bool, report: _Report) -> bool:
         config = action.alert_config or {}
-        frequency = config.get("frequency", "every_match")
+        frequency = config.get("frequency", AlertFrequency.EVERY_MATCH)
         selection = action.selection or {}
         scanner_ids = selection.get("scanner_ids") or [str(action.scanner_id)]
         acting = _acting_user(action)
@@ -225,7 +225,7 @@ class Command(BaseCommand):
                 "first_enabled_at": action.created_at,
                 "selection": _clean_selection(selection),
             }
-            if frequency == "on_breach":
+            if frequency == AlertFrequency.ON_BREACH:
                 window = int(config.get("window_days") or 1)
                 if window not in ALERT_WINDOW_DAYS:
                     window = min(ALERT_WINDOW_DAYS, key=lambda choice: abs(choice - window))
@@ -377,9 +377,14 @@ class Command(BaseCommand):
         )
 
         team = Team.objects.get(id=flag_team_id)
+        widened = True
         for key in (ALERTS_FLAG_KEY, SCOUTS_FLAG_KEY):
             if not execute:
                 continue
             if not add_group_to_flag_targeting(team=team, key=key, group_key=str(org_id)):
                 report.problems.append(f"flag {key}: no organization targeting to widen on team {flag_team_id}")
-        report.orgs_flagged += 1
+                widened = False
+        # Counting an org as flagged when the flag never took would report a rollout that did not
+        # happen, and its users would sit on the legacy surface with their rows already migrated.
+        if widened:
+            report.orgs_flagged += 1
