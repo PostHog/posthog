@@ -2,19 +2,18 @@
 name: authoring-scouts
 description: >
   How to author, edit, and adapt PostHog Signals scouts — the scheduled agents that
-  scan a project and write reports into the Signals inbox. Use when a user wants to
-  customize a canonical scout for their own setup (narrow its scope, retune its
-  thresholds, add disqualifiers), tweak a scout's schedule or dry-run posture, or
-  write a brand-new scout from scratch for a specific use case (a custom event, a
-  product surface no canonical scout covers), or steer a scout without editing it at all
-  by leaving it a note. Covers the scout SKILL.md anatomy, the
-  report contract, the dedupe + scratchpad-memory conventions, the scout-notes steering
-  channel, the per-team skills-store
-  path vs the canonical in-repo path, and the write-and-inspect test loop (with dry-run as an
-  optional safety net). Trigger on
+  scan a project and write reports into the Signals inbox. Use to customize a
+  canonical scout (narrow its scope, retune thresholds, add disqualifiers), tweak a
+  scout's schedule or dry-run posture, write a new scout for a surface the fleet
+  doesn't cover, build a measurement scout that records structured output (an
+  LLM-judge scoring a sample on a schedule — a custom metric no query can compute),
+  or steer a scout without editing it by leaving it a note. Covers the scout SKILL.md
+  anatomy, the report contract, the structured-output channel, the dedupe +
+  scratchpad-memory conventions, scout notes, the per-team skills-store path vs the
+  canonical in-repo path, and the test loop. Trigger on
   "write/edit/customize a signals scout", "new scout for X", "tune my scout schedule",
-  "make a scout that watches <event>", "leave a note for / give feedback to a scout",
-  "tell the scouts about X".
+  "make a scout that watches <event>", "score/judge/measure X with a scout",
+  "structured output from a scout", "leave a note for / give feedback to a scout".
 metadata:
   owner_team: signals
 ---
@@ -77,8 +76,9 @@ See [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md)
 ## Write the scout
 
 First pick the **shape**.
-[`references/scout-patterns.md`](references/scout-patterns.md) is a cookbook of the reference architectures scouts fall into — anomaly watcher, liveness/absence watcher, watchlist explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source, custom single-event, open-text theme, external-tool/code, state∩code intersection, daily digest/roll-up, triage over a pre-detected stream, first-person dogfooding/probe — each mapped to a canonical scout you can copy as scaffolding.
+[`references/scout-patterns.md`](references/scout-patterns.md) is a cookbook of the reference architectures scouts fall into — anomaly watcher, liveness/absence watcher, zero-result/unmet demand, watchlist explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source, custom single-event, open-text theme, adversarial/abuse concentration, external-tool/code, state∩code intersection, custom issue-tracker/work-queue, daily digest/roll-up, triage over a pre-detected stream, first-person dogfooding/probe — each mapped to a canonical scout you can copy as scaffolding.
 It also makes the key point that **a scout can watch any source PostHog ingests into the data warehouse, not just analytics events** (a Slack channel sync, a billing system, a CRM, a support inbox), plus external systems reachable from the sandbox.
+And where a built-in signals source already covers the surface (GitHub and Linear issues), the issue-tracker pattern says where that source stops and a scout starts paying for itself.
 Find the closest pattern, then write the body.
 
 Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has the frontmatter schema (including the `allowed_tools` report-channel opt-in every scout needs), the canonical body structure (quick close-out → orient → domain discriminator → explore patterns → save-memory → decide → disqualifiers → close-out), the lean-body rule, and copy-ready skeleton templates for both a specialist and the generalist.
@@ -95,10 +95,13 @@ For error tracking it's the `count` vs `distinct_users` ratio; for CSP it's reac
 Your new scout needs its own.
 Name it explicitly near the top of the body so every run anchors on it.
 
+(The one exception: a **measurement scout** on the structured-output channel holds no bar — it applies a **rubric** to every sampled item, and the rubric takes the discriminator's slot as the design surface to name, dogfood, and calibrate. See the recurring measurement / LLM-judge pattern in `references/scout-patterns.md`.)
+
 A second design rule binds any **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
 When the project's metrics catalog is enabled, it may hold a governed definition of that measure in `system.information_schema.metrics`, and the harness tells every run to prefer it — so write the body to cooperate rather than compete: have the run check the catalog for an approved, non-drifted metric before its own derivation, and run a match through `data-catalog-metric-run`.
 Where a governed metric exists, reference it by name in any `references/queries.md` you ship, and label every hand-written derivation there a noncanonical fallback — an unlabeled "validated query" outranks the harness's catalog-first rule at run time, which is exactly how a scout ends up re-deriving a number the team already governs.
 Freshness, availability, and schema checks are exempt: they stay schema-first, with no catalog detour.
+A measurement scout is exempt too, but only for the measure it invents: a subjective rubric has no governed definition to defer to, while any conventional metric the same scout reports still goes through the catalog.
 
 ## Run posture (config)
 
@@ -122,7 +125,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Applies from the scout's next run, and changes are activity-logged.
 - `auto_pause_exempt` — defaults to `false`.
   A scout whose reports nobody engages with (no open, rating, or action — the cloud web inbox records reads; other clients don't yet) is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
-  `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout, and marks it exempt so the sweep never overrules a person twice.
+  `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout with a fresh grace window before the sweep may judge it again.
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
@@ -135,6 +138,8 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   The channel also requires `emit`: a dry-run scout has nowhere to record to, so `scout-record-output` fails closed for it.
   Reach for this when the scout's job is a recurring **measurement** (judge each sampled report good/bad/unsure with a reason, score accounts, classify sessions) rather than surfacing anomalies; keep enums small and add a free-text reason field so the series is breakdown-friendly _and_ auditable.
   The skill body should say what to sample, how to judge, and what `subject` to stamp on each record; the schema owns the record shape.
+  Because the records are ordinary events, anything that consumes events can **act** on one — a workflow or CDP destination triggered on `$scout_structured_output`, filtered to your `skill_name` and an `output_<key>` value, turns a measuring scout into the front half of an automation (route the verdict to a channel, a task, a CRM) with no human in between.
+  The full design treatment — rubric writing, rates-over-scores record shape, rubric versioning, sampling discipline, the seam with reports, what changes once a grade is a routing decision, and the non-judging variants (structured extraction, state snapshots, synthetic telemetry) — is the **recurring measurement / LLM-judge** pattern in [`references/scout-patterns.md`](references/scout-patterns.md).
 
 ## Steering with notes (no authoring needed)
 
@@ -211,8 +216,8 @@ Keep the two in sync when the scout config / run / scratchpad surfaces change.
 
 ## Quality bar for a v1 scout
 
-- A named, cheap **signal-vs-noise discriminator** anchored near the top.
-- A **quick close-out** so a quiet run is cheap (don't pay for deep exploration when the watched surface is at baseline or absent).
+- A named, cheap **signal-vs-noise discriminator** anchored near the top (on a measurement scout, the rubric and sampling recipe take this slot).
+- A **quick close-out** so a quiet run is cheap (don't pay for deep exploration when the watched surface is at baseline or absent) — except on a measurement scout, which exits early only when the window held no eligible items, since its ordinary judgments are the denominator.
 - 2–4 concrete **explore patterns** with the actual queries/tools to run — starting points, not a rigid checklist.
 - **Disqualifiers** listing this project's known noise (single-user quirks, dev-env bursts, allowlisted entities).
 - A **Decide** section calibrated against the report contract — author 1:1 only for a finding the scout would own end-to-end, set `suggested_reviewers`, and write memory instead when a candidate is below the bar.

@@ -28,6 +28,13 @@ class ScannerSnapshot(BaseModel, frozen=True):
     provider: str
     emits_signals: bool
     scanner_config: dict[str, Any]
+    # The remaining version-tracked fields. They never reach the LLM, but the config-versions history is
+    # rebuilt from these snapshots, so without them a version bumped by a sampling or filter change reads
+    # as "nothing changed". Optional so older rows decode as not recorded rather than as unchanged.
+    query: dict[str, Any] | None = None
+    experiment_targeting: dict[str, Any] | None = None
+    sampling_rate: float | None = None
+    sampling_mode: str | None = None
 
     @classmethod
     def from_scanner(cls, scanner: "ReplayScanner") -> "ScannerSnapshot":
@@ -40,6 +47,10 @@ class ScannerSnapshot(BaseModel, frozen=True):
             provider=scanner.provider,
             emits_signals=scanner.emits_signals,
             scanner_config=scanner.scanner_config,
+            query=scanner.query,
+            experiment_targeting=scanner.experiment_targeting,
+            sampling_rate=scanner.sampling_rate,
+            sampling_mode=scanner.sampling_mode,
         )
 
     @classmethod
@@ -58,18 +69,14 @@ class BackfillScannerSnapshot(ScannerSnapshot, frozen=True):
     snapshot fields plus the query/sampling inputs the candidate walk needs. Freezing both keeps the
     creation-time enumeration and its cost ceiling exact for the backfill's whole lifetime."""
 
+    # Required here (the base records them optionally): the candidate walk cannot run without them.
     query: dict[str, Any]
     sampling_rate: float = Field(ge=0.0, le=1.0)
     sampling_mode: str
 
     @classmethod
     def from_scanner(cls, scanner: "ReplayScanner") -> "BackfillScannerSnapshot":
-        return cls(
-            **ScannerSnapshot.from_scanner(scanner).model_dump(),
-            query=scanner.query,
-            sampling_rate=scanner.sampling_rate,
-            sampling_mode=scanner.sampling_mode,
-        )
+        return cls(**ScannerSnapshot.from_scanner(scanner).model_dump())
 
     @classmethod
     def load_for_backfill(cls, backfill_id: UUID, raw: dict[str, Any] | None) -> "BackfillScannerSnapshot":

@@ -7,8 +7,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
@@ -72,7 +72,7 @@ class _VisionActionAPITestCase(APIBaseTest):
             name=name,
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _create_slack_integration(self, team: Team | None = None) -> Integration:
@@ -111,7 +111,7 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
             inline_key="k",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "one-off"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             enabled=False,
             sampling_rate=0.0,
         )
@@ -276,9 +276,9 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(self._flagged_digest_ids(), [str(current.id)])
 
     def test_creating_a_digest_dedupes_a_taken_name(self) -> None:
-        # The "Turn on daily digest" button derives a fixed name from the scanner. If another action
+        # The "Turn on featured digest" button derives a fixed name from the scanner. If another action
         # already holds it, the create must succeed with a suffixed name, not 400 on (team, name).
-        taken = f"Daily digest: {self.scanner.name}"
+        taken = f"Featured digest: {self.scanner.name}"
         VisionAction.all_teams.create(
             team=self.team,
             scanner=self.scanner,
@@ -454,7 +454,7 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         # Simulate a viewer: viewer access holds (so the GET still returns the action), but editor
         # access to the scanner does not (so the URL is redacted).
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, required_level, **_: required_level != "editor",
         ):
             redacted = self.client.get(f"{self.actions_url}{action_id}/").json()
@@ -739,6 +739,7 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
         from products.replay_vision.backend.temporal.constants import (
             PROCESS_VISION_ACTION_WORKFLOW_NAME,
             build_process_vision_action_workflow_id,
+            on_demand_priority,
         )
 
         mock_sync_connect.return_value = MagicMock()
@@ -756,6 +757,7 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
 
         args, kwargs = start_workflow.call_args
         self.assertEqual(args[0], PROCESS_VISION_ACTION_WORKFLOW_NAME)
+        self.assertEqual(kwargs["priority"], on_demand_priority(self.team.id))
         inputs = args[1]
         self.assertEqual(inputs.vision_action_id, action.id)
         self.assertEqual(inputs.mode, "group_summary")

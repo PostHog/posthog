@@ -34,6 +34,12 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     realm: 'cloud',
                 },
                 '/api/projects/:id/integrations': { results: [] },
+                // The GitHub section fetches both on mount; unmocked, their error toasts land in the snapshot.
+                '/api/projects/:id/integrations/github/available_installations/': {
+                    installations: [],
+                    personal_github_connected: false,
+                },
+                '/api/users/@me/integrations/github/install_requests/': { results: [], install_url: null },
             },
             patch: {
                 '/api/projects/:id': async ({ request }) => {

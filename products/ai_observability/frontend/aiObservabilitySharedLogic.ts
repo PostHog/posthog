@@ -18,8 +18,10 @@ import { router, urlToAction } from 'kea-router'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { dateStringToDayJs, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -36,6 +38,7 @@ import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFla
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { UserType } from '../../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
+import { buildAiObservabilityStorageConfig } from './preferenceStorage'
 import { parserRecipesLogic } from './settings/parserRecipesLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
 
@@ -161,6 +164,7 @@ export interface aiObservabilitySharedLogicValues {
     }
     hasSentAiEvent: boolean | undefined
     hasSentAiEventLoading: boolean
+    instrumentationVerdictApplies: (windowDays: number | null) => boolean
     propertyFilters: AnyPropertyFilter[]
     savedDashboardDateFilter: {
         dateFrom: string | null
@@ -260,6 +264,14 @@ export interface aiObservabilitySharedLogicMeta {
             date_to: string | null | undefined
         }
         activeTab: (sceneKey: string | null) => AIObservabilityTabId
+        instrumentationVerdictApplies: (
+            propertyFilters: AnyPropertyFilter[],
+            dateFilter: {
+                dateFrom: string | null
+                dateTo: string | null
+            },
+            shouldFilterTestAccounts: boolean
+        ) => (windowDays: number | null) => boolean
     }
 }
 
@@ -273,7 +285,7 @@ export type aiObservabilitySharedLogicType = MakeLogicType<
 export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     path(['products', 'ai_observability', 'frontend', 'aiObservabilitySharedLogic']),
     props({} as AIObservabilitySharedLogicProps),
-    key((props: AIObservabilitySharedLogicProps) => `${props?.personId || 'aiObservabilityScene'}`),
+    key((props: AIObservabilitySharedLogicProps) => props.logicKey || props.personId || 'aiObservabilityScene'),
     connect(() => ({
         // Mount the parser-recipe logic so a team's custom recipes reach the trace-rendering
         // normalizer on any AI observability page, not just the settings scene.
@@ -318,11 +330,15 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         applyUrlState: (state: ApplyUrlStatePayload) => state,
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         dateFilter: [
             {
                 dateFrom: INITIAL_EVENTS_DATE_FROM,
                 dateTo: INITIAL_DATE_TO,
+            },
+            {
+                ...buildAiObservabilityStorageConfig('events.dateFilter'),
+                persist: !props.logicKey,
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
@@ -336,7 +352,9 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 dateTo: INITIAL_DATE_TO,
             },
             {
-                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                // `setDates` (the events tabs' picker) is deliberately absent: it would move the
+                // dashboard picker without setting `dashboardDateOverride`, which gates the range
+                // the tiles actually run on.
                 setDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
                 applyDashboardUrlDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
                 restoreSavedDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
@@ -392,7 +410,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 applyUrlState: (state, { searchQuery }) => searchQuery ?? state,
             },
         ],
-    }),
+    })),
 
     loaders(() => ({
         hasSentAiEvent: {
@@ -485,6 +503,42 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             },
         ],
 
+        // Whether an instrumentation verdict graded over the last `windowDays` days can account
+        // for the rows the current view is showing.
+        //
+        // `searchQuery` is deliberately absent: it only reaches the traces query, so a term left
+        // over on the Traces tab would silence tabs whose contents it never touched.
+        instrumentationVerdictApplies: [
+            (s) => [s.propertyFilters, s.dateFilter, s.shouldFilterTestAccounts],
+            (
+                propertyFilters: AnyPropertyFilter[],
+                dateFilter: {
+                    dateFrom: string | null
+                    dateTo: string | null
+                },
+                shouldFilterTestAccounts: boolean
+            ): ((windowDays: number | null) => boolean) => {
+                return (windowDays: number | null) => {
+                    if (windowDays === null || propertyFilters.length > 0 || shouldFilterTestAccounts) {
+                        return false
+                    }
+                    // The verdict only ever looked at the window, so it cannot vouch for a range
+                    // starting before it. An unresolvable start ('all', or nothing at all) has no
+                    // lower bound, which reaches earlier than any window.
+                    //
+                    // Both sides are anchored to UTC's start of day, where `dateStringToDayJs`
+                    // anchors day-and-larger units, so a range of exactly the window's length,
+                    // '-30d' against 30 days, stays inside its own window whatever the browser's
+                    // timezone. Instants are compared directly because dayjs's timezone plugin
+                    // re-reads a `.tz()`-derived value through the browser's wall clock inside
+                    // `isBefore`, moving it by the local offset.
+                    const rangeStart = dateStringToDayJs(dateFilter.dateFrom)
+                    const windowStart = dayjs.utc().subtract(windowDays, 'day').startOf('day')
+                    return rangeStart !== null && rangeStart.valueOf() >= windowStart.valueOf()
+                }
+            },
+        ],
+
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => {
@@ -500,12 +554,35 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     }),
 
     urlToAction(({ actions, values, cache }) => {
-        function applySearchParams(searchParams: Record<string, unknown>): void {
+        function applySearchParams(searchParams: Record<string, unknown>, applyEventDateParams: boolean = true): void {
             const { filters, date_from, date_to, filter_test_accounts, trace_search } = searchParams
 
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
-            const newDateFrom = (date_from as string | null) || INITIAL_EVENTS_DATE_FROM
-            const newDateTo = (date_to as string | null) || INITIAL_DATE_TO
+            const hasDateFromParam = applyEventDateParams && typeof date_from === 'string' && date_from.length > 0
+            const hasDateToParam = applyEventDateParams && typeof date_to === 'string' && date_to.length > 0
+            const hasDateFromOverride =
+                applyEventDateParams &&
+                typeof date_from === 'string' &&
+                date_from.length > 0 &&
+                isValidRelativeOrAbsoluteDate(date_from)
+            const hasDateToOverride =
+                applyEventDateParams &&
+                typeof date_to === 'string' &&
+                date_to.length > 0 &&
+                isValidRelativeOrAbsoluteDate(date_to)
+            const hasInvalidDateParam =
+                (hasDateFromParam && !hasDateFromOverride) || (hasDateToParam && !hasDateToOverride)
+            const hasDateOverride = hasDateFromOverride || hasDateToOverride
+            const newDateFrom = hasDateOverride
+                ? hasDateFromOverride
+                    ? date_from
+                    : INITIAL_EVENTS_DATE_FROM
+                : values.dateFilter.dateFrom
+            const newDateTo = hasDateOverride
+                ? hasDateToOverride
+                    ? date_to
+                    : INITIAL_DATE_TO
+                : values.dateFilter.dateTo
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(
                 filter_test_accounts as string | number | boolean
             )
@@ -516,7 +593,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             const testAccountsChanged = filterTestAccountsValue !== values.shouldFilterTestAccounts
             const searchQueryChanged = newSearchQuery !== values.searchQuery
 
-            if (filtersChanged || datesChanged || testAccountsChanged || searchQueryChanged) {
+            if (filtersChanged || datesChanged || testAccountsChanged || searchQueryChanged || hasInvalidDateParam) {
                 // Dispatch a single batched action so actionToUrl produces one URL
                 // change instead of up to 3 separate ones. The actionToUrl handler
                 // for applyUrlState rewrites the shared params and drops stale
@@ -566,7 +643,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         }
 
         function applyDashboard(searchParams: Record<string, unknown>): void {
-            applySearchParams(searchParams)
+            applySearchParams(searchParams, false)
 
             const hasDateOverride =
                 typeof searchParams.date_from === 'string' || typeof searchParams.date_to === 'string'
@@ -635,14 +712,26 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             return { ...passthroughSearchParams(), filters, date_from, date_to, filter_test_accounts, trace_search }
         }
 
+        function dateSearchParams(dateFrom: string | null, dateTo: string | null): Record<string, unknown> {
+            if (router.values.location.pathname.endsWith(urls.aiObservabilityDashboard())) {
+                return {
+                    date_from: router.values.searchParams.date_from,
+                    date_to: router.values.searchParams.date_to,
+                }
+            }
+            return {
+                date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
+                date_to: dateTo || undefined,
+            }
+        }
+
         return {
             applyUrlState: ({ propertyFilters, dateFrom, dateTo, shouldFilterTestAccounts, searchQuery }) => [
                 router.values.location.pathname,
                 {
                     ...passthroughSearchParams(),
                     filters: propertyFilters.length > 0 ? propertyFilters : undefined,
-                    date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
-                    date_to: dateTo || undefined,
+                    ...dateSearchParams(dateFrom, dateTo),
                     filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
                     trace_search:
                         (searchQuery ?? (router.values.searchParams.trace_search as string | undefined)) || undefined,

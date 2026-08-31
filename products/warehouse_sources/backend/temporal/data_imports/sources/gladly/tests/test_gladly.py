@@ -12,6 +12,7 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly import (
     CHUNK_SIZE,
+    GladlyReportHeaderError,
     GladlyResumeConfig,
     GladlyRetryableError,
     _base_url,
@@ -635,7 +636,11 @@ class TestGetReportRows:
     @freeze_time("2024-03-15T10:00:00Z")
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_large_report_windows_are_chunked(self, mock_session):
-        csv_text = "Conversation ID\n" + "\n".join(f"conv-{i}" for i in range(CHUNK_SIZE + 1)) + "\n"
+        csv_text = (
+            "Timestamp,Conversation ID\n"
+            + "\n".join(f"2024-03-15T09:00:00.000Z,conv-{i}" for i in range(CHUNK_SIZE + 1))
+            + "\n"
+        )
         mock_session.return_value.post.side_effect = [_csv_response(csv_text)]
 
         manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
@@ -647,13 +652,59 @@ class TestGetReportRows:
     @mock.patch(f"{_MODULE}.REPORT_ROW_WARNING_THRESHOLD", 2)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_windows_near_the_report_row_cap_log_a_truncation_warning(self, mock_session):
-        mock_session.return_value.post.side_effect = [_csv_response("Conversation ID\nconv-1\nconv-2\n")]
+        mock_session.return_value.post.side_effect = [
+            _csv_response(
+                "Timestamp,Conversation ID\n2024-03-15T09:00:00.000Z,conv-1\n2024-03-15T10:00:00.000Z,conv-2\n"
+            )
+        ]
 
         manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
         logger = mock.MagicMock()
         list(get_rows("myorg", "agent@x.com", "token", "conversation_timestamps", logger, manager))
 
         logger.warning.assert_called_once()
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_blank_lines_before_the_header_do_not_erase_the_columns(self, mock_session):
+        mock_session.return_value.post.side_effect = [
+            _csv_response("\r\n\r\nTimestamp,Contact ID\r\n2024-03-15T09:00:00.000Z,ct-1\r\n")
+        ]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        batches = list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
+
+        flat = [row for batch in batches for row in batch]
+        assert [(row["timestamp"], row["contact_id"]) for row in flat] == [("2024-03-15T09:00:00.000Z", "ct-1")]
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @pytest.mark.parametrize(
+        "endpoint,body",
+        [
+            ("contact_timestamps", '[\n{"timestamp":"2024-03-15T09:00:00.000Z"}\n]\n'),
+            ("contact_timestamps", "<html>\n<body>\nGladly is unavailable\n</body>\n</html>\n"),
+            ("contact_timestamps", "Event Type,Contact ID\nCONTACT/STARTED,ct-1\n"),
+            ("conversations", "Conversation ID,Status\nconv-1,OPEN\n"),
+        ],
+        ids=["json_body", "html_body", "cursor_column_renamed", "primary_key_column_renamed"],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_report_missing_the_columns_it_syncs_on_fails_at_the_source(self, mock_session, endpoint, body):
+        mock_session.return_value.post.side_effect = [_csv_response(body)]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        with pytest.raises(GladlyReportHeaderError, match="missing required columns"):
+            list(get_rows("myorg", "agent@x.com", "token", endpoint, mock.MagicMock(), manager))
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_a_whitespace_only_body_is_treated_as_an_empty_window(self, mock_session):
+        mock_session.return_value.post.side_effect = [_csv_response("\r\n")]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        batches = list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
+
+        assert batches == []
 
 
 class TestGladlySourceResponse:

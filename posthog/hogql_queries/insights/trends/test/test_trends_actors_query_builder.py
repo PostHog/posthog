@@ -28,6 +28,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -82,7 +83,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def _get_date_where_sql(self, **kwargs):
         builder = self._get_builder(**kwargs)
         date_expr = builder._date_where_expr()
-        return self._print_hogql_expr(list(date_expr))
+        return self._print_hogql_expr(date_expr.as_exprs())
 
     def _get_utc_string(self, dt: datetime | None) -> str | None:
         if dt is None:
@@ -231,6 +232,27 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                 self._get_date_where_sql(trends_query=trends_query),
                 "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
             )
+
+    @parameterized.expand(
+        [
+            ("time_series_without_day", None, None, "A `day` is required"),
+            ("total_value_with_day", ChartDisplayType.BOLD_NUMBER, "2023-05-08", "A `day` is forbidden"),
+        ]
+    )
+    def test_invalid_time_frame_raises_query_error(
+        self,
+        _name: str,
+        display: ChartDisplayType | None,
+        time_frame: str | None,
+        expected_error: str,
+    ) -> None:
+        trends_query = default_query.model_copy(
+            update={"trendsFilter": TrendsFilter(display=display)} if display else {},
+            deep=True,
+        )
+
+        with self.assertRaisesRegex(QueryError, expected_error):
+            self._get_date_where_sql(trends_query=trends_query, time_frame=time_frame)
 
     def test_date_range_total_value_compare_previous(self):
         self.team.timezone = "Europe/Berlin"

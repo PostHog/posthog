@@ -25,12 +25,14 @@ from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
     get_survey_api_translations,
@@ -38,8 +40,6 @@ from products.surveys.backend.api.survey import (
     nh3_clean_with_allow_list,
 )
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestSurvey(APIBaseTest):
@@ -487,6 +487,50 @@ class TestSurvey(APIBaseTest):
         payload_ids = {str(item["id"]) for item in get_surveys_response(self.team)["surveys"]}
 
         assert (str(survey.id) in payload_ids) is expected_in_payload
+
+    def test_sdk_payload_orders_surveys_by_launch_date(self) -> None:
+        # SDKs break display ties by payload order, so it must be deterministic:
+        # oldest launch first, then created_at, then id.
+        def create_survey(name: str, start_date: datetime, created_at: datetime) -> Survey:
+            survey = Survey.objects.create(
+                team=self.team,
+                name=name,
+                type="popover",
+                start_date=start_date,
+                questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
+            )
+            Survey.objects.filter(id=survey.id).update(created_at=created_at)
+            return survey
+
+        launched_last = create_survey(
+            "Launched last", datetime(2026, 1, 3, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        launched_first = create_survey(
+            "Launched first", datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)
+        )
+        tie_created_second = create_survey(
+            "Tie created second", datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)
+        )
+        tie_created_first = create_survey(
+            "Tie created first", datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        full_tie_a = create_survey("Full tie a", datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC))
+        full_tie_b = create_survey("Full tie b", datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC))
+        id_tie_first, id_tie_second = sorted([full_tie_a, full_tie_b], key=lambda survey: str(survey.id))
+
+        payload_ids = [str(item["id"]) for item in get_surveys_response(self.team)["surveys"]]
+
+        assert payload_ids == [
+            str(survey.id)
+            for survey in [
+                launched_first,
+                tie_created_first,
+                tie_created_second,
+                id_tie_first,
+                id_tie_second,
+                launched_last,
+            ]
+        ]
 
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
         self.team.survey_config = {"appearance": {"backgroundColor": "black"}}
@@ -1523,6 +1567,24 @@ class TestSurvey(APIBaseTest):
             "detail": "Cohort 'cohort2' has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in surveys.",
             "attr": None,
         }
+
+    @parameterized.expand(
+        [
+            ("targeting_flag_filters", '{"groups": []}'),
+            ("form_content", '{"type": "doc"}'),
+        ]
+    )
+    def test_structured_param_as_json_string_returns_400_not_500(self, field, value):
+        # Some MCP clients send a structured param as a JSON-encoded string when its
+        # generated schema is empty. The server must name the bad field, not raise a 500.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "survey with bad param", "type": "popover", field: value},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == field
 
     def test_updating_survey_with_targeting_creates_or_updates_targeting_flag(self):
         survey_with_targeting = self.client.post(
@@ -6521,6 +6583,86 @@ class TestSurveyBulkDuplication(APIBaseTest):
         # Generic condition fields SHOULD be copied
         assert duplicated.conditions.get("url") == "https://example.com"
 
+    @parameterized.expand(
+        [
+            (
+                "standard_keys",
+                {"fr": {"name": "Sondage"}, "es-MX": {"name": "Encuesta"}},
+                {"fr": {"question": "Qu'en pensez-vous?"}},
+            ),
+            # Legacy keys predate language-code validation and only survive edits via grandfathering, which
+            # keys off an existing instance. Duplication is a create, so routing these through the serializer
+            # would reject "english" as an invalid code and 400 the whole batch.
+            (
+                "legacy_keys",
+                {"english": {"name": "Survey"}},
+                {"english": {"question": "What do you think?"}},
+            ),
+        ]
+    )
+    def test_bulk_duplicate_copies_translations(
+        self, _name: str, survey_translations: dict, question_translations: dict
+    ) -> None:
+        translated_survey = Survey.objects.create(
+            team=self.team,
+            name="Translated Survey",
+            type="popover",
+            questions=[
+                {"type": "open", "question": "What do you think?", "translations": question_translations},
+                {"type": "open", "question": "Any other feedback?"},
+            ],
+            base_language="en-GB",
+            translations=survey_translations,
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{translated_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        duplicated = Survey.objects.get(team=self.team2)
+        assert duplicated.base_language == "en-GB"
+        assert duplicated.translations == survey_translations
+        assert duplicated.questions is not None
+        # Per-question translations are restored onto the right question, and questions without any are untouched.
+        assert duplicated.questions[0]["translations"] == question_translations
+        assert "translations" not in duplicated.questions[1]
+
+    def test_bulk_duplicate_copies_question_translation_matching_default_base_language(self) -> None:
+        # A non-English base language with an "en" question translation is valid at the source, but the create
+        # serializer resolves base_language to the default "en" and would reject "en" as colliding with it.
+        translated_survey = Survey.objects.create(
+            team=self.team,
+            name="French Survey",
+            type="popover",
+            questions=[
+                {
+                    "type": "open",
+                    "question": "Qu'en pensez-vous?",
+                    "translations": {"en": {"question": "What do you think?"}},
+                }
+            ],
+            base_language="fr",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{translated_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        duplicated = Survey.objects.get(team=self.team2)
+        assert duplicated.base_language == "fr"
+        assert duplicated.questions is not None
+        assert duplicated.questions[0]["translations"] == {"en": {"question": "What do you think?"}}
+
     def test_bulk_duplicate_transaction_rollback_on_error(self):
         """Test that all duplications are rolled back if one fails"""
         # Create a survey with the same name in team2 to cause a conflict
@@ -7128,6 +7270,64 @@ class TestSurveyListTypeFilter(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["name"], "widget survey")
+
+    def test_filter_by_creator_before_paginating(self):
+        own_survey = Survey.objects.create(
+            team=self.team,
+            name="my survey",
+            type="popover",
+            questions=[],
+            created_by=self.user,
+        )
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        Survey.objects.create(
+            team=self.team,
+            name="someone else's survey",
+            type="popover",
+            questions=[],
+            created_by=other_user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?created_by={self.user.id}&limit=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertIsNone(data["next"])
+        self.assertEqual([survey["id"] for survey in data["results"]], [str(own_survey.id)])
+
+    @parameterized.expand(
+        [
+            ("draft", "draft survey"),
+            ("running", "running survey"),
+            ("complete", "complete survey"),
+        ]
+    )
+    def test_filter_by_status(self, survey_status: str, expected_name: str):
+        now = datetime.now(UTC)
+        Survey.objects.create(team=self.team, name="draft survey", type="popover", questions=[])
+        Survey.objects.create(
+            team=self.team,
+            name="running survey",
+            type="popover",
+            questions=[],
+            start_date=now,
+        )
+        Survey.objects.create(
+            team=self.team,
+            name="complete survey",
+            type="popover",
+            questions=[],
+            start_date=now - timedelta(days=1),
+            end_date=now,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?status={survey_status}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["name"], expected_name)
 
     def test_filter_by_ids(self):
         first = Survey.objects.create(team=self.team, name="first", type="popover", questions=[])

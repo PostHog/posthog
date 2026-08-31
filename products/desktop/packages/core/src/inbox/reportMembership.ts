@@ -8,7 +8,7 @@ import type { SignalReport } from "@posthog/shared/types";
  * finished section so the user can see what went wrong. Other tabs filter
  * them out via their own predicates.
  */
-export const INBOX_EXCLUDED_STATUSES = new Set<SignalReport["status"]>([
+const INBOX_EXCLUDED_STATUSES = new Set<SignalReport["status"]>([
   "suppressed",
   "resolved",
   "deleted",
@@ -41,17 +41,6 @@ export function isRestorableReport(
   return report.status === "suppressed";
 }
 
-export function getImmediatelyActionableReports(
-  reports: SignalReport[],
-): SignalReport[] {
-  return reports.filter(
-    (report) =>
-      report.status === "ready" &&
-      report.actionability === "immediately_actionable" &&
-      !report.already_addressed,
-  );
-}
-
 export type InboxScope = "for-you" | "entire-project" | `teammate:${string}`;
 
 export const INBOX_SCOPE_FOR_YOU: InboxScope = "for-you";
@@ -73,19 +62,7 @@ export function isTeammateInboxScope(
   return parseTeammateInboxScope(scope) != null;
 }
 
-export function inboxScopeTriggerLabel(
-  scope: InboxScope,
-  teammateName?: string | null,
-): string {
-  if (scope === INBOX_SCOPE_FOR_YOU) return "For you";
-  if (scope === INBOX_SCOPE_ENTIRE_PROJECT) return "Entire project";
-  return teammateName?.trim() || "Teammate";
-}
-
-export function matchesInboxScope(
-  report: SignalReport,
-  scope: InboxScope,
-): boolean {
+function matchesInboxScope(report: SignalReport, scope: InboxScope): boolean {
   if (isExcludedFromInbox(report)) return false;
   if (scope === INBOX_SCOPE_ENTIRE_PROJECT) return true;
   if (isTeammateInboxScope(scope)) return true;
@@ -117,24 +94,24 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 
 /**
  * Canonical inbox tab list routes. Use these constants instead of hard-coding
- * `/code/inbox/pulls` etc., so renames stay in one place.
+ * `/inbox/pulls` etc., so renames stay in one place.
  *
- * Detail routes (`/code/inbox/<tab>/$reportId`) stay as TanStack Router
+ * Detail routes (`/inbox/<tab>/$reportId`) stay as TanStack Router
  * literals at call sites – TanStack's typed-link API needs them as literal
  * strings to infer params.
  */
 export const INBOX_TAB_LIST_ROUTE: Record<
   InboxTabKey,
-  `/code/inbox/${InboxTabKey}`
+  `/inbox/${InboxTabKey}`
 > = {
-  pulls: "/code/inbox/pulls",
-  reports: "/code/inbox/reports",
-  runs: "/code/inbox/runs",
-  dismissed: "/code/inbox/dismissed",
+  pulls: "/inbox/pulls",
+  reports: "/inbox/reports",
+  runs: "/inbox/runs",
+  dismissed: "/inbox/dismissed",
 };
 
 const INBOX_DETAIL_PATH_RE = new RegExp(
-  `^/code/inbox/(${INBOX_TAB_KEYS.join("|")})/[^/]+$`,
+  `^/inbox/(${INBOX_TAB_KEYS.join("|")})/[^/]+$`,
 );
 
 export function isInboxDetailPath(pathname: string): boolean {

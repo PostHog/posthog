@@ -11,6 +11,7 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
@@ -38,6 +39,7 @@ export function IntegrationChoice({
     const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -107,7 +109,10 @@ export function IntegrationChoice({
           : {
                 to: api.integrations.authorizeUrl({ kind, next: redirectUrl }),
                 disableClientSideRouting: true,
-                onClick: beforeRedirect,
+                onClick: () => {
+                    reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
+                    beforeRedirect?.()
+                },
                 label: integrationsOfKind?.length
                     ? `Connect to a different integration for ${kindName}`
                     : `Connect to ${kindName}`,

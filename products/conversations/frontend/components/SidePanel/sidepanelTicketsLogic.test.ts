@@ -392,12 +392,20 @@ describe('sidepanelTicketsLogic', () => {
     })
 
     // The panel already shows free plans the community and upgrade options, and they have no email
-    // channel, so warning them the chat failed would offer support they don't actually get.
+    // channel, so warning them the chat failed would offer support they don't actually get. The
+    // unread badge also mounts this logic on every page, so outside a support surface the toast
+    // would interrupt unrelated work (and block clicks under the toast container) for anyone whose
+    // ad blocker keeps the widget from loading.
     it.each([
-        ['warns an entitled plan', 'paid', true],
-        ['stays quiet on a free plan', 'free', false],
-    ])('when the widget never loads, %s', async (_case, subscriptionLevel, expectWarning) => {
+        ['warns an entitled plan on the support panel', 'paid', true, true],
+        ['stays quiet on a free plan', 'free', true, false],
+        ['stays quiet outside support surfaces', 'paid', false, false],
+    ])('when the widget never loads, %s', async (_case, subscriptionLevel, onSupportPanel, expectWarning) => {
         const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        if (onSupportPanel) {
+            sidePanelStateLogic.mount()
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
+        }
         logic = sidepanelTicketsLogic.build()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -425,7 +433,7 @@ describe('sidepanelTicketsLogic', () => {
             ([event]) => event === 'support widget load failed'
         )
         expect(loadFailures).toHaveLength(1)
-        expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: expectWarning })
+        expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: subscriptionLevel === 'paid' })
         expect(errorToast).toHaveBeenCalledTimes(expectWarning ? 1 : 0)
         errorToast.mockRestore()
     })

@@ -40,6 +40,32 @@ import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
+import IconYouTubeAnalytics from 'public/services/youtube_analytics.png'
+
+/**
+ * Where a user started an integration connect flow. Reported as the `surface` property on
+ * `integration_connect_clicked`, so these strings are frozen — renaming one silently splits a
+ * funnel that already counts the old value.
+ *
+ * A connect can start from many places, and only some of them are a first connection: the
+ * `*_reconnect` and `settings_manage` values cover flows that begin with an integration already
+ * in place, which a conversion metric wants to exclude.
+ */
+export type IntegrationConnectSurface =
+    | 'settings'
+    | 'settings_manage'
+    | 'settings_link_existing'
+    | 'integration_landing_page'
+    | 'pipeline_config'
+    | 'error_banner_reconnect'
+    | 'missing_scopes_reconnect'
+    | 'warehouse_source_reconnect'
+    | 'onboarding_wizard'
+    | 'signals_agent_setup'
+    | 'task_composer'
+    | 'visual_review_settings'
+    | 'install_approved_banner'
+    | 'unavailable_banner_reconnect'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
@@ -83,6 +109,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'aws-s3': IconAwsS3,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
+    'youtube-analytics': IconYouTubeAnalytics,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
@@ -131,6 +158,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'AWS S3'
         case 's3-compatible':
             return 'S3-compatible storage'
+        case 'youtube-analytics':
+            return 'YouTube Analytics'
         default:
             return capitalizeFirstLetter(kind)
     }

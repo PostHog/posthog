@@ -226,6 +226,9 @@ class TestStripeSource:
             # account_invalid: key not authorized for the configured account, or revoked app access.
             # Raised mid-sync as stripe.PermissionError, matched on the stable phrase (key/account redacted).
             "The provided key 'sk_test_***qPsl' does not have access to account 'stripe_s***less' (or that account does not exist). Application access may have been revoked.",
+            # A publishable key was used where a secret/restricted key is required — matched on the
+            # stable message text, ignoring the request id prefix.
+            "Request req_abc123: This API call cannot be made with a publishable API key. Please use a secret API key. You can find a list of your API keys at https://dashboard.stripe.com/account/apikeys.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -413,7 +416,7 @@ class TestStripeSource:
         assert client._last_request_method == "get"
 
 
-def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None):
+def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None, resumable_source_manager=None):
     if parent_objects is None:
         parent_objects = [{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}]
     parent = StripeResource(method=lambda **kwargs: _list_object(parent_objects))
@@ -426,7 +429,8 @@ def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=N
         parent_has_nested=parent_has_nested,
     )
 
-    resumable_source_manager = MagicMock()
+    if resumable_source_manager is None:
+        resumable_source_manager = MagicMock()
     resumable_source_manager.can_resume.return_value = False
 
     with (
@@ -526,6 +530,26 @@ class TestStripeNestedResourceGetRows:
         # cus_zero is skipped entirely — no API call, no rows.
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+    def test_sparse_sweep_checkpoints_by_parent_count(self):
+        # A nested resource where no parent has data (CustomerPaymentMethod over customers with no
+        # stored payment method) never fills a chunk, so the row-driven checkpoint never fires and
+        # a killed run restarted the whole customer walk. Position must be recorded by parents
+        # walked, regardless of how few rows come back.
+        def nested_method(customer=None, params=None):
+            return _list_object([])
+
+        manager = MagicMock()
+        with patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", 3):
+            rows = _run_nested_get_rows(
+                nested_method,
+                parent_objects=[{"id": f"cus_{i}"} for i in range(8)],
+                resumable_source_manager=manager,
+            )
+
+        assert rows == []
+        # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
+        assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
 
     def test_query_param_service_receives_parent_in_params(self):
         # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
@@ -1398,6 +1422,27 @@ class TestCreateWebhookPermissionErrorCopy:
 
         assert result.success is False
         assert expected_phrase in (result.error or "")
+
+
+class TestCreateWebhookLimitErrorCopy:
+    # Regression test: hitting Stripe's webhook-endpoint cap used to surface Stripe's raw error
+    # verbatim, so the user couldn't tell the account-wide limit was the cause or how to recover.
+    def test_webhook_limit_error_gives_actionable_message(self):
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            mock_client = mock_client_cls.return_value
+            mock_client.webhook_endpoints.create.side_effect = stripe_lib.InvalidRequestError(
+                "You have reached the maximum of 100 test webhook endpoints.", param=None
+            )
+
+            result = create_webhook(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url="https://example.com/webhook",
+            )
+
+        assert result.success is False
+        assert "webhook endpoint limit" in (result.error or "")
+        assert "manually" in (result.error or "")
 
 
 class TestStripeAppManifestCoversSourcePermissions:

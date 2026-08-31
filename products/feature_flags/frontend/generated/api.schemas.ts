@@ -177,6 +177,15 @@ export interface StaffTeamConfigApi {
     team_id: number
     /** Whether this team's SDKs receive the slim $feature_flag_called event shape (omitting fields only needed for experiments) instead of the full legacy shape. */
     minimal_flag_called_events: boolean
+    /**
+     * Per-team override for the maximum number of feature flags this team may create, or null when the team uses the global default.
+     * @nullable
+     */
+    max_feature_flags_override: number | null
+    /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
+    effective_max_feature_flags: number
+    /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
+    feature_flag_count: number
 }
 
 export interface StaffTeamConfigListResponseApi {
@@ -187,8 +196,15 @@ export interface StaffTeamConfigListResponseApi {
 export interface StaffTeamConfigMutationApi {
     /** Team id to update. Exactly one team per request. */
     team_id: number
-    /** New value for the team's minimal_flag_called_events setting. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
-    minimal_flag_called_events: boolean
+    /** New value for the team's minimal_flag_called_events setting. Omit to leave it unchanged. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
+    minimal_flag_called_events?: boolean
+    /**
+     * New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.
+     * @minimum 1
+     * @maximum 20000
+     * @nullable
+     */
+    max_feature_flags_override?: number | null
 }
 
 export interface StaffTeamResultApi {
@@ -204,6 +220,11 @@ export interface StaffTeamResultApi {
     organization_name: string
     /** Project id the team belongs to. */
     project_id: number
+    /**
+     * Project root team id when this team is an environment, or null when it is the root. The flag limit is set on the root, so a team with this set cannot take an override.
+     * @nullable
+     */
+    parent_team_id: number | null
 }
 
 export interface StaffTeamSearchResponseApi {
@@ -609,7 +630,7 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyGenericSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -621,7 +642,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -660,7 +681,7 @@ export const ExistenceOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyExistsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -672,7 +693,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -701,7 +722,7 @@ export const DateOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyDateSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -713,7 +734,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -756,7 +777,7 @@ export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertySemverSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -768,7 +789,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -803,7 +824,7 @@ export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -815,7 +836,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -863,7 +884,7 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -909,7 +930,7 @@ export interface FeatureFlagFilterPropertyFlagEvaluatesSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -1227,6 +1248,11 @@ export interface FeatureFlagTestEvaluationResponseApi {
     result: unknown
     /** The reason for the evaluation result */
     reason: string
+    /**
+     * Human-readable explanation of the evaluation result. Set when the reason code is coarse, for example a non-match decided by a behavioral or realtime cohort whose membership is not fully evaluated here, which can disagree with the cohort's member list.
+     * @nullable
+     */
+    reason_description?: string | null
     /**
      * The index of the condition that matched, if applicable
      * @nullable
@@ -1590,6 +1616,44 @@ export const ScheduledChangeRecurrenceIntervalEnumApi = {
     Yearly: 'yearly',
 } as const
 
+/**
+ * * `pending` - Pending
+ * * `approved` - Approved (awaiting application)
+ * * `applied` - Applied
+ * * `rejected` - Rejected
+ * * `expired` - Expired
+ * * `failed` - Failed to apply
+ */
+export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
+
+export const ChangeRequestStateEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Applied: 'applied',
+    Rejected: 'rejected',
+    Expired: 'expired',
+    Failed: 'failed',
+} as const
+
+/**
+ * Minimal read-only ChangeRequest shape for embedding on resources gated by an approval,
+ * e.g. the scheduled change that carries it. Exposes just enough to show the approval state
+ * and link to the change request.
+ */
+export interface ChangeRequestSummaryApi {
+    /** ID of the approval change request. Use it to link to the change request in the UI. */
+    readonly id: string
+    /** Current approval state: 'pending' (awaiting approval), 'approved' (awaiting application), 'applied', 'rejected', 'expired', or 'failed'.
+     *
+     * * `pending` - Pending
+     * * `approved` - Approved (awaiting application)
+     * * `applied` - Applied
+     * * `rejected` - Rejected
+     * * `expired` - Expired
+     * * `failed` - Failed to apply */
+    readonly state: ChangeRequestStateEnumApi
+}
+
 export interface ScheduledChangeApi {
     readonly id: number
     readonly team_id: number
@@ -1639,6 +1703,8 @@ export interface ScheduledChangeApi {
     end_date?: string | null
     /** @nullable */
     readonly timezone: string | null
+    /** Summary of the approval change request gating this scheduled change. Null when no approval policy applies. The change only applies at its scheduled time if the request is approved by then. */
+    readonly change_request: ChangeRequestSummaryApi | null
 }
 
 export interface PaginatedScheduledChangeListApi {
@@ -1699,6 +1765,8 @@ export interface PatchedScheduledChangeApi {
     end_date?: string | null
     /** @nullable */
     readonly timezone?: string | null
+    /** Summary of the approval change request gating this scheduled change. Null when no approval policy applies. The change only applies at its scheduled time if the request is approved by then. */
+    readonly change_request?: ChangeRequestSummaryApi | null
 }
 
 export type FeatureFlagsStaffCacheListParams = {
@@ -1931,6 +1999,10 @@ export type FeatureFlagsEvaluationReasonsRetrieveParams = {
 }
 
 export type FeatureFlagsMyFlagsRetrieveParams = {
+    /**
+     * Optional list of flag keys to scope the response to. When omitted, every flag in the project is returned with its evaluated value, which can be a very large payload on projects with many flags. Pass the specific flag(s) you want to check to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).
+     */
+    flag_keys?: string[]
     /**
      * Groups for feature flag evaluation (JSON object string)
      */

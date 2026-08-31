@@ -15,7 +15,9 @@ _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.co
 _STATS = f"{_MODULE}.record_table_stats"
 _CAPTURE = f"{_MODULE}.posthoganalytics.capture"
 _POD = f"{_MODULE}._pod_name"
-_BATCHER_STATS = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.record_table_stats"
+_BATCHER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher"
+_BATCHER_STATS = f"{_BATCHER_MODULE}.record_table_stats"
+_BATCHER_BUFFER_REPORT = f"{_BATCHER_MODULE}.report_buffer_bytes"
 
 
 class TestRecordTableStats:
@@ -120,6 +122,20 @@ class TestBatcherStatsEmission:
         assert kwargs["stage"] == "batcher"
         assert kwargs["num_rows"] == 3
         assert kwargs["payload_bytes"] is not None
+
+    def test_buffer_report_grows_while_accumulating_toward_a_chunk(self):
+        # The self-report only fired when a chunk was materialised, so an activity buffering toward
+        # one reported whatever the previous chunk measured — extract-phase deaths came back with
+        # "held ~0 bytes" and got blamed on a co-tenant. Every batched item must move the number.
+        with mock.patch(_BATCHER_BUFFER_REPORT) as reported:
+            batcher = Batcher(logger=mock.MagicMock(), chunk_size=1_000_000, chunk_size_bytes=1024 * 1024 * 1024)
+            for _ in range(3):
+                batcher.batch({"val": "x" * 500})
+
+        sizes = [call.args[0] for call in reported.call_args_list]
+        assert len(sizes) == 3
+        assert sizes == sorted(sizes)
+        assert sizes[0] < sizes[-1]
 
     def test_silent_when_source_type_absent(self):
         # Source-internal batchers leave source_type None; their output is measured when it reaches

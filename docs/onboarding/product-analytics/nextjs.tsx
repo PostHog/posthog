@@ -3,7 +3,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getNextJSSetupSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, Tab, dedent } = ctx
 
     return [
@@ -34,6 +34,13 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                 file: 'pnpm',
                                 code: dedent`
                                     pnpm add posthog-js
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
                                 `,
                             },
                         ]}
@@ -221,28 +228,34 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                 </>
             ),
         },
-        {
-            title: 'Accessing PostHog on the client',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Tab.Group tabs={['Next.js 15.3+', 'App/Pages router']}>
-                        <Tab.List>
-                            <Tab>Next.js 15.3+</Tab>
-                            <Tab>App/Pages router</Tab>
-                        </Tab.List>
-                        <Tab.Panels>
-                            <Tab.Panel>
-                                <Markdown>
-                                    Once initialized in `instrumentation-client.ts`, import `posthog` from `posthog-js`
-                                    anywhere and call the methods you need:
-                                </Markdown>
-                                <CodeBlock
-                                    blocks={[
-                                        {
-                                            language: 'typescript',
-                                            file: 'app/checkout/page.tsx',
-                                            code: dedent`
+    ]
+}
+
+export const getNextJSClientAccessStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { CodeBlock, Markdown, Tab, dedent } = ctx
+
+    return {
+        title: 'Accessing PostHog on the client',
+        badge: 'recommended',
+        content: (
+            <>
+                <Tab.Group tabs={['Next.js 15.3+', 'App/Pages router']}>
+                    <Tab.List>
+                        <Tab>Next.js 15.3+</Tab>
+                        <Tab>App/Pages router</Tab>
+                    </Tab.List>
+                    <Tab.Panels>
+                        <Tab.Panel>
+                            <Markdown>
+                                Once initialized in `instrumentation-client.ts`, import `posthog` from `posthog-js`
+                                anywhere and call the methods you need:
+                            </Markdown>
+                            <CodeBlock
+                                blocks={[
+                                    {
+                                        language: 'typescript',
+                                        file: 'app/checkout/page.tsx',
+                                        code: dedent`
                                                 'use client'
 
                                                 import posthog from 'posthog-js'
@@ -255,18 +268,18 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                                     return <button onClick={handlePurchase}>Complete purchase</button>
                                                 }
                                             `,
-                                        },
-                                    ]}
-                                />
-                            </Tab.Panel>
-                            <Tab.Panel>
-                                <Markdown>Use the `usePostHog` hook to access PostHog in client components:</Markdown>
-                                <CodeBlock
-                                    blocks={[
-                                        {
-                                            language: 'typescript',
-                                            file: 'app/checkout/page.tsx',
-                                            code: dedent`
+                                    },
+                                ]}
+                            />
+                        </Tab.Panel>
+                        <Tab.Panel>
+                            <Markdown>Use the `usePostHog` hook to access PostHog in client components:</Markdown>
+                            <CodeBlock
+                                blocks={[
+                                    {
+                                        language: 'typescript',
+                                        file: 'app/checkout/page.tsx',
+                                        code: dedent`
                                                 'use client'
 
                                                 import { usePostHog } from '@posthog/react'
@@ -281,17 +294,21 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                                     return <button onClick={handlePurchase}>Complete purchase</button>
                                                 }
                                             `,
-                                        },
-                                    ]}
-                                />
-                            </Tab.Panel>
-                        </Tab.Panels>
-                    </Tab.Group>
-                </>
-            ),
-        },
-    ]
+                                    },
+                                ]}
+                            />
+                        </Tab.Panel>
+                    </Tab.Panels>
+                </Tab.Group>
+            </>
+        ),
+    }
 }
+
+export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getNextJSSetupSteps(ctx),
+    getNextJSClientAccessStep(ctx),
+]
 
 export const getNextJSServerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, Tab, dedent } = ctx
@@ -324,6 +341,13 @@ export const getNextJSServerSteps = (ctx: OnboardingComponentsContext): StepDefi
                                 file: 'pnpm',
                                 code: dedent`
                                     pnpm add posthog-node
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-node
                                 `,
                             },
                         ]}
@@ -446,19 +470,24 @@ export const getNextJSServerSteps = (ctx: OnboardingComponentsContext): StepDefi
     ]
 }
 
-export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { snippets } = ctx
-    const JSEventCapture = snippets?.JSEventCapture
+export const getNextJSInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getNextJSClientSteps(ctx),
+    ...getNextJSServerSteps(ctx),
+]
 
-    return [
-        ...getNextJSClientSteps(ctx),
-        ...getNextJSServerSteps(ctx),
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
-    ]
+export const getNextJSEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const JSEventCapture = ctx.snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
 }
+
+export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getNextJSInstallSteps(ctx),
+    getNextJSEventStep(ctx),
+]
 
 export const NextJSInstallation = createInstallation(getNextJSSteps)

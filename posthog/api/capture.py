@@ -33,6 +33,7 @@ from prometheus_client import Counter
 from requests.adapters import HTTPAdapter, Retry
 from requests.exceptions import RequestException
 
+from posthog.dataclasses import frozen
 from posthog.security.outbound_proxy import internal_requests_session
 from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_BATCH_CHUNK_SIZE,
@@ -218,7 +219,7 @@ def _resolve_scalar(
     return legacy
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class NormalizedEventParts:
     options: dict[str, Any]
     session_id: Optional[str]

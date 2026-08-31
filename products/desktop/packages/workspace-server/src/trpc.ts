@@ -50,8 +50,6 @@ import {
   changedFilesOutput,
   checkoutBranchInput,
   checkoutBranchOutput,
-  cleanupAfterCloudHandoffInput,
-  cleanupAfterCloudHandoffOutput,
   cloneRepositoryInput,
   cloneRepositoryOutput,
   commitInput,
@@ -69,6 +67,7 @@ import {
   discardFileChangesOutput,
   filePathInput,
   getBranchChangedFilesInput,
+  getCommitChangedFilesInput,
   getCommitConventionsInput,
   getCommitConventionsOutput,
   getCommitsBetweenBranchesInput,
@@ -120,8 +119,6 @@ import {
   pullOutput,
   pushInput,
   pushOutput,
-  readHandoffLocalGitStateInput,
-  readHandoffLocalGitStateOutput,
   replyToPrCommentInput,
   replyToPrCommentOutput,
   resetSoftInput,
@@ -138,16 +135,12 @@ import {
 } from "./services/git/schemas";
 import type { GitService } from "./services/git/service";
 import {
-  countLocalLogEntriesInput,
-  countLocalLogEntriesOutput,
-  deleteLocalLogCacheInput,
   readLocalLogsCollapsedInput,
   readLocalLogsCollapsedOutput,
   readLocalLogsInput,
   readLocalLogsOutput,
   readLocalLogsTailInput,
   readLocalLogsTailOutput,
-  seedLocalLogsInput,
   writeLocalLogsInput,
 } from "./services/local-logs/schemas";
 import type { LocalLogsService } from "./services/local-logs/service";
@@ -160,24 +153,6 @@ import {
 import type { WatcherService } from "./services/watcher/service";
 
 const t = initTRPC.create({ transformer: superjson });
-
-export {
-  type FocusBranchRenamedEvent,
-  type FocusForeignBranchCheckoutEvent,
-  type FocusResult,
-  type FocusSession,
-  focusBranchRenamedEventSchema,
-  focusForeignBranchCheckoutEventSchema,
-  focusResultSchema,
-  focusSessionSchema,
-  type StashResult,
-  stashResultSchema,
-} from "./services/focus/schemas";
-export { type DiffStats, diffStatsSchema } from "./services/git/schemas";
-export {
-  type FileWatcherEvent,
-  FileWatcherEventKind,
-} from "./services/watcher/schemas";
 
 export interface WorkspaceServerServices {
   focusService: FocusService;
@@ -609,6 +584,13 @@ export function createAppRouter({
           gitService().getBranchChangedFiles(input.repo, input.branch),
         ),
 
+      getCommitChangedFiles: t.procedure
+        .input(getCommitChangedFilesInput)
+        .output(changedFilesOutput)
+        .query(({ input }) =>
+          gitService().getCommitChangedFiles(input.repo, input.sha),
+        ),
+
       getLocalBranchChangedFiles: t.procedure
         .input(getLocalBranchChangedFilesInput)
         .output(changedFilesOutput)
@@ -703,23 +685,6 @@ export function createAppRouter({
             input.owner,
             input.repo,
             input.number,
-          ),
-        ),
-
-      readHandoffLocalGitState: t.procedure
-        .input(readHandoffLocalGitStateInput)
-        .output(readHandoffLocalGitStateOutput)
-        .query(({ input }) =>
-          gitService().readHandoffLocalGitState(input.directoryPath),
-        ),
-
-      cleanupAfterCloudHandoff: t.procedure
-        .input(cleanupAfterCloudHandoffInput)
-        .output(cleanupAfterCloudHandoffOutput)
-        .mutation(({ input }) =>
-          gitService().cleanupAfterCloudHandoff(
-            input.directoryPath,
-            input.branchName,
           ),
         ),
 
@@ -915,25 +880,6 @@ export function createAppRouter({
         .input(writeLocalLogsInput)
         .mutation(({ input }) =>
           localLogsService().writeLocalLogs(input.taskRunId, input.content),
-        ),
-
-      seed: t.procedure
-        .input(seedLocalLogsInput)
-        .mutation(({ input }) =>
-          localLogsService().seedLocalLogs(input.taskRunId, input.content),
-        ),
-
-      count: t.procedure
-        .input(countLocalLogEntriesInput)
-        .output(countLocalLogEntriesOutput)
-        .query(({ input }) =>
-          localLogsService().countLocalLogEntries(input.taskRunId),
-        ),
-
-      delete: t.procedure
-        .input(deleteLocalLogCacheInput)
-        .mutation(({ input }) =>
-          localLogsService().deleteLocalLogCache(input.taskRunId),
         ),
     }),
     connectivity: t.router({

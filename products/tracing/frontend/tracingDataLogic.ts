@@ -78,10 +78,15 @@ const DEFAULT_PAGE_SIZE = 100
 const OPERATIONS_AGGREGATION_LIMIT = 5000
 export const PREFETCH_SPANS = 20
 export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+export const UNMOUNTING_ERROR_MESSAGE = 'unmounting component' as const
 
+// kea-loaders reduces a rejection to its message, so an aborted request arrives here as the reason
+// text we passed to `abort()`. Neither of our reasons contains "abort", so both need matching by
+// name: an unmatched one is treated as a genuine failure, which toasts the user and fires a
+// `tracing query failed` capture for a request that was cancelled on purpose.
 export function isUserInitiatedError(error: unknown): boolean {
     const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || error === UNMOUNTING_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
 // A ts hint (from a shared/cold link) bounds the lookup tightly around the trace instead of the
@@ -206,6 +211,9 @@ export interface tracingDataLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    refreshDeferredFilters: () => {
+        value: true
+    } // tracingFiltersLogic
     setChartType: (chartType: import('./tracingFiltersLogic').TracingChartType) => {
         chartType: import('./tracingFiltersLogic').TracingChartType
     } // tracingFiltersLogic
@@ -215,8 +223,12 @@ export interface tracingDataLogicActions {
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // tracingFiltersLogic
-    setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
+    setFilterGroup: (
+        filterGroup: UniversalFiltersGroup,
+        skipQuery?: boolean | undefined
+    ) => {
         filterGroup: UniversalFiltersGroup
+        skipQuery: boolean
     } // tracingFiltersLogic
     setFilters: (filters: Partial<TracingFilters>) => {
         filters: Partial<TracingFilters>
@@ -658,6 +670,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 'setComparison',
                 'updateComparisonWindows',
                 'setFilters',
+                'refreshDeferredFilters',
             ],
             featureFlagLogic,
             ['setFeatureFlags'],
@@ -1397,7 +1410,14 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         },
         setDateRange: () => actions.handleFilterChange('date_range'),
         setServiceNames: () => actions.handleFilterChange('service_names'),
-        setFilterGroup: () => actions.handleFilterChange('filter_group'),
+        // skipQuery: the trace drawer's attribute buttons update the filter chips immediately but
+        // queue the actual re-query for when the drawer closes — see refreshDeferredFilters.
+        setFilterGroup: ({ skipQuery }) => {
+            if (!skipQuery) {
+                actions.handleFilterChange('filter_group')
+            }
+        },
+        refreshDeferredFilters: () => actions.handleFilterChange('filter_group'),
         setSort: ({ orderBy, orderDirection }) =>
             actions.handleFilterChange('sort', { column: orderBy, direction: orderDirection }),
         setViewMode: ({ viewMode }) => actions.handleFilterChange('view_mode', { mode: viewMode }),
@@ -1468,43 +1488,49 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         },
         cancelInProgressSpans: ({ controller }) => {
             if (values.spansAbortController !== null) {
-                values.spansAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.spansAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSpansAbortController(controller)
         },
         cancelInProgressSparkline: ({ controller }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.sparklineAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSparklineAbortController(controller)
         },
         cancelInProgressMatchingCounts: ({ controller }) => {
             if (values.matchingCountsAbortController !== null) {
-                values.matchingCountsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.matchingCountsAbortController.abort(
+                    new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+                )
             }
             actions.setMatchingCountsAbortController(controller)
         },
         cancelInProgressDurationHistogram: ({ controller }) => {
             if (values.durationHistogramAbortController !== null) {
-                values.durationHistogramAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.durationHistogramAbortController.abort(
+                    new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+                )
             }
             actions.setDurationHistogramAbortController(controller)
         },
         cancelInProgressLatencyHeatmap: ({ controller }) => {
             if (values.latencyHeatmapAbortController !== null) {
-                values.latencyHeatmapAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.latencyHeatmapAbortController.abort(
+                    new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+                )
             }
             actions.setLatencyHeatmapAbortController(controller)
         },
         cancelInProgressAggregation: ({ controller }) => {
             if (values.aggregationAbortController !== null) {
-                values.aggregationAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.aggregationAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setAggregationAbortController(controller)
         },
         cancelInProgressSpanTree: ({ controller }) => {
             if (values.spanTreeAbortController !== null) {
-                values.spanTreeAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.spanTreeAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSpanTreeAbortController(controller)
         },
@@ -1551,26 +1577,30 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
 
     events(({ values }) => ({
         beforeUnmount: () => {
+            // Abort with an `AbortError`, never a bare string: `fetch` rejects with the reason
+            // exactly as given, and `handleFetch` only re-throws it untouched when it is a real
+            // `AbortError`. A string reason falls through and gets relabelled as an `ApiError`, so
+            // tearing the scene down looks like a failed request in the console.
             if (values.spansAbortController) {
-                values.spansAbortController.abort('unmounting component')
+                values.spansAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.sparklineAbortController) {
-                values.sparklineAbortController.abort('unmounting component')
+                values.sparklineAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.matchingCountsAbortController) {
-                values.matchingCountsAbortController.abort('unmounting component')
+                values.matchingCountsAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.durationHistogramAbortController) {
-                values.durationHistogramAbortController.abort('unmounting component')
+                values.durationHistogramAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.latencyHeatmapAbortController) {
-                values.latencyHeatmapAbortController.abort('unmounting component')
+                values.latencyHeatmapAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.spanTreeAbortController) {
-                values.spanTreeAbortController.abort('unmounting component')
+                values.spanTreeAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.aggregationAbortController) {
-                values.aggregationAbortController.abort('unmounting component')
+                values.aggregationAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
         },
     })),

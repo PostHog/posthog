@@ -36,17 +36,25 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.api.query import (
+    CONCURRENCY_LIMIT_USER_MESSAGE,
+    MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
+    MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
+)
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.llm.completions import OpenAICompletion
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
+from products.product_analytics.backend.facade.models import InsightVariable
+from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -1253,6 +1261,63 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(response.status_code, 202)
         self.assertFalse(response.json()["query_status"]["complete"])
 
+    @parameterized.expand(
+        [
+            ("ready", True, 200),
+            ("revoked", False, 404),
+        ]
+    )
+    def test_managed_warehouse_query_status_checks_reader_readiness_without_feature_flag_lookup(
+        self, _name: str, reader_configured: bool, expected_status: int
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id="managed-source",
+            connection_id="managed-connection",
+            destination_id="managed-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "project_reader",
+                "reader_configured": reader_configured,
+            },
+            job_inputs={
+                "host": "managed.example.com",
+                "port": 5432,
+                "database": "ducklake",
+                "user": f"posthog_team_{self.team.id}",
+                "password": "reader-password",
+            },
+        )
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "complete": True,
+                "labels": [f"{MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{source.id}"],
+                "results": ["result1"],
+            }
+        ).encode()
+
+        with patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            side_effect=AssertionError("query-status authorization must not evaluate a product feature flag"),
+        ) as feature_flag_lookup:
+            response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
+
+        self.assertEqual(response.status_code, expected_status)
+        feature_flag_lookup.assert_not_called()
+        if not reader_configured:
+            self.assertEqual(response.json()["detail"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE)
+            self.assertEqual(response.json()["code"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE)
+            self.assertNotIn(self.valid_query_id, response.json()["detail"])
+            self.assertNotIn(str(self.team_id), response.json()["detail"])
+
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
@@ -1294,7 +1359,10 @@ class TestQueryRetrieve(APIBaseTest):
 
 
 class TestQueryDraftSql(APIBaseTest):
-    @patch("posthog.hogql.ai.hit_openai", return_value=("SELECT 1", 21, 37))
+    @patch(
+        "posthog.hogql.ai.hit_openai",
+        return_value=OpenAICompletion(content="SELECT 1", prompt_tokens=21, completion_tokens=37),
+    )
     def test_draft_sql(self, hit_openai_mock):
         response = self.client.get(
             f"/api/environments/{self.team.id}/query/draft_sql/", {"prompt": "I need the number 1"}
@@ -1459,59 +1527,39 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # An explicit ISO timestamp (including midnight Z) is an exact boundary, not a calendar day.
-            ("explicit_midnight", "2026-07-09T00:00:00Z", "to 2026-07-09 00:00:00"),
-            ("explicit_time_of_day", "2026-07-09T14:30:00Z", "to 2026-07-09 14:30:00"),
-            # A bare calendar day keeps the default end-of-day rounding so the last day stays included.
-            ("bare_date", "2026-07-09", "to 2026-07-09 23:59:59"),
+            # An MCP caller passing a full timestamp means an exact boundary, so the range is marked
+            # explicit and keeps the time of day instead of snapping to end of day.
+            ("mcp_explicit_midnight", True, "2026-07-09T00:00:00Z", True),
+            ("mcp_explicit_time_of_day", True, "2026-07-09T14:30:00Z", True),
+            # A bare calendar day carries no time of day, so it keeps the default end-of-day rounding
+            # and the last day stays in range.
+            ("mcp_bare_date", True, "2026-07-09", False),
+            # The web UI serialises fixed calendar ranges as naive timestamps and relies on that same
+            # rounding, so a non-MCP request must never have its boundary marked explicit.
+            ("non_mcp_explicit_timestamp", False, "2026-07-09T00:00:00Z", False),
         ]
     )
     @patch("posthog.api.query.process_query_model")
-    def test_mcp_funnel_respects_explicit_timestamp_date_to(
-        self, _name, date_to, expected_range_suffix, mock_process_query_model
+    def test_explicit_date_boundary_marking(
+        self, _name, is_mcp_client, date_to, expected_explicit, mock_process_query_model
     ):
-        mock_process_query_model.return_value = {
-            "results": [
-                {"name": "$pageview", "count": 10, "average_conversion_time": None, "median_conversion_time": None}
-            ],
-            "is_cached": False,
-        }
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {
-                "query": {
-                    "kind": "FunnelsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": date_to},
-                }
-            },
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        formatted = response.json()["formatted_results"]
-        self.assertIn(expected_range_suffix, formatted)
-
-    @patch("posthog.api.query.process_query_model")
-    def test_non_mcp_request_does_not_mark_explicit_date(self, mock_process_query_model):
-        # The web UI serialises fixed calendar ranges as naive timestamps and relies on end-of-day
-        # rounding, so a non-MCP request must never have its date boundary marked explicit.
         mock_process_query_model.return_value = {"results": [], "is_cached": False}
 
-        self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {
-                "query": {
-                    "kind": "FunnelsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": "2026-07-09T00:00:00Z"},
-                }
-            },
-        )
+        url = f"/api/environments/{self.team.id}/query/"
+        payload = {
+            "query": {
+                "kind": "LifecycleQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": date_to},
+            }
+        }
+        if is_mcp_client:
+            self.client.post(url, payload, HTTP_X_POSTHOG_CLIENT="mcp")
+        else:
+            self.client.post(url, payload)
 
         executed_query = mock_process_query_model.call_args.args[1]
-        self.assertFalse(executed_query.dateRange.explicitDate)
+        self.assertEqual(bool(executed_query.dateRange.explicitDate), expected_explicit)
 
 
 class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):

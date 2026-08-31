@@ -58,6 +58,7 @@ export interface GatewayTeamAndAgentsProps {
 
 export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamAndAgentsProps = {}): JSX.Element {
     const {
+        agentSharedServerCounts,
         serviceAccounts,
         servers,
         members,
@@ -110,7 +111,7 @@ export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamA
                     </LemonTag>
                 </div>
 
-                <div className="border rounded divide-y overflow-hidden">
+                <div className="border rounded divide-y overflow-hidden bg-surface-primary">
                     {serviceAccountsLoading ? (
                         <div className="p-4 text-sm text-secondary flex items-center justify-center gap-2">
                             <Spinner /> Loading agents
@@ -124,6 +125,9 @@ export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamA
                             const active = account.status === 'active'
                             const statusLoading = accountStatusLoadingIds.has(account.id)
                             const toolCount = agentToolCount(account, servers)
+                            // `server_ids` carries one entry per member grant, so the raw
+                            // length overcounts servers shared by several members.
+                            const serverCount = agentSharedServerCounts[account.id] ?? 0
 
                             return (
                                 <div key={account.id} className="flex items-center gap-3 p-3">
@@ -140,8 +144,8 @@ export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamA
                                         <div className="flex flex-col items-start min-w-0">
                                             <span className="font-semibold truncate max-w-full">{account.name}</span>
                                             <span className="text-xs text-secondary">
-                                                {account.server_ids.length} server
-                                                {account.server_ids.length === 1 ? '' : 's'} · {toolCount} tool
+                                                {serverCount} server
+                                                {serverCount === 1 ? '' : 's'} · {toolCount} tool
                                                 {toolCount === 1 ? '' : 's'}
                                             </span>
                                         </div>

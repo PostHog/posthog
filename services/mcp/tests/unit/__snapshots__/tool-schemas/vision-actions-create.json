@@ -17,6 +17,11 @@
                     "enum": ["every_match", "on_breach"],
                     "type": "string"
                 },
+                "include_reasoning": {
+                    "default": false,
+                    "description": "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false.",
+                    "type": "boolean"
+                },
                 "metric": {
                     "default": "count",
                     "description": "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.\n\n* `count` - Count of matching observations\n* `avg_score` - Average score",

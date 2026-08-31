@@ -8,6 +8,7 @@ table. Columns absent here fall back to LLM enrichment.
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+    CanonicalEndpoint,
 )
 
 # Columns every analytics report stream shares: the sync's own key columns plus the
@@ -154,7 +155,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "One row of Apple's daily Sales and Trends summary report: units and developer proceeds per SKU, territory and product type.",
         "docs_url": "https://developer.apple.com/documentation/appstoreconnectapi/download_sales_and_trends_reports",
         "columns": {
-            "report_date": "Date the report covers, as `YYYY-MM-DD`.",
+            "report_date": "Date the report covers.",
             "_line": "1-based line number within that date's report file, used with report_date as the row key.",
             "provider": "Provider of the content, normally `APPLE`.",
             "provider_country": "Country of the provider.",
@@ -164,14 +165,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "version": "Version of the app the transaction applied to.",
             "product_type_identifier": "Code describing the transaction type, such as a first download, update or in-app purchase.",
             "units": "Number of units for this row; negative values are refunds.",
-            "developer_proceeds": "Amount paid to you per unit, in the currency of proceeds.",
+            "developer_proceeds": "Amount paid to you per unit, in the row's currency_of_proceeds. Sum it only within a single currency.",
             "begin_date": "First date covered by the row.",
             "end_date": "Last date covered by the row.",
             "customer_currency": "Currency the customer was charged in.",
             "country_code": "App Store territory the transaction happened in.",
             "currency_of_proceeds": "Currency your proceeds are reported in.",
             "apple_identifier": "Apple's numeric identifier for the app.",
-            "customer_price": "Price the customer paid, in customer currency.",
+            "customer_price": "Price the customer paid, in the row's customer_currency. Amounts in different currencies are not comparable, so sum this only within a single currency.",
             "promo_code": "Promotional or offer code applied to the transaction.",
             "parent_identifier": "SKU of the parent app for an in-app purchase row.",
             "subscription": "Whether the row relates to a subscription product.",
@@ -190,7 +191,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "One row of Apple's daily Subscription summary report: active, paid and trial subscription counts by state and territory.",
         "docs_url": "https://developer.apple.com/documentation/appstoreconnectapi/download_sales_and_trends_reports",
         "columns": {
-            "report_date": "Date the report covers, as `YYYY-MM-DD`.",
+            "report_date": "Date the report covers.",
             "_line": "1-based line number within that date's report file, used with report_date as the row key.",
             "app_name": "Name of the app the subscription belongs to.",
             "app_apple_id": "Apple's numeric identifier for the app.",
@@ -200,9 +201,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "standard_subscription_duration": "Billing duration of the subscription, such as 1 Month.",
             "promotional_offer_name": "Name of the promotional offer applied, if any.",
             "promotional_offer_id": "Identifier of the promotional offer applied, if any.",
-            "customer_price": "Price the customer pays per period, in customer currency.",
+            "customer_price": "Price the customer pays per period, in the row's customer_currency. Amounts in different currencies are not comparable, so sum this only within a single currency.",
             "customer_currency": "Currency the customer is charged in.",
-            "developer_proceeds": "Proceeds paid to you per period.",
+            "developer_proceeds": "Proceeds paid to you per period, in the row's proceeds_currency. Sum it only within a single currency.",
             "proceeds_currency": "Currency your proceeds are reported in.",
             "preserved_pricing": "Whether legacy preserved pricing applies.",
             "proceeds_reason": "Reason the applied proceeds rate was used.",
@@ -217,7 +218,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "One row of Apple's daily Subscription Event report: counts of subscription lifecycle events such as renewals, cancellations and plan changes.",
         "docs_url": "https://developer.apple.com/documentation/appstoreconnectapi/download_sales_and_trends_reports",
         "columns": {
-            "report_date": "Date the report covers, as `YYYY-MM-DD`.",
+            "report_date": "Date the report covers.",
             "_line": "1-based line number within that date's report file, used with report_date as the row key.",
             "event_date": "Date the events happened.",
             "event": "Lifecycle event counted, such as Subscribe, Renew, Cancel or Reactivate.",
@@ -378,3 +379,44 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
 }
+
+# The acquisition attribution columns Apple publishes only in Detailed report variants.
+_DETAILED_ATTRIBUTION_COLUMNS: dict[str, str] = {
+    "campaign": "Campaign token of the App Analytics campaign that led the user to the app.",
+    "page_title": "Name of the product page or in-app event page that led the user to the app.",
+    "source_info": "App or web referrer that led the user to discover the app; the detail behind source_type.",
+}
+
+
+def _detailed_variant(standard_name: str, description: str) -> CanonicalEndpoint:
+    # Apple documents a Detailed report as its Standard sibling's column set plus the
+    # attribution columns, on the same docs page, so the entry derives from the sibling
+    # rather than restating it.
+    standard = CANONICAL_DESCRIPTIONS[standard_name]
+    return {
+        "description": description,
+        "docs_url": standard["docs_url"],
+        "columns": {**standard["columns"], **_DETAILED_ATTRIBUTION_COLUMNS},
+    }
+
+
+CANONICAL_DESCRIPTIONS["analytics_app_sessions_detailed"] = _detailed_variant(
+    "analytics_app_sessions",
+    "How often people open the app and for how long, with the acquisition attribution columns, "
+    "from Apple's App Sessions Detailed analytics report.",
+)
+CANONICAL_DESCRIPTIONS["analytics_app_store_downloads_detailed"] = _detailed_variant(
+    "analytics_app_store_downloads",
+    "How many times people download the app on the App Store, with the acquisition attribution "
+    "columns, from Apple's App Downloads Detailed analytics report.",
+)
+CANONICAL_DESCRIPTIONS["analytics_installations_deletions_detailed"] = _detailed_variant(
+    "analytics_installations_deletions",
+    "How many times users install and delete the app, with the acquisition attribution columns, "
+    "from Apple's App Store Installation and Deletion Detailed analytics report.",
+)
+CANONICAL_DESCRIPTIONS["analytics_discovery_engagement_detailed"] = _detailed_variant(
+    "analytics_discovery_engagement",
+    "How users find and interact with the app on the App Store, with the acquisition attribution "
+    "columns, from Apple's App Store Discovery and Engagement Detailed analytics report.",
+)

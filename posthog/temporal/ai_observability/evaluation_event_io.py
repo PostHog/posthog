@@ -1,8 +1,9 @@
-from dataclasses import dataclass
 from typing import Any
 
+from posthog.dataclasses import frozen
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+
+@frozen
 class EventIO:
     input_raw: Any
     output_raw: Any

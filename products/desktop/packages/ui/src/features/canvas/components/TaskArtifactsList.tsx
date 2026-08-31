@@ -8,6 +8,7 @@ import {
 } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import {
+  getPostHogObjectArtifactMetadata,
   type RunArtifactVersions,
   runArtifactVersionKey,
 } from "@posthog/core/canvas/runArtifactSchemas";
@@ -28,7 +29,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import { formatRelativeTimeLong } from "@posthog/shared";
+import { formatRelativeTimeShort } from "@posthog/shared";
 import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
@@ -49,10 +50,18 @@ import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/compo
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
+import {
+  ArtifactCard,
+  stopCardOpen,
+} from "@posthog/ui/primitives/ArtifactCard";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { type MouseEvent, type ReactNode, useMemo, useState } from "react";
+import {
+  getObjectKind,
+  POSTHOG_OBJECT_ICON_COLOR,
+} from "@posthog/ui/utils/objectKinds";
+import { useMemo, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
 
@@ -71,89 +80,19 @@ function CommentCountBadge({ count }: { count: number }) {
   );
 }
 
-/**
- * One artifact card. The whole card is the open control - a `role="button"`
- * div rather than a `<button>`, because the version picker and the trailing
- * actions are real buttons and HTML forbids nesting those (see NestedButton
- * for the same call). Inner controls stop propagation so they don't open it.
- */
-function ArtifactCard({
-  icon,
-  title,
-  meta,
-  onOpen,
-  onHoverStart,
-  actions,
-}: {
-  icon: ReactNode;
-  title: string;
-  meta?: ReactNode;
-  onOpen?: () => void;
-  onHoverStart?: () => void;
-  /** Always-visible trailing cluster: comment badge, download, open externally. */
-  actions?: ReactNode;
-}) {
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: nested real buttons forbid a <button> card
-    <div
-      data-artifact-card
-      role="button"
-      tabIndex={onOpen ? 0 : undefined}
-      aria-disabled={onOpen ? undefined : true}
-      aria-label={`View ${title}`}
-      className={`flex w-full items-center gap-2.5 rounded-lg border border-border bg-muted py-2 pr-1.5 pl-2 text-[13px] transition-colors ${
-        onOpen ? "cursor-pointer hover:border-gray-6 hover:bg-gray-3" : ""
-      }`}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        // Only the card itself: inner controls' key presses bubble up here.
-        if (event.target !== event.currentTarget) return;
-        if (onOpen && (event.key === "Enter" || event.key === " ")) {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-      onPointerEnter={onHoverStart}
-      onFocus={onHoverStart}
-    >
-      <div className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-gray-4">
-        {/* The icon again, blown up and blurred: the tile tints itself with
-            the icon's own colors, so new icons never need a color mapping. */}
-        <div
-          aria-hidden
-          className="absolute inset-0 flex scale-[2.4] items-center justify-center opacity-40 blur-[9px] saturate-[1.8] dark:opacity-70"
-        >
-          {icon}
-        </div>
-        <div className="relative flex items-center justify-center">{icon}</div>
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-medium">{title}</div>
-        {meta && (
-          <div className="flex items-center gap-1 whitespace-nowrap text-[12px] text-muted-foreground">
-            {meta}
-          </div>
-        )}
-      </div>
-      {actions && (
-        <div className="flex shrink-0 items-center gap-1">{actions}</div>
-      )}
-    </div>
-  );
-}
-
-function stopCardOpen(event: MouseEvent) {
-  event.stopPropagation();
-}
-
 function PrRow({
   url,
+  ts,
   openInPlaceTaskId,
 }: {
   url: string;
+  ts: number;
   openInPlaceTaskId?: string;
 }) {
   const { safeUrl, title, stateLabel, Icon, iconColor } = usePrArtifact(url);
+  const meta = [stateLabel, ts ? formatRelativeTimeShort(ts) : null]
+    .filter(Boolean)
+    .join(" · ");
 
   const [countsWanted, setCountsWanted] = useState(false);
   const comments = usePrComments(countsWanted ? safeUrl : null);
@@ -170,7 +109,7 @@ function PrRow({
     <ArtifactCard
       icon={<Icon size={16} weight="bold" style={{ color: iconColor }} />}
       title={title}
-      meta={stateLabel}
+      meta={meta}
       onHoverStart={() => setCountsWanted(true)}
       onOpen={
         safeUrl
@@ -205,18 +144,21 @@ function PrRow({
 function CanvasRow({
   name,
   url,
+  ts,
   commentCount,
 }: {
   name: string;
   url: string | null;
+  ts: number;
   commentCount: number;
 }) {
   const open = canvasArtifactOpenHandler(url);
+  const meta = ts ? `Canvas · ${formatRelativeTimeShort(ts)}` : "Canvas";
   return (
     <ArtifactCard
       icon={iconForTemplate("", { size: 16, className: "text-amber-11" })}
       title={name}
-      meta="Canvas"
+      meta={meta}
       onOpen={open}
       actions={<CommentCountBadge count={commentCount} />}
     />
@@ -260,7 +202,7 @@ function fileVersionMenuLabel(
   return [
     versionShortLabel(index, total),
     uploaderLabel(artifact, currentUser),
-    artifact.uploaded_at ? formatRelativeTimeLong(artifact.uploaded_at) : null,
+    artifact.uploaded_at ? formatRelativeTimeShort(artifact.uploaded_at) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -312,7 +254,7 @@ function FileRow({
     : undefined;
   const metaText = [
     uploaderLabel(selected, currentUser),
-    selected.uploaded_at ? formatRelativeTimeLong(selected.uploaded_at) : null,
+    selected.uploaded_at ? formatRelativeTimeShort(selected.uploaded_at) : null,
     formatFileSize(selected.size),
   ]
     .filter(Boolean)
@@ -398,6 +340,49 @@ function FileRow({
   );
 }
 
+function PostHogObjectRow({
+  taskId,
+  artifactId,
+  runId,
+  name,
+  objectKind,
+  occurrenceCount,
+  uploadedAt,
+  commentCount,
+}: {
+  taskId: string;
+  artifactId: string;
+  runId: string;
+  name: string;
+  objectKind: string;
+  occurrenceCount: number;
+  uploadedAt: string | undefined;
+  commentCount: number;
+}) {
+  const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const object = getObjectKind(objectKind);
+  const ObjectIcon = object.icon;
+  const meta = [
+    object.kindLabel,
+    occurrenceCount > 1 ? `Referenced ${occurrenceCount} times` : null,
+    uploadedAt ? formatRelativeTimeShort(uploadedAt) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <ArtifactCard
+      icon={<ObjectIcon size={16} color={POSTHOG_OBJECT_ICON_COLOR} />}
+      title={name}
+      meta={meta}
+      onOpen={() =>
+        openArtifactTab(taskId, { runId, artifactId, name, objectKind })
+      }
+      actions={<CommentCountBadge count={commentCount} />}
+    />
+  );
+}
+
 export function TaskArtifactsList({
   task,
   timeline,
@@ -413,7 +398,15 @@ export function TaskArtifactsList({
   // the agent just delivered shows up now rather than on the next poll.
   const events = useSessionSelector(task.id, (session) => session?.events);
   const completedUploads = useCompletedArtifactUploads(events ?? []);
-  const { runs } = useTaskRuns(task.id, completedUploads);
+  // Occurrence counts move without changing the entry count when a turn
+  // re-cites an already registered object, so the key sums them too.
+  const referenceRefreshKey = useSessionSelector(task.id, (session) =>
+    (session?.cloudArtifacts ?? []).reduce((sum, artifact) => {
+      const reference = getPostHogObjectArtifactMetadata(artifact);
+      return reference ? sum + 1 + reference.occurrence_count : sum;
+    }, 0),
+  );
+  const { runs } = useTaskRuns(task.id, completedUploads + referenceRefreshKey);
   const { data: currentUser } = useMeQuery();
   const rows = useMemo(
     () => buildRows(task, timeline, runs),
@@ -460,6 +453,7 @@ export function TaskArtifactsList({
           <PrRow
             key={row.key}
             url={row.url}
+            ts={row.ts}
             openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
           />
         ) : row.kind === "canvas" ? (
@@ -467,6 +461,7 @@ export function TaskArtifactsList({
             key={row.key}
             name={row.name}
             url={row.url}
+            ts={row.ts}
             commentCount={
               row.dashboardId ? (openCountByItem.get(row.dashboardId) ?? 0) : 0
             }
@@ -480,6 +475,18 @@ export function TaskArtifactsList({
               row.artifactId ? (openCountByItem.get(row.artifactId) ?? 0) : 0
             }
             currentUser={currentUser}
+          />
+        ) : row.kind === "posthog_object" ? (
+          <PostHogObjectRow
+            key={row.key}
+            taskId={task.id}
+            artifactId={row.artifactId}
+            runId={row.runId}
+            name={row.name}
+            objectKind={row.metadata.object_kind}
+            occurrenceCount={row.metadata.occurrence_count}
+            uploadedAt={row.uploadedAt}
+            commentCount={openCountByItem.get(row.artifactId) ?? 0}
           />
         ) : (
           <ArtifactCard

@@ -4,6 +4,7 @@ import {
   getCellCount,
   getOptimalLayout,
   type LayoutPreset,
+  makeCanvasCellValue,
   makeTerminalCellValue,
   reflowCells,
   resizeCells,
@@ -14,10 +15,13 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type { LayoutPreset } from "@posthog/core/command-center/grid";
-export {
-  getCellSessionId,
-  getGridDimensions,
-} from "@posthog/core/command-center/grid";
+export { getGridDimensions } from "@posthog/core/command-center/grid";
+
+export type CommandCenterPlacement = {
+  kind: "task" | "canvas";
+  id: string;
+  title: string;
+};
 
 interface CommandCenterStoreState {
   layout: LayoutPreset;
@@ -25,10 +29,9 @@ interface CommandCenterStoreState {
   activeTaskId: string | null;
   activeCellIndex: number | null;
   zoom: number;
-  creatingCells: number[];
   // Persisted so autofill bootstraps the grid only once, not on every remount.
   hasAutofilled: boolean;
-  pendingPlacement: { taskId: string; taskTitle: string } | null;
+  pendingPlacement: CommandCenterPlacement | null;
 }
 
 interface CommandCenterStoreActions {
@@ -36,12 +39,18 @@ interface CommandCenterStoreActions {
   setActiveTask: (taskId: string | null) => void;
   setActiveCell: (cellIndex: number | null) => void;
   assignTask: (cellIndex: number, taskId: string) => void;
+  setCanvasCell: (cellIndex: number, canvasId: string) => void;
   setBrainrotCell: (cellIndex: number) => void;
   setTerminalCell: (
     cellIndex: number,
     terminalId: string,
     cwd?: string,
   ) => void;
+  /** Adopt a whole placement plan in one write — see `planCommandCenterPlacement`. */
+  applyPlacement: (plan: {
+    layout: LayoutPreset;
+    cells: (string | null)[];
+  }) => void;
   autofillCells: (taskIds: string[]) => void;
   optimizeLayout: (keepIndices: number[]) => void;
   clearCell: (cellIndex: number) => void;
@@ -50,9 +59,7 @@ interface CommandCenterStoreActions {
   setZoom: (zoom: number) => void;
   zoomIn: () => void;
   zoomOut: () => void;
-  startCreating: (cellIndex: number) => void;
-  stopCreating: (cellIndex: number) => void;
-  requestPlacement: (taskId: string, taskTitle: string) => void;
+  requestPlacement: (placement: CommandCenterPlacement) => void;
   cancelPlacement: () => void;
 }
 
@@ -62,7 +69,6 @@ export const COMMAND_CENTER_INITIAL_STATE: CommandCenterStoreState = {
   activeTaskId: null,
   activeCellIndex: null,
   zoom: 1,
-  creatingCells: [],
   hasAutofilled: false,
   pendingPlacement: null,
 };
@@ -93,7 +99,6 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
                 : null,
             layout: preset,
             cells,
-            creatingCells: state.creatingCells.filter((i) => i < newCount),
           };
         }),
 
@@ -116,8 +121,26 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             // Highlight where it landed — otherwise a task dropped into an
             // empty tile of a busy grid is easy to miss.
             activeCellIndex: cellIndex,
-            creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
             // Manually placing a task counts as curating the grid.
+            hasAutofilled: true,
+            pendingPlacement: null,
+          };
+        }),
+
+      setCanvasCell: (cellIndex, canvasId) =>
+        set((state) => {
+          if (cellIndex < 0 || cellIndex >= state.cells.length) return state;
+          const cellValue = makeCanvasCellValue(canvasId);
+          const cells = [...state.cells];
+          const existingIndex = cells.indexOf(cellValue);
+          if (existingIndex !== -1) {
+            cells[existingIndex] = null;
+          }
+          cells[cellIndex] = cellValue;
+          return {
+            cells,
+            activeTaskId: null,
+            activeCellIndex: cellIndex,
             hasAutofilled: true,
             pendingPlacement: null,
           };
@@ -132,7 +155,6 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             cells,
             activeTaskId: null,
             activeCellIndex: cellIndex,
-            creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
             hasAutofilled: true,
           };
         }),
@@ -146,8 +168,33 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             cells,
             activeTaskId: null,
             activeCellIndex: cellIndex,
-            creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
             hasAutofilled: true,
+          };
+        }),
+
+      applyPlacement: ({ layout, cells }) =>
+        set((state) => {
+          const activeTaskId =
+            state.activeTaskId && cells.includes(state.activeTaskId)
+              ? state.activeTaskId
+              : null;
+          return {
+            layout,
+            cells,
+            activeTaskId,
+            // Follows the active task to its new index; with none (a terminal or
+            // brainrot tile is focused) the existing highlight stays put, as in
+            // setLayout, so long as it's still within bounds.
+            activeCellIndex: activeTaskId
+              ? cells.indexOf(activeTaskId)
+              : state.activeCellIndex !== null &&
+                  state.activeCellIndex < cells.length
+                ? state.activeCellIndex
+                : null,
+            // A bulk placement is the user curating the grid, so the one-shot
+            // autofill must not later stuff tiles behind their back.
+            hasAutofilled: true,
+            pendingPlacement: null,
           };
         }),
 
@@ -186,7 +233,6 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             cells,
             activeTaskId,
             activeCellIndex: activeTaskId ? cells.indexOf(activeTaskId) : null,
-            creatingCells: [],
           };
         }),
 
@@ -222,7 +268,6 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
           activeTaskId: null,
           activeCellIndex: null,
           cells: state.cells.map(() => null),
-          creatingCells: [],
         })),
 
       setZoom: (zoom) => set({ zoom: clampZoom(zoom) }),
@@ -231,20 +276,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
       zoomOut: () =>
         set((state) => ({ zoom: clampZoom(state.zoom - ZOOM_STEP) })),
 
-      startCreating: (cellIndex) =>
-        set((state) => ({
-          creatingCells: state.creatingCells.includes(cellIndex)
-            ? state.creatingCells
-            : [...state.creatingCells, cellIndex],
-        })),
-
-      stopCreating: (cellIndex) =>
-        set((state) => ({
-          creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
-        })),
-
-      requestPlacement: (taskId, taskTitle) =>
-        set({ pendingPlacement: { taskId, taskTitle } }),
+      requestPlacement: (placement) => set({ pendingPlacement: placement }),
       cancelPlacement: () => set({ pendingPlacement: null }),
     }),
     {
@@ -256,7 +288,6 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
         activeTaskId: state.activeTaskId,
         activeCellIndex: state.activeCellIndex,
         zoom: state.zoom,
-        creatingCells: state.creatingCells,
         hasAutofilled: state.hasAutofilled,
       }),
     },

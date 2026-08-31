@@ -9,6 +9,11 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 TWILIO_API_HOST = "https://api.twilio.com"
 TWILIO_VERIFY_HOST = "https://verify.twilio.com"
 
+# The ceiling the legacy Account API documents and honors. The Verify API documents the same
+# ceiling but does not honor it: its error 60373 ("Invalid page size") puts the real range at 1-25.
+# https://www.twilio.com/docs/api/errors/60373
+DEFAULT_PAGE_SIZE = 1000
+
 
 def _datetime_field(name: str, nullable: bool = False) -> IncrementalField:
     return {
@@ -50,6 +55,8 @@ class TwilioEndpointConfig:
     date_filter_format: Literal["date", "datetime"] = "date"
     # Twilio list endpoints that filter by date return rows newest-first and offer no ascending option.
     sort_mode: SortMode = "asc"
+    # Rows per page. `None` sends no `PageSize` at all, leaving Twilio on its default of 50.
+    page_size: Optional[int] = DEFAULT_PAGE_SIZE
 
 
 TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
@@ -144,6 +151,10 @@ TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
         primary_key="category",
     ),
     # Verify API (verify.twilio.com/v2), not account-scoped and paginated via `meta.next_page_url`.
+    # Neither Verify endpoint sends a page size: Twilio answers `PageSize=1000` with a 400 here, and
+    # the range it actually accepts is contested between its own reference (1-1000) and its error
+    # dictionary (1-25). A page size we never send can't be rejected, so both take the server
+    # default instead of us picking a number off whichever doc is wrong.
     "verification_services": TwilioEndpointConfig(
         name="verification_services",
         path="/v2/Services",
@@ -151,6 +162,7 @@ TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
         base_url=TWILIO_VERIFY_HOST,
         account_scoped=False,
         partition_key="date_created",
+        page_size=None,
     ),
     # Verification attempts are retained by Twilio for only 30 days, so this is synced incrementally on
     # `DateCreatedAfter` to keep pulling the freshest data every run.
@@ -166,6 +178,7 @@ TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
         filter_operator="",
         date_filter_format="datetime",
         sort_mode="desc",
+        page_size=None,
     ),
 }
 

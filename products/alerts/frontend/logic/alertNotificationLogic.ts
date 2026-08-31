@@ -75,6 +75,11 @@ export interface alertNotificationLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?:
+                | null
+                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
+                | undefined
             kind:
                 | 'apns'
                 | 'aws-s3'
@@ -117,6 +122,7 @@ export interface alertNotificationLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -128,6 +134,11 @@ export interface alertNotificationLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?:
+                | null
+                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
+                | undefined
             kind:
                 | 'apns'
                 | 'aws-s3'
@@ -170,6 +181,7 @@ export interface alertNotificationLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     } // integrationsLogic
@@ -503,10 +515,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 return
             }
             lemonToast.success(`Test delivery started for ${deliveryTargets.join(' and ')}.`)
-        },
-        sendTestDeliveryFailure: ({ errorObject }) => {
-            const detail = errorObject?.detail
-            lemonToast.error(typeof detail === 'string' ? detail : 'Unable to send the test. Try again.')
         },
     })),
 

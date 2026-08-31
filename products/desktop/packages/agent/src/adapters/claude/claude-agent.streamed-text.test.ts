@@ -401,6 +401,50 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
     ]);
   });
 
+  it("keeps the turn open when the steered work outlasts the delivery grace", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { agent } = makeAgent();
+      const sessionId = "s-steer-slow-work";
+      const { query, input } = installFakeSession(agent, sessionId);
+
+      const promptPromise = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "use orange" }],
+      });
+      let promptSettled = false;
+      void promptPromise.then(() => {
+        promptSettled = true;
+      });
+      await tick();
+      await echoUserMessage(query, input);
+
+      const steerPromise = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "use green instead" }],
+        _meta: { steer: true },
+      });
+      await tick();
+
+      await send(query, resultSuccess(sessionId));
+      await echoUserMessage(query, input);
+      await send(query, assistantMessage(sessionId, "msg_green", "GREEN"));
+      await expect(steerPromise).resolves.toMatchObject({
+        _meta: { steer: true },
+      });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(promptSettled).toBe(false);
+
+      await send(query, resultSuccess(sessionId));
+      await expect(promptPromise).resolves.toMatchObject({
+        stopReason: "end_turn",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("declines a steer the turn ends without acting on", async () => {
     const { agent } = makeAgent();
     const sessionId = "s-steer-unacted";
@@ -429,7 +473,7 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
     await send(query, resultSuccess(sessionId));
 
     await expect(steerPromise).resolves.toMatchObject({
-      _meta: { steer: false },
+      _meta: { steer: false, steerDeclineCause: "turn_ended_first" },
     });
     await expect(promptPromise).resolves.toMatchObject({
       stopReason: "end_turn",
@@ -528,7 +572,7 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
     await agent.cancel({ sessionId });
 
     await expect(steerPromise).resolves.toMatchObject({
-      _meta: { steer: false },
+      _meta: { steer: false, steerDeclineCause: "cancelled" },
     });
     await expect(promptPromise).resolves.toMatchObject({
       stopReason: "cancelled",
@@ -562,7 +606,7 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
 
     await expect(outcome).resolves.toBe("rejected");
     await expect(steerPromise).resolves.toMatchObject({
-      _meta: { steer: false },
+      _meta: { steer: false, steerDeclineCause: "turn_failed" },
     });
   });
 
@@ -619,7 +663,9 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
         prompt: [{ type: "text", text: "too late" }],
         _meta: { steer: true },
       }),
-    ).resolves.toMatchObject({ _meta: { steer: false } });
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "no_in_flight_turn" },
+    });
 
     const session = (agent as unknown as { session: { turnQueue: unknown[] } })
       .session;

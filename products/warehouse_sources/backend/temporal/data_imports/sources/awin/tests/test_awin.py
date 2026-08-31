@@ -127,6 +127,7 @@ class TestBuildWindowParams:
             datetime(2024, 1, 1, tzinfo=UTC),
             datetime(2024, 1, 31, tzinfo=UTC),
             incremental_field="transactionDate",
+            region="GB",
         )
         assert params["startDate"] == "2024-01-01T00:00:00"
         assert params["endDate"] == "2024-01-31T00:00:00"
@@ -139,6 +140,7 @@ class TestBuildWindowParams:
             datetime(2024, 1, 1, tzinfo=UTC),
             datetime(2024, 1, 31, tzinfo=UTC),
             incremental_field="validationDate",
+            region="GB",
         )
         assert params["dateType"] == "validation"
 
@@ -148,10 +150,34 @@ class TestBuildWindowParams:
             datetime(2024, 1, 1, tzinfo=UTC),
             datetime(2024, 1, 31, tzinfo=UTC),
             incremental_field=None,
+            region="GB",
         )
         assert params["startDate"] == "2024-01-01"
         assert params["endDate"] == "2024-01-31"
         assert "dateType" not in params
+
+    def test_reports_advertiser_includes_region(self) -> None:
+        # Awin's aggregated advertiser report 400s without `region` because it's a required param
+        # the API has no "all regions" value for.
+        params = _build_window_params(
+            AWIN_ENDPOINTS["reports_advertiser"],
+            datetime(2024, 1, 1, tzinfo=UTC),
+            datetime(2024, 1, 31, tzinfo=UTC),
+            incremental_field=None,
+            region="US",
+        )
+        assert params["region"] == "US"
+
+    def test_transactions_does_not_include_region(self) -> None:
+        # Only endpoints marked `requires_region` (the aggregated reports) send the param.
+        params = _build_window_params(
+            AWIN_ENDPOINTS["transactions"],
+            datetime(2024, 1, 1, tzinfo=UTC),
+            datetime(2024, 1, 31, tzinfo=UTC),
+            incremental_field="transactionDate",
+            region="US",
+        )
+        assert "region" not in params
 
 
 class TestRowsFromResponse:
@@ -218,7 +244,7 @@ class TestGetRows:
             patch.object(awin, "make_tracked_session"),
             patch.object(awin, "_fetch", return_value={"accounts": [{"accountId": 1}]}) as mock_fetch,
         ):
-            batches = list(get_rows("token", "accounts", MagicMock(), manager))  # type: ignore[arg-type]
+            batches = list(get_rows("token", "accounts", MagicMock(), manager, region="GB"))  # type: ignore[arg-type]
 
         assert batches == [[{"accountId": 1}]]
         # A single call to /accounts, no per-publisher fan-out.
@@ -239,7 +265,7 @@ class TestGetRows:
             return [{"id": 1, "publisherId": 999}]
 
         with patch.object(awin, "make_tracked_session"), patch.object(awin, "_fetch", side_effect=fake_fetch):
-            batches = list(get_rows("token", "programmes", MagicMock(), manager))  # type: ignore[arg-type]
+            batches = list(get_rows("token", "programmes", MagicMock(), manager, region="GB"))  # type: ignore[arg-type]
 
         # One batch per publisher account, publisherId injected only when absent.
         assert len(batches) == 2
@@ -265,7 +291,7 @@ class TestGetRows:
             return [{"id": 1}]
 
         with patch.object(awin, "make_tracked_session"), patch.object(awin, "_fetch", side_effect=fake_fetch):
-            list(get_rows("token", "programmes", MagicMock(), manager))  # type: ignore[arg-type]
+            list(get_rows("token", "programmes", MagicMock(), manager, region="GB"))  # type: ignore[arg-type]
 
         # Account 10 already synced before the crash; resume starts at 20.
         assert fetched_publishers == [20, 30]
@@ -290,7 +316,16 @@ class TestGetRows:
             return [{"id": 1}]
 
         with patch.object(awin, "make_tracked_session"), patch.object(awin, "_fetch", side_effect=fake_fetch):
-            list(get_rows("token", "transactions", MagicMock(), manager, should_use_incremental_field=False))  # type: ignore[arg-type]
+            list(
+                get_rows(
+                    "token",
+                    "transactions",
+                    MagicMock(),
+                    manager,  # type: ignore[arg-type]
+                    region="GB",
+                    should_use_incremental_field=False,
+                )
+            )
 
         # startDate is non-decreasing across the whole run despite fanning out over two accounts.
         assert seen_starts == sorted(seen_starts)
@@ -304,8 +339,25 @@ class TestGetRows:
             patch.object(awin, "make_tracked_session"),
             patch.object(awin, "_fetch", return_value={"accounts": []}),
         ):
-            batches = list(get_rows("token", "programmes", MagicMock(), manager))  # type: ignore[arg-type]
+            batches = list(get_rows("token", "programmes", MagicMock(), manager, region="GB"))  # type: ignore[arg-type]
         assert batches == []
+
+    @freeze_time("2024-06-01")
+    def test_reports_advertiser_request_carries_region(self) -> None:
+        manager = FakeResumableManager()
+        seen_params: list[dict[str, Any]] = []
+
+        def fake_fetch(session: Any, path: str, headers: Any, params: Any, logger: Any) -> Any:
+            if path == "/accounts":
+                return {"accounts": [{"accountId": 10, "accountType": "publisher"}]}
+            seen_params.append(params)
+            return []
+
+        with patch.object(awin, "make_tracked_session"), patch.object(awin, "_fetch", side_effect=fake_fetch):
+            list(get_rows("token", "reports_advertiser", MagicMock(), manager, region="DE"))  # type: ignore[arg-type]
+
+        # Without this, Awin rejects the request with a 400 (region has no "all regions" value).
+        assert seen_params == [{"startDate": "2024-05-02", "endDate": "2024-06-01", "timezone": "UTC", "region": "DE"}]
 
 
 class TestAwinSource:
@@ -318,7 +370,7 @@ class TestAwinSource:
         ]
     )
     def test_source_response_shape(self, endpoint: str, expected_pks: list[str], partition_key: Optional[str]) -> None:
-        response = awin_source("token", endpoint, MagicMock(), FakeResumableManager())  # type: ignore[arg-type]
+        response = awin_source("token", endpoint, MagicMock(), FakeResumableManager(), region="GB")  # type: ignore[arg-type]
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
         if partition_key:

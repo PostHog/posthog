@@ -5,8 +5,11 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -14,17 +17,33 @@ import type { GitHubAvailableInstallationApi } from 'products/integrations/front
 
 import { Integration, useIntegrations } from './Integration'
 
-export function GithubIntegration({ next }: { next?: string }): JSX.Element {
+export function GithubIntegration({
+    next,
+    connectSurface,
+}: {
+    next?: string
+    /**
+     * Where this card is rendered, reported as the `surface` on `integration_connect_clicked`.
+     * Omit it only on the OAuth landing page, which reports every kind's connect click itself —
+     * passing it there would count one click twice. Every other render site should set it.
+     */
+    connectSurface?: IntegrationConnectSurface
+}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { linkedGithubInstallationLoading, githubAvailableInstallations, githubPersonalConnected } =
         useValues(integrationsLogic)
-    const { linkExistingGithubInstallation, loadGithubAvailableInstallations } = useActions(integrationsLogic)
+    const { linkExistingGithubInstallation, loadGithubAvailableInstallations, startPolling, stopPolling } =
+        useActions(integrationsLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const githubIntegrations = useIntegrations('github')
 
     // integrationsLogic is a singleton mounted from dozens of unrelated surfaces, so this fetch
-    // hangs off the GitHub setup UI instead of the shared integrations load.
+    // hangs off the GitHub setup UI instead of the shared integrations load. Polling is likewise
+    // scoped to the settings surface: an uninstall on GitHub should show up while someone is looking.
     useOnMountEffect(() => {
         loadGithubAvailableInstallations()
+        startPolling()
+        return () => stopPolling()
     })
 
     const settingsPath = next ?? urls.settings('environment-integrations')
@@ -38,11 +57,23 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
     const canLinkExisting = !isConnected && installations.length > 0
     const multipleInstallations = installations.length > 1
 
+    // Silent without `connectSurface`, because the only card rendered without one sits on the OAuth
+    // landing page, which already reports every kind's connect click for itself.
+    const reportConnect = (variant?: IntegrationConnectSurface): void => {
+        if (connectSurface) {
+            reportIntegrationConnectClicked('github', 'github', variant ?? connectSurface)
+        }
+    }
+
     return (
         <Integration kind="github">
             {/* w-full because Integration drops its children into a bare flex row, which would
                 otherwise size the banner to its longest word. */}
             <div className="flex flex-col gap-y-4 w-full">
+                <GitHubInstallRequestsBanner
+                    finishConnectingUrl={authorizationUrl}
+                    onFinishConnecting={() => reportConnect('install_approved_banner')}
+                />
                 {/* An install GitHub already has is the exception, not a second way to connect, so it
                     reads as an aside with its own action rather than a button competing with the one
                     below. */}
@@ -62,7 +93,13 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
                             <GitHubInstallationLink
                                 installations={installations}
                                 loading={linkedGithubInstallationLoading}
-                                onLink={linkExistingGithubInstallation}
+                                onLink={(installationId) => {
+                                    // Reusing an existing install never leaves PostHog, so it's a
+                                    // connect that skips GitHub entirely — worth separating from the
+                                    // clicks that redirect out.
+                                    reportConnect('settings_link_existing')
+                                    linkExistingGithubInstallation(installationId)
+                                }}
                                 projectName={currentTeam?.name}
                             />
                         </div>
@@ -73,7 +110,12 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
                         account, so GitHub offers install where it's missing and configure where it
                         isn't. "Connect account" matches the Linear and Jira cards, which name the
                         third party's container. */}
-                    <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
+                    <LemonButton
+                        type="secondary"
+                        disableClientSideRouting
+                        to={authorizationUrl}
+                        onClick={() => reportConnect(isConnected ? 'settings_manage' : undefined)}
+                    >
                         {isConnected ? 'Manage on GitHub' : 'Connect account'}
                     </LemonButton>
                 </div>

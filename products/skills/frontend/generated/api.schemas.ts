@@ -21,6 +21,20 @@ export const TrustTierEnumApi = {
 } as const
 
 /**
+ * One declared variable of a templated skill — the schema a client renders a form from.
+ */
+export interface CommunitySkillTemplateVariableApi {
+    /** Variable identifier, substituted for `{{ name }}` in the skill body. */
+    name: string
+    /** Human-readable question shown when collecting a value for this variable. */
+    prompt: string
+    /** Whether a value must be supplied at install time (otherwise it falls back to the default). */
+    is_required: boolean
+    /** Value used when none is supplied. Empty when the variable has no default. */
+    default: string
+}
+
+/**
  * Arbitrary key-value metadata carried from the skill's frontmatter.
  */
 export type CommunitySkillListApiMetadata = { [key: string]: unknown }
@@ -56,6 +70,8 @@ export interface CommunitySkillListApi {
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
     readonly github_url: string
+    /** Declared template variables, parsed from metadata. Non-empty marks this skill as a template: collect a value for each and pass them as `variables` when installing. */
+    readonly template_variables: readonly CommunitySkillTemplateVariableApi[]
     /** Number of times this skill has been installed into a team. */
     readonly install_count: number
     /** Total number of upvotes this skill has received. */
@@ -124,6 +140,8 @@ export interface CommunitySkillApi {
     readonly github_url: string
     /** Bundled files manifest — path and content_type only. File contents are copied in on install. */
     readonly files: readonly CommunitySkillFileManifestApi[]
+    /** Declared template variables, parsed from metadata. Non-empty marks this skill as a template: collect a value for each and pass them as `variables` when installing. */
+    readonly template_variables: readonly CommunitySkillTemplateVariableApi[]
     /** Number of times this skill has been installed into a team. */
     readonly install_count: number
     /** Total number of upvotes this skill has received. */
@@ -139,12 +157,19 @@ export interface CommunitySkillApi {
     readonly updated_at: string
 }
 
+/**
+ * Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills.
+ */
+export type CommunitySkillInstallApiVariables = { [key: string]: string }
+
 export interface CommunitySkillInstallApi {
     /**
      * Name for the installed skill in your team. Defaults to the community skill's slug.
      * @maxLength 64
      */
     new_name?: string
+    /** Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills. */
+    variables?: CommunitySkillInstallApiVariables
 }
 
 /**
@@ -235,7 +260,7 @@ export interface LLMSkillApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
+     * What this skill does and when to use it.
      * @maxLength 4096
      */
     description: string
@@ -309,7 +334,7 @@ export interface LLMSkillListApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
+     * What this skill does and when to use it.
      * @maxLength 4096
      */
     description: string
@@ -389,8 +414,8 @@ export interface LLMSkillCreateApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
-     * @maxLength 4096
+     * What this skill does and when to use it. Max 1024 characters.
+     * @maxLength 1024
      */
     description: string
     /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
@@ -552,7 +577,7 @@ export interface PatchedLLMSkillPublishApi {
     edits?: LLMSkillEditOperationApi[]
     /**
      * Updated description for the new version.
-     * @maxLength 4096
+     * @maxLength 1024
      */
     description?: string
     /**
@@ -644,6 +669,35 @@ export interface LLMSkillFileApi {
     content_type?: string
 }
 
+export interface LLMSkillPublishToCommunityApi {
+    /**
+     * Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.
+     * @maxLength 64
+     * @pattern ^[^\u0000-\u001f\u007f]*$
+     */
+    display_name?: string
+    /**
+     * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
+     * @items.maxLength 64
+     */
+    tags?: string[]
+    /**
+     * The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account.
+     * @maxLength 39
+     * @pattern ^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$
+     */
+    author_handle?: string
+}
+
+export interface CommunitySkillPublishResultApi {
+    /** URL of the pull request opened in the community-skills repo for maintainer review. */
+    pr_url: string
+    /** Number of the opened pull request. */
+    pr_number: number
+    /** Name of the branch created in the community-skills repo. */
+    branch: string
+}
+
 export interface LLMSkillVersionSummaryApi {
     readonly id: string
     readonly version: number
@@ -731,10 +785,39 @@ export type LlmSkillsListParams = {
      */
     offset?: number
     /**
+     * Filter skills by the ID of a user who owns them. Ownership is keyed on the logical skill, so this is stable across versions — unlike created_by_id, which tracks whoever published the latest version.
+     */
+    owner_id?: number
+    /**
      * Optional substring filter applied to skill names and descriptions.
      */
     search?: string
 }
+
+export type LlmSkillsBundleRetrieveParams = {
+    /**
+     * What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes the rendered SKILL.md, every bundled file and the Codex sidecar.
+     *
+     * * `stub` - stub
+     * * `full` - full
+     * @minLength 1
+     */
+    content?: LlmSkillsBundleRetrieveContent
+    /**
+     * Maximum number of skills in the zip, newest first; default 20, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type LlmSkillsBundleRetrieveContent =
+    (typeof LlmSkillsBundleRetrieveContent)[keyof typeof LlmSkillsBundleRetrieveContent]
+
+export const LlmSkillsBundleRetrieveContent = {
+    Stub: 'stub',
+    Full: 'full',
+} as const
 
 export type LlmSkillsNameRetrieveParams = {
     /**

@@ -784,15 +784,46 @@ export interface PaginatedTicketListApi {
 }
 
 /**
- * Mixin for serializers to add user access control fields
+ * Assign the ticket to a user.
  */
-export interface PatchedTicketApi {
-    readonly id?: string
-    readonly ticket_number?: number
-    readonly channel_source?: ChannelSourceEnumApi
-    readonly channel_detail?: ChannelDetailEnumApi | null
-    readonly distinct_id?: string
-    /** Ticket status: new, open, pending, on_hold, or resolved
+export type UserTicketAssigneeRequestApiType =
+    (typeof UserTicketAssigneeRequestApiType)[keyof typeof UserTicketAssigneeRequestApiType]
+
+export const UserTicketAssigneeRequestApiType = {
+    User: 'user',
+} as const
+
+export interface UserTicketAssigneeRequestApi {
+    /** Assign the ticket to a user. */
+    type: UserTicketAssigneeRequestApiType
+    /** User ID. */
+    id: number
+}
+
+/**
+ * Assign the ticket to a role.
+ */
+export type RoleTicketAssigneeRequestApiType =
+    (typeof RoleTicketAssigneeRequestApiType)[keyof typeof RoleTicketAssigneeRequestApiType]
+
+export const RoleTicketAssigneeRequestApiType = {
+    Role: 'role',
+} as const
+
+export interface RoleTicketAssigneeRequestApi {
+    /** Assign the ticket to a role. */
+    type: RoleTicketAssigneeRequestApiType
+    /** Role ID. */
+    id: string
+}
+
+export type TicketAssigneeRequestApi = UserTicketAssigneeRequestApi | RoleTicketAssigneeRequestApi
+
+/**
+ * Fields accepted when updating a ticket.
+ */
+export interface TicketUpdateRequestApi {
+    /** Ticket status: new, open, pending, on_hold, or resolved.
      *
      * * `new` - New
      * * `open` - Open
@@ -800,81 +831,80 @@ export interface PatchedTicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, high, or critical. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
      *
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High
      * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
-    readonly assignee?: TicketAssignmentApi
-    /** Customer-provided traits such as name and email */
+    /** User or role to assign. Pass null to remove the current assignee. */
+    assignee?: TicketAssigneeRequestApi | null
+    /** Customer details such as name and email. */
     anonymous_traits?: unknown
+    /** Whether AI resolved the ticket. */
+    ai_resolved?: boolean
     /**
-     * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
+     * Reason the ticket was escalated. Pass null to clear it.
      * @nullable
      */
-    readonly identity_verified?: boolean | null
-    ai_resolved?: boolean
-    /** @nullable */
     escalation_reason?: string | null
-    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
-    readonly ai_triage?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
-    readonly message_count?: number
-    /** @nullable */
-    readonly last_message_at?: string | null
-    /** @nullable */
-    readonly last_message_text?: string | null
-    readonly unread_team_count?: number
-    readonly unread_customer_count?: number
-    /** @nullable */
-    readonly session_id?: string | null
-    readonly session_context?: unknown
     /**
-     * SLA deadline set via workflows. Null means no SLA.
+     * SLA deadline. Pass null to clear it.
      * @nullable
      */
     sla_due_at?: string | null
-    /** @nullable */
+    /**
+     * Time to reopen the ticket. Pass null to reopen it now.
+     * @nullable
+     */
     snoozed_until?: string | null
-    /** @nullable */
-    readonly slack_channel_id?: string | null
-    /** @nullable */
-    readonly slack_thread_ts?: string | null
-    /** @nullable */
-    readonly slack_team_id?: string | null
-    /** @nullable */
-    readonly email_subject?: string | null
-    /** @nullable */
-    readonly email_from?: string | null
-    /** @nullable */
-    readonly email_to?: string | null
-    readonly cc_participants?: unknown
-    /** @nullable */
-    readonly github_repo?: string | null
-    /** @nullable */
-    readonly github_issue_number?: number | null
-    /** @nullable */
-    readonly zendesk_ticket_id?: number | null
+    /** Tag names to set on the ticket. */
+    tags?: string[]
+}
+
+/**
+ * Fields accepted when updating a ticket.
+ */
+export interface PatchedTicketUpdateRequestApi {
+    /** Ticket status: new, open, pending, on_hold, or resolved.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
+    status?: TicketStatusEnumApi
+    /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
+     *
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `critical` - Critical */
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
+    /** User or role to assign. Pass null to remove the current assignee. */
+    assignee?: TicketAssigneeRequestApi | null
+    /** Customer details such as name and email. */
+    anonymous_traits?: unknown
+    /** Whether AI resolved the ticket. */
+    ai_resolved?: boolean
     /**
-     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * Reason the ticket was escalated. Pass null to clear it.
      * @nullable
      */
-    readonly organization_id?: string | null
+    escalation_reason?: string | null
     /**
-     * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+     * SLA deadline. Pass null to clear it.
      * @nullable
      */
-    readonly organization_id_source?: string | null
-    readonly person?: TicketPersonApi | null
-    tags?: unknown[]
+    sla_due_at?: string | null
     /**
-     * The effective access level the user has for this object
+     * Time to reopen the ticket. Pass null to reopen it now.
      * @nullable
      */
-    readonly user_access_level?: string | null
+    snoozed_until?: string | null
+    /** Tag names to set on the ticket. */
+    tags?: string[]
 }
 
 /**

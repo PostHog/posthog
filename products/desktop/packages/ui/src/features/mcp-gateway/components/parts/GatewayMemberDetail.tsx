@@ -1,9 +1,7 @@
 import { ArrowLeft, Plugs, Sliders } from "@phosphor-icons/react";
 import { formatAgo } from "@posthog/core/mcp-gateway/gatewayServers";
-import {
-  gatewayUserName,
-  UserAvatar,
-} from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
+import { gatewayUserName } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import type { GatewayRoute } from "@posthog/ui/features/mcp-gateway/gatewayRoute";
 import { useGatewayMembers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayMembers";
 import { useGatewayServers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayServers";

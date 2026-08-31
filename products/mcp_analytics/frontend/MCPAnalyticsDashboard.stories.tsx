@@ -157,13 +157,31 @@ const TOOL_CALL_LIST = {
 
 // Tool quality tab — one row per tool: tool, total_calls, errors, error_rate_pct,
 // p50, p95, p99, users, sessions, first_seen, last_seen.
-const TOOL_QUALITY_ROWS = [
+type ToolQualityStoryRow = [string, number, number, number, number, number, number, number, number, string, string]
+
+const TOOL_QUALITY_ROWS: ToolQualityStoryRow[] = [
     ['execute-sql', 1480, 144, 9.7, 820, 3525, 9800, 210, 540, '2026-05-08T09:00:00Z', '2026-06-07T10:04:00Z'],
     ['read-data-schema', 760, 3, 0.4, 180, 1298, 2600, 160, 410, '2026-05-08T08:00:00Z', '2026-06-07T10:00:00Z'],
     ['query-trends', 540, 5, 1.0, 410, 2122, 4100, 120, 300, '2026-05-09T11:00:00Z', '2026-06-07T09:45:00Z'],
     ['insight-create', 410, 8, 2.0, 260, 727, 1500, 95, 210, '2026-05-10T14:00:00Z', '2026-06-06T18:00:00Z'],
     ['dashboard-create', 260, 2, 0.8, 300, 940, 1800, 70, 150, '2026-05-11T10:00:00Z', '2026-06-06T16:00:00Z'],
     ['cohort-create', 95, 6, 6.3, 480, 1620, 3100, 40, 80, '2026-05-12T13:00:00Z', '2026-06-05T12:00:00Z'],
+    ...Array.from(
+        { length: 54 },
+        (_, index): ToolQualityStoryRow => [
+            `workflow-action-${String(index + 1).padStart(2, '0')}`,
+            90 - index,
+            index % 7 === 0 ? 1 : 0,
+            index % 7 === 0 ? 1.5 : 0,
+            120 + index * 5,
+            480 + index * 10,
+            900 + index * 20,
+            30 + index,
+            40 + index,
+            '2026-05-12T13:00:00Z',
+            '2026-06-05T12:00:00Z',
+        ]
+    ),
 ]
 
 // Tool quality daily stats (selected/aggregate): day, calls, errors, p50, p95, p99.
@@ -178,6 +196,16 @@ const DAILY_STATS = [
 ]
 
 const CATEGORY_LIST = [['Data exploration'], ['Insights'], ['Dashboards'], ['Cohorts']]
+
+// One category per tool in the clustering fixture. Deliberately selective: `SQL` and
+// `Insights` each cover two of the three clusters, so picking one visibly narrows the list
+// rather than leaving it whole.
+const TOOL_CATEGORY_MAP = [
+    ['execute-sql', 'SQL'],
+    ['insight-create', 'Insights'],
+    ['query-trends', 'Product analytics'],
+    ['read-data-schema', 'Data schema'],
+]
 
 const CATEGORY_COUNTS = [
     ['Data exploration', 2240],
@@ -310,6 +338,107 @@ const CLUSTER_SNAPSHOT = {
                 'List all custom events captured in the last 30 days.',
             ],
             journey: null,
+            // Only this cluster carries recovery data, so the story covers both the section
+            // rendering and the other clusters, which stand in for snapshots predating it.
+            switches: [
+                { from_tool: 'query-trends', to_tool: 'execute-sql', count: 6 },
+                { from_tool: 'insight-create', to_tool: 'query-trends', count: 2 },
+            ],
+            self_retries: [{ tool: 'read-data-schema', count: 4 }],
+        },
+    ],
+    tools: [
+        {
+            tool: 'execute-sql',
+            call_count: 1720,
+            error_count: 94,
+            session_count: 61,
+            contested_score: 0.31,
+            advertised_sessions: 74,
+            called_when_advertised: 66,
+            discovery_rate_pct: 89.2,
+            description: 'Run a ClickHouse SQL query against events, persons, and warehouse tables.',
+            n_clusters_served: 3,
+            clusters: [
+                {
+                    cluster_id: 1,
+                    calls: 1480,
+                    capture_pct: 81.3,
+                    rank: 1,
+                    description_fit: 0.71,
+                    top_competitor: { tool: 'read-data-schema', pct: 14.3 },
+                },
+                {
+                    cluster_id: 3,
+                    calls: 120,
+                    capture_pct: 29.3,
+                    rank: 2,
+                    description_fit: 0.44,
+                    top_competitor: { tool: 'read-data-schema', pct: 36.6 },
+                },
+            ],
+        },
+        {
+            // Well described but rarely picked when advertised: the scatter's lower right.
+            tool: 'read-data-schema',
+            call_count: 540,
+            error_count: 5,
+            session_count: 58,
+            contested_score: 0.66,
+            advertised_sessions: 74,
+            called_when_advertised: 18,
+            discovery_rate_pct: 24.3,
+            description: 'List the events, properties, and property values available in the project.',
+            n_clusters_served: 3,
+            clusters: [
+                {
+                    cluster_id: 3,
+                    calls: 150,
+                    capture_pct: 36.6,
+                    rank: 1,
+                    description_fit: 0.78,
+                    top_competitor: { tool: 'execute-sql', pct: 29.3 },
+                },
+            ],
+        },
+        {
+            // No description and too few advertised sessions, so fit and discovery are unmeasurable.
+            tool: 'insight-create',
+            call_count: 370,
+            error_count: 8,
+            session_count: 30,
+            contested_score: 0.52,
+            advertised_sessions: 3,
+            called_when_advertised: 2,
+            discovery_rate_pct: null,
+            description: null,
+            n_clusters_served: 2,
+            clusters: [
+                {
+                    cluster_id: 2,
+                    calls: 320,
+                    capture_pct: 46.4,
+                    rank: 1,
+                    description_fit: null,
+                    top_competitor: { tool: 'query-trends', pct: 34.8 },
+                },
+            ],
+        },
+    ],
+    tool_overlaps: [
+        {
+            tool_a: 'execute-sql',
+            tool_b: 'read-data-schema',
+            contested_calls: 270,
+            sessions_with_both: 41,
+            sessions_with_either: 78,
+        },
+        {
+            tool_a: 'insight-create',
+            tool_b: 'query-trends',
+            contested_calls: 140,
+            sessions_with_both: 9,
+            sessions_with_either: 44,
         },
     ],
 }
@@ -446,6 +575,73 @@ const ACTIVITY_OVERVIEW = {
     })),
 }
 
+function activityEventsResponse(select: string[]): Record<string, any> {
+    if (select.length === 1 && select[0] === 'count(*)') {
+        return {
+            columns: select,
+            hasMore: false,
+            results: [[ACTIVITY_OVERVIEW.stats.total_calls]],
+            types: ['UInt64'],
+        }
+    }
+
+    const results = ACTIVITY_CALLS.map(([tool, intent, durationMs, clientName, errorMessage], index) => {
+        const timestamp = dayjs('2026-06-07T12:00:00Z')
+            .subtract(index * 37, 'second')
+            .toISOString()
+        const event = {
+            distinct_id: `agent-${index % 4}`,
+            elements_chain: '',
+            event: '$mcp_tool_call',
+            properties: {
+                $mcp_client_name: clientName,
+                $mcp_duration_ms: durationMs,
+                $mcp_error_message: errorMessage,
+                $mcp_intent: intent,
+                $mcp_is_error: errorMessage !== null,
+                $mcp_parameters: { input: `Example input for ${tool}` },
+                $mcp_response: errorMessage ? { error: errorMessage } : { ok: true },
+                $mcp_server_name: 'example-server',
+                $mcp_tool_name: tool,
+            },
+            timestamp,
+            uuid: `0193f2a1-0000-0000-0000-${String(index + 1).padStart(12, '0')}`,
+        }
+
+        return select.map((column) => {
+            if (column === '*') {
+                return event
+            }
+            if (column === 'timestamp') {
+                return timestamp
+            }
+            if (column.endsWith('-- Tool')) {
+                return tool
+            }
+            if (column.endsWith('-- Agent intent')) {
+                return intent
+            }
+            if (column.endsWith('-- Error')) {
+                return errorMessage !== null
+            }
+            if (column.endsWith('-- Duration (ms)')) {
+                return durationMs
+            }
+            if (column.endsWith('-- Client')) {
+                return clientName
+            }
+            return null
+        })
+    })
+
+    return {
+        columns: select,
+        hasMore: true,
+        results,
+        types: select.map(() => 'String'),
+    }
+}
+
 const INTENT_DIGEST = {
     digest: 'Agents are extensively analyzing and validating feature flags, especially participant and scope-related flags, across multiple projects to ensure correct configuration and deployment. They are investigating user behavior, event schemas, and telemetry to support product analytics, adoption, and revenue reporting, and to diagnose issues such as interface unresponsiveness, conversion tracking failures, and LLM-related errors. Additionally, they are auditing dashboards, saved insights, and survey data to verify data freshness and rebuild product usage metrics.',
     intent_count: 100,
@@ -484,22 +680,44 @@ const meta: Meta = {
                     }
                     // Tool quality tab runners return typed item rows — match on kind, not a SQL string.
                     if (body?.query?.kind === 'MCPToolQualityRowsQuery') {
+                        const rows = TOOL_QUALITY_ROWS.map((r) => ({
+                            tool: r[0],
+                            total_calls: r[1],
+                            errors: r[2],
+                            error_rate_pct: r[3],
+                            p50_duration_ms: r[4],
+                            p95_duration_ms: r[5],
+                            p99_duration_ms: r[6],
+                            users: r[7],
+                            sessions: r[8],
+                            first_seen: r[9],
+                            last_seen: r[10],
+                        }))
+                        const search = String(body.query.search ?? '')
+                            .trim()
+                            .toLowerCase()
+                        const filteredRows = search
+                            ? rows.filter((row) => row.tool.toLowerCase().includes(search))
+                            : rows
+                        const sortColumn = String(body.query.sortColumn ?? 'total_calls')
+                        const sortDirection = body.query.sortDirection === 'ASC' ? 1 : -1
+                        filteredRows.sort((left, right) => {
+                            const leftValue = left[sortColumn as keyof typeof left]
+                            const rightValue = right[sortColumn as keyof typeof right]
+                            const comparison =
+                                typeof leftValue === 'number' && typeof rightValue === 'number'
+                                    ? leftValue - rightValue
+                                    : String(leftValue).localeCompare(String(rightValue))
+                            return comparison === 0 ? left.tool.localeCompare(right.tool) : comparison * sortDirection
+                        })
+                        const limit = Number(body.query.limit ?? 50)
+                        const offset = Number(body.query.offset ?? 0)
+                        const page = filteredRows.slice(offset, offset + limit)
                         return [
                             200,
                             {
-                                results: TOOL_QUALITY_ROWS.map((r) => ({
-                                    tool: r[0],
-                                    total_calls: r[1],
-                                    errors: r[2],
-                                    error_rate_pct: r[3],
-                                    p50_duration_ms: r[4],
-                                    p95_duration_ms: r[5],
-                                    p99_duration_ms: r[6],
-                                    users: r[7],
-                                    sessions: r[8],
-                                    first_seen: r[9],
-                                    last_seen: r[10],
-                                })),
+                                results: page,
+                                totalCount: filteredRows.length,
                             },
                         ]
                     }
@@ -545,8 +763,14 @@ const meta: Meta = {
                     if (body?.query?.kind === 'MCPToolCategoriesQuery') {
                         return [200, { results: CATEGORY_LIST.map((r) => ({ category: r[0] })) }]
                     }
+                    if (body?.query?.kind === 'MCPToolCategoryMapQuery') {
+                        return [200, { results: TOOL_CATEGORY_MAP.map((r) => ({ tool: r[0], category: r[1] })) }]
+                    }
                     if (body?.query?.kind === 'MCPToolCategoryCountsQuery') {
                         return [200, { results: CATEGORY_COUNTS.map((r) => ({ category: r[0], calls: r[1] })) }]
+                    }
+                    if (body?.query?.kind === 'EventsQuery') {
+                        return [200, activityEventsResponse(body.query.select ?? [])]
                     }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
@@ -588,9 +812,8 @@ export const DashboardWithMenuBar: Story = {
     },
 }
 
-// The default landing tab for low-volume projects. The feed mock carries the endpoint's full
-// 20-row cap so the feed overflows its viewport — the case where it has to scroll rather than
-// stretch the grid past the sidebar.
+// The default landing tab for low-volume projects. The feed mock has enough rows to overflow its
+// viewport and reports more data, covering both scrolling and the load-more affordance.
 export const Activity: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsActivity(),
@@ -616,5 +839,6 @@ export const ToolQuality: Story = {
 export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
     },
 }

@@ -48,6 +48,7 @@ import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
 import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyState'
 import { useSortableColumns } from './hooks/useSortableColumns'
+import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { AIObservabilitySelfDriving } from './selfDriving/AIObservabilitySelfDriving'
 import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
@@ -170,6 +171,8 @@ function AIObservabilityDashboard(): JSX.Element {
     return (
         <div className="@container/dashboard" data-attr="llm-analytics-costs">
             <Filters />
+
+            <InstrumentationChecklistCard />
 
             {availableDashboardsLoading || !selectedDashboardId ? (
                 <div className="text-center p-8">
@@ -417,7 +420,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your AI usage, costs, and performance metrics.',
-    'self-driving': 'Create and manage scouts that monitor your AI observability data.',
+    'self-driving': 'Manage scouts, eval reports, and anomaly alert investigations for your AI observability data.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
     reviews: 'Browse reviews, organize queues, and manage the scoring setup.',
     generations: 'View individual AI generations and their details.',

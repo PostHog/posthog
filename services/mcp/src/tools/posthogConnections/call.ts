@@ -31,7 +31,6 @@ const UNSUPPORTED_TOOLS: Record<string, string> = {
     'switch-project': 'A connection points at one fixed project. Use a different connection to reach a different one.',
     'switch-organization':
         'A connection points at one fixed project. Use a different connection to reach a different one.',
-    'session-recording-summarize': 'This tool streams its response, which a connection cannot carry.',
 }
 
 /**

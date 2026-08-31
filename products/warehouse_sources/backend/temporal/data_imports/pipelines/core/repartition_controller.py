@@ -27,12 +27,16 @@ from posthog.utils import get_machine_id
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_maintenance_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     measure_partition_bytes,
     select_coarsen_target,
     select_repartition_target,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    DELTA_COARSEN_DECLINE_TOTAL,
     DELTA_REPARTITION_SKIP_TOTAL,
 )
 
@@ -41,6 +45,10 @@ if TYPE_CHECKING:
 
 WAREHOUSE_AUTO_REPARTITION_FLAG = "data-warehouse-auto-repartition"
 WAREHOUSE_AUTO_COARSEN_FLAG = "data-warehouse-auto-coarsen"
+# Gates pausing a schema's imports while a multi-budget rewrite converges. Separate from the
+# repartition flag, and off by default: repartitioning a table costs us worker time, pausing its
+# imports costs the customer freshness, so the second is not a decision the first should make.
+WAREHOUSE_REPARTITION_HOLD_FLAG = "data-warehouse-repartition-hold"
 
 # Coarsening gates. The two directions deliberately don't meet: a table is split finer above the budget
 # and merged coarser only below an eighth of it, and a coarsen aims at half the budget. So a freshly
@@ -100,6 +108,10 @@ def is_auto_repartition_enabled(schema: ExternalDataSchema) -> bool:
 
 def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
     return _is_flag_enabled(schema, WAREHOUSE_AUTO_COARSEN_FLAG)
+
+
+def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
+    return _is_flag_enabled(schema, WAREHOUSE_REPARTITION_HOLD_FLAG)
 
 
 def _is_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
@@ -223,24 +235,33 @@ async def maybe_flag_for_coarsening(
     the only route by which a nominated table there is evaluated). Never raises (the caller swallows).
     """
     measured_partitions = len(partition_bytes)
+
+    def _decline(reason: str) -> None:
+        # Every gate below returns silently, so without this "the rollout stalled" and "nothing was
+        # eligible" look identical from outside. A counter rather than an event because this runs on
+        # every table on every sync.
+        DELTA_COARSEN_DECLINE_TOTAL.labels(reason=reason).inc()
+
     # Never fight a rewrite that is already staged or mid-swap, however the evaluation was prompted.
     if schema.repartition_pending is not None or schema.repartition_swap is not None:
         return
 
     requested = schema.coarsen_requested
     if requested is None:
+        # Below these two the table is not over-fragmented at all, so returning before `_decline`
+        # keeps the metric scoped to the population the rollout is about.
         if measured_partitions < COARSEN_MIN_PARTITIONS:
             return
         if max_bytes * COARSEN_TRIGGER_DIVISOR > budget:
             return
-        # Cheap short-circuit on the count the caller already has. NOT the OOM-free guarantee: this
-        # count is rule-filtered, so a table whose deaths were all explained away passes it — the
-        # authoritative raw-signal gate is `has_recent_occurrences` further down.
+        # Cheap short-circuit on the count the caller already has: it covers the split trigger's
+        # shorter window, so the authoritative gate over `COARSEN_OOM_FREE_DAYS` is
+        # `blocks_coarsening` further down.
         if recent_oom_count > 0:
-            return
+            return _decline("oom_history_recent")
         layout_age = _seconds_since_last_repartition(schema)
         if layout_age is not None and layout_age < COARSEN_MIN_LAYOUT_AGE_SECONDS:
-            return
+            return _decline("layout_too_young")
 
     target, reason = await asyncio.to_thread(
         select_coarsen_target, schema, partition_bytes, budget // COARSEN_TARGET_DIVISOR
@@ -266,16 +287,13 @@ async def maybe_flag_for_coarsening(
             max_partition_bytes=max_bytes,
             partition_count=measured_partitions,
         )
-        return
+        return _decline(reason)
 
     if requested is None:
-        # Raw occurrences, not the rule-filtered `recent_count`: the rules exist to withhold splits,
-        # and a death they explain away (victim, deploy, extract) is still death evidence — coarsening
-        # doubles the merge working set, so any of it blocks the automatic path.
-        if await asyncio.to_thread(
-            ExternalDataSchemaOOMEvent.has_recent_occurrences, schema, days=COARSEN_OOM_FREE_DAYS
-        ):
-            return
+        # Classified, not raw: a nightly restart that kills a hundred unrelated schemas says nothing
+        # about any of their merges, and blocking on it would withhold coarsening from all of them.
+        if await asyncio.to_thread(ExternalDataSchemaOOMEvent.blocks_coarsening, schema, days=COARSEN_OOM_FREE_DAYS):
+            return _decline("oom_within_free_window")
 
         if not await asyncio.to_thread(is_auto_coarsen_enabled, schema):
             await logger.adebug(
@@ -285,7 +303,7 @@ async def maybe_flag_for_coarsening(
                 max_partition_bytes=max_bytes,
                 partition_count=measured_partitions,
             )
-            return
+            return _decline("flag_disabled")
 
     # Distinct reason for a nominated rewrite, the same way an admin-staged one is distinguishable, so
     # the backlog pass can be tracked separately from what the controller does on its own.
@@ -561,6 +579,16 @@ async def maybe_flag_for_repartition(
             target_size=target.partition_size,
         )
     except Exception as e:
-        # Detection is best-effort; never fail post-load over it.
+        # Detection is best-effort; never fail post-load over it. `record_partition_measurement` and
+        # the other DB writes above can hit a transient app-DB blip (pgbouncer pooler drop, or its
+        # server_login_retry cooldown outliving retry_on_db_connection_drop's single retry) — the
+        # same class of noise `_maybe_flag_pre_extraction` (repartition_table.py) already filters
+        # out with this same classifier, so this best-effort detection function should too.
+        if is_transient_maintenance_error(e):
+            await logger.awarning(
+                f"repartition: detection failed with a transient infra error schema_id={schema.id}",
+                schema_id=str(schema.id),
+            )
+            return
         await logger.aexception(f"repartition: detection failed schema_id={schema.id}", schema_id=str(schema.id))
         capture_exception(e)

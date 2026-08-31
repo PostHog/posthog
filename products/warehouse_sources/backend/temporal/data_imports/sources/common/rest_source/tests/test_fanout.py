@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -10,9 +11,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
     build_dependent_resource,
+    required_parents_from_endpoint_configs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResolvedParam
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ParentRowFilter,
+    ResolvedParam,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+    ParentTableRef,
+)
+
+
+def _stub_child_resource() -> Mock:
+    """Stand-in for the dlt resource `build_dependent_resource` looks up by name and maps."""
+    stub = Mock()
+    stub.name = "children"
+    stub.add_map.return_value = stub
+    return stub
 
 
 @dataclass
@@ -51,26 +67,23 @@ def _build_endpoint_configs() -> dict[str, _EndpointConfig]:
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_uses_custom_page_size_param(mock_rest_api_resources) -> None:
-    mock_rest_api_resources.return_value = []
-    try:
-        build_dependent_resource(
-            endpoint_configs=_build_endpoint_configs(),
-            child_endpoint="children",
-            fanout=DependentEndpointConfig(
-                parent_name="parents",
-                resolve_param="parent_id",
-                resolve_field="id",
-                include_from_parent=["id"],
-            ),
-            client_config={"base_url": "https://example.com"},
-            path_format_values={},
-            team_id=1,
-            job_id="job-1",
-            db_incremental_field_last_value=None,
-            page_size_param="page_size",
-        )
-    except StopIteration:
-        pass
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+        page_size_param="page_size",
+    )
 
     config = mock_rest_api_resources.call_args.args[0]
     parent_resource = config["resources"][0]
@@ -83,27 +96,24 @@ def test_build_dependent_resource_uses_custom_page_size_param(mock_rest_api_reso
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_forwards_endpoint_extras(mock_rest_api_resources) -> None:
-    mock_rest_api_resources.return_value = []
-    try:
-        build_dependent_resource(
-            endpoint_configs=_build_endpoint_configs(),
-            child_endpoint="children",
-            fanout=DependentEndpointConfig(
-                parent_name="parents",
-                resolve_param="parent_id",
-                resolve_field="id",
-                include_from_parent=["id"],
-            ),
-            client_config={"base_url": "https://example.com"},
-            path_format_values={},
-            team_id=1,
-            job_id="job-1",
-            db_incremental_field_last_value=None,
-            parent_endpoint_extra={"data_selector": "items", "paginator": _DummyPaginator()},
-            child_endpoint_extra={"data_selector": "items", "paginator": _DummyPaginator()},
-        )
-    except StopIteration:
-        pass
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={"data_selector": "items", "paginator": _DummyPaginator()},
+        child_endpoint_extra={"data_selector": "items", "paginator": _DummyPaginator()},
+    )
 
     config = mock_rest_api_resources.call_args.args[0]
     parent_endpoint = config["resources"][0]["endpoint"]
@@ -116,25 +126,22 @@ def test_build_dependent_resource_forwards_endpoint_extras(mock_rest_api_resourc
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_backwards_compatible_defaults(mock_rest_api_resources) -> None:
-    mock_rest_api_resources.return_value = []
-    try:
-        build_dependent_resource(
-            endpoint_configs=_build_endpoint_configs(),
-            child_endpoint="children",
-            fanout=DependentEndpointConfig(
-                parent_name="parents",
-                resolve_param="parent_id",
-                resolve_field="id",
-                include_from_parent=["id"],
-            ),
-            client_config={"base_url": "https://example.com"},
-            path_format_values={},
-            team_id=1,
-            job_id="job-1",
-            db_incremental_field_last_value=None,
-        )
-    except StopIteration:
-        pass
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+    )
 
     config = mock_rest_api_resources.call_args.args[0]
     parent_resource = config["resources"][0]
@@ -149,27 +156,54 @@ def test_build_dependent_resource_backwards_compatible_defaults(mock_rest_api_re
 
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_child_without_a_request_window_merges_and_sends_no_incremental(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    endpoint_configs = _build_endpoint_configs()
+    endpoint_configs["children"].incremental_fields = [{"field": "created_at"}]
+    endpoint_configs["children"].default_incremental_field = "created_at"
+
+    build_dependent_resource(
+        endpoint_configs=endpoint_configs,
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        should_use_incremental_field=True,
+        incremental_config_factory=lambda _cursor_path: None,
+    )
+
+    child_resource = mock_rest_api_resources.call_args.args[0]["resources"][1]
+    assert child_resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+    assert "incremental" not in child_resource["endpoint"]
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_merges_fanout_child_params(mock_rest_api_resources) -> None:
-    mock_rest_api_resources.return_value = []
-    try:
-        build_dependent_resource(
-            endpoint_configs=_build_endpoint_configs(),
-            child_endpoint="children",
-            fanout=DependentEndpointConfig(
-                parent_name="parents",
-                resolve_param="parent_id",
-                resolve_field="id",
-                include_from_parent=["id"],
-                child_params={"full": "true"},
-            ),
-            client_config={"base_url": "https://example.com"},
-            path_format_values={},
-            team_id=1,
-            job_id="job-1",
-            db_incremental_field_last_value=None,
-        )
-    except StopIteration:
-        pass
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            child_params={"full": "true"},
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+    )
 
     config = mock_rest_api_resources.call_args.args[0]
     parent_params = config["resources"][0]["endpoint"]["params"]
@@ -184,26 +218,23 @@ def test_build_dependent_resource_merges_fanout_child_params(mock_rest_api_resou
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_forwards_child_response_actions(mock_rest_api_resources) -> None:
-    mock_rest_api_resources.return_value = []
-    try:
-        build_dependent_resource(
-            endpoint_configs=_build_endpoint_configs(),
-            child_endpoint="children",
-            fanout=DependentEndpointConfig(
-                parent_name="parents",
-                resolve_param="parent_id",
-                resolve_field="id",
-                include_from_parent=["id"],
-                child_response_actions=[{"status_code": 404, "action": "ignore"}],
-            ),
-            client_config={"base_url": "https://example.com"},
-            path_format_values={},
-            team_id=1,
-            job_id="job-1",
-            db_incremental_field_last_value=None,
-        )
-    except StopIteration:
-        pass
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+    )
 
     config = mock_rest_api_resources.call_args.args[0]
     parent_resource = config["resources"][0]
@@ -215,7 +246,7 @@ def test_build_dependent_resource_forwards_child_response_actions(mock_rest_api_
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_rejects_child_params_clobbering_resolve(mock_rest_api_resources) -> None:
-    mock_rest_api_resources.return_value = []
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
 
     with pytest.raises(ValueError, match="must not include the resolve param 'parent_id'"):
         build_dependent_resource(
@@ -238,29 +269,26 @@ def test_build_dependent_resource_rejects_child_params_clobbering_resolve(mock_r
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_threads_resume_state(mock_rest_api_resources) -> None:
-    mock_rest_api_resources.return_value = []
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
     resume_hook = Mock()
     initial_state = {"completed": ["/parents/a/children"], "current": None, "child_state": None}
-    try:
-        build_dependent_resource(
-            endpoint_configs=_build_endpoint_configs(),
-            child_endpoint="children",
-            fanout=DependentEndpointConfig(
-                parent_name="parents",
-                resolve_param="parent_id",
-                resolve_field="id",
-                include_from_parent=["id"],
-            ),
-            client_config={"base_url": "https://example.com"},
-            path_format_values={},
-            team_id=1,
-            job_id="job-1",
-            db_incremental_field_last_value=None,
-            resume_hook=resume_hook,
-            initial_paginator_state=initial_state,
-        )
-    except StopIteration:
-        pass
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=DependentEndpointConfig(
+            parent_name="parents",
+            resolve_param="parent_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+        ),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_state,
+    )
 
     kwargs = mock_rest_api_resources.call_args.kwargs
     assert kwargs["resume_hook"] is resume_hook
@@ -269,7 +297,7 @@ def test_build_dependent_resource_threads_resume_state(mock_rest_api_resources) 
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_rejects_params_in_endpoint_extras(mock_rest_api_resources) -> None:
-    mock_rest_api_resources.return_value = []
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
 
     with pytest.raises(ValueError, match="Do not pass 'params' in child_endpoint_extra"):
         build_dependent_resource(
@@ -458,3 +486,217 @@ def test_dependent_resume_disabled_without_hook_processes_all() -> None:
     )
     rows = _drive(_dependent_fn(client, resume_hook=None))
     assert [r["id"] for r in rows] == ["a1", "b1"]
+
+
+_WAREHOUSE_FANOUT = DependentEndpointConfig(
+    parent_name="parents",
+    resolve_param="parent_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "parent_id"},
+    parent_source="warehouse",
+)
+
+
+@pytest.mark.parametrize(
+    "row_filter",
+    [None, ParentRowFilter(field="lastSeen", not_older_than=timedelta(days=90))],
+)
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+    return_value=ParentTableRef(uri="s3://bucket/team_1_x_y/parents", version=7),
+)
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
+)
+def test_warehouse_parent_builds_data_iterator_and_404_ignore(
+    mock_reader, mock_resolve, mock_rest_api_resources, row_filter
+) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    mock_reader.return_value = iter([[{"id": "p1"}]])
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=replace(_WAREHOUSE_FANOUT, parent_row_filter=row_filter),
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+        source_id="source-1",
+        use_warehouse_parent=True,
+    )
+
+    # The URI, columns, and row filter are resolved eagerly at build time (sync context), not
+    # lazily on iteration — a lazy check would raise past the fall-back-to-the-API branch.
+    mock_resolve.assert_called_once_with(1, "source-1", "parents", required_columns=["id"], row_filter=row_filter)
+
+    config = mock_rest_api_resources.call_args.args[0]
+    parent_resource = config["resources"][0]
+    child_resource = config["resources"][1]
+
+    pages = list(parent_resource["data_iterator"]())
+    assert pages == [[{"id": "p1"}]]
+    mock_reader.assert_called_once_with(
+        table=ParentTableRef(uri="s3://bucket/team_1_x_y/parents", version=7),
+        parent_name="parents",
+        columns=["id"],
+        page_size=3,
+        # Without this the reader's rows-streamed log has no schema, so snapshot drift can't
+        # be attributed to a child.
+        schema_name="children",
+        # Without this the scan is unbounded and the child fans out over parents the API
+        # path stopped listing.
+        row_filter=row_filter,
+    )
+    assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_warehouse_parent_config_stays_on_api_path_when_not_enabled(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=_WAREHOUSE_FANOUT,
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+        source_id="source-1",
+        use_warehouse_parent=False,
+    )
+
+    config = mock_rest_api_resources.call_args.args[0]
+    parent_resource = config["resources"][0]
+    child_resource = config["resources"][1]
+    assert "data_iterator" not in parent_resource
+    assert parent_resource["endpoint"]["params"]["limit"] == 3
+    assert "response_actions" not in child_resource["endpoint"]
+
+
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref"
+)
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_unreadable_parent_table_falls_back_to_the_api_path(mock_rest_api_resources, mock_resolve) -> None:
+    # The schema row can say the parent synced while its table is gone (purged) or missing the
+    # fan-out columns. Failing here would break a child that syncs fine off the parent API.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+        WarehouseParentTableNotFoundError,
+    )
+
+    mock_resolve.side_effect = WarehouseParentTableNotFoundError("table gone")
+    mock_rest_api_resources.return_value = [_stub_child_resource()]
+    build_dependent_resource(
+        endpoint_configs=_build_endpoint_configs(),
+        child_endpoint="children",
+        fanout=_WAREHOUSE_FANOUT,
+        client_config={"base_url": "https://example.com"},
+        path_format_values={},
+        team_id=1,
+        job_id="job-1",
+        db_incremental_field_last_value=None,
+        source_id="source-1",
+        use_warehouse_parent=True,
+    )
+
+    config = mock_rest_api_resources.call_args.args[0]
+    parent_resource = config["resources"][0]
+    assert "data_iterator" not in parent_resource
+    assert parent_resource["endpoint"]["params"]["limit"] == 3
+    # The snapshot-only 404 handling goes with it: a fresh API parent doesn't list stale rows.
+    assert "response_actions" not in config["resources"][1]["endpoint"]
+
+
+def test_warehouse_parent_requires_source_id() -> None:
+    with pytest.raises(ValueError, match="source_id is required"):
+        build_dependent_resource(
+            endpoint_configs=_build_endpoint_configs(),
+            child_endpoint="children",
+            fanout=_WAREHOUSE_FANOUT,
+            client_config={"base_url": "https://example.com"},
+            path_format_values={},
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+            use_warehouse_parent=True,
+        )
+
+
+class _FakeChildOnlyClient:
+    """Fails the test if any request goes to the parent listing path."""
+
+    def __init__(self) -> None:
+        self.requested_paths: list[str] = []
+
+    def paginate(self, *, method, path, params, paginator, data_selector, hooks, **kwargs):
+        self.requested_paths.append(path)
+        assert path != "/parents", "warehouse-parent fan-out must not fetch the parent endpoint"
+        parent_id = path.split("/")[2]
+        yield [{"id": f"child-of-{parent_id}"}]
+
+
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+    return_value=ParentTableRef(uri="s3://bucket/team_1_x_y/parents", version=7),
+)
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
+)
+def test_warehouse_parent_drives_child_without_parent_http(mock_reader, _mock_resolve) -> None:
+    mock_reader.return_value = iter([[{"id": "p1"}, {"id": "p2"}], [{"id": "p3"}]])
+    fake_client = _FakeChildOnlyClient()
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.RESTClient",
+        return_value=fake_client,
+    ):
+        resource = build_dependent_resource(
+            endpoint_configs=_build_endpoint_configs(),
+            child_endpoint="children",
+            fanout=_WAREHOUSE_FANOUT,
+            client_config={"base_url": "https://example.com"},
+            path_format_values={},
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+            source_id="source-1",
+            use_warehouse_parent=True,
+        )
+        rows = [row for page in resource for row in page]
+
+    # One child fetch per warehouse parent row, parent id injected and renamed.
+    assert rows == [
+        {"id": "child-of-p1", "parent_id": "p1"},
+        {"id": "child-of-p2", "parent_id": "p2"},
+        {"id": "child-of-p3", "parent_id": "p3"},
+    ]
+    assert fake_client.requested_paths == [
+        "/parents/p1/children",
+        "/parents/p2/children",
+        "/parents/p3/children",
+    ]
+
+
+class _ConfigWithFanout:
+    def __init__(self, fanout: DependentEndpointConfig | None) -> None:
+        self.fanout = fanout
+
+
+def test_required_parents_from_endpoint_configs() -> None:
+    configs = {
+        "children": _ConfigWithFanout(_WAREHOUSE_FANOUT),
+        "api_children": _ConfigWithFanout(
+            DependentEndpointConfig(
+                parent_name="parents", resolve_param="parent_id", resolve_field="id", include_from_parent=[]
+            )
+        ),
+        "parents": _ConfigWithFanout(None),
+    }
+    assert required_parents_from_endpoint_configs(configs, "children") == ["parents"]
+    assert required_parents_from_endpoint_configs(configs, "api_children") == []
+    assert required_parents_from_endpoint_configs(configs, "parents") == []
+    assert required_parents_from_endpoint_configs(configs, "unknown") == []

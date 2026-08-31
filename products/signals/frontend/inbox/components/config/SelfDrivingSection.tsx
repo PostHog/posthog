@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconRocket, IconX } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import {
     Button,
     ButtonGroup,
@@ -17,11 +17,14 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
+import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
+import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
 
 /** Compact segmented-control label per priority. P4 (the lowest bar) reads as "All". */
@@ -37,6 +40,9 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
     value,
     label: THRESHOLD_SEGMENT_LABELS[value],
 }))
+
+const MY_THRESHOLD_DEFAULT_VALUE = '__default__'
+const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...THRESHOLD_SEGMENTS]
 
 function BaseBranchOverrideRows(): JSX.Element | null {
     const { baseBranchOverrides, teamConfigUpdating } = useValues(signalTeamConfigLogic)
@@ -221,6 +227,78 @@ function BaseBranchOverrides(): JSX.Element {
 }
 
 /**
+ * A self-imposed cap on reports per day, deliberately housed with the autonomy throttles rather
+ * than the billing usage card: it is "how much should the agents do", not "what does the plan
+ * allow", and placing it next to plan usage read as if the two limits were one system. Renders
+ * regardless of the auto-start toggle, since the cap pauses report generation, not just PRs.
+ * While the billing quota has the pipeline paused, the live count is withheld so remaining daily
+ * headroom is not advertised on a day when nothing will arrive. Same collapsed-by-default shape
+ * as Base branch overrides: the trigger's count keeps the state readable without opening.
+ */
+function DailyReportLimit(): JSX.Element {
+    const {
+        maxReportsPerDay,
+        reportsGeneratedToday,
+        dailyReportLimitReached,
+        draftMaxReportsPerDay,
+        saveMaxReportsPerDayDisabledReason,
+        teamConfigUpdating,
+    } = useValues(signalTeamConfigLogic)
+    const { setDraftMaxReportsPerDay, saveDraftMaxReportsPerDay } = useActions(signalTeamConfigLogic)
+    const { quotaLimited } = useValues(inboxUsageLogic)
+
+    const summary = quotaLimited
+        ? 'Paused by plan limit'
+        : maxReportsPerDay != null
+          ? `${Math.min(reportsGeneratedToday, maxReportsPerDay)} / ${maxReportsPerDay} today`
+          : null
+
+    return (
+        <>
+            <Collapsible className="bg-transparent hover:bg-transparent">
+                <CollapsibleTrigger className="w-full h-auto px-2.5 py-1.5 text-xs text-secondary font-normal bg-transparent hover:bg-[var(--fill-hover)]">
+                    <span className="flex-1 text-left">Daily report limit</span>
+                    {summary && <span className="text-tertiary tabular-nums">{summary}</span>}
+                </CollapsibleTrigger>
+                <CollapsibleContent className="flex flex-col gap-1.5 px-2.5 pb-1.5">
+                    <p className="text-[11px] text-tertiary leading-snug mb-0">
+                        Pause new report generation after this many reports in a day. Leave empty for no limit.
+                    </p>
+                    <div className="flex items-center gap-1">
+                        <LemonInput
+                            type="number"
+                            min={1}
+                            step={1}
+                            size="small"
+                            placeholder="No limit"
+                            value={draftMaxReportsPerDay ?? undefined}
+                            onChange={(value) => setDraftMaxReportsPerDay(value ?? null)}
+                            onPressEnter={saveDraftMaxReportsPerDay}
+                            fullWidth
+                        />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={saveDraftMaxReportsPerDay}
+                            loading={teamConfigUpdating}
+                            disabledReason={saveMaxReportsPerDayDisabledReason ?? undefined}
+                            data-attr="signals-daily-report-limit-save"
+                        >
+                            Save
+                        </LemonButton>
+                    </div>
+                </CollapsibleContent>
+            </Collapsible>
+            {dailyReportLimitReached && !quotaLimited && (
+                <p className="text-xs font-medium text-danger mb-0 px-2.5 pb-1.5">
+                    Daily report limit reached. New reports resume at midnight in your project's timezone.
+                </p>
+            )}
+        </>
+    )
+}
+
+/**
  * Team-wide PR-generation control, backed by `autostart_enabled` and `default_autostart_priority`
  * on `signalTeamConfigLogic`. The inline switch is the master opt-out for autonomous inbox PRs;
  * reports keep generating and notifying either way. The threshold is the team default; a teammate's
@@ -230,16 +308,27 @@ function BaseBranchOverrides(): JSX.Element {
  * threshold) that can't live inside that card's single button/link wrapper.
  */
 export function SelfDrivingSection(): JSX.Element {
+    // The Settings tab wraps this in its own card; the legacy setup rail does not.
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { teamConfig, teamConfigLoading, teamConfigUpdating, autostartEnabled, defaultAutostartPriority } =
         useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+    const { autonomyConfig, autonomyConfigLoading, autostartPriorityUpdating } = useValues(userAutonomyLogic)
+    const { setAutostartPriority } = useActions(userAutonomyLogic)
+    const myThreshold = autonomyConfig?.autostart_priority ?? MY_THRESHOLD_DEFAULT_VALUE
 
     if (teamConfigLoading && teamConfig === null) {
         return <LemonSkeleton className="h-20 w-full rounded" />
     }
 
     return (
-        <div className="flex flex-col rounded border border-primary bg-surface-primary overflow-hidden">
+        <div
+            className={
+                redesign
+                    ? '-mx-2.5 flex flex-col'
+                    : 'flex flex-col rounded border border-primary bg-surface-primary overflow-hidden'
+            }
+        >
             <div className="flex items-start gap-2 px-2.5 py-2">
                 <span className="flex size-7 shrink-0 items-center justify-center rounded bg-surface-secondary text-default [&_svg]:size-4">
                     <IconRocket />
@@ -258,18 +347,51 @@ export function SelfDrivingSection(): JSX.Element {
                 </div>
             </div>
 
-            <div className="border-t border-primary bg-surface-secondary">
+            <div className={redesign ? 'border-t border-primary' : 'border-t border-primary bg-surface-secondary'}>
                 {autostartEnabled ? (
                     <>
-                        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
-                            <span className="text-xs text-secondary shrink-0">Threshold</span>
-                            <LemonSegmentedButton
-                                size="xsmall"
-                                value={defaultAutostartPriority}
-                                options={THRESHOLD_SEGMENTS}
-                                disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
-                                onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
-                            />
+                        {/* Label above the control rather than beside it: the rail is narrow enough that a
+                            five- or six-segment row alongside a label overflows the card. `fullWidth` keeps the
+                            segments even, capped so the same markup doesn't stretch in the wide stacked layout. */}
+                        <div className="flex flex-col gap-2 px-2.5 py-1.5">
+                            <div className="flex flex-col gap-1">
+                                <span className="text-xs text-secondary">Project threshold</span>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    fullWidth
+                                    className="max-w-xs"
+                                    value={defaultAutostartPriority}
+                                    options={THRESHOLD_SEGMENTS}
+                                    disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                                    onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-xs text-secondary">My threshold</span>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    fullWidth
+                                    className="max-w-xs"
+                                    value={myThreshold}
+                                    options={MY_THRESHOLD_SEGMENTS}
+                                    disabledReason={
+                                        autostartPriorityUpdating
+                                            ? 'Saving changes'
+                                            : autonomyConfigLoading
+                                              ? 'Loading settings'
+                                              : undefined
+                                    }
+                                    onChange={(next) =>
+                                        setAutostartPriority(
+                                            next === MY_THRESHOLD_DEFAULT_VALUE ? null : (next as SignalReportPriority)
+                                        )
+                                    }
+                                />
+                                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                                    Overrides the project threshold for reports that suggest you as reviewer. It applies
+                                    across all your projects.
+                                </p>
+                            </div>
                         </div>
                         <div className="border-t border-primary">
                             <BaseBranchOverrides />
@@ -280,6 +402,9 @@ export function SelfDrivingSection(): JSX.Element {
                         Reports still arrive and notify your team.
                     </p>
                 )}
+                <div className="border-t border-primary">
+                    <DailyReportLimit />
+                </div>
             </div>
         </div>
     )

@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef } from "react";
 
 const THREAD_POLL_INTERVAL_MS = 5_000;
 
-export function taskThreadQueryKey(taskId: string | undefined) {
+function taskThreadQueryKey(taskId: string | undefined) {
   return ["task-thread", taskId ?? "none"] as const;
 }
 
@@ -26,6 +26,9 @@ export function useTaskThread(
 ): {
   messages: TaskThreadMessage[];
   isLoading: boolean;
+  /** The thread has come back at least once. Distinct from `!isLoading`, which flips back
+   *  on a refetch and would blink a loader over content already on screen. */
+  hasLoaded: boolean;
 } {
   const pollIntervalMs = options?.pollIntervalMs ?? THREAD_POLL_INTERVAL_MS;
   const enabled = options?.enabled ?? true;
@@ -43,6 +46,9 @@ export function useTaskThread(
       enabled: !!taskId && enabled,
       refetchInterval: pollIntervalMs,
       staleTime: pollIntervalMs,
+      // The poll is the retry. Request-level retries also hold the timeline's
+      // first paint behind their backoff, since it gates on this query settling.
+      retry: false,
     },
   );
   useEffect(() => {
@@ -60,7 +66,11 @@ export function useTaskThread(
     opening,
     query.dataUpdatedAt,
   ]);
-  return { messages: query.data ?? [], isLoading: query.isLoading };
+  return {
+    messages: query.data ?? [],
+    isLoading: query.isLoading,
+    hasLoaded: query.isSuccess || query.isError,
+  };
 }
 
 export function usePostTaskThreadMessage(taskId: string | undefined) {

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import hashlib
-from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -30,6 +29,7 @@ from django.http import HttpRequest, HttpResponse
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.utils import get_instance_region
@@ -69,7 +69,7 @@ PROXY_HEADER_ALLOWLIST = frozenset(
 _JSON_SEPARATORS = (",", ":")
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class RegionDomains:
     us: str
     eu: str
@@ -143,15 +143,50 @@ def _proxy_to_region(request: HttpRequest, target_domain: str) -> HttpResponse:
         except ValueError:
             data = {"error": "Invalid response from alternate region"}
 
-        return HttpResponse(
+        proxied = HttpResponse(
             json.dumps(data, separators=_JSON_SEPARATORS),
             status=response.status_code,
             content_type="application/json",
         )
+        # The region that handled the request computed this wait, and rebuilding
+        # the response would otherwise drop it: a forwarded 429 would tell the
+        # caller nothing about when to retry.
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            proxied["Retry-After"] = retry_after
+        return proxied
 
     except requests.exceptions.RequestException as e:
         capture_exception(e, {"target_url": target_url, "step": "stripe_provisioning.proxy.failed"})
         raise
+
+
+# Sentinel for "the cache backend didn't answer", which is not the same as a
+# real ``None``: a miss is information, an outage is the absence of it.
+_CACHE_UNAVAILABLE = object()
+
+
+def _cache_get(key: str) -> Any:
+    """Read from the cache, returning ``_CACHE_UNAVAILABLE`` on a backend failure.
+
+    The proxy decides whether to forward before authentication or DRF's
+    exception handling run, so an unreachable Redis here would surface as a 500
+    outside this namespace's envelopes. Each caller decides what an outage means
+    for its own check instead.
+    """
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("stripe_provisioning.proxy.cache_unavailable", operation="get")
+        return _CACHE_UNAVAILABLE
+
+
+def _cache_set(key: str, value: Any, timeout: int) -> None:
+    """Best-effort memo: losing it costs the next request a DB lookup, nothing more."""
+    try:
+        cache.set(key, value, timeout=timeout)
+    except Exception:
+        logger.warning("stripe_provisioning.proxy.cache_unavailable", operation="set")
 
 
 def _should_proxy_body_region(request: HttpRequest, current_region: str) -> bool:
@@ -170,7 +205,14 @@ def _should_proxy_token_lookup(request: HttpRequest, current_region: str) -> boo
         code = payload.get("code", "")
         if not code:
             return False
-        return cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}") is None
+        cached = _cache_get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
+        # An unreachable cache can't confirm the code is local, and handling it
+        # here would need that same cache to succeed. Forwarding gives a code
+        # minted in the other region a working path, and turns one minted here
+        # into that region's invalid_grant rather than a 500.
+        if cached is _CACHE_UNAVAILABLE:
+            return True
+        return cached is None
 
     if grant_type == "refresh_token":
         refresh_token_value = payload.get("refresh_token", "")
@@ -182,22 +224,20 @@ def _should_proxy_token_lookup(request: HttpRequest, current_region: str) -> boo
 
 
 def _bearer_exists_locally(token_value: str) -> bool:
-    # TODO: latent bug - cache backend failures here (and in the token-lookup
-    # check above) propagate as 500s instead of falling back to the local DB
-    # lookup.
     # SHA-256 the token before using it as a cache key so raw bearer tokens
     # never appear in Redis keyspace dumps or logs. Tokens are already
     # high-entropy (256 bits from secrets.token_urlsafe), so an unsalted hash
     # is sufficient - rainbow tables against 2^256 random inputs are a non-issue.
     token_hash = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
     cache_key = f"{BEARER_EXISTS_CACHE_PREFIX}{token_hash}"
-    cached = cache.get(cache_key)
-    if cached is not None:
+    cached = _cache_get(cache_key)
+    if cached is not None and cached is not _CACHE_UNAVAILABLE:
         return bool(cached)
 
+    # The DB is authoritative, so it answers a miss and an outage alike.
     exists = find_oauth_access_token(token_value) is not None
     ttl = BEARER_EXISTS_POSITIVE_TTL if exists else BEARER_EXISTS_NEGATIVE_TTL
-    cache.set(cache_key, exists, timeout=ttl)
+    _cache_set(cache_key, exists, ttl)
     return exists
 
 
@@ -224,14 +264,11 @@ class RegionProxyMixin:
     """Forward the request to the other region when its resources live there.
 
     Set ``region_proxy_strategy`` on the view. Runs before authentication (a
-    bearer that only exists in the other region must proxy, not 401 locally).
-    On proxy failure, ``body_region`` returns a flat ``proxy_failed`` 502 (the
+    bearer that only exists in the other region must proxy, not 401 locally),
+    so DRF's throttles never see a forwarded request. The endpoint's own budget
+    applies at the region that handles it. On proxy failure, ``body_region`` returns a flat ``proxy_failed`` 502 (the
     request can't be served locally at all); the lookup strategies fall through
     to local handling, which produces the appropriate auth error.
-
-    TODO: latent gap - because this runs before authentication and rate
-    limiting, an unauthenticated caller can induce outbound cross-region
-    requests (bounded request amplification).
     """
 
     region_proxy_strategy: str | None = None
@@ -260,18 +297,18 @@ class RegionProxyMixin:
 
         if _STRATEGY_CHECKS[strategy](request, current):
             target = _other_region_domain(current)
-            logger.info(
-                "stripe_provisioning.proxy.routing",
-                strategy=strategy,
-                current_region=current,
-                target_domain=target,
-            )
             proxy_props = {
                 "strategy": strategy,
                 "from_region": current,
                 "to_domain": target,
                 "endpoint": request.path,
             }
+            logger.info(
+                "stripe_provisioning.proxy.routing",
+                strategy=strategy,
+                current_region=current,
+                target_domain=target,
+            )
             try:
                 response = _proxy_to_region(request, target)
                 capture_region_proxy_event("proxied", **proxy_props)

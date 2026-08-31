@@ -29,7 +29,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import experime
 from products.experiments.backend.hogql_queries.error_handling import capture_experiment_metric_error_event
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
@@ -208,7 +208,7 @@ def _calculate_experiment_regular_metric_sync(
         # the events as "used by this team."
         tag_queries(trigger="warming/experiment_timeseries")
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        result_dict = result.model_dump(mode="json")
+        result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 
@@ -513,7 +513,7 @@ def _calculate_experiment_saved_metric_sync(
         # the events as "used by this team."
         tag_queries(trigger="warming/experiment_timeseries")
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        result_dict = result.model_dump(mode="json")
+        result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 

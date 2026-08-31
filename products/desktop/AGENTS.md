@@ -30,7 +30,7 @@ Principle: logic is portable; hosts are thin.
 | `@posthog/ui` | React components, hooks, contributions, view-state stores. Built on `@posthog/quill`. | Business logic, `trpcClient`, Node |
 | `@posthog/host-trpc` | Shared `initTRPC` base with container-bearing context for Electron main routers. | Feature logic |
 | `@posthog/host-router` | Electron host tRPC routers that resolve services from request context and forward calls. Exposes `HostRouter` type and renderer `useHostTRPC`. | Service implementations |
-| `@posthog/di` | DI and boot primitives: `CONTRIBUTION`, `boot()`, `ROOT_LOGGER`, `setRootContainer()`, `bindToContainer()`, `useService`. | Feature code |
+| `@posthog/di` | DI and boot primitives: `CONTRIBUTION`, `boot()`, `ROOT_LOGGER`, `setRootContainer()`, `useService`. | Feature code |
 | `@posthog/electron-trpc` | tRPC-over-Electron-IPC transport. | Feature code |
 | `@posthog/git`, `@posthog/enricher`, `@posthog/agent` | Reusable domain implementation packages. | Host-specific code |
 
@@ -39,7 +39,6 @@ Hosts:
 - `apps/code`: Electron desktop host.
 - `apps/web`: web host and portability smoke test.
 - `apps/mobile`: React Native host.
-- `apps/cli`: thin shell over `@posthog/cli`.
 
 ## Rules
 
@@ -193,7 +192,6 @@ packages/ui/src/features/<feature>/
 - Hosts load modules in `desktop-contributions.ts` or the equivalent web/mobile composition file.
 - Hosts bind platform implementations in `desktop-services.ts`, `main/index.ts`, or host equivalents.
 - Hosts call `setRootContainer(container)` before resolving services through React or host seams.
-- Plain modules that must register bindings before root initialization use `bindToContainer((container) => ...)`.
 - `CONTRIBUTION` starts subscriptions, commands, routes, menus, and feature boot.
 - React uses `useService(TOKEN)` at boundaries only.
 
@@ -220,6 +218,22 @@ await boot(container);
 - `pnpm --filter <pkg> typecheck|test|build`: run a scoped task.
 - `pnpm --filter code package|make`: package the Electron app.
 - `node scripts/check-host-boundaries.mjs`: verify host boundary allowlist.
+- `node scripts/check-mobile-types.mjs`: typecheck `apps/mobile` against its error baseline.
+
+## Mobile Host Types
+
+`apps/mobile` typechecks against a baseline of pre-existing errors, not against zero.
+`pnpm typecheck` runs it like every other package; `scripts/check-mobile-types.mjs` fails only on errors absent from `scripts/mobile-type-baseline.json`.
+
+Metro strips types instead of checking them, so before this the mobile host was the one place a shared-package change could break without CI noticing — a new method on a `@posthog/platform` interface, a renamed `@posthog/core` export.
+
+After fixing baselined errors, shrink the baseline:
+
+```bash
+node scripts/check-mobile-types.mjs --prune
+```
+
+Do not use `--init` to baseline new errors.
 
 ## UI Components
 
@@ -294,7 +308,7 @@ Pulling in a Radix package is not the fallback.
 - Empty/placeholder/loading screens (canvas and elsewhere) are a `@posthog/quill` `<Empty>` (`EmptyHeader` → `EmptyMedia variant="icon"` → `EmptyTitle` → `EmptyDescription`, then `EmptyContent` for CTAs). Don't hand-roll the centered Flex + dashed icon box. CTAs are quill `Button`s: primary action `variant="primary"`, secondary `variant="outline"`, `size="default"`. For a link CTA use `render={<Link … />}` (Base UI), not `asChild`.
 - Abort controllers before awaiting cleanup that depends on them.
 
-See [docs/conventions.md](./docs/conventions.md).
+See [docs/CONVENTIONS.md](./docs/CONVENTIONS.md).
 
 ## Agent Integration
 
@@ -322,13 +336,13 @@ See [docs/conventions.md](./docs/conventions.md).
 - After touching `@posthog/platform`, rebuild or typecheck its `dist/`.
 - After touching `packages/core`, run `biome lint packages/core` and verify zero `noRestrictedImports`.
 
-See [docs/testing.md](./docs/testing.md).
+See [docs/TESTING.md](./docs/TESTING.md).
 
 ## Reference
 
-- [docs/architecture.md](./docs/architecture.md)
-- [docs/conventions.md](./docs/conventions.md)
-- [docs/testing.md](./docs/testing.md)
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- [docs/CONVENTIONS.md](./docs/CONVENTIONS.md)
+- [docs/TESTING.md](./docs/TESTING.md)
 - [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md)
 - [docs/DEEP-LINKS.md](./docs/DEEP-LINKS.md)
 - [docs/LOCAL-DEVELOPMENT.md](./docs/LOCAL-DEVELOPMENT.md)

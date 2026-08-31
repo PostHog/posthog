@@ -1,6 +1,5 @@
 import datetime as dt
 import dataclasses
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
@@ -10,10 +9,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async_pool
-from posthog.tasks.email import send_matview_failure_immediate_email
 
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -23,60 +19,31 @@ from products.data_modeling.backend.facade.models import (
     Node,
 )
 from products.data_warehouse.backend.facade.api import pause_saved_query_schedule
-from products.notifications.backend.facade.api import (
-    NotificationData,
-    NotificationType,
-    Priority,
-    RecipientsResolver,
-    TargetType,
-    create_notification,
-    has_been_dispatched,
-)
 
 from ..metrics import get_node_suspended_metric
+from .notify_materialization_failure import maybe_notify_materialization_failure
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
+    get_previous_jobs,
     maybe_suspend_node_for_engine,
     strip_hostname_from_error,
     update_node_system_properties,
 )
-
-if TYPE_CHECKING:
-    from django.db.models import QuerySet
 
 LOGGER = get_logger(__name__)
 
 CONSECUTIVE_TIMEOUTS_TO_PAUSE = 5
 
 
-def _get_previous_jobs(
-    saved_query_id: UUID, current_job_id: UUID, count: int, ignore_inconclusive: bool = False
-) -> "QuerySet[DataModelingJob]":
-    """Get the most recent jobs for a saved query, excluding the current job."""
-    jobs = (
-        DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=DataModelingJobEngine.CLICKHOUSE)
-        .exclude(id=current_job_id)
-        # a skipped run never executed, so it is evidence of neither health nor failure. Leaving it
-        # in lets one upstream outage clear a timeout streak that is about to pause the schedule.
-        .exclude(status=DataModelingJobStatus.SKIPPED)
-    )
-    if ignore_inconclusive:
-        # Neither status says whether the query recovered: a cancel is our doing (preemption, a
-        # deploy), and a run still marked running either is one, or was abandoned by a dead worker.
-        # The timeout counter keeps treating both as a break, deliberately.
-        jobs = jobs.exclude(status__in=(DataModelingJobStatus.CANCELLED, DataModelingJobStatus.RUNNING))
-    return jobs.order_by("-created_at")[:count]
-
-
-def should_pause_schedule_for_timeout(saved_query_id: UUID, current_job_id: UUID) -> tuple[bool, int]:
+def should_pause_schedule_for_timeout(saved_query_id: UUID, current_job: DataModelingJob) -> tuple[bool, int]:
     """Check if the schedule should be paused based on consecutive timeout failures.
 
     Returns True only if all of the previous CONSECUTIVE_TIMEOUTS_TO_PAUSE jobs
     failed due to query timeouts. This prevents pausing schedules for transient
     timeouts that can occur due to temporary ClickHouse load.
     """
-    previous_jobs = list(_get_previous_jobs(saved_query_id, current_job_id, CONSECUTIVE_TIMEOUTS_TO_PAUSE))
+    previous_jobs = list(get_previous_jobs(saved_query_id, current_job, CONSECUTIVE_TIMEOUTS_TO_PAUSE))
     count = 0
     for job in previous_jobs:
         if job.status != DataModelingJobStatus.FAILED:
@@ -145,7 +112,7 @@ def _maybe_pause_schedule_on_timeout(job: DataModelingJob, saved_query: DataWare
     Returns True if the schedule was paused, False otherwise. This prevents pausing
     schedules for transient timeouts that can occur due to temporary ClickHouse load.
     """
-    should_pause, _ = should_pause_schedule_for_timeout(saved_query.id, job.id)
+    should_pause, _ = should_pause_schedule_for_timeout(saved_query.id, job)
     if not should_pause:
         return False
 
@@ -165,84 +132,6 @@ def _revert_materialization_on_unknown_table(job: DataModelingJob, saved_query: 
         f"This materialized view has been reverted to a view because it referenced an unknown table. Error: {job.error}"
     )
     job.save(update_fields=["error"])
-
-
-class _SavedQueryViewers(RecipientsResolver):
-    """Narrow team recipients to the members allowed to open one specific view.
-
-    `create_notification` gates on the parent `warehouse_objects` resource, which cannot see a
-    deny placed on an individual view. This repeats the check `Database._is_warehouse_view_denied`
-    makes when the same member opens that view, so a notification never names a view they would
-    be refused. Both gates run: this one narrows, the shared one narrows again.
-    """
-
-    def __init__(self, saved_query: DataWarehouseSavedQuery) -> None:
-        self._saved_query = saved_query
-
-    def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
-        user_ids = super().resolve(target_type, target_id, team_id)
-        if not user_ids or team_id is None:
-            return user_ids
-        team = Team.objects.filter(id=team_id).first()
-        if team is None:
-            return user_ids
-
-        try:
-            return [
-                user.id
-                for user in User.objects.filter(id__in=user_ids)
-                if (access := UserAccessControl(user, team)).is_organization_admin
-                or access.check_access_level_for_object(self._saved_query, required_level="viewer")
-            ]
-        except Exception:
-            # Not being able to check must not stop every failure notification.
-            capture_exception()
-            return user_ids
-
-
-@database_sync_to_async_pool
-def _maybe_notify_materialization_failure(
-    job: DataModelingJob, saved_query: DataWarehouseSavedQuery, team_id: int
-) -> bool:
-    """Notify on the first failure of a streak; repeats of an ongoing streak stay quiet."""
-    # An idempotent retry can land here with a job another path already completed or cancelled.
-    if job.status != DataModelingJobStatus.FAILED:
-        return False
-    previous_job = _get_previous_jobs(saved_query.id, job.id, 1, ignore_inconclusive=True).first()
-    if previous_job is not None and previous_job.status == DataModelingJobStatus.FAILED:
-        return False
-
-    # The email task dedupes per (recipient, job) via MessagingRecord, so an activity
-    # retry that already sent the in-app notification still can't double-send email.
-    send_matview_failure_immediate_email.delay(team_id, str(saved_query.id), str(job.id))
-
-    if has_been_dispatched(
-        notification_type=NotificationType.MATERIALIZATION_FAILURE,
-        target_type=TargetType.TEAM,
-        target_id=str(team_id),
-        resource_id=str(saved_query.id),
-        source_id=str(job.id),
-    ):
-        return False
-    create_notification(
-        NotificationData(
-            team_id=team_id,
-            notification_type=NotificationType.MATERIALIZATION_FAILURE,
-            priority=Priority.NORMAL,
-            title=f"{saved_query.name} failed to materialize"[:255],
-            body=strip_hostname_from_error(job.error or "The latest materialization run failed.")[:400],
-            target_type=TargetType.TEAM,
-            target_id=str(team_id),
-            # "warehouse_objects" (not "warehouse_view") is the AC resource — anything else
-            # silently skips the access-control filter in create_notification
-            resource_type="warehouse_objects",
-            resource_id=str(saved_query.id),
-            source_url=f"/project/{team_id}/sql?open_view={saved_query.id}",
-            source_id=str(job.id),
-            resolver=_SavedQueryViewers(saved_query),
-        )
-    )
-    return True
 
 
 @activity.defn
@@ -312,7 +201,7 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     # needs telling, so it must not take the notification down with it.
     if saved_query is not None and not inputs.cancelled:
         try:
-            notified = await _maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
+            notified = await maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
             if notified:
                 await logger.ainfo(f"Sent materialization failure notification for node {inputs.node_id}")
         except Exception as e:

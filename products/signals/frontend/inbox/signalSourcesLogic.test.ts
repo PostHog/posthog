@@ -129,6 +129,36 @@ describe('signalSourcesLogic', () => {
         expect(logic.values.dataSourceSetupSource).toBe(setup)
     })
 
+    it('carries the card guidance onto an error tracking signal type turned on later', async () => {
+        // Error tracking is one guidance box over three rows. A row created after the guidance was
+        // written would otherwise start empty, so that one trigger would report everything while the
+        // card still reads as steered.
+        const steeredRow = (sourceType: SignalSourceType): any => ({
+            ...githubIssuesConfig,
+            id: `config-${sourceType}`,
+            source_product: SignalSourceProduct.ErrorTracking,
+            source_type: sourceType,
+            config: { steering: 'Ignore errors from localhost.' },
+        })
+        const create = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig as any)
+        logic.actions.loadSourceConfigsSuccess([
+            steeredRow(SignalSourceType.IssueCreated),
+            steeredRow(SignalSourceType.IssueReopened),
+        ])
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleErrorTrackingType(SignalSourceType.IssueSpiking)
+        }).toDispatchActions(['loadSourceConfigs'])
+
+        expect(create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                source_type: SignalSourceType.IssueSpiking,
+                config: { steering: 'Ignore errors from localhost.' },
+            })
+        )
+        create.mockRestore()
+    })
+
     it('keeps an enabled source enabled when its config loads during the source lookup', async () => {
         let resolveSources!: (sources: Awaited<ReturnType<typeof api.externalDataSources.list>>) => void
         const sourcesPromise = new Promise<Awaited<ReturnType<typeof api.externalDataSources.list>>>((resolve) => {
@@ -180,7 +210,7 @@ describe('signalSourcesLogic', () => {
         expect(logic.values.isGithubIssuesToggling).toBe(false)
     })
 
-    it('creates an AI observability config for evaluation reports', async () => {
+    it('uses only eval reports for the AI observability signal source', async () => {
         const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue({
             id: 'config-evaluation-reports',
             source_product: SignalSourceProduct.LlmAnalytics,
@@ -191,7 +221,20 @@ describe('signalSourcesLogic', () => {
             updated_at: '2026-07-30T00:00:00Z',
             status: null,
         })
-        logic.actions.loadSourceConfigsSuccess([])
+        logic.actions.loadSourceConfigsSuccess([
+            {
+                id: 'retired-evaluation-config',
+                source_product: SignalSourceProduct.LlmAnalytics,
+                source_type: SignalSourceType.Evaluation,
+                enabled: true,
+                config: { evaluation_ids: ['evaluation-1'] },
+                created_at: '2026-07-30T00:00:00Z',
+                updated_at: '2026-07-30T00:00:00Z',
+                status: null,
+            },
+        ])
+
+        expect(logic.values.enabledSourcesCount).toBe(0)
 
         logic.actions.toggleEvalReports()
         await expectLogic(logic).toFinishAllListeners()

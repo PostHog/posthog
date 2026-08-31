@@ -35,26 +35,18 @@ function compareNonEmpty(a: unknown, b: unknown): number {
     return String(ka).localeCompare(String(kb), undefined, { numeric: true, sensitivity: 'base' })
 }
 
-function getCellAt(row: DataTableRow, index: number): unknown {
-    return Array.isArray(row.result) ? row.result[index] : undefined
-}
-
 export function sortAccountRows(
     rows: DataTableRow[],
     sortOrder: AccountSortOrder,
-    visibleColumnNames: string[]
+    getCell: (record: unknown, column: string) => unknown
 ): DataTableRow[] {
     if (!sortOrder) {
         return rows
     }
-    const index = visibleColumnNames.indexOf(sortOrder.column)
-    if (index < 0) {
-        return rows
-    }
     const direction = sortOrder.direction === 'desc' ? -1 : 1
     return [...rows].sort((a, b) => {
-        const av = getCellAt(a, index)
-        const bv = getCellAt(b, index)
+        const av = getCell(a.result, sortOrder.column)
+        const bv = getCell(b.result, sortOrder.column)
         const aEmpty = isEmptyCell(av)
         const bEmpty = isEmptyCell(bv)
         if (aEmpty || bEmpty) {

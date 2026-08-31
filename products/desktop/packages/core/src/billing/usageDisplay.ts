@@ -1,6 +1,6 @@
 import type { UsageBucket, UsageOutput } from "../usage/schemas";
 
-export const CODE_INCLUDED_USAGE_USD = 20;
+const CODE_INCLUDED_USAGE_USD = 20;
 
 /** Confirmed free tier only — an absent `code_usage_subscribed` is unknown, never free. */
 export function isCodeUsageFreeTier(

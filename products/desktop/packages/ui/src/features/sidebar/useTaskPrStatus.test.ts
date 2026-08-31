@@ -52,19 +52,49 @@ describe("useTaskPrStatus", () => {
 
   it("returns empty status when no data is available", () => {
     const { result } = renderHook(() => useTaskPrStatus(makeTask()));
-    expect(result.current).toEqual({ prState: null, hasDiff: false });
+    expect(result.current).toEqual({
+      prState: null,
+      hasDiff: false,
+      prUrl: null,
+    });
   });
 
   it("returns empty status when data has no prState and no diff", () => {
-    queryData = { prState: null, hasDiff: false };
+    queryData = { prState: null, hasDiff: false, prUrl: null };
     const { result } = renderHook(() => useTaskPrStatus(makeTask()));
-    expect(result.current).toEqual({ prState: null, hasDiff: false });
+    expect(result.current).toEqual({
+      prState: null,
+      hasDiff: false,
+      prUrl: null,
+    });
   });
 
-  it("returns prState from query data", () => {
-    queryData = { prState: "open", hasDiff: false };
+  it("keeps a cached url when the PR's state never resolved", () => {
+    queryData = {
+      prState: null,
+      hasDiff: false,
+      prUrl: "https://github.com/x/y/pull/1",
+    };
     const { result } = renderHook(() => useTaskPrStatus(makeTask()));
-    expect(result.current).toEqual({ prState: "open", hasDiff: false });
+    expect(result.current).toEqual({
+      prState: null,
+      hasDiff: false,
+      prUrl: "https://github.com/x/y/pull/1",
+    });
+  });
+
+  it("returns prState and the url it belongs to from query data", () => {
+    queryData = {
+      prState: "open",
+      hasDiff: false,
+      prUrl: "https://github.com/x/y/pull/1",
+    };
+    const { result } = renderHook(() => useTaskPrStatus(makeTask()));
+    expect(result.current).toEqual({
+      prState: "open",
+      hasDiff: false,
+      prUrl: "https://github.com/x/y/pull/1",
+    });
   });
 
   it("returns hasDiff from query data", () => {
@@ -116,6 +146,10 @@ describe("useTaskPrStatus", () => {
         makeTask({ taskRunEnvironment: "cloud", cloudPrUrl: null }),
       ),
     );
-    expect(result.current).toEqual({ prState: null, hasDiff: false });
+    expect(result.current).toEqual({
+      prState: null,
+      hasDiff: false,
+      prUrl: null,
+    });
   });
 });

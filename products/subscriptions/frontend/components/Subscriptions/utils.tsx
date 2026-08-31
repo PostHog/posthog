@@ -3,14 +3,61 @@ import { RRule } from 'rrule'
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
-import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
+import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
+
+export function requestSubscriptionWizardCancellation({
+    onCancel,
+    resetSubscription,
+    subscriptionChanged,
+}: {
+    onCancel: () => void
+    resetSubscription: () => void
+    subscriptionChanged: boolean
+}): void {
+    if (!subscriptionChanged) {
+        onCancel()
+        return
+    }
+
+    LemonDialog.open({
+        title: 'Discard subscription changes?',
+        description: 'Your subscription configuration will be lost.',
+        primaryButton: {
+            children: 'Discard changes',
+            status: 'danger',
+            onClick: () => {
+                resetSubscription()
+                onCancel()
+            },
+        },
+        secondaryButton: {
+            children: 'Keep editing',
+        },
+    })
+}
+
+export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
+    return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
+}
+
+export function canNudgeToSubscribe(
+    hasSubscriptionsFeature: boolean,
+    freeTierSubscriptionCount: number | null
+): boolean {
+    return (
+        hasSubscriptionsFeature ||
+        (freeTierSubscriptionCount !== null && !isFreeTierCreateAtLimit(freeTierSubscriptionCount))
+    )
+}
 
 export interface SubscriptionBaseProps {
     dashboardId?: number
@@ -28,20 +75,6 @@ export const urlForSubscriptions = ({ dashboardId, insightShortId }: Subscriptio
     // Parent-less (e.g. AI prompt) subscriptions live at the top-level list.
     return urls.subscriptions()
 }
-
-/**
- * Deep-link params the subscribe-nudge uses to open the new-subscription form prefilled.
- * Single source of truth shared by the producer (dashboard toast) and the consumer (this
- * logic's urlToAction). The backend notification's source_url must mirror these — see the
- * comment on source_url in products/dashboards/backend/api/dashboard.py.
- */
-export const SUBSCRIPTION_PREFILL_PARAMS = {
-    param: 'prefill',
-    nudge: 'nudge',
-    viaParam: 'via',
-    viaToast: 'toast',
-    viaNotification: 'notification',
-} as const
 
 export const urlForSubscription = (
     id: number | 'new',
@@ -119,6 +152,60 @@ export function selectedDaysToDayPickerLabel(selectedDays: WeekdayType[]): strin
         return `on ${dayLabel}`
     }
     return `on ${selectedDays.length} days`
+}
+
+export function formatSubscriptionSchedule(
+    subscription: Pick<SubscriptionType, 'frequency' | 'interval' | 'start_date' | 'byweekday'>
+): string {
+    const frequency =
+        subscription.interval === 1
+            ? { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }[subscription.frequency]
+            : subscription.frequency
+    const selectedDays = shouldShowDayPicker(subscription.frequency, subscription.interval)
+        ? ` ${formatSelectedDeliveryDays(subscription.byweekday ?? [])}`
+        : ''
+
+    return `Every ${subscription.interval} ${frequency}${selectedDays} at ${dayjs(subscription.start_date).format('h:mm A')}`
+}
+
+export function getSubscriptionAdvancedSettings(
+    subscription: Pick<SubscriptionType, 'summary_enabled' | 'summary_prompt_guide' | 'send_test_now'>
+): string[] {
+    const settings: string[] = []
+
+    if (subscription.summary_enabled) {
+        settings.push('Automatic AI summary')
+    }
+    if (subscription.summary_prompt_guide?.trim()) {
+        settings.push('Custom AI summary context')
+    }
+    if (subscription.send_test_now === false) {
+        settings.push('No test delivery')
+    }
+
+    return settings
+}
+
+function formatSelectedDeliveryDays(selectedDays: WeekdayType[]): string {
+    if (hasSameDays(selectedDays, ALL_DAYS)) {
+        return 'on Monday to Sunday'
+    }
+    if (hasSameDays(selectedDays, WEEKDAY_DAYS)) {
+        return 'on weekdays'
+    }
+    if (hasSameDays(selectedDays, WEEKEND_DAYS)) {
+        return 'on weekends'
+    }
+
+    const labels = weekdayOptions.filter((day) => selectedDays.includes(day.value)).map((day) => day.label)
+    if (labels.length < 2) {
+        return labels.length ? `on ${labels[0]}` : 'on no days'
+    }
+    if (labels.length === 2) {
+        return `on ${labels[0]} and ${labels[1]}`
+    }
+
+    return `on ${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`
 }
 
 export function toggleSelectedDay(selectedDays: WeekdayType[], day: WeekdayType): WeekdayType[] {

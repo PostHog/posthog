@@ -224,7 +224,7 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
+ * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
  * @summary Append an artefact to a report
  */
 export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
@@ -232,7 +232,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -324,7 +324,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
  */
 export const signalsScoutCreateBodyNameMax = 64
 
-export const signalsScoutCreateBodyDescriptionMax = 4096
+export const signalsScoutCreateBodyDescriptionMax = 1024
 
 export const signalsScoutCreateBodyFilesItemPathMax = 500
 
@@ -336,11 +336,21 @@ export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
 
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemMax = 255
+
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemRegExp = new RegExp(
+    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
+)
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
+
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const signalsScoutCreateBodyConfigOneModelMax = 200
 
 export const signalsScoutCreateBodyConfigOneTagsMax = 10
+
+export const signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax = 100
 
 export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .object({
@@ -412,7 +422,32 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                                         .max(signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax)
                                         .nullish()
                                         .describe(
-                                            "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                            "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set."
+                                        ),
+                                    users: zod
+                                        .array(
+                                            zod
+                                                .string()
+                                                .max(
+                                                    signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemMax
+                                                )
+                                                .regex(
+                                                    signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemRegExp
+                                                )
+                                        )
+                                        .min(1)
+                                        .max(signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax)
+                                        .nullish()
+                                        .describe(
+                                            'Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.'
+                                        ),
+                                    thread_reports: zod
+                                        .boolean()
+                                        .default(
+                                            signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
+                                        )
+                                        .describe(
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
                                         ),
                                 }),
                                 zod.null(),
@@ -420,6 +455,21 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                             .optional()
                             .describe(
                                 'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                            ),
+                        webhook: zod
+                            .union([
+                                zod.object({
+                                    hog_function_id: zod
+                                        .string()
+                                        .describe(
+                                            "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                             ),
                     })
                     .optional()
@@ -464,6 +514,13 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
                     ),
+                mcp_gateway_server_ids: zod
+                    .array(zod.uuid())
+                    .max(signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax)
+                    .optional()
+                    .describe(
+                        "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+                    ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
             .optional()
@@ -474,6 +531,21 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .describe('Create a runnable custom scout and its config in one atomic request.')
 
 /**
+ * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; the response carries the task id to navigate to.
+ * @summary Start a scout chat task
+ */
+export const SignalsScoutChatTasksCreateBody = /* @__PURE__ */ zod.object({
+    chat_type: zod
+        .enum(['author_scout', 'fleet_overview', 'recent_signals'])
+        .describe(
+            '\* `author_scout` - author_scout\n\* `fleet_overview` - fleet_overview\n\* `recent_signals` - recent_signals'
+        )
+        .describe(
+            'Which scout chat to start: `author_scout` (guided scout authoring), `fleet_overview` (health of the scout fleet), or `recent_signals` (walk through recently emitted signals). The prompt template is owned server-side.\n\n\* `author_scout` - author_scout\n\* `fleet_overview` - fleet_overview\n\* `recent_signals` - recent_signals'
+        ),
+})
+
+/**
  * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
@@ -482,11 +554,21 @@ export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemMax = 255
+
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemRegExp = new RegExp(
+    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
+)
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax = 5
+
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigCreateBodyModelMax = 200
 
 export const signalsScoutConfigCreateBodyTagsMax = 10
+
+export const signalsScoutConfigCreateBodyMcpGatewayServerIdsMax = 100
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
@@ -521,7 +603,26 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                                 .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax)
                                 .nullish()
                                 .describe(
-                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set."
+                                ),
+                            users: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemMax)
+                                        .regex(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemRegExp)
+                                )
+                                .min(1)
+                                .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax)
+                                .nullish()
+                                .describe(
+                                    'Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.'
+                                ),
+                            thread_reports: zod
+                                .boolean()
+                                .default(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .describe(
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -529,6 +630,21 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                    ),
+                webhook: zod
+                    .union([
+                        zod.object({
+                            hog_function_id: zod
+                                .string()
+                                .describe(
+                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
             })
             .optional()
@@ -573,6 +689,13 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
             ),
+        mcp_gateway_server_ids: zod
+            .array(zod.uuid())
+            .max(signalsScoutConfigCreateBodyMcpGatewayServerIdsMax)
+            .optional()
+            .describe(
+                "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+            ),
         skill_name: zod
             .string()
             .max(signalsScoutConfigCreateBodySkillNameMax)
@@ -595,9 +718,19 @@ export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemMax = 255
+
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemRegExp = new RegExp(
+    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
+)
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
+
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
 export const signalsScoutConfigUpdateBodyTagsMax = 10
+
+export const signalsScoutConfigUpdateBodyMcpGatewayServerIdsMax = 100
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -642,7 +775,26 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                                 .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax)
                                 .nullish()
                                 .describe(
-                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set."
+                                ),
+                            users: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemMax)
+                                        .regex(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemRegExp)
+                                )
+                                .min(1)
+                                .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax)
+                                .nullish()
+                                .describe(
+                                    'Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.'
+                                ),
+                            thread_reports: zod
+                                .boolean()
+                                .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .describe(
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -650,6 +802,21 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                    ),
+                webhook: zod
+                    .union([
+                        zod.object({
+                            hog_function_id: zod
+                                .string()
+                                .describe(
+                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
             })
             .optional()
@@ -689,11 +856,18 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
             ),
+        mcp_gateway_server_ids: zod
+            .array(zod.uuid())
+            .max(signalsScoutConfigUpdateBodyMcpGatewayServerIdsMax)
+            .optional()
+            .describe(
+                "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+            ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
 
 /**
- * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
+ * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
  * @summary Leave a note for the scouts
  */
 export const signalsScoutNotesCreateBodyContentMax = 10000
@@ -706,14 +880,14 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
             .string()
             .max(signalsScoutNotesCreateBodyContentMax)
             .describe(
-                "The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim."
+                "The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; the run reads it verbatim."
             ),
         skill_name: zod
             .string()
             .max(signalsScoutNotesCreateBodySkillNameMax)
             .optional()
             .describe(
-                'Address the note to one scout by its skill name (`signals-scout-\*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.'
+                'Address the note to one scout by its skill name (`signals-scout-\*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.'
             ),
         expires_at: zod.iso
             .datetime({ offset: true })
@@ -743,6 +917,10 @@ export const signalsScoutEditReportBodyChartsItemTitleMax = 200
 export const signalsScoutEditReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEditReportBodyChartsMax = 20
+
+export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
+
+export const signalsScoutEditReportBodySuggestedPromptsMax = 3
 
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
@@ -843,6 +1021,13 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .describe(
                 "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
             ),
+        suggested_prompts: zod
+            .array(zod.string().max(signalsScoutEditReportBodySuggestedPromptsItemMax))
+            .max(signalsScoutEditReportBodySuggestedPromptsMax)
+            .nullish()
+            .describe(
+                "The full set of follow-up questions the report should offer above its `Ask AI` box. Replaces the report's questions rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them answering the old report."
+            ),
     })
     .describe(
         "Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."
@@ -870,6 +1055,10 @@ export const signalsScoutEmitReportBodyChartsItemTitleMax = 200
 export const signalsScoutEmitReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEmitReportBodyChartsMax = 20
+
+export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
+
+export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
@@ -1024,6 +1213,13 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
+            ),
+        suggested_prompts: zod
+            .array(zod.string().max(signalsScoutEmitReportBodySuggestedPromptsItemMax))
+            .max(signalsScoutEmitReportBodySuggestedPromptsMax)
+            .optional()
+            .describe(
+                "Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks one to fill the box with it, then sends or edits it. Write the questions your own research left open, phrased as the reader would ask them."
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')
@@ -1197,7 +1393,7 @@ export const SignalsScoutRunsEmissionReportsBatchBody = /* @__PURE__ */ zod
     )
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
  * @summary Remember a scratchpad entry
  */
 export const signalsScoutScratchpadRememberBodyKeyMax = 300
@@ -1221,6 +1417,12 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost."
+            ),
+        expires_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost."
             ),
     })
     .describe('Request body for `remember`.')
@@ -1296,7 +1498,6 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod
         .enum([
             'session_analysis_cluster',
-            'evaluation',
             'evaluation_report',
             'issue',
             'ticket',
@@ -1310,15 +1511,23 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
             'anomaly_investigation',
+            'feedback',
+            'review',
             'ci_flaky_check',
             'ci_broken_default_branch',
             'ci_duration_regression',
+            'search_opportunity',
         ])
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
         ),
     enabled: zod.boolean().optional(),
-    config: zod.unknown().optional(),
+    config: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+        ),
 })
 
 export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
@@ -1380,7 +1589,6 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
     source_type: zod
         .enum([
             'session_analysis_cluster',
-            'evaluation',
             'evaluation_report',
             'issue',
             'ticket',
@@ -1394,15 +1602,23 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
             'anomaly_investigation',
+            'feedback',
+            'review',
             'ci_flaky_check',
             'ci_broken_default_branch',
             'ci_duration_regression',
+            'search_opportunity',
         ])
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
         ),
     enabled: zod.boolean().optional(),
-    config: zod.unknown().optional(),
+    config: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+        ),
 })
 
 export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1465,7 +1681,6 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
     source_type: zod
         .enum([
             'session_analysis_cluster',
-            'evaluation',
             'evaluation_report',
             'issue',
             'ticket',
@@ -1479,16 +1694,24 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
             'anomaly_investigation',
+            'feedback',
+            'review',
             'ci_flaky_check',
             'ci_broken_default_branch',
             'ci_duration_regression',
+            'search_opportunity',
         ])
         .optional()
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `feedback` - Feedback\n\* `review` - Review\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression\n\* `search_opportunity` - Search opportunity'
         ),
     enabled: zod.boolean().optional(),
-    config: zod.unknown().optional(),
+    config: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+        ),
 })
 
 /**

@@ -1,7 +1,6 @@
 import copy
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from time import time
@@ -20,6 +19,7 @@ import posthoganalytics
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationUsageInfo
@@ -664,18 +664,15 @@ def invalidate_llm_gateway_quota_cache(team_ids: Iterable[int]) -> None:
     Best-effort by design: the gateway TTL already bounds staleness, so a failure
     here must not fail the billing update that just committed.
     """
-    cache_keys = [
-        key
-        for team_id in team_ids
-        for key in (
-            f"quota:code_usage_billing:team:{team_id}",
-            *(f"quota:{resource.value}:team:{team_id}" for resource in QuotaResource),
-        )
-    ]
-    if not cache_keys:
+    id_set = {int(team_id) for team_id in team_ids}
+    if not id_set:
         return
     try:
-        get_client(settings.LLM_GATEWAY_REDIS_URL).delete(*cache_keys)
+        pipeline = get_client(settings.LLM_GATEWAY_REDIS_URL).pipeline(transaction=False)
+        for team_id in id_set:
+            pipeline.incr(f"quota:generation:team:{team_id}")
+            pipeline.delete(f"quota:code_usage_billing:team:{team_id}")
+        pipeline.execute()
     except Exception as e:
         capture_exception(e)
 
@@ -1038,7 +1035,7 @@ def _timed_query(name, fn, *args, **kwargs):
     return result
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class QuotaLimitingRunResult:
     quota_limited_orgs: dict[str, dict[str, int]]
     quota_limiting_suspended_orgs: dict[str, dict[str, int]]

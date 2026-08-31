@@ -31,6 +31,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags.common import JobOwners
+from posthog.dataclasses import frozen
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.topics import KAFKA_PERSON
 
@@ -1494,7 +1495,7 @@ def backup_person_with_computed_state(
     return cursor.rowcount > 0
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class PersonUpdateResult:
     success: bool
     updated_person_data: dict | None

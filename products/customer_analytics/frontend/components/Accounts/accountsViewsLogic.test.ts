@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { AccountsTableCustomPropertyOperator } from '~/queries/schema/schema-general'
+import type { AccountsTableQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -82,11 +82,10 @@ describe('accountsViewsLogic', () => {
                 assignedTo: [1, 2, 3],
                 tileFilter: {
                     tileId: 't1',
-                    expression: 'mrr > 100',
                     filter: {
                         kind: 'custom_property',
                         definitionId: '11111111-2222-3333-4444-555555555555',
-                        operator: AccountsTableCustomPropertyOperator.GreaterThan,
+                        operator: 'gt',
                         values: [100],
                     },
                 },
@@ -105,15 +104,37 @@ describe('accountsViewsLogic', () => {
         ])
         expect(accountsOverviewTilesLogic.values.tileFilter).toEqual({
             tileId: 't1',
-            expression: 'mrr > 100',
             filter: {
                 kind: 'custom_property',
                 definitionId: '11111111-2222-3333-4444-555555555555',
-                operator: AccountsTableCustomPropertyOperator.GreaterThan,
+                operator: 'gt',
                 values: [100],
             },
         })
         expect(logic.values.currentViewId).toEqual('view-1')
+    })
+
+    it('translates an applied saved view into the Postgres query', async () => {
+        useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 0, results: [] } } })
+        mountAll()
+        await expectLogic(logic, () =>
+            logic.actions.applyView(
+                buildView({
+                    columns: ['name'],
+                    filters: { search: 'acme', tags: ['enterprise'], assignedTo: [1, 2] },
+                    order_by: ['name DESC'],
+                })
+            )
+        ).toFinishAllListeners()
+
+        const source = accountsLogic.values.accountsQuerySource as AccountsTableQuery
+        expect(source.kind).toBe('AccountsTableQuery')
+        expect(source.columns).toEqual([{ kind: 'account_field', field: 'name' }])
+        expect(source.filters).toEqual([
+            { kind: 'search', query: 'acme' },
+            { kind: 'tags', tagNames: ['enterprise'] },
+            { kind: 'assigned_to', userIds: [1, 2] },
+        ])
     })
 
     it('isDirty flips when live state diverges from the applied view and clears on re-apply', async () => {

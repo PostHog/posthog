@@ -151,6 +151,21 @@ class TestConversionGoalProcessorRefactor(BaseTest):
 
         assert [f.name for f in TRACKED_FIELDS] == MARKETING_TOUCHPOINTS_TRACKED_FIELD_NAMES
 
+    def test_click_ids_read_the_property_the_sdk_writes(self):
+        # `$gclid` and friends don't exist on events — the taxonomy calls them `gclid`,
+        # `fbclid` and `gad_source`, and the `$initial_*` forms are person-scoped copies.
+        # Reading the prefixed name silently emptied every click-id column, so the paid
+        # branch of channel_type never fired for auto-tagged traffic.
+        from posthog.taxonomy.taxonomy import CAMPAIGN_PROPERTIES
+
+        from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import TRACKED_FIELDS
+
+        click_ids = [f for f in TRACKED_FIELDS if f.name in ("gclid", "fbclid", "gad_source")]
+        assert len(click_ids) == 3
+        for field in click_ids:
+            assert field.event_property == field.name
+            assert field.event_property in CAMPAIGN_PROPERTIES
+
     @parameterized.expand(
         [
             (AttributionMode.FIRST_TOUCH,),

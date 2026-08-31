@@ -10,11 +10,12 @@ use crate::{
     app_context::AppContext,
     error::UnhandledError,
     issue_resolution::{
-        send_fingerprint_issue_state, send_issue_created_notification,
+        infer_issue_severity, send_fingerprint_issue_state, send_issue_created_notification,
         send_issue_reopened_notification, Issue, IssueFingerprintOverride,
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
+    modes::processing::rules::severity::try_severity_rules,
     stages::linking::LinkingStage,
     teams::TeamManager,
     types::{
@@ -291,6 +292,12 @@ async fn resolve_issue(
         team_id,
         name.to_string(),
         description.to_string(),
+        event_properties.proposed_issue_severity().or_else(|| {
+            infer_issue_severity(
+                event_properties.exception_level(),
+                event_properties.exception_handled(),
+            )
+        }),
         &mut *txn,
     )
     .await?;
@@ -356,6 +363,13 @@ async fn resolve_issue(
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
+        process_event_severity(
+            &mut txn,
+            &context.team_manager,
+            &mut issue,
+            event_properties,
+        )
+        .await?;
         let assignment =
             process_event_assignment(&mut txn, &context.team_manager, &issue, event_properties)
                 .await?;
@@ -385,6 +399,26 @@ async fn resolve_issue(
     };
 
     Ok(issue)
+}
+
+async fn process_event_severity(
+    connection: &mut PgConnection,
+    team_manager: &TeamManager,
+    issue: &mut Issue,
+    exception_properties: &ExceptionEvent<Fingerprinted>,
+) -> Result<(), UnhandledError> {
+    if exception_properties.proposed_issue_severity().is_some() {
+        return Ok(());
+    }
+    let processed_properties = exception_properties.processed_properties(issue);
+    if let Some(severity) =
+        try_severity_rules(connection, team_manager, issue, &processed_properties).await?
+    {
+        issue
+            .apply_initial_severity(severity.to_string(), connection)
+            .await?;
+    }
+    Ok(())
 }
 
 async fn process_event_assignment(

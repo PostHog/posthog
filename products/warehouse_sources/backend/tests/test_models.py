@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -21,6 +21,7 @@ from posthog.models.team import Team
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    REPARTITION_HOLD_MAX_AGE,
     ExternalDataSchema,
     apply_incremental_lookback,
     complete_schema_run,
@@ -1202,3 +1203,55 @@ class TestSSHTunnelPortValidation(SimpleTestCase):
             passphrase=None,
         )
         assert tunnel.has_valid_port()[0] is expected_valid
+
+
+class TestRepartitionHoldsImport:
+    """The hold pauses a schema's imports so a multi-budget rewrite can keep its checkpoint.
+
+    Every condition here decides whether a customer's table keeps ingesting, so each case is a
+    distinct way of getting that wrong: no rewrite at all, a rewrite still advancing, one that
+    stopped, and checkpoints whose stamp we cannot age out.
+    """
+
+    def _schema_with(self, rewrite: dict[str, Any] | None) -> ExternalDataSchema:
+        config: dict[str, Any] = {}
+        if rewrite is not None:
+            config["repartition_rewrite"] = rewrite
+        return ExternalDataSchema(sync_type_config=config)
+
+    def _stamped(self, ago: timedelta) -> dict[str, Any]:
+        return {"temp_uri": "s3://t", "rows_written": 10, "held_at": (datetime.now(UTC) - ago).isoformat()}
+
+    @parameterized.expand(
+        [
+            ("no_rewrite", None, False),
+            ("fresh_checkpoint", timedelta(minutes=5), True),
+            ("within_the_window", REPARTITION_HOLD_MAX_AGE - timedelta(hours=1), True),
+            ("lapsed", REPARTITION_HOLD_MAX_AGE + timedelta(hours=1), False),
+        ]
+    )
+    def test_hold_tracks_whether_the_rewrite_is_still_advancing(
+        self, _name: str, ago: timedelta | None, expected: bool
+    ) -> None:
+        rewrite = None if ago is None else self._stamped(ago)
+        assert self._schema_with(rewrite).repartition_holds_import is expected
+
+    @parameterized.expand(
+        [
+            # A checkpoint written before `held_at` existed. Holding on it would pause imports with no
+            # way to ever age the hold out.
+            ("missing_stamp", {"temp_uri": "s3://t", "rows_written": 10}),
+            ("unparseable_stamp", {"temp_uri": "s3://t", "held_at": "not-a-timestamp"}),
+            ("non_string_stamp", {"temp_uri": "s3://t", "held_at": 1234}),
+        ]
+    )
+    def test_an_unusable_stamp_never_holds(self, _name: str, rewrite: dict[str, Any]) -> None:
+        assert self._schema_with(rewrite).repartition_holds_import is False
+
+    def test_a_naive_stamp_is_read_as_utc(self) -> None:
+        # `held_at` is written with `datetime.now(UTC).isoformat()`, but a hand-edited or older row
+        # can carry a naive string. Comparing that against an aware now() raises, which would fail
+        # the import activity rather than skip the hold.
+        naive = (datetime.now(UTC) - timedelta(minutes=5)).replace(tzinfo=None).isoformat()
+        schema = self._schema_with({"temp_uri": "s3://t", "held_at": naive})
+        assert schema.repartition_holds_import is True

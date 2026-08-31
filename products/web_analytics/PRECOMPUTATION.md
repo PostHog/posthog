@@ -277,9 +277,9 @@ Because the eager job and the lazy read path consult the same flag, the warming 
 
 This job is complementary to `cache_warming.py`, which replays whatever queries users actually ran in the last N days. The eager job covers the fixed UI matrix; the replay job covers the long tail of team-specific filter combinations.
 
-## Trend tiles (precompute-backed trends)
+## Trend tiles and Active Hours (precompute-backed trends)
 
-The dashboard's graph tiles run vanilla `TrendsQuery`, routed at dispatch to `WebTrendsQueryRunner` when the query carries `tags.productKey == "web_analytics"` AND the `web-analytics-trends-precompute` flag (locally evaluated, fails closed) is on for the team. The runner serves eligible single-series shapes — unique visitors, page views, sessions, avg session duration, bounce rate — from the same hourly `web_overview_preaggregated` buckets the overview tile keeps warm (the query is mapped to an inner `WebOverviewQuery`, so the precompute job hash is identical and buckets are shared), and falls back to the standard trends path for everything else.
+The dashboard's graph tiles run vanilla `TrendsQuery`, routed at dispatch to `WebTrendsQueryRunner` when the query carries `tags.productKey == "web_analytics"` AND the `web-analytics-trends-precompute` flag (locally evaluated, fails closed) is on for the team. The runner serves eligible single-series shapes — unique visitors, page views, sessions, avg session duration, bounce rate — from the same hourly `web_overview_preaggregated` buckets the overview tile keeps warm (the query is mapped to an inner `WebOverviewQuery`, so the precompute job hash is identical and buckets are shared), and falls back to the standard trends path for everything else. The Active Hours unique-visitors tab is served the same way by `WebCalendarHeatmapTrendsQueryRunner`.
 
 Rollout gates, in order:
 
@@ -288,6 +288,14 @@ Rollout gates, in order:
 3. The shared enrollment gate (`web-analytics-precompute-toggle` / `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`) still applies underneath.
 
 Accepted semantic differences vs vanilla trends (the tiles align with the overview tile instead): session-start-hour attribution, HLL uniques, `$pageview + $screen` counted together, sessionless events excluded. The per-query "Allow precompute" opt-out does not reach trend tiles (TrendsQuery deliberately carries no web-analytics fields); the flag is the kill switch.
+
+The Active Hours path is stricter than the trend tiles: it falls back to the live heatmap for teams that track both `$pageview` and `$screen` (the buckets carry no event dimension, and the live heatmap filters exactly to the requested event), for teams aggregating by distinct ID, and for date bounds that are not hour-aligned in UTC (explicit sub-hour ranges, fractional-offset timezones).
+
+### Web Vitals tab timeseries
+
+The Web Vitals tab's timeseries tile sends a `WebVitalsQuery` wrapper whose `source` is a TrendsQuery of four `$web_vitals` percentile series. With the `web-analytics-vitals-precompute` flag (locally evaluated, fails closed) on for the team, dispatch routes it to `WebVitalsQueryRunner`, which merges the per-path quantile states of the `web_vitals_paths_preaggregated` buckets into per-day tab-level percentiles — the same buckets the path-breakdown tile on the same tab keeps warm, so the inner ensure hashes to the sibling tile's job family and both tiles share one set of jobs. With the flag off the kind has no runner branch and `process_query_model` unwraps to the source TrendsQuery, the pre-existing live path.
+
+Servable shapes: the canonical four-series tab query with a shared p75/p90/p99 percentile, day-aligned ranges, and day/week/month intervals (buckets are team-tz daily, so hour interval falls back). p95, compare, breakdowns, formulas, per-series filters, per-series math multipliers, and conversion goals fall back. Only the line-graph display is servable; any other display (total-value, cumulative, and the displays with dedicated runners — calendar heatmap, box plot, slope graph) unwraps to its source TrendsQuery so the source's own dispatch handles it. Accepted semantic difference vs the live path: events with a NULL `$pathname` are absent from the buckets, so they are excluded from the served percentiles.
 
 ## Related code
 
@@ -303,5 +311,6 @@ Accepted semantic differences vs vanilla trends (the tiles align with the overvi
 - `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` — vitals lazy path
 - `posthog/clickhouse/preaggregation/web_vitals_paths_preaggregated_sql.py` — vitals schema
 - `products/web_analytics/backend/hogql_queries/web_trends.py` + `web_trends_lazy_precompute.py` — trend tiles lazy path
+- `products/web_analytics/backend/hogql_queries/web_calendar_heatmap.py` — Active Hours lazy path
 - `products/analytics_platform/backend/lazy_computation/` — framework + CONSISTENCY.md + README
 - `products/web_analytics/dags/eager_web_analytics_precompute.py` — hourly baseline pre-warmer

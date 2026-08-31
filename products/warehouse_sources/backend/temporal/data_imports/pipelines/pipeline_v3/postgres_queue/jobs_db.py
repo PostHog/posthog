@@ -173,10 +173,12 @@ def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
         WITH ins AS (
             INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
             VALUES (%(batch_id)s, %(job_state)s, %(attempt)s, now(), %(error_response)s, now())
-            RETURNING batch_id, job_state, attempt, created_at
+            RETURNING batch_id, job_state, attempt, created_at, error_response
         )
         UPDATE {BATCH_TABLE} b
-        SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at
+        SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at,
+            superseded = (ins.job_state = 'failed'
+                          AND COALESCE((ins.error_response->>'superseded')::boolean, false))
         FROM ins
         WHERE b.id = ins.batch_id
           AND {created_at_predicate}
@@ -231,11 +233,13 @@ def build_status_dual_write_unless_failed_sql(
             INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
             SELECT t.id, %(job_state)s, %(attempt)s, now(), %(error_response)s, now()
             FROM target t
-            RETURNING batch_id, job_state, attempt, created_at
+            RETURNING batch_id, job_state, attempt, created_at, error_response
         ),
         upd AS (
             UPDATE {BATCH_TABLE} b
-            SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at
+            SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at,
+                superseded = (ins.job_state = 'failed'
+                              AND COALESCE((ins.error_response->>'superseded')::boolean, false))
             FROM ins
             WHERE b.id = ins.batch_id
               AND {created_at_predicate}
@@ -272,7 +276,8 @@ def _bulk_fail_dual_write_sql(where_sql: str) -> str:
             RETURNING batch_id, created_at
         )
         UPDATE {BATCH_TABLE} b
-        SET latest_state = 'failed', latest_attempt = 0, state_changed_at = ins.created_at
+        SET latest_state = 'failed', latest_attempt = 0, state_changed_at = ins.created_at,
+            superseded = COALESCE((%(error_response)s::jsonb->>'superseded')::boolean, false)
         FROM ins
         JOIN targets t ON t.id = ins.batch_id
         WHERE b.id = t.id
@@ -311,16 +316,16 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     lost its parquet to retention, so it must never be claimed. The gates keep
     ``PARTITION_PRUNING_INTERVAL`` for the same reason the sync-type scope
     stays out of them — they must see every row that still exists.
+
+    Selects only the join-back keys ``(id, created_at)``. The caller's fairness
+    ranking sorts the entire claimable set before its LIMIT can apply, so the
+    sort input must stay narrow: selecting the wide row here (``metadata``
+    alone is ~1 KB per batch) made every poll sort megabytes-to-gigabytes of
+    payload to keep ~50 rows, spilling past ``work_mem`` to disk once a backlog
+    built up and degrading the whole fleet's polls with it.
     """
     return f"""
-        SELECT
-            b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-            b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-            b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-            b.cumulative_row_count, b.resource_name, b.is_resume,
-            b.is_first_ever_sync, b.metadata,
-            b.latest_attempt,
-            b.created_at
+        SELECT b.id, b.created_at
         FROM {BATCH_TABLE} b
         WHERE
             b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
@@ -365,6 +370,52 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
                     AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                     AND b_busy.latest_state = 'executing'
             )
+    """
+
+
+def _stranded_candidate_runs_sql() -> str:
+    """Candidate selection for the stranded-run sweep: aggregate first, then gate per run.
+
+    The bounded non-terminal scan collapses into (run, team, schema) groups
+    BEFORE the lease and failed-run gates, so each gate runs as one index probe
+    per candidate run. Gating the raw batch rows instead made the planner turn
+    the failed-run NOT EXISTS into a hash anti-join whose hash side is every
+    failed batch in the pruning window — that side scales with failure storms
+    (millions of rows, rebuilt every sweep) while the probes scale with the
+    candidate-run count.
+
+    The ``OFFSET 0`` in the failed-run gate is an optimization fence: without
+    it the planner flattens the subquery back into that same hash anti-join.
+    It changes no semantics; the plan-shape test pins the probe.
+    """
+    return f"""
+        WITH stranded_runs AS (
+            SELECT b.run_uuid, b.team_id, b.schema_id, MIN(b.created_at) AS oldest_created_at
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND b.created_at <= now() - make_interval(secs => %(stale)s)
+              AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+            GROUP BY b.run_uuid, b.team_id, b.schema_id
+        )
+        SELECT r.run_uuid, r.team_id, r.schema_id
+        FROM stranded_runs r
+        WHERE NOT EXISTS (
+              SELECT 1 FROM {LEASE_TABLE} l
+              WHERE l.team_id = r.team_id AND l.schema_id = r.schema_id
+                AND l.expires_at > now()
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM {BATCH_TABLE} bf
+              WHERE bf.run_uuid = r.run_uuid
+                AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND bf.latest_state = 'failed'
+              OFFSET 0
+          )
+        -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
+        -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
+        -- always land in it, and successive sweeps make deterministic forward progress.
+        ORDER BY r.oldest_created_at ASC
+        LIMIT %(limit)s
     """
 
 
@@ -633,6 +684,13 @@ class BatchQueue:
         dropped by the ``JOIN claimed``. This replaces the old session advisory
         lock so an abandoned group simply expires rather than wedging the fleet.
 
+        Ranking runs over narrow ``(id, created_at)`` candidates and the wide
+        rows are fetched only for the LIMIT winners (the ``candidates``
+        join-back, ~LIMIT primary-key probes): the fairness sort has to process
+        the whole claimable set, so its input must stay narrow or a backlog
+        turns every poll into a disk-spilling sort of full rows (see
+        :func:`_state_claim_candidates_sql`).
+
         Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
         fully resolved before the lease claim runs. ``candidate_groups`` is
         ``SELECT DISTINCT`` because ``INSERT ... ON CONFLICT DO UPDATE`` cannot
@@ -681,7 +739,7 @@ class BatchQueue:
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                WITH candidates AS MATERIALIZED (
+                WITH narrow AS MATERIALIZED (
                     {candidates_sql}
                         AND NOT EXISTS (
                             SELECT 1
@@ -698,6 +756,18 @@ class BatchQueue:
                         b.created_at ASC,
                         b.batch_index ASC
                     LIMIT %(limit)s
+                ),
+                candidates AS MATERIALIZED (
+                    SELECT
+                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+                        b.cumulative_row_count, b.resource_name, b.is_resume,
+                        b.is_first_ever_sync, b.metadata,
+                        b.latest_attempt,
+                        b.created_at
+                    FROM {BATCH_TABLE} b
+                    JOIN narrow n ON n.id = b.id AND n.created_at = b.created_at
                 ),
                 candidate_groups AS (
                     SELECT DISTINCT team_id, schema_id FROM candidates
@@ -1102,45 +1172,64 @@ class BatchQueue:
         """Return one ref per run with a ``failed`` batch older than ``grace_seconds``, within ``lookback_seconds``.
 
         Ordered by latest failure first so fresh failures still land in the window when
-        already-reconciled runs outnumber ``limit`` within the lookback. The
-        denormalized-column pre-filter keeps the lateral (still needed for the
-        failure timestamp and error payload) probing only failed batches.
+        already-reconciled runs outnumber ``limit`` within the lookback.
+
+        Candidacy, the per-run pick, and the LIMIT run entirely off the
+        denormalized batch columns: ``state_changed_at`` equals the failed
+        status row's ``created_at`` (the dual-write CTEs guarantee it), and
+        ``superseded`` mirrors the status payload's flag. The per-batch
+        latest-status lateral this replaces was the sweep's melt-down under
+        failure storms: each probe is a Merge Append across every status
+        partition, and it ran once per failed batch in the window — 1.36M
+        during the 2026-08 storm, minutes per sweep. The lateral now runs only
+        for the ``LIMIT`` winners' error payloads.
+
+        The post-LIMIT superseded re-check is the deploy-transition fence:
+        failed rows written before the flag existed read ``superseded = false``
+        until ``backfill_warehouse_queue_state reconcile`` has run, and
+        reconciling such a run would fail an ExternalDataJob whose newer run is
+        live. Until the backfill lands, those rows can occupy winner slots (the
+        sweep returns fewer than ``limit`` refs), which only delays other
+        reconciles to a later sweep.
+
+        ``state_changed_at`` is nullable, and the NULL arm is exempt from the
+        lookback only: batch ``created_at`` predates the failure, so a lookback
+        measured on it would age such a row out while the run is still stranded
+        (the stranded sweep skips runs that have a failed batch). Grace does
+        apply to them, through that same ``created_at`` fallback, which also
+        orders them. Every writer of ``latest_state = 'failed'`` also sets
+        ``state_changed_at``, so the NULL arm matches only legacy rows.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                SELECT run_uuid, job_id, team_id, schema_id, metadata, error_response
-                FROM (
-                    SELECT DISTINCT ON (b.run_uuid)
-                        b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response,
-                        s.created_at AS failed_at
-                    FROM {BATCH_TABLE} b
-                    {latest_status_lateral("b", "s", join="INNER")}
-                    WHERE
-                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND b.latest_state = 'failed'
-                        -- Implied by the s.created_at lower bound (the denormalizing
-                        -- status CTEs set state_changed_at to exactly the terminal
-                        -- status row's created_at), so it changes no semantics: it
-                        -- exists purely to prune the outer scan BEFORE the DISTINCT ON
-                        -- sort and the per-row lateral probes. Without it the sort
-                        -- input is every failed batch in the pruning window — 1.36M
-                        -- rows during the 2026-08 failure storm, a minutes-long disk
-                        -- spill at work_mem=4MB that, run by every pod concurrently,
-                        -- starved the claim path (the 2026-08-09 loader stall).
-                        -- state_changed_at is nullable; NULL rows must stay visible or a
-                        -- failed run could strand until the retention prune (the stranded
-                        -- sweep skips runs that have a failed batch).
-                        AND (b.state_changed_at IS NULL
-                             OR b.state_changed_at >= now() - make_interval(secs => %(lookback)s))
-                        AND s.job_state = 'failed'
-                        AND s.created_at <= now() - make_interval(secs => %(grace)s)
-                        AND s.created_at >= now() - make_interval(secs => %(lookback)s)
-                        AND COALESCE((s.error_response->>'superseded')::boolean, false) = false
-                    ORDER BY b.run_uuid, s.created_at DESC
-                ) failed_runs
-                ORDER BY failed_at DESC
-                LIMIT %(limit)s
+                WITH winners AS MATERIALIZED (
+                    SELECT run_uuid, batch_id, batch_created_at, failed_at
+                    FROM (
+                        SELECT DISTINCT ON (b.run_uuid)
+                            b.run_uuid, b.id AS batch_id, b.created_at AS batch_created_at,
+                            COALESCE(b.state_changed_at, b.created_at) AS failed_at
+                        FROM {BATCH_TABLE} b
+                        WHERE
+                            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                            AND b.latest_state = 'failed'
+                            AND NOT b.superseded
+                            AND (b.state_changed_at IS NULL
+                                 OR b.state_changed_at >= now() - make_interval(secs => %(lookback)s))
+                            AND COALESCE(b.state_changed_at, b.created_at)
+                                <= now() - make_interval(secs => %(grace)s)
+                        ORDER BY b.run_uuid, COALESCE(b.state_changed_at, b.created_at) DESC
+                    ) ranked
+                    ORDER BY failed_at DESC
+                    LIMIT %(limit)s
+                )
+                SELECT b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response
+                FROM winners w
+                JOIN {BATCH_TABLE} b ON b.id = w.batch_id AND b.created_at = w.batch_created_at
+                {latest_status_lateral("b", "s", join="INNER")}
+                WHERE s.job_state = 'failed'
+                  AND COALESCE((s.error_response->>'superseded')::boolean, false) = false
+                ORDER BY w.failed_at DESC
                 """,
                 {"grace": grace_seconds, "lookback": lookback_seconds, "limit": limit},
             )
@@ -1179,37 +1268,18 @@ class BatchQueue:
         working the group (making progress, or the recovery sweep reclaims it on lease expiry), so those
         are excluded. Runs with a ``failed`` batch are excluded — ``get_failed_runs`` owns those.
 
-        Seeded from the cheap denormalized-state index (oldest-batch-first, so the bounded candidate
-        window always holds the longest-stranded runs rather than an arbitrary set), then the full-run
-        lateral confirms staleness, so a slow-but-live run (recent success, momentarily between lease
+        Seeded from the bounded non-terminal scan aggregated into runs, gated per run
+        (oldest-batch-first, so the bounded candidate window always holds the
+        longest-stranded runs rather than an arbitrary set — see
+        :func:`_stranded_candidate_runs_sql`), then the full-run lateral confirms
+        staleness, so a slow-but-live run (recent success, momentarily between lease
         renewals) is not swept.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
                 WITH candidates AS (
-                    SELECT b.run_uuid, b.team_id, b.schema_id
-                    FROM {BATCH_TABLE} b
-                    WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                      AND b.created_at <= now() - make_interval(secs => %(stale)s)
-                      AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
-                      AND NOT EXISTS (
-                          SELECT 1 FROM {LEASE_TABLE} l
-                          WHERE l.team_id = b.team_id AND l.schema_id = b.schema_id
-                            AND l.expires_at > now()
-                      )
-                      AND NOT EXISTS (
-                          SELECT 1 FROM {BATCH_TABLE} bf
-                          WHERE bf.run_uuid = b.run_uuid
-                            AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                            AND bf.latest_state = 'failed'
-                      )
-                    -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
-                    -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
-                    -- always land in it, and successive sweeps make deterministic forward progress.
-                    GROUP BY b.run_uuid, b.team_id, b.schema_id
-                    ORDER BY MIN(b.created_at) ASC
-                    LIMIT %(limit)s
+                    {_stranded_candidate_runs_sql()}
                 )
                 SELECT
                     b.run_uuid,
@@ -1268,6 +1338,30 @@ class BatchQueue:
         if row is None or row[0] is None:
             return None
         return float(row[0])
+
+    @staticmethod
+    async def get_claimable_batch_count(conn: psycopg.AsyncConnection[Any]) -> int:
+        """How many batches are state-eligible for claiming right now (queue depth).
+
+        The depth companion to :meth:`get_oldest_unclaimed_batch_age_seconds`:
+        the claim's per-run, schema-busy, and lease gates are deliberately not
+        applied (they need per-row probes; this must stay one cheap partial-index
+        scan), and neither is the retry-backoff gate (it needs the fleet's backoff
+        config, and this probe stays parameter-free), so the count reads slightly
+        high. Bounded by ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim
+        query can see.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT count(*)
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+                  AND b.latest_state IN ('pending', 'waiting_retry')
+                """
+            )
+            row = await cur.fetchone()
+        return int(row[0]) if row else 0
 
     @staticmethod
     def get_oldest_non_terminal_batch_age_seconds(

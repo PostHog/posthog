@@ -622,9 +622,44 @@ Fan-out = iterate a parent resource, then query child endpoints per parent.
 
 **Custom iterator only when fan-out is 2+ levels deep.** Reuse the same pagination/retry helpers as elsewhere.
 
+### Reading the fan-out parent from the warehouse (`parent_source="warehouse"`)
+
+> [!IMPORTANT]
+> **Not generally available — do not opt new sources in.** The flag is limited to dogfood rollouts and the only wired caller is Sentry's `issue_tag_values` custom iterator, gated on an incremental watermark.
+> This section is here because the shared fan-out builder carries the machinery either way, so anyone changing fan-out internals needs to know the constraints. Treat the caveats below (windowed parents, ordered parents, non-REST callers) as unproven outside Sentry, and ask the data warehouse team before opting another source in.
+
+By default a fan-out child re-fetches its parent endpoint on every sync — syncing `issue_hashes` re-pulls all of `issues` even when the `issues` schema already synced.
+A child endpoint opts into warehouse parent reuse with `parent_source="warehouse"` on its `DependentEndpointConfig`:
+the child then streams parent rows from the parent schema's already-synced Delta table (`iter_parent_pages_from_warehouse` in `common/rest_source/warehouse_parent.py`) instead of hitting the parent API.
+Reference implementation: Sentry's `issue_tag_values` custom iterator calling the reader directly, warehouse-mode only when an incremental watermark bounds the scan.
+
+Requirements and behavior:
+
+- **The parent must be a selectable schema of the same source** — it has to produce its own Delta table.
+- **Soft dependency — the child falls back to the parent API.** Declare the parents by overriding `get_required_parent_schemas` on the source (wire it to `required_parents_from_endpoint_configs(ENDPOINTS, schema_name)`; add explicit entries for custom-iterator endpoints). That override is the only declaration: nothing surfaces the relationship through the API, so don't add a schema-payload field for it while the feature is unvalidated.
+  Nothing in the API constrains the selection either: a child can be enabled without its parent, and a parent can be disabled or deleted while children sync. `_warehouse_parent_reuse_available` in `import_data_activity_sync` decides per run — a parent that is missing, disabled, not yet initially synced, or on any sync type other than merge or full refresh sends that run down the legacy parent-API path, so enabling the flag can never break a schema that syncs today. A parent that is merely mid-sync does not force the fallback, because `resolve_parent_table_ref` pins the read to the parent's last completed snapshot via Delta time travel.
+  Never enable a parent as a side effect of enabling a child: parent syncs count toward the customer's billed rows.
+- **Feature-flagged.** The whole path is gated by the `warehouse-fanout-parent-reuse` flag (`is_fanout_warehouse_reuse_enabled`); with the flag off, opted-in endpoints silently keep the legacy parent-API path, so rollback is a flag flip.
+- **Strictly streaming — never materialize the parent table.** The reader scans one projected batch at a time with column projection pushed down to the parquet read. Do not add `to_table`, global sorts, or seen-set dedupe to it — parents can be arbitrarily large, and the whole pipeline exists to avoid full-dataset memory. If a caller's semantics depend on parent order (the API returned sorted rows), rework them into per-row filters over the unordered stream (see Sentry's `issue_tag_values` cutoff handling) instead of sorting.
+- **The usable sync types are an allow-list, not a deny-list.** Only merge and full refresh hold one row per key; append accumulates a row per sync and CDC keeps change history, so streaming either would fan the child out once per duplicate, and dedupe would need unbounded state. A new sync type has to opt in deliberately in `_parent_unusable_reason`.
+- **Values carry Delta physical types, not the API's JSON types.** A timestamp comes back as a datetime rather than an ISO string, a nested object as a dict. Because the API fallback engages per run, projecting such a field through `include_from_parent` makes the child's column type flip between runs and trips the merge's type-drift guards. Only project fields whose physical type matches what the API returned (an id string is safe), or normalize in the caller.
+- **Stale parents 404.** The warehouse snapshot can contain parents deleted upstream since the parent's last sync; the builder adds a `404 → ignore` response action on the child (custom iterators must skip 404s themselves — see Sentry's `_skip_rows_on_stale_issue_404`).
+- **Freshness**: children fan out over the parent's last synced snapshot. Parents created after the parent's last sync appear once the parent re-syncs — same staleness class as independent schedules.
+- **Column names**: the reader takes API field names (e.g. `lastSeen`), maps them to the snake_case physical Delta columns, and re-keys rows back to API names. Request only the columns the fan-out needs (`resolve_field` + `include_from_parent`).
+- **The warehouse read must reproduce the API path's effective row set, and if it can't, the parent is disqualified.** The vendor's list endpoint usually bounds what it returns server-side, while an incremental parent table accumulates every row ever seen — an unbounded scan fans out over parents the API path never would, multiplying child rows, billed volume, and run time on aged snapshots. Classify the parent into one of three cases before opting it in:
+  - The parent API genuinely returns the full collection → no filter needed; ideal candidate.
+  - The bound is knowable and expressible → set `parent_row_filter` on the `DependentEndpointConfig` (`ParentRowFilter(field=..., not_older_than=..., not_before=...)`); the predicate is pushed into the parquet read, keeps NULL rows, adapts to string or timestamp physical columns, and an unfilterable table falls back to the API path via eager resolve validation. A per-run watermark (`not_before`) is the safest bound, because it is self-consistent with what the child already processed.
+  - The bound depends on state you cannot know → **do not opt the parent in.** The classic shape is a listing clamped by the customer's plan (event retention, seat tier, feature entitlements): per-account, applied silently server-side, exposed by no API, and overriding any explicit range you send. No snapshot filter can reproduce a bound like that.
+    The effective bound is usually invisible in our code, so classify empirically: run the listing against a real account with and without explicit bounds, compare counts, and check whether items outside the suspected bound still serve their child endpoints.
+- **Windowed parents must stay windowed.** If the source currently bounds its parent walk by the child watermark (e.g. Github's `_fan_out_get_rows`), a full warehouse read would _increase_ child fan-out — filter the warehouse read to the same window instead.
+- **Non-REST sources** (e.g. Stripe's SDK loop) can call `iter_parent_pages_from_warehouse` directly; project any fields their skip-checks inspect (e.g. customer `balance`). Resolve the table with `resolve_parent_table_ref(..., required_columns=[...])` eagerly in `source_for_pipeline` (sync context) — it does an ORM read, and the pipeline's iterator executor threads are the wrong place for ad-hoc DB connections. It also pins the parent's Delta version, so a parent that re-syncs mid-fan-out can't shift the rows underneath the child; pass the returned ref to the reader instead of re-deriving a URI.
+- **Catch `WarehouseParentTableNotFoundError` around that resolve call and take the API path.** A schema row can claim a completed sync while its table is unreadable (purged, renamed, or missing the fan-out columns), and the reader is a generator, so anything it validated lazily would raise deep inside the pipeline where no fallback is left. That is why `required_columns` is validated eagerly during resolution. When falling back, also turn off any behavior that only makes sense for a warehouse snapshot (the child's stale-parent `404 → ignore`, and resume checkpoints the warehouse scan skips), so the run matches the feature-off path exactly.
+
 ## OAuth configuration
 
-Before implementing OAuth, **check if the integration already exists** — search `posthog/models/integration.py` loosely for the service name before concluding it's new.
+Before implementing OAuth, **check if the integration already exists** — search the `posthog/models/integration/` package loosely for the service name before concluding it's new.
+The kinds live in `model.py` and the OAuth wiring in `oauth.py`; a provider only gets its own module when it carries business logic beyond the OAuth config, as Slack, GitHub, and Stripe do.
+`__init__.py` only re-exports the public surface, so keep importing from `posthog.models.integration` but make edits in the defining module.
 
 If new:
 
@@ -635,10 +670,10 @@ If new:
    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
    ```
 
-2. **Integration kind**. In `posthog/models/integration.py`:
-   - Add to `IntegrationKind` enum.
-   - Add to `OauthIntegration.supported_kinds`.
-   - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`.
+2. **Integration kind**.
+   - Add to the `IntegrationKind` enum in `posthog/models/integration/model.py`.
+   - Add to `OauthIntegration.supported_kinds` in `posthog/models/integration/oauth.py`.
+   - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
      fail-closed message, so code and charts can ship before the secret values exist.
    - If the provider's token response has **no account identifier** (e.g. Resend), decode the
@@ -720,31 +755,53 @@ From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mi
 
 ## Testing expectations
 
-Add at least two test modules:
+**Never write a test whose assertion restates a declaration.** A test that reads back `source_type`,
+the labels in `get_source_config`, the endpoint list in `settings.py`, or the kwargs a one-line
+`source_for_pipeline` forwards, passes because both halves of the diff were typed together. It cannot
+fail for any reason except someone editing both, so it catches nothing. That pattern was swept out of
+the source tests once already; don't reintroduce it.
 
-- `tests/test_<source>_source.py` (source-class level):
-  - `source_type`
-  - `get_source_config` fields and labels
-  - `get_schemas` outputs
-  - `validate_credentials` success/failure
-  - `source_for_pipeline` argument plumbing
-  - for resumable sources: `get_resumable_source_manager` returns a manager bound to the right data class
-  - for webhook sources: `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior, `webhook_resource_map` correctness, `webhook_template` presence
-- `tests/test_<source>.py` (transport level):
-  - paginator behavior from response headers/body
-  - resource generation for incremental vs non-incremental
-  - endpoint-specific primary key mapping
-  - credential validation status mapping
-  - mapper/filter helpers if present
-  - fan-out endpoint row format assertions (dict shape + parent identifiers)
-  - for dependent-resource fan-out: mock `rest_api_resources`, pass rows with `_<parent>_<field>` keys to exercise parent-field injection and rename behavior
-  - expected return schema checks for each declared endpoint in `settings.py`
-  - for resumable sources: resume-from-saved-state path (manager returns state, transport uses it as starting point); state is saved after each batch
-  - for incremental cursor pagination: the paginator stops once a page predates the watermark, and keeps walking when no watermark is set (first sync)
+Before each test, answer: _what could break at runtime that this catches?_ If the answer restates the
+source file, don't write it. See `/writing-tests` for the general gate.
 
-Prefer behavior tests over config-shape tests. Avoid brittle assertions on internal config dict structure unless they protect a known regression that cannot be asserted via output behavior.
+The line is whether the thing under test can vary at runtime, not which method it sits on:
 
-Use parameterized tests for status codes and edge cases. Lean toward over-covering.
+- `get_schemas` that is one `build_endpoint_schemas(...)` call needs no test — the helper's filter and
+  sync-mode behavior is covered in `common/test_source_schema.py`. A `get_schemas` that lists a remote
+  directory, resolves per-version endpoints, or builds qualified names needs tests for each of those.
+- `validate_credentials` that forwards to the transport helper needs no test at the source-class level.
+  One that maps a probe result to a message, rejects an unknown schema, or accepts a missing scope at
+  create time needs one per branch.
+- `source_for_pipeline` that forwards its config needs no test. One that raises on an unknown schema,
+  picks between transports, or resolves anything from schema metadata needs one per branch. The
+  `db_incremental_field_last_value if inputs.should_use_incremental_field else None` ternary is not a
+  branch worth its own source-level test — cover it with the transport's full-refresh test below,
+  which asserts the request actually goes out without a watermark.
+- Any `raise`, any curated error message a user reads, and any value derived rather than declared —
+  test it. A source whose `SourceResponse.name` comes from a storage key rather than the schema name
+  is a naming branch, and getting it wrong writes data where nothing reads it.
+
+Two test modules:
+
+- `tests/test_<source>_source.py` — the source class's own decisions, per the branches above, plus
+  for webhook sources `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior and
+  `webhook_resource_map` correctness.
+- `tests/test_<source>.py` — the transport, where most bugs live:
+  - paginator behavior from response headers and body, including the terminal page
+  - incremental vs full-refresh request shaping, and that a full refresh omits the watermark
+  - credential validation status mapping: each status the API returns to the message users read
+  - retry classification: which statuses are retryable and which are terminal
+  - mapper and normalization helpers, fan-out row shaping, parent-field injection
+  - for resumable sources: resuming from saved state, and state saved after each batch
+  - for incremental cursor pagination: stopping once a page predates the watermark, and walking on
+    when no watermark is set
+
+When an error pattern comes from a real API response, keep the verbatim string in the test. That
+wording is field knowledge — it records what the vendor actually emits, which the pattern in
+`get_non_retryable_errors` alone does not tell a reader.
+
+Parameterize status codes and edge cases rather than copying test bodies. Cover the paths that can
+break; do not pad the count.
 
 ## Implementation checklist
 
@@ -792,8 +849,8 @@ Release status (a finished source has NO unreleasedSource flag — it hides the 
 - [ ] featureFlag="dwh-{source_name}" ONLY if you want a controlled rollout instead of releasing to all
 
 Tests & handoff:
-- [ ] Source tests (test_<source>_source.py)
-- [ ] Transport tests (test_<source>.py)
+- [ ] Source tests (test_<source>_source.py) — branches only, no declaration restatements
+- [ ] Transport tests (test_<source>.py) — paginators, error mapping, request shaping
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
 - [ ] `ruff check . --fix` and `ruff format .`
 - [ ] List any new env vars (OAuth client IDs/secrets, etc) in the PR / handoff

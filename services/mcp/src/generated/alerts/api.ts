@@ -21,7 +21,12 @@ export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Optional. Restrict results to alerts created by the user with this UUID.'),
+    has_detector: zod
+        .boolean()
+        .optional()
+        .describe('Optional. Restrict results by whether the alert uses anomaly detection.'),
     insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
+    insight_tag: zod.string().optional().describe('Optional. Restrict results to alerts whose insight has this tag.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod

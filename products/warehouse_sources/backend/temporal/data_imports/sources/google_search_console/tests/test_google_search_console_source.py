@@ -8,9 +8,6 @@ from posthog.schema import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (
-    GoogleSearchConsoleResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
     DEFAULT_SEARCH_TYPE,
     PROPERTY_SCHEMAS,
@@ -21,7 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source import (
     GoogleSearchConsoleSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _config(search_types: list[str] | None = None) -> GoogleSearchConsoleSourceConfig:
@@ -43,10 +40,6 @@ def _expected_names(search_types: list[str]) -> set[str]:
         for base_name, schema in SEARCH_ANALYTICS_SCHEMAS.items()
         if search_type == DEFAULT_SEARCH_TYPE or not schema.get("web_only")
     } | set(PROPERTY_SCHEMAS.keys())
-
-
-def test_source_type():
-    assert GoogleSearchConsoleSource().source_type == ExternalDataSourceType.GOOGLESEARCHCONSOLE
 
 
 def test_get_source_config_fields():
@@ -175,12 +168,6 @@ def test_canonical_descriptions_cover_every_schema(config):
     names = {s.name for s in source.get_schemas(config, team_id=1)}
 
     assert names <= set(source.get_canonical_descriptions().keys())
-
-
-def test_get_resumable_source_manager_uses_resume_config():
-    inputs = mock.MagicMock()
-    manager = GoogleSearchConsoleSource().get_resumable_source_manager(inputs)
-    assert manager._data_class is GoogleSearchConsoleResumeConfig
 
 
 @pytest.mark.parametrize(

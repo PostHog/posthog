@@ -14,13 +14,16 @@ import { ScratchpadEntryCard } from './ScratchpadEntryCard'
  * scratchpad is up top (the context scouts jot down + how much has accumulated), then lets the user
  * read it newest-first or clustered by topic, and search it via the endpoint's ILIKE.
  *
- * Read-only: the harness writes scratchpad notes on internal scope; humans inspect them here.
+ * Read-only: the harness writes scratchpad entries on internal scope; humans inspect them here.
  */
 export function ScratchpadPanel(): JSX.Element {
     const {
         entries,
         entriesLoading,
         loadFailed,
+        searchResultsLoading,
+        searchFailed,
+        visibleEntries,
         totalCount,
         lastUpdatedAt,
         groups,
@@ -28,14 +31,19 @@ export function ScratchpadPanel(): JSX.Element {
         grouping,
         expandedNamespaces,
     } = useValues(scratchpadLogic)
-    const { setSearchText, setGrouping, toggleNamespace, loadEntries } = useActions(scratchpadLogic)
+    const { setSearchText, setGrouping, toggleNamespace, loadEntries, loadSearchResults } = useActions(scratchpadLogic)
 
-    const isInitialLoad = entriesLoading && entries === null
     const isSearching = searchText.trim().length > 0
+    // The window loads once on mount; a search loads its own result set on top of it. Either
+    // list shows a skeleton until its first response, and its own retry when that response fails.
+    const isInitialLoad = isSearching ? visibleEntries === null && !searchFailed : entriesLoading && entries === null
+    const listFailed = isSearching ? searchFailed : loadFailed
+    const retry = isSearching ? loadSearchResults : loadEntries
+    const retryLoading = isSearching ? searchResultsLoading : entriesLoading
 
     return (
         <div className="flex flex-col gap-4 px-4 py-3">
-            <ScratchpadHeader totalCount={totalCount} lastUpdatedAt={lastUpdatedAt} />
+            <ScratchpadHeader totalCount={totalCount} lastUpdatedAt={lastUpdatedAt} loading={isInitialLoad} />
 
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
@@ -59,13 +67,13 @@ export function ScratchpadPanel(): JSX.Element {
 
             {isInitialLoad ? (
                 <div className="flex flex-col gap-2">
-                    <LemonSkeleton className="h-12 w-full rounded" />
-                    <LemonSkeleton className="h-12 w-full rounded" />
-                    <LemonSkeleton className="h-12 w-full rounded" />
+                    <ScratchpadEntryCardSkeleton />
+                    <ScratchpadEntryCardSkeleton />
+                    <ScratchpadEntryCardSkeleton />
                 </div>
-            ) : loadFailed && (!entries || entries.length === 0) ? (
-                <ScratchpadErrorState onRetry={() => loadEntries()} loading={entriesLoading} />
-            ) : !entries || entries.length === 0 ? (
+            ) : listFailed && (!visibleEntries || visibleEntries.length === 0) ? (
+                <ScratchpadErrorState onRetry={() => retry()} loading={retryLoading} />
+            ) : !visibleEntries || visibleEntries.length === 0 ? (
                 <ScratchpadEmptyState isSearching={isSearching} />
             ) : grouping === 'topic' ? (
                 <div className="flex flex-col gap-3">
@@ -90,7 +98,7 @@ export function ScratchpadPanel(): JSX.Element {
                                         {group.label}
                                     </span>
                                     <span className="text-[11px] text-muted">
-                                        {pluralize(group.entries.length, 'note')}
+                                        {pluralize(group.entries.length, 'entry', 'entries')}
                                     </span>
                                 </button>
                                 {isExpanded &&
@@ -101,7 +109,7 @@ export function ScratchpadPanel(): JSX.Element {
                 </div>
             ) : (
                 <div className="flex flex-col gap-2">
-                    {entries.map((entry) => (
+                    {visibleEntries.map((entry) => (
                         <ScratchpadEntryCard key={entry.key} entry={entry} />
                     ))}
                 </div>
@@ -110,12 +118,32 @@ export function ScratchpadPanel(): JSX.Element {
     )
 }
 
+function ScratchpadEntryCardSkeleton(): JSX.Element {
+    return (
+        <div className="flex h-20 flex-col gap-3 rounded border border-primary bg-bg-light px-3 py-2">
+            <div className="flex items-center gap-2">
+                <LemonSkeleton className="size-4 shrink-0 rounded" />
+                <LemonSkeleton className="h-4 w-16 rounded" />
+                <LemonSkeleton className="h-3 w-40 rounded" />
+                <span className="flex-1" />
+                <LemonSkeleton className="h-3 w-24 rounded" />
+            </div>
+            <div className="flex flex-col gap-1 pl-6">
+                <LemonSkeleton className="h-3 w-full rounded" />
+                <LemonSkeleton className="h-3 w-2/3 rounded" />
+            </div>
+        </div>
+    )
+}
+
 function ScratchpadHeader({
     totalCount,
     lastUpdatedAt,
+    loading,
 }: {
     totalCount: number | null
     lastUpdatedAt: string | null
+    loading: boolean
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
@@ -127,17 +155,21 @@ function ScratchpadHeader({
                 Where your scouts jot down useful context as they scan your project — things they've classified, ruled
                 out, or the vocabulary they've settled on. Browse it to see what they're picking up about your setup.
             </p>
-            {totalCount !== null && totalCount > 0 && (
-                <span className="text-xs text-muted">
-                    {pluralize(totalCount, 'note')}
-                    {lastUpdatedAt ? (
-                        <>
-                            {' · last updated '}
-                            <TZLabel time={lastUpdatedAt} />
-                        </>
-                    ) : null}
-                </span>
-            )}
+            <div className="flex min-h-4 items-center">
+                {loading ? (
+                    <LemonSkeleton className="h-3 w-36 rounded" />
+                ) : totalCount !== null && totalCount > 0 ? (
+                    <span className="text-xs text-muted">
+                        {pluralize(totalCount, 'entry', 'entries')}
+                        {lastUpdatedAt ? (
+                            <>
+                                {' · last updated '}
+                                <TZLabel time={lastUpdatedAt} />
+                            </>
+                        ) : null}
+                    </span>
+                ) : null}
+            </div>
         </div>
     )
 }
@@ -159,8 +191,8 @@ function ScratchpadEmptyState({ isSearching }: { isSearching: boolean }): JSX.El
     return (
         <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-8 text-center text-sm text-muted">
             {isSearching
-                ? 'No notes match your search.'
-                : "Your scouts haven't jotted anything down yet. As they scan your project, their notes show up here."}
+                ? 'No entries match your search.'
+                : "Your scouts haven't written anything down yet. As they scan your project, their entries show up here."}
         </div>
     )
 }

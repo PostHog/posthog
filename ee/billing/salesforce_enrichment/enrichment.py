@@ -1,5 +1,4 @@
 import time
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -10,6 +9,7 @@ import posthoganalytics
 from dateutil import parser
 from simple_salesforce.format import format_soql
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
 
@@ -308,7 +308,7 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
     return filtered_update_data
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class BulkUpdateResult:
     succeeded: int
     failed: int

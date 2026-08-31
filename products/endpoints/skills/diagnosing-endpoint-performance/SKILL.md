@@ -25,16 +25,23 @@ If the question is project-wide ("what should I clean up?"), use `auditing-endpo
 
 ## Available tools
 
-| Tool                                  | Purpose                                                                                        |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `endpoint-get`                        | Full endpoint config: query, current version, `data_freshness_seconds`, materialisation status |
-| `endpoint-versions`                   | History of every version (query + materialisation state); which version is current             |
-| `endpoint-materialization-status`     | Whether materialisation is eligible, current state, last run, last error                       |
-| `endpoints-materialization-preview`   | What the materialised query would look like, plus the rejection reason if ineligible           |
-| `endpoint-materialization-suggestion` | Server-side AI rewrite of an ineligible SQL query, validated against the live checks           |
-| `endpoint-materialization-conditions` | Source code of the live eligibility checks + the rewrite contract, for DIY rewriting           |
-| `endpoints-last-execution-times`      | When was it last called (endpoint-level sanity-check that it is in active use)                 |
-| `execute-sql`                         | Query `query_log` for endpoint-level call frequency and per-call duration/bytes                |
+| Tool                                | Purpose                                                                                        |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `endpoint-get`                      | Full endpoint config: query, current version, `data_freshness_seconds`, materialisation status |
+| `endpoint-versions`                 | History of every version (query + materialisation state); which version is current             |
+| `endpoint-materialization-status`   | Whether materialisation is eligible, current state, last run, last error                       |
+| `endpoints-materialization-preview` | What the materialised query would look like, plus the rejection reason if ineligible           |
+| `endpoints-last-execution-times`    | When was it last called (endpoint-level sanity-check that it is in active use)                 |
+| `execute-sql`                       | Query `query_log` for endpoint-level call frequency and per-call duration/bytes                |
+
+The two AI rewrite tools below are gated behind the `endpoints-ai-materialization-fix`
+feature. When that feature is off, they do not appear in your tool catalog. Step 3 works
+without them — treat them as an accelerator, not a requirement.
+
+| Tool (feature-gated)                  | Purpose                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------ |
+| `endpoint-materialization-suggestion` | Server-side AI rewrite of an ineligible SQL query, validated against the live checks |
+| `endpoint-materialization-conditions` | Source code of the live eligibility checks + the rewrite contract, for DIY rewriting |
 
 ## The decision tree
 
@@ -82,21 +89,10 @@ a note about which variables become required.
 
 ### Step 3 — Does the query need rewriting?
 
-For a SQL endpoint that isn't eligible, try the fast path first: call
-`endpoint-materialization-suggestion`. PostHog rewrites the query into a semantically equivalent
-form and validates it against the live eligibility checks before returning it — `ok` means the
-rewrite passes the checks plus variable- and output-column parity, but semantic equivalence is
-the model's claim, not proven. Before applying, run the original and the rewrite with the same
-representative variable values (via `execute-sql` or the endpoint playground) and compare the
-results; only then apply it with `endpoint-update` (creates a new version), then confirm with
-`endpoint-materialization-status`. `cannot_fix` means no equivalent rewrite exists (e.g. an
-`OR {variables.x} = 'all'` optional-variable idiom) — say so rather than forcing a change in
-behaviour. Requires the org's AI data processing approval; without it, or to reason about the
-rewrite yourself, call `endpoint-materialization-conditions` — it returns the actual source code
-of the checks this instance enforces plus the rewrite contract. Treat that as authoritative; the
-bullet list below is a summary and may lag it.
-
-Otherwise, the rejection reason from `endpoints-materialization-preview` is usually the lead:
+For a SQL endpoint that isn't eligible, the rejection reason from
+`endpoints-materialization-preview` is the lead. That tool always resolves. Read the reason and
+match it to the bullets below — they summarise the common cases, not every check the server runs,
+so the raw reason wins when the two disagree. Propose the rewrite by hand:
 
 - **Cohort breakdown / compare mode rejection** → regular property breakdowns materialise fine;
   only cohort breakdowns and compare mode are blocked. Swap a cohort breakdown for a property
@@ -110,9 +106,31 @@ Otherwise, the rejection reason from `endpoints-materialization-preview` is usua
   Encourage adding a required time-window variable (e.g. `date_from`, `lookback_days`).
 - **HogQL with `*` / non-deterministic functions** → narrow the columns selected, replace
   `now()` / `today()` with a variable when possible.
+- **No bullet matches** → the list above is not exhaustive; the live checks reject more shapes than
+  it names (a variable inside an `OR`, a variable compared against another variable, a variable in a
+  `HAVING` clause, an unsupported operator, a query kind that can't be materialised). Quote the
+  rejection reason to the user verbatim and reason from it directly rather than forcing the nearest
+  bullet. Some reasons have no equivalent rewrite at all — the `OR {variables.x} = 'all'`
+  optional-variable idiom is one — so say that instead of changing the query's behaviour.
 
 Check `endpoint-versions` to see whether the query was recently changed. Often the regression
 came from a specific commit and reverting that version is faster than rewriting.
+
+**Optional AI accelerator (only if the tools resolve).** When your catalog includes
+`endpoint-materialization-suggestion` — it is gated behind the `endpoints-ai-materialization-fix`
+feature and needs the org's AI data processing approval — you can let PostHog draft the rewrite
+instead. It rewrites the query into a semantically equivalent form and validates it against the
+live checks before returning it. `ok` means the rewrite passes the checks plus variable- and
+output-column parity, but semantic equivalence is the model's claim, not proven. Before applying,
+run the original and the rewrite with the same representative variable values (via `execute-sql`
+or the endpoint playground) and compare the results; only then apply it with `endpoint-update`
+(creates a new version), then confirm with `endpoint-materialization-status`. `cannot_fix` means
+no equivalent rewrite exists (e.g. an `OR {variables.x} = 'all'` optional-variable idiom) — say
+so rather than forcing a change in behaviour. To reason about the rewrite yourself, call
+`endpoint-materialization-conditions` (same feature gate) — it returns the actual source code of
+the checks this instance enforces plus the rewrite contract; treat that as authoritative over the
+bullets above. If neither tool is in your catalog, the feature is off — stay on the manual path
+above and say the AI rewrite is unavailable.
 
 ### Step 4 — Is the slow version even the one being called?
 
