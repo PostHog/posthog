@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { githubBranchSearchLogic } from 'lib/integrations/githubBranchSearchLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -10,6 +11,7 @@ import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
+import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
@@ -201,6 +203,36 @@ describe('taskTrackerSceneLogic', () => {
         blockedLogic.unmount()
         consent.unmount()
         jest.restoreAllMocks()
+    })
+
+    // The composer gets one warm per selection: a changed selection cancels the sandbox that is still
+    // booting and starts another. So a repo-scoped draft warms on the first keystroke, before the branch
+    // picker has resolved the repo's default, and the default landing afterwards must read as the same
+    // selection — it is the branch that warm already boots on.
+    it.each([
+        ['before the branch picker has resolved', undefined, null],
+        ['once the picker settles on the default branch', 'main', null],
+        ['on a branch the user picked', 'feature/x', 'feature/x'],
+    ])('warms a repo-scoped draft %s', async (_name, branch, warmedBranch) => {
+        const branches = githubBranchSearchLogic({ integrationId: 7, repo: 'acme/widgets' })
+        branches.mount()
+        branches.actions.loadPageSuccess(['main'], 'main', false, 0)
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setNewTaskData({
+                description: 'do the thing',
+                repositoryConfig: { integrationId: 7, repository: 'acme/widgets', branch },
+            })
+        }).toDispatchActions([
+            (action: any) =>
+                action.type === taskWarmLogic({ panelId: undefined }).actionTypes.noteDraft &&
+                action.payload.hasText &&
+                action.payload.request.repository === 'acme/widgets' &&
+                action.payload.request.branch === warmedBranch,
+        ])
+
+        branches.unmount()
     })
 
     // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the
