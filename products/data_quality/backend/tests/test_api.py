@@ -595,6 +595,12 @@ class TestDataQualityCheckAPI(APIBaseTest):
             failed_row_count=3,
             compiled_query="SELECT * FROM orders",
         )
+        ran_at = now()
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            last_status=CheckRunStatus.FAILED,
+            last_run_at=ran_at,
+            last_succeeded_at=ran_at,
+        )
         self._deny_the_view()
 
         url = f"{self._checks_url(allowed.id)}/{check.id}"
@@ -602,8 +608,15 @@ class TestDataQualityCheckAPI(APIBaseTest):
         history = self.client.get(f"{url}/runs/")
 
         assert edited.status_code == status.HTTP_200_OK, edited.json()
+        assert edited.json()["last_status"] is None
+        assert edited.json()["last_run_at"] is None
+        assert edited.json()["last_succeeded_at"] is None
         assert history.status_code == status.HTTP_200_OK
         assert history.json() == []
+        check.refresh_from_db()
+        assert check.last_status == CheckRunStatus.FAILED
+        assert check.last_run_at == ran_at
+        assert check.last_succeeded_at == ran_at
 
     def test_accepted_values_are_stored_as_the_column_holds_them(self) -> None:
         # The editor can only send strings. Whether the coercion is wired into the create path at all

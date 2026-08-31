@@ -49,6 +49,7 @@ from .serializers import (
 )
 
 _RECENT_RUNS_LIMIT = 50
+_LAST_RUN_FIELDS = ("last_status", "last_run_at", "last_succeeded_at")
 
 
 class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
@@ -285,11 +286,15 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
         # relationships target or rewrites its custom SQL has to clear that subject too, before it
         # is saved and the worker starts running it.
         check = cast(DataQualityCheck, serializer.instance)
+        redact_last_run = self._can_be_object_denied() and check.id in self._hidden_check_ids([check])
         data = serializer.validated_data
         self._require_referenced_subject_access(
             data.get("check_type", check.check_type), data.get("config", check.config) or {}
         )
-        serializer.save()
+        updated_check = cast(DataQualityCheck, serializer.save())
+        if redact_last_run:
+            for field in _LAST_RUN_FIELDS:
+                setattr(updated_check, field, None)
 
     def perform_destroy(self, instance: DataQualityCheck) -> None:
         api.soft_delete_check(instance)
