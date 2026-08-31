@@ -210,7 +210,8 @@ def _outcome_for_result(
     output_type: str,
     result: object,
     applicable: object = None,
-    definition: EvaluationReportOutcomeDefinition | None = None,
+    *,
+    definition: EvaluationReportOutcomeDefinition,
 ) -> str | None:
     if output_type == "sentiment":
         return result if isinstance(result, str) and result in ("positive", "neutral", "negative") else None
@@ -218,9 +219,8 @@ def _outcome_for_result(
         return "na"
     # `result_labels` carries the polarity-aware boolean→outcome mapping, so a detector's
     # true result resolves to "fail" instead of "pass".
-    labels = definition.result_labels if definition is not None else get_outcome_definition(output_type).result_labels
     try:
-        return labels.get(result)
+        return definition.result_labels.get(result)
     except TypeError:
         return None
 

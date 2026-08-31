@@ -2,7 +2,6 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -16,7 +15,7 @@ class EvaluationReportOutcomeDefinition:
     # Maps a raw result value (as read from the event) to its outcome label. Boolean detectors
     # flip this so a true result becomes a fail, not a pass. Empty for sentiment, whose label
     # is the result value itself.
-    result_labels: Mapping[Any, str] = field(default_factory=dict)
+    result_labels: Mapping[object, str] = field(default_factory=dict)
 
 
 # String comparison is deliberate: an unregistered JSON bool property extracts as the
