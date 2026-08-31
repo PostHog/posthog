@@ -340,6 +340,48 @@ def test_requeues_a_person_the_drain_already_cleaned(cluster: ClickhouseCluster,
 
 
 @pytest.mark.django_db
+def test_a_capped_run_deletes_a_slice_and_the_next_run_drains_the_rest(cluster: ClickhouseCluster, persons_database):
+    # max_persons bounds one run's blast radius; correctness across runs holds because whatever
+    # the cap excludes keeps its tombstones. Dropping the cap plumbing or making the capped
+    # populate non-deterministic breaks the convergence this asserts.
+    for _ in range(3):
+        create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+    capped = {"ops": {"clear_removed_cohort_data": {"config": {"dry_run": False, "max_persons": 2}}}}
+
+    run_job(cluster, persons_database, run_config=capped)
+    assert cluster.any_host(visible_persons).result() == 1
+    assert len(queued_rows(persons_database)) == 2
+
+    run_job(cluster, persons_database, run_config=capped)
+    assert cluster.any_host(visible_persons).result() == 0
+    assert len(queued_rows(persons_database)) == 3
+
+
+@pytest.mark.django_db
+def test_a_team_range_limits_the_sweep_to_those_teams(cluster: ClickhouseCluster, persons_database):
+    inside = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+    outside = create_person(team_id=TEAM_ID + 1, version=0, is_deleted=True)
+    ranged = {
+        "ops": {
+            "clear_removed_cohort_data": {"config": {"dry_run": False, "min_team_id": TEAM_ID, "max_team_id": TEAM_ID}}
+        }
+    }
+
+    run_job(cluster, persons_database, run_config=ranged)
+
+    assert cluster.any_host(rows_for(inside)).result() == 0
+    outside_rows = cluster.any_host(
+        lambda client: client.execute(
+            "SELECT count() FROM person WHERE team_id = %(t)s AND id = %(id)s",
+            {"t": TEAM_ID + 1, "id": outside},
+        )[0][0]
+    ).result()
+    assert outside_rows == 1
+    # Cleanup: the out-of-range person is outside the harness truncation scope for TEAM_ID.
+    run_job(cluster, persons_database)
+
+
+@pytest.mark.django_db
 def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_database):
     # The upsert's conflict guard skips rows that already hold the incoming values. Without it a
     # Dagster retry of this op writes a new tuple version for every queued person, and a retry
@@ -785,6 +827,16 @@ def test_mutation_progress_counts_a_failure_just_before_the_first_poll():
     progress.observe([failing_status(T0 - timedelta(seconds=5), now=T0)], now=0)
     with pytest.raises(MutationStalled):
         progress.observe([failing_status(T0 - timedelta(seconds=5), now=T0 + timedelta(seconds=150))], now=150)
+
+
+def test_mutation_progress_fails_a_healthy_mutation_past_the_wait_deadline():
+    # A mutation blocked behind another mutation is healthy and makes no progress; without the
+    # deadline that run waits forever and raises no alert.
+    progress = MutationProgress(stall_timeout=600, wait_deadline=1000)
+    progress.observe([quiet_status(parts=5)], now=0.0)
+    progress.observe([quiet_status(parts=5)], now=999.0)
+    with pytest.raises(MutationStalled, match="not finished after 1000"):
+        progress.observe([quiet_status(parts=5)], now=1001.0)
 
 
 def test_mutation_progress_waits_on_a_slow_mutation_that_is_not_failing():

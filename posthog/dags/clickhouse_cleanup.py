@@ -103,6 +103,18 @@ class CleanupConfig(dagster.Config):
         default=1800,
         description="Fail a delete batch when attempts keep failing and no part completes for this many seconds.",
     )
+    mutation_wait_deadline: int = pydantic.Field(
+        default=86400,
+        description="Fail a delete batch that has not finished after this many seconds, even when it is healthy. "
+        "A mutation blocked behind another table-sized mutation would otherwise hold the run open forever.",
+    )
+    max_persons: int = pydantic.Field(
+        default=0,
+        description="Snapshot at most this many deleted persons, 0 for all of them. A capped run deletes a slice "
+        "and the next run picks up the rest, because the worklist derives from the tombstones that remain.",
+    )
+    min_team_id: int = pydantic.Field(default=0, description="Only sweep persons with team_id >= this, 0 to disable.")
+    max_team_id: int = pydantic.Field(default=0, description="Only sweep persons with team_id <= this, 0 to disable.")
 
 
 @dataclass(frozen=True)
@@ -189,18 +201,34 @@ class DeletedPersonsTable(SnapshotTable):
     keys = "team_id, person_id"
     dictionary_types = "team_id Int64, person_id UUID, max_version UInt64"
 
-    def populate(self, client: Client, settings: Mapping[str, int] | None = None) -> None:
+    def populate(
+        self,
+        client: Client,
+        settings: Mapping[str, int] | None = None,
+        min_team_id: int = 0,
+        max_team_id: int = 0,
+        max_persons: int = 0,
+    ) -> None:
         # A person can be soft-deleted and later revived by a higher version, so membership is
         # decided by the latest version rather than by any version having is_deleted set. The
         # inner IN narrows the aggregation to persons with at least one deleted version.
+        # The team filter and the LIMIT bound what one run takes on; whatever they exclude keeps
+        # its tombstones, so the next run picks it up. team_id leads the sort key, which is what
+        # lets the range prune the scan rather than only filter it.
+        team_filter = ""
+        if min_team_id:
+            team_filter += f" AND team_id >= {int(min_team_id)}"
+        if max_team_id:
+            team_filter += f" AND team_id <= {int(max_team_id)}"
+        cap = f" ORDER BY team_id, id LIMIT {int(max_persons)}" if max_persons else ""
         client.execute(
             f"""
             INSERT INTO {self.qualified_name} (run_id, team_id, person_id, max_version)
             SELECT %(run_id)s, team_id, id, max(version)
             FROM {PERSONS_TABLE}
-            WHERE (team_id, id) IN (SELECT team_id, id FROM {PERSONS_TABLE} WHERE is_deleted > 0)
+            WHERE (team_id, id) IN (SELECT team_id, id FROM {PERSONS_TABLE} WHERE is_deleted > 0{team_filter}){team_filter}
             GROUP BY team_id, id
-            HAVING argMax(is_deleted, version) > 0
+            HAVING argMax(is_deleted, version) > 0{cap}
             """,
             {"run_id": self.run_id},
             settings=settings,
@@ -412,6 +440,10 @@ class CleanupRun:
     max_memory_usage: int
     dictionary_load_timeout: int
     mutation_stall_timeout: int
+    mutation_wait_deadline: int
+    max_persons: int
+    min_team_id: int
+    max_team_id: int
     distinct_ids_deleted_at: datetime | None = None
     # Distinct key counts recorded when each snapshot was taken. The deletes assert against them,
     # so a snapshot the 14-day TTL reaped mid-run fails the run instead of under-deleting silently.
@@ -435,6 +467,10 @@ class CleanupRun:
             max_memory_usage=config.max_memory_usage,
             dictionary_load_timeout=config.dictionary_load_timeout,
             mutation_stall_timeout=config.mutation_stall_timeout,
+            mutation_wait_deadline=config.mutation_wait_deadline,
+            max_persons=config.max_persons,
+            min_team_id=config.min_team_id,
+            max_team_id=config.max_team_id,
         )
 
     @property
@@ -518,7 +554,16 @@ def snapshot_deleted_persons(
 ) -> CleanupRun:
     """Capture the persons whose latest version is deleted, tagged with this run's id."""
     started = time.monotonic()
-    cluster.any_host_by_role(partial(run.persons.populate, settings=run.query_settings), NodeRole.DATA).result()
+    cluster.any_host_by_role(
+        partial(
+            run.persons.populate,
+            settings=run.query_settings,
+            min_team_id=run.min_team_id,
+            max_team_id=run.max_team_id,
+            max_persons=run.max_persons,
+        ),
+        NodeRole.DATA,
+    ).result()
     # The insert lands on one host, but every host reads this table when the dictionary loads.
     cluster.map_all_hosts(run.persons.sync_replica).result()
 
@@ -672,9 +717,17 @@ class MutationProgress:
     within one stall window of the first poll, or newer than the newest one already seen, count.
     """
 
-    def __init__(self, stall_timeout: float, visibility_timeout: float = MUTATION_VISIBILITY_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        stall_timeout: float,
+        visibility_timeout: float = MUTATION_VISIBILITY_TIMEOUT_SECONDS,
+        wait_deadline: float = 0.0,
+    ) -> None:
         self.stall_timeout = stall_timeout
         self.visibility_timeout = visibility_timeout
+        # A mutation can be healthy and still never finish, for example blocked behind another
+        # table-sized mutation. The deadline turns that silent forever-run into a failure.
+        self.wait_deadline = wait_deadline
         self._started_at: float | None = None
         self._last_progress_at: float = 0.0
         self._min_parts_to_do: int | None = None
@@ -716,6 +769,9 @@ class MutationProgress:
         if self._failed_since_progress and stalled_for > self.stall_timeout:
             raise MutationStalled(f"attempts keep failing and no part completed in {stalled_for:.0f}s")
 
+        if self.wait_deadline and now - self._started_at > self.wait_deadline:
+            raise MutationStalled(f"not finished after {self.wait_deadline:.0f}s")
+
 
 def _wait_for_mutation(
     context: dagster.OpExecutionContext,
@@ -724,6 +780,7 @@ def _wait_for_mutation(
     mutation: MutationWaiter,
     label: str,
     stall_timeout: float,
+    wait_deadline: float,
 ) -> None:
     """Block until the mutation finishes on every host, failing only when it is stuck.
 
@@ -762,7 +819,7 @@ def _wait_for_mutation(
             server_now=server_now,
         )
 
-    progress = MutationProgress(stall_timeout=stall_timeout)
+    progress = MutationProgress(stall_timeout=stall_timeout, wait_deadline=wait_deadline)
     while True:
         statuses = list(cluster.map_all_hosts(status).result().values())
         if statuses and all(s.done for s in statuses):
@@ -828,6 +885,7 @@ def _run_ordered_delete(
     team_ranges: list[TeamRange],
     metrics: MetricsClient,
     stall_timeout: float,
+    wait_deadline: float,
 ) -> int:
     """Delete every snapshotted row from `table`, oldest version first.
 
@@ -871,6 +929,7 @@ def _run_ordered_delete(
                 mutation,
                 f"{table}:{team_range.low}-{team_range.high}:{pass_name}",
                 stall_timeout,
+                wait_deadline,
             )
             _emit(metrics, "clickhouse_cleanup_delete_pass_total", {"table": table, "pass": pass_name})
             batches += 1
@@ -918,6 +977,7 @@ def delete_orphaned_distinct_ids(
         ranges,
         MetricsClient(cluster),
         run.mutation_stall_timeout,
+        run.mutation_wait_deadline,
     )
 
     return replace(run, distinct_ids_deleted_at=datetime.now(UTC))
@@ -962,6 +1022,7 @@ def persist_deleted_persons(
                 "after_team": after[0] if after else 0,
                 "after_person": after[1] if after else "",
             },
+            settings=run.query_settings,
         )
 
     deleted_at = run.distinct_ids_deleted_at
@@ -969,6 +1030,10 @@ def persist_deleted_persons(
     after: tuple[int, str] | None = None
     with persons_database.cursor() as cursor:
         cursor.execute("SET application_name = 'clickhouse_cleanup'")
+        # Bounded so a lock conflict on the queue fails the page instead of holding a transaction
+        # open on the persons writer; the per-page upsert is idempotent, so a retry is safe.
+        cursor.execute("SET statement_timeout = '120s'")
+        cursor.execute("SET lock_timeout = '10s'")
         while True:
             page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
             if not page:
@@ -1036,6 +1101,7 @@ def delete_persons(
         ranges,
         MetricsClient(cluster),
         run.mutation_stall_timeout,
+        run.mutation_wait_deadline,
     )
 
     return run
