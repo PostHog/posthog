@@ -964,11 +964,6 @@ SPECTACULAR_SETTINGS = {
         # Same-value collisions: identical choice sets appear on fields with different names.
         # href_matching, text_matching, url_matching on ActionStep all share the same choices.
         "ActionStepMatchingEnum": ["contains", "regex", "exact"],
-        # effective_privilege_level is a SerializerMethodField returning PrivilegeLevel
-        # (IntegerChoices). It goes through the type-hint path, so it hashes as (value, value)
-        # rather than on its labels. effective_restriction_level shared this entry until
-        # drf-spectacular 0.30, which resolves it to RestrictionLevelEnum on its own.
-        "EffectivePrivilegeLevelEnum": [(21, 21), (37, 37)],
         # descriptionContentType and thankYouMessageDescriptionContentType share values.
         "DescriptionContentTypeEnum": ["text", "html"],
         # Field-name collisions: multiple different choice sets use the same field name
