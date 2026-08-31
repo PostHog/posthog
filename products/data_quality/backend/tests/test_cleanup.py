@@ -1,10 +1,13 @@
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from threading import Event, Lock
+from uuid import UUID, uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import connection
+from django.db import close_old_connections, connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -18,6 +21,7 @@ from products.data_quality.backend.facade.enums import (
     SuiteRunTrigger,
 )
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.data_quality.backend.temporal.activities import cleanup as cleanup_module
 from products.data_quality.backend.temporal.activities.cleanup import (
     CHECK_RUN_RETENTION_DAYS,
     COMPILED_QUERY_RETENTION_DAYS,
@@ -25,6 +29,8 @@ from products.data_quality.backend.temporal.activities.cleanup import (
     SUBJECT_GRACE_HOURS,
     SUITE_RUN_RETENTION_DAYS,
     _cleanup,
+    _delete_dead_runs,
+    _LiveSubjects,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -214,6 +220,22 @@ class TestRetentionSweep(BaseTest):
         assert DataQualityCheck.objects.unscoped().filter(id=check.id).exists()
         assert DataQualityCheckRun.objects.unscoped().filter(id=run.id).exists()
 
+    def test_rows_with_an_unknown_subject_type_are_treated_as_dead(self) -> None:
+        suite = self._suite(age_days=1, subject_type=SubjectType.VIEW, subject_uuid=self.view.id)
+        run = self._run(age_days=1, suite_run=suite)
+        DataQualityCheck.objects.unscoped().filter(id=self.check.id).update(subject_type="future_subject")
+        DataQualityCheckRun.objects.unscoped().filter(id=run.id).update(subject_type="future_subject")
+        DataQualitySuiteRun.objects.unscoped().filter(id=suite.id).update(subject_type="future_subject")
+
+        outcome = _cleanup()
+
+        assert outcome.checks_deleted == 1
+        assert outcome.check_runs_deleted == 1
+        assert outcome.suite_runs_deleted == 1
+        assert not DataQualityCheck.objects.unscoped().filter(id=self.check.id).exists()
+        assert not DataQualityCheckRun.objects.unscoped().filter(id=run.id).exists()
+        assert not DataQualitySuiteRun.objects.unscoped().filter(id=suite.id).exists()
+
     def test_a_check_that_only_references_a_dead_subject_survives(self) -> None:
         # Its own subject is alive, so an admin can still see it and repoint it. Deleting it because
         # an unrelated view vanished would destroy a fixable check.
@@ -289,3 +311,68 @@ class TestRetentionSweep(BaseTest):
         assert not DataQualityCheckRun.objects.unscoped().filter(subject_uuid=doomed.id).exists()
         run_delete = f'DELETE FROM "{DataQualityCheckRun._meta.db_table}"'
         assert sum(run_delete in query["sql"] for query in queries.captured_queries) == 3
+
+
+class TestDeadRunCleanupConcurrency(NonAtomicBaseTest):
+    def test_overlapping_sweeps_decrement_a_suite_once_for_each_deleted_run(self) -> None:
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            trigger=SuiteRunTrigger.MANUAL,
+            status=SuiteRunStatus.COMPLETED,
+            checks_failed=2,
+        )
+        run = DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=suite,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=uuid4(),
+            subject_name="deleted_orders",
+            check_type=CheckType.NOT_NULL,
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+        )
+        DataQualityCheckRun.objects.unscoped().filter(id=run.id).update(
+            created_at=datetime.now(UTC) - timedelta(days=1)
+        )
+        live = _LiveSubjects(table_ids=frozenset(), view_ids=frozenset())
+        grace = datetime.now(UTC) - timedelta(hours=SUBJECT_GRACE_HOURS)
+        first_at_decrement = Event()
+        second_progressed = Event()
+        call_lock = Lock()
+        decrement_calls = 0
+        decrement_suite_counters = cleanup_module._decrement_suite_counters
+
+        def coordinate_decrement(deleted: Iterable[tuple[UUID, str]]) -> None:
+            nonlocal decrement_calls
+            with call_lock:
+                decrement_calls += 1
+                call_number = decrement_calls
+            if call_number == 1:
+                first_at_decrement.set()
+                assert second_progressed.wait(timeout=5)
+            else:
+                second_progressed.set()
+            decrement_suite_counters(deleted)
+
+        def run_cleanup(*, signal_completion: bool = False) -> int:
+            close_old_connections()
+            try:
+                return _delete_dead_runs(self.team.id, live, grace)
+            finally:
+                if signal_completion:
+                    second_progressed.set()
+                close_old_connections()
+
+        with (
+            patch.object(cleanup_module, "_decrement_suite_counters", side_effect=coordinate_decrement),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            first_sweep = executor.submit(run_cleanup)
+            assert first_at_decrement.wait(timeout=5)
+            second_sweep = executor.submit(run_cleanup, signal_completion=True)
+            deleted = first_sweep.result(timeout=10) + second_sweep.result(timeout=10)
+
+        suite.refresh_from_db()
+        assert deleted == 1
+        assert suite.checks_failed == 1
+        assert not DataQualityCheckRun.objects.unscoped().filter(id=run.id).exists()

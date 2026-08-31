@@ -52,8 +52,8 @@ def _delete_in_batches(queryset: "QuerySet[Any]") -> dict[str, int]:
     """Delete a queryset in id-batches, returning how many rows went per model label.
 
     One unbounded ``.delete()`` loads every matched row and everything that cascades with it into
-    Django's collector. Each suite drags its check runs in, so capping the parent rows per pass
-    bounds that memory whatever the reverse relations pull along.
+    Django's collector. Each run drags its subject rows in, and each suite its check runs, so capping
+    the parent rows per pass bounds that memory whatever the reverse relations pull along.
     """
     model = queryset.model
     totals: dict[str, int] = defaultdict(int)
@@ -87,6 +87,7 @@ def _cleanup() -> CleanupOutcome:
     expired_runs = runs.filter(created_at__lt=now - timedelta(days=CHECK_RUN_RETENTION_DAYS)).filter(
         Q(quality_check_id__isnull=True) | Exists(has_newer_run)
     )
+    # Count only the runs -- the subject rows that cascade with each one would otherwise inflate it.
     runs_deleted = _delete_in_batches(expired_runs).get(DataQualityCheckRun._meta.label, 0)
 
     backs_a_run = DataQualityCheckRun.objects.unscoped().filter(suite_run_id=OuterRef("id"))
@@ -182,15 +183,21 @@ def _delete_dead_checks(team_id: int, live: _LiveSubjects, grace: datetime) -> i
 def _delete_dead_runs(team_id: int, live: _LiveSubjects, grace: datetime) -> int:
     dead = DataQualityCheckRun.objects.for_team(team_id).filter(created_at__lt=grace).exclude(live.alive_q())
     deleted = 0
-    while batch := list(dead.values_list("id", "suite_run_id", "status")[:RETENTION_DELETE_BATCH_SIZE]):
+    while True:
         with transaction.atomic():
+            batch = list(
+                dead.select_for_update(skip_locked=True).values_list("id", "suite_run_id", "status")[
+                    :RETENTION_DELETE_BATCH_SIZE
+                ]
+            )
+            if not batch:
+                return deleted
             _decrement_suite_counters((suite_run_id, status) for _, suite_run_id, status in batch)
             _, by_model = (
                 DataQualityCheckRun.objects.unscoped().filter(id__in=[run_id for run_id, _, _ in batch]).delete()
             )
         deleted += by_model.get(DataQualityCheckRun._meta.label, 0)
         _heartbeat()
-    return deleted
 
 
 def _decrement_suite_counters(deleted: Iterable[tuple[UUID, str]]) -> None:
