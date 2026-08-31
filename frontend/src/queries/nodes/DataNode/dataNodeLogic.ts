@@ -1860,6 +1860,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 if (isActorsQuery(query)) {
                     return !!(
                         query.search ||
+                        query.filterTestAccounts ||
                         (query.properties && Array.isArray(query.properties) && query.properties.length > 0) ||
                         (query.fixedProperties &&
                             Array.isArray(query.fixedProperties) &&
@@ -1955,6 +1956,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         search: query.search,
                         properties: query.properties,
                         fixedProperties: query.fixedProperties,
+                        filterTestAccounts: query.filterTestAccounts,
                         orderBy: undefined,
                         limit: undefined,
                         offset: undefined,

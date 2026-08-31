@@ -862,4 +862,35 @@ describe('dataNodeLogic', () => {
             })
         }).toDispatchActions(['loadTotalCount', 'loadTotalCountSuccess'])
     })
+
+    it('treats filterTestAccounts as an active Actors filter and keeps it in the count query', async () => {
+        // The persons list rows honor filterTestAccounts, so the count must too. Dropping it counts
+        // test accounts the rows exclude, so the matched number disagrees with the rows below it.
+        mockedQuery.mockResolvedValue({ results: [[7]] })
+
+        // The toggle alone counts as an active filter, so the header shows a filtered count.
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.ActorsQuery,
+                select: ['id'],
+                filterTestAccounts: true,
+            }),
+        })
+        logic.mount()
+        expect(logic.values.hasActiveFilters).toBe(true)
+        expect(logic.values.filteredCountQuery).toMatchObject({ filterTestAccounts: true })
+
+        // With a search too, the count query keeps both, so it excludes test accounts like the rows.
+        dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.ActorsQuery,
+                select: ['id'],
+                search: 'acme',
+                filterTestAccounts: true,
+            }),
+        })
+        expect(logic.values.filteredCountQuery).toMatchObject({ search: 'acme', filterTestAccounts: true })
+    })
 })
