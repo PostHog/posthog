@@ -49,17 +49,17 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, True),
-            (PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, False),
-            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, False),
-            (PersonsOnEventsMode.DISABLED, False),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,),
+            (PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,),
+            (PersonsOnEventsMode.DISABLED,),
         ]
     )
     @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_hybrid_query_gate_follows_person_on_events_mode(
-        self, mode: PersonsOnEventsMode, expected: bool, mock_feature_enabled
+    def test_hybrid_query_stays_off_in_every_mode_while_the_flag_is_off(
+        self, mode: PersonsOnEventsMode, mock_feature_enabled
     ) -> None:
-        assert self._subquery_for_mode(mode)._is_hybrid_query_mode_enabled() is expected
+        assert self._subquery_for_mode(mode)._is_hybrid_query_mode_enabled() is False
 
     @parameterized.expand(
         [
@@ -95,7 +95,8 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
         assert expected_column in matched
         assert unusable_column not in matched
 
-    def test_hybrid_query_finds_pre_identification_sessions_without_the_flag(self) -> None:
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_hybrid_query_finds_pre_identification_sessions(self, mock_feature_enabled) -> None:
         with freeze_time("2021-08-21T20:00:00.000Z"):
             anonymous_id = "anonymous_user_456"
             identified_id = "identified_user_456"
