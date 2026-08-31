@@ -19,6 +19,22 @@ logger = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+# Cap how many validation errors reach the client message. A union field (such as the query
+# field of QueryRequest) reports one error per branch, so an unbounded dump both leaks pydantic
+# doc URLs and gives error tracking a title that shifts with the branch count.
+MAX_REPORTED_VALIDATION_ERRORS = 3
+
+
+def summarize_validation_error(exc: ValidationError) -> str:
+    errors = exc.errors(include_url=False)
+    shown = errors[:MAX_REPORTED_VALIDATION_ERRORS]
+    parts = [f"{'.'.join(str(part) for part in error['loc']) or '(root)'}: {error['msg']}" for error in shown]
+    summary = "; ".join(parts)
+    remaining = len(errors) - len(shown)
+    if remaining > 0:
+        summary += f" (and {remaining} more)"
+    return summary
+
 
 class ValidatedRequest(Request):
     """
@@ -56,7 +72,7 @@ class PydanticModelMixin:
             return model.model_validate(data)
         except ValidationError as exc:
             capture_exception(exc)
-            raise ParseError("JSON parse error - {}".format(str(exc)))
+            raise ParseError(f"Validation error - {summarize_validation_error(exc)}")
 
 
 def validated_request(

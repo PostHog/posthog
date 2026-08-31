@@ -883,7 +883,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
         self.assertEqual(api_response.status_code, 400)
         self.assertEqual(api_response.json()["code"], "parse_error")
-        self.assertIn("1 validation error for QueryRequest", api_response.json()["detail"], api_response.content)
+        self.assertIn("Validation error - query:", api_response.json()["detail"], api_response.content)
         self.assertIn(
             "Input tag 'Tomato Soup' found using 'kind' does not match any of the expected tags",
             api_response.json()["detail"],

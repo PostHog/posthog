@@ -37,6 +37,7 @@ import {
     isFunnelWithIncompleteDataWarehouseStep,
     parseDisplayNameForCorrelation,
     stepsWithConversionMetrics,
+    toScalarBreakdownValue,
 } from './funnelUtils'
 
 describe('getMeanAndStandardDeviation', () => {
@@ -136,6 +137,25 @@ describe('getBreakdownStepValues()', () => {
         expect(getBreakdownStepValues({ breakdown: null, breakdown_value: null }, 21)).toStrictEqual(
             EMPTY_BREAKDOWN_VALUES
         )
+    })
+})
+
+describe('toScalarBreakdownValue()', () => {
+    it('serializes object breakdown values the actors query schema cannot represent', () => {
+        // A funnel broken down by a JSON-object property yields object values; without this the
+        // actors request 400s on the backend model.
+        expect(toScalarBreakdownValue([{ split_test_id: 1, variant: 'Control' }] as any)).toEqual([
+            '{"split_test_id":1,"variant":"Control"}',
+        ])
+        expect(toScalarBreakdownValue({ variant: 'Test' } as any)).toEqual('{"variant":"Test"}')
+    })
+
+    it('passes scalar values through unchanged', () => {
+        expect(toScalarBreakdownValue('NL')).toEqual('NL')
+        expect(toScalarBreakdownValue(7)).toEqual(7)
+        expect(toScalarBreakdownValue(['NL', 'US'])).toEqual(['NL', 'US'])
+        expect(toScalarBreakdownValue(null)).toBeNull()
+        expect(toScalarBreakdownValue(undefined)).toBeUndefined()
     })
 })
 

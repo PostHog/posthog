@@ -389,6 +389,26 @@ export function hasBreakdown(breakdownValue: BreakdownKeyType | undefined): bool
 }
 
 /**
+ * Coerce a series `breakdown_value` into the scalar (or scalar-array) shape the actors query schema
+ * accepts. Breaking a funnel down by a JSON-object property yields object breakdown values, which the
+ * backend model rejects, so the whole persons-modal request 400s. Serialize any object element to its
+ * JSON string — the funnel breakdown column is itself stringified server-side, so a string is the
+ * closest representable match.
+ */
+export function toScalarBreakdownValue(breakdownValue: BreakdownKeyType | undefined): BreakdownKeyType | undefined {
+    const scalarize = (value: unknown): string | number =>
+        value !== null && typeof value === 'object' ? JSON.stringify(value) : (value as string | number)
+
+    if (breakdownValue === null || breakdownValue === undefined) {
+        return breakdownValue
+    }
+    if (Array.isArray(breakdownValue)) {
+        return breakdownValue.map(scalarize)
+    }
+    return scalarize(breakdownValue)
+}
+
+/**
  * Aggregate "conversion so far" (across all breakdown values) to show alongside a hovered breakdown
  * variant's own conversion. Returns null unless `series` is a genuine breakdown variant of `step` —
  * excluding the top-level step itself, compare-only bars, and breakdown+compare (the aggregate spans
