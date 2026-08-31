@@ -34,7 +34,7 @@ _OFF_CLUSTER_TARGET = DeletionTarget(
     read_table="events_json",
     optional=True,
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
-    node_role=NodeRole.INGESTION_EVENTS,
+    node_role=NodeRole.EVENTS,
 )
 
 
@@ -64,7 +64,9 @@ def _cluster_with(tables_by_host: dict[str, set[str]]) -> Iterator[ClickhouseClu
 
 @override_settings(CLICKHOUSE_EVENTS_CLUSTER="events")
 def test_placement_routes_a_target_to_the_cluster_that_carries_it() -> None:
-    with _cluster_with({"data1": set(), "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}) as cluster:
+    with _cluster_with(
+        {"data1": set(), "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
+    ) as cluster:
         placement = placement_for(cluster, _OFF_CLUSTER_TARGET)
 
         assert placement is not None
@@ -76,7 +78,9 @@ def test_placement_routes_a_target_to_the_cluster_that_carries_it() -> None:
 def test_placement_prefers_the_handle_in_hand_over_a_sibling() -> None:
     # Two cluster names covering the same nodes is what the dev stack and CI do. Building a sibling
     # there would sweep the same rows twice, so the handle in hand has to win.
-    with _cluster_with({"data1": {"sharded_events_json"}, "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}) as cluster:
+    with _cluster_with(
+        {"data1": {"sharded_events_json"}, "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
+    ) as cluster:
         placement = placement_for(cluster, _OFF_CLUSTER_TARGET)
 
         assert placement is not None
@@ -88,7 +92,9 @@ def test_dispatchable_here_refuses_a_target_another_cluster_carries() -> None:
     # Sweeps that fan out over a single handle (property removal, the queued-uuid drain) have no way
     # to reach another cluster's shards. Answering False would put back the silent skip that
     # completes a request while the rows survive.
-    with _cluster_with({"data1": set(), "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}) as cluster:
+    with _cluster_with(
+        {"data1": set(), "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
+    ) as cluster:
         with pytest.raises(UnreachableTargetError):
             dispatchable_here(cluster, _OFF_CLUSTER_TARGET)
 
@@ -97,7 +103,9 @@ def test_dispatchable_here_refuses_a_target_another_cluster_carries() -> None:
 def test_sweep_clusters_lists_every_cluster_a_mutation_runs_on() -> None:
     # The delete predicate joins a dictionary, so the dictionary has to exist on each cluster this
     # returns. Missing one there means the mutation runs against nothing and reports success.
-    with _cluster_with({"data1": set(), "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}) as cluster:
+    with _cluster_with(
+        {"data1": set(), "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
+    ) as cluster:
         clusters = sweep_clusters(cluster, [_OFF_CLUSTER_TARGET])
 
         assert [handle.data_cluster_name for handle in clusters] == ["posthog", "events"]
@@ -108,7 +116,9 @@ def test_sweep_clusters_lists_every_cluster_a_mutation_runs_on() -> None:
 def test_sweep_clusters_does_not_repeat_the_handle_in_hand() -> None:
     # Building the dictionary twice on one cluster is wasted work, and every sweep keyed off this
     # list would run its mutations twice.
-    with _cluster_with({"data1": {"sharded_events_json"}, "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}) as cluster:
+    with _cluster_with(
+        {"data1": {"sharded_events_json"}, "events1": {"sharded_events_json"}, "events2": {"sharded_events_json"}}
+    ) as cluster:
         assert sweep_clusters(cluster, [_OFF_CLUSTER_TARGET]) == [cluster]
 
 
@@ -123,4 +133,4 @@ def test_a_sibling_shards_over_the_role_its_target_declares() -> None:
 
         assert placement is not None
         assert sorted(placement.cluster.shards) == [1, 2]
-        assert placement.cluster.shard_role == NodeRole.INGESTION_EVENTS
+        assert placement.cluster.shard_role == NodeRole.EVENTS
