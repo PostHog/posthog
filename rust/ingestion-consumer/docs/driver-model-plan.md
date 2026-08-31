@@ -133,7 +133,8 @@ Outcome: commit contiguity is a property of a data structure, not of completion 
 - Operations: `charge` adds a delivered offset. `complete` marks an offset done. `frontier` returns the highest contiguous done offset and does not mutate. `take_frontier` consumes the done prefix up to the frontier.
 - The read/consume split matters: the comparison read is idempotent and cannot consume state by accident. Consumption happens at commit points in every mode, so the ring holds only uncommitted offsets.
 - Completions can arrive in any order. The frontier moves only over completed slots.
-- Kafka delivers offsets with gaps (transactions, compaction). Contiguity means the prefix of delivered offsets, not offset arithmetic.
+- Kafka can deliver offsets with gaps: transaction markers occupy offsets that consumers never receive, and compaction keeps offsets while removing records. Our ingestion topics have neither today, and the commit sentinel treats a gap as a real skip (see the caveat on `CommitSentinel`).
+- The ledger still defines contiguity over delivered offsets, not offset arithmetic. A legitimate gap can then never wedge the frontier. The sentinel keeps the alert on gaps.
 - Add property tests: out-of-order completion, monotonic frontier, `frontier` idempotence, the ring drains after `take_frontier`, offset gaps, ring capacity.
 
 **Interfaces:**
