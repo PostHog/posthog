@@ -105,7 +105,7 @@ export function InboxCardSourceMeta({
  * dismissing and resolving live in the report detail pane and the bulk selection bar, where what is
  * being judged is in full view. Other surfaces that embed this card can still opt into a row-level
  * Dismiss via `onDismiss`. The redesign also drops the status and actionability chips: the section a
- * row sits in (Needs a PR, Not actionable, ...) already says what they said. With the flag off every
+ * row sits in (Needs decision, Not actionable, ...) already says what they said. With the flag off every
  * row keeps its chips, its Dismiss button, and the "Review" label.
  */
 export function ReportCard({

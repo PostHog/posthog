@@ -111,7 +111,7 @@ function requestContextFromValues(values: {
 
 /**
  * Whether to auto-switch the reviewer scope to Entire project on first load. True only for the
- * primary section (Needs a PR under the redesign, the Pull requests list with the flag off) when
+ * primary section (Needs decision under the redesign, the Pull requests list with the flag off) when
  * the user is still on the (default) For-you scope, hasn't chosen a scope themselves, has resolved
  * to a real user, and has zero reports suggested to them — so a user with nothing assigned doesn't
  * land on an empty inbox. Pure so the branching is unit-testable without mounting the logic.
@@ -322,7 +322,7 @@ export type reportListLogicType = MakeLogicType<
 >
 
 /**
- * Keyed per-state report list. Mounted once per report state (Review and merge / Needs a PR /
+ * Keyed per-state report list. Mounted once per report state (Review and merge / Needs decision /
  * Resolved / Dismissed / Not actionable), each with its own fixed `listParams`, so every state is
  * its own filtered request with its own accurate `count` and its own pagination. The shared user
  * chrome (search, sort, source, priority, reviewer scope) is connected from `inboxFiltersLogic` and
@@ -477,7 +477,7 @@ export const reportListLogic = kea<reportListLogicType>([
     }),
 
     selectors({
-        // The section whose For-you count decides the default scope: Needs a PR under the redesign,
+        // The section whose For-you count decides the default scope: Needs decision under the redesign,
         // the Pull requests list with the flag off (see `shouldDefaultToEntireProject`).
         primarySectionKey: [
             (s) => [s.featureFlags],
@@ -661,7 +661,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 lemonToast.success('Report restored to inbox')
                 // Restore maps through restore_target_status server-side, so the report lands back in
                 // whichever section its pre-suppression status names (a report suppressed while ready
-                // returns to Needs a PR / Review and merge). Broadcast so every mounted section
+                // returns to Needs decision / Review and merge). Broadcast so every mounted section
                 // reconciles — this one loses the row, the destination gains it and its count — not
                 // just the section that owns the action.
                 inboxBulkActionsLogic.actions.reportStateChanged()

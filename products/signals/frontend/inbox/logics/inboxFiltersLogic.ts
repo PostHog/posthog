@@ -353,7 +353,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         toggleScout: (scout: string) => ({ scout }),
         clearScoutFilter: true,
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
-        // The report states (Needs a PR, Review and merge, …) shown in the flat Reports list.
+        // The report states (Needs decision, Review and merge, …) shown in the flat Reports list.
         // Multi-select: an empty selection means every state the user can see.
         toggleState: (state: InboxReportSectionKey) => ({ state }),
         // Replace the whole selection. The priority control is a single select, but the state

@@ -14,7 +14,7 @@ import {
 } from '../../types'
 
 /**
- * Multi-select report-state filter for the flat Reports list: one checkbox per state (Needs a PR,
+ * Multi-select report-state filter for the flat Reports list: one checkbox per state (Needs decision,
  * Review and merge, Resolved, Dismissed, plus Not actionable for staff). An empty selection means
  * every state, so the trigger reads "All statuses" at rest.
  */

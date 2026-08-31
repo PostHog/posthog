@@ -129,7 +129,7 @@ describe('ReportsTab', () => {
         await waitFor(() => {
             const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
             expect(viewed).toHaveLength(1)
-            // Needs a PR + Review and merge + Resolved + Dismissed. Not actionable is staff-only triage.
+            // Needs decision + Review and merge + Resolved + Dismissed. Not actionable is staff-only triage.
             expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: 13, is_empty: false })
         })
     })

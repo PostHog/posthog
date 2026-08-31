@@ -239,8 +239,8 @@ export const INBOX_LEGACY_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
  * `INBOX_REPORT_SECTION_LIST_PARAMS`), keyed `reportListLogic` instance, count, and pagination;
  * the flat list merges the rows of the states the state filter selects.
  * pinned: these keys are the `tab` property on the inbox analytics events and the values of the
- * `state` URL filter param, so they outlive renames of the labels above them (`needs-decision` is
- * now "Needs a PR", `monitoring` is "Review and merge").
+ * `state` URL filter param, so they outlive renames of the labels above them (`monitoring` is
+ * now "Review and merge").
  */
 export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
@@ -259,7 +259,7 @@ export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-de
 
 export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
     monitoring: 'Review and merge',
-    'needs-decision': 'Needs a PR',
+    'needs-decision': 'Needs decision',
     resolved: 'Resolved',
     dismissed: 'Dismissed',
     'not-actionable': 'Not actionable',
