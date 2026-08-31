@@ -303,8 +303,12 @@ export const workflowsLogic = kea<workflowsLogicType>([
         workflows: [
             { results: [], count: 0 } as WorkflowsResult,
             {
-                loadWorkflows: async () => {
-                    return await api.hogFlows.getHogFlows(values.paramsFromFilters)
+                loadWorkflows: async (_, breakpoint) => {
+                    const response = await api.hogFlows.getHogFlows(values.paramsFromFilters)
+                    // Drop a response a newer filter change has already superseded, so a slow request
+                    // returning after a faster later one can't leave the table showing the wrong filters.
+                    breakpoint()
+                    return response
                 },
                 toggleWorkflowStatus: async ({ workflow }) => {
                     await api.hogFlows.updateHogFlow(workflow.id, {
