@@ -136,6 +136,11 @@ class TestCheckProductAccess:
                 True,
                 None,
             ),
+            # llma_summarization is the batch trace summarization pipeline's fallback route;
+            # gpt-5-nano off this list means every fallback call 403s once the pipeline switches
+            ("llma_summarization", "personal_api_key", None, "gpt-5-nano", True, None),
+            ("llma_summarization", "personal_api_key", None, "gpt-4.1-nano", True, None),
+            ("llma_summarization", "personal_api_key", None, "gpt-5-mini", False, "not allowed"),
             # llma_translation allows API keys but only gpt-4.1-mini; OAuth rejected (no app IDs configured)
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
