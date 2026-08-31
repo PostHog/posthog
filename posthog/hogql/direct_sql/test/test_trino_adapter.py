@@ -27,7 +27,12 @@ def test_raw_trino_queries_accept_single_select(sql: str) -> None:
 @pytest.mark.parametrize(
     ("request_sql", "request_values", "expected_execute_args"),
     [
-        ("SELECT id, active FROM users", None, ("SELECT id, active FROM users", None)),
+        ("SELECT id, active FROM users", None, ("SELECT id, active FROM users",)),
+        (
+            "SELECT id, active FROM users -- %(unbound)s",
+            None,
+            ("SELECT id, active FROM users -- %(unbound)s",),
+        ),
         (
             "SELECT id, active FROM users WHERE id = %(id)s AND active = %(active)s",
             {"active": True, "id": 1},

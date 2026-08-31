@@ -73,7 +73,7 @@ class _CancelWatchdog:
 
 class TrinoAdapter:
     engine = "trino"
-    dialect: HogQLDialect | None = None
+    dialect: HogQLDialect | None = "trino"
 
     def validate_source_config(self, source: ExternalDataSource, team: Team) -> tuple[TrinoSource, TrinoSourceConfig]:
         from products.warehouse_sources.backend.facade.source_management import (
@@ -114,7 +114,11 @@ class TrinoAdapter:
         span.set_attribute("team_id", request.team.pk)
         span.set_attribute("query_type", request.query_type)
         span.set_attribute("source_id", str(request.source.id))
-        sql, parameters = convert_pyformat_placeholders(request.sql, request.values)
+        sql, values = (
+            convert_pyformat_placeholders(request.sql, request.values)
+            if request.values is not None
+            else (request.sql, [])
+        )
 
         try:
             with request.timings.measure("trino_execute"), observe_direct_query("trino"):
@@ -122,9 +126,14 @@ class TrinoAdapter:
                     cursor = connection.cursor()
                     with _CancelWatchdog(cursor, timeout_seconds) as watchdog:
                         try:
-                            cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- direct SQL is intentionally user-authored and SELECT-gated
-                                sql, parameters or None
-                            )
+                            if values:
+                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- compiled values are bound separately by the Trino driver
+                                    sql, values
+                                )
+                            else:
+                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- raw SQL is intentionally user-authored and SELECT-gated
+                                    sql
+                                )
                             results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
                         except Exception as error:
                             if watchdog.fired:

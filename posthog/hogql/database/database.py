@@ -2068,14 +2068,14 @@ class Database(BaseModel):
                                 # For a chain of type a.b.c, we want to create a nested table node
                                 # where a is the parent, b is the child of a, and c is the child of b
                                 # where a.b.c will contain the table.
-                                # Snowflake stores identifiers uppercase but resolves them
-                                # case-insensitively, so mark its nodes so `from tpch_sf1.nation`
-                                # (any case) resolves to the canonical `TPCH_SF1.NATION`.
+                                # Snowflake and Trino resolve unquoted identifiers case-insensitively,
+                                # so preserve the discovered spelling while accepting any input case.
                                 warehouse_tables.add_child(
                                     TableNode.create_nested_for_chain(
                                         table_chain,
                                         table_for_key,
-                                        case_insensitive=table.external_data_source.is_direct_snowflake,
+                                        case_insensitive=table.external_data_source.direct_engine
+                                        in {"snowflake", "trino"},
                                     ),
                                     table_conflict_mode=table_conflict_mode,
                                 )
@@ -2123,9 +2123,11 @@ class Database(BaseModel):
                             TableNode.create_nested_for_chain(
                                 table_key.split("."),
                                 virtual_table,
-                                # Snowflake resolves identifiers case-insensitively; the model's
-                                # is_direct_snowflake prop is False for synced sources, so key off type.
-                                case_insensitive=(virtual_source.source_type == ExternalDataSourceType.SNOWFLAKE),
+                                # Synced sources have no direct engine, so use the source type for case folding.
+                                case_insensitive=(
+                                    virtual_source.source_type
+                                    in {ExternalDataSourceType.SNOWFLAKE, ExternalDataSourceType.TRINO}
+                                ),
                             ),
                             table_conflict_mode="override",
                         )

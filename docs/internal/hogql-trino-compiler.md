@@ -1,10 +1,10 @@
 # HogQL to Trino compilation
 
-The Trino backend compiles a resolved HogQL query into SQL and bound values. It does not connect to Trino or enable HogQL on an existing Query Editor connection.
+The Trino backend compiles a resolved HogQL query into SQL and bound values. The compiler itself does not connect to Trino. A separate adapter integration enables HogQL on Query Editor connections.
 
 ## Release boundary
 
-Call `prepare_and_print_ast(node, context, "trino")` explicitly to use the backend. Normal query routing and the raw-only Trino capability remain unchanged. The compiler and lowering modules load only when a caller selects the Trino dialect.
+Call `prepare_and_print_ast(node, context, "trino")` explicitly for standalone compilation. Query Editor uses the same backend when a selected direct connection advertises the Trino dialect. The compiler and lowering modules load only when a caller selects the Trino dialect.
 
 The returned SQL uses named placeholders, with values stored in `context.values`. The direct Trino adapter converts them into positional placeholders and submits the ordered values to the Trino client.
 
@@ -14,7 +14,15 @@ The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindi
 
 Pure transpilation accepts caller-supplied constant values. It rejects unresolved placeholders, action and cohort references, tables absent from the manifest, non-leaf warehouse column types, and invalid or incomplete manifest entries. Callers needing Django-backed semantics must select the explicit expansion mode described below.
 
-Query Editor capability changes and case-insensitive connection lookup belong to separate integration changes. Parameter submission alone does not enable HogQL for Trino connections in Query Editor.
+## Query Editor connection integration
+
+The connection integration advertises `TrinoAdapter.dialect = "trino"`. Selecting a Trino connection for a HogQL query uses the shared query executor and Trino compiler. Table and field lookup follow Trino's case-insensitive identifier rules, while printed relations use the connection's catalog, schema, and physical table name.
+
+The adapter converts compiler placeholders into positional driver parameters without interpolating values into SQL. Raw SQL requests without bound values still pass through unchanged. Existing source configuration validation, raw read-only checks, timeouts, and row caps remain in place.
+
+Direct queries cannot join PostHog person tables, so Query Editor normalizes the person-on-events modifier to the compiler's supported mode before Trino preparation. The selected project's modifier remains unchanged.
+
+The integration does not provision catalogs, alter deployments, or make source-only ClickHouse tables available in Trino.
 
 ## Managed Trino connections
 

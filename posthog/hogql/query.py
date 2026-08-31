@@ -72,6 +72,7 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.schema_enums import PersonsOnEventsMode
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -407,6 +408,14 @@ class HogQLQueryExecutor:
         adapter = get_adapter(source.direct_engine) if source is not None else None
         dialect: HogQLDialect = adapter.dialect if adapter is not None and adapter.dialect is not None else "postgres"
 
+        direct_modifiers = self.query_modifiers
+        if dialect == "trino":
+            # Direct queries cannot join PostHog person tables, so their person-on-events mode has
+            # no effect. Use the one mode whose semantics the Trino compiler can guarantee.
+            direct_modifiers = self.query_modifiers.model_copy(
+                update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+            )
+
         direct_context = dataclasses.replace(
             self.context,
             is_direct_query=True,
@@ -414,7 +423,7 @@ class HogQLQueryExecutor:
             team=self.team,
             enable_select_queries=True,
             timings=self.timings,
-            modifiers=self.query_modifiers,
+            modifiers=direct_modifiers,
             limit_context=self.limit_context,
             database=self.hogql_context.database if self.hogql_context else None,
         )
