@@ -138,9 +138,24 @@ class MetricEventSamplesQueryRunner:
         # trace is given, so the optional clause never has to be spliced into the
         # query string (which would collide with the HogQL placeholder braces) —
         # an empty {trace_id} matches every row. Samples are filtered + limited in
-        # the inner query, then left-joined to the deduped series for labels.
+        # the CTE, then left-joined to the deduped series for labels. The series
+        # side reads only the label sets of the matched samples: without that
+        # bound, a query with no metric name (the trace pivot) would aggregate
+        # every series in the project just to enrich at most {limit} rows.
         query = parse_select(
             """
+                WITH matched_samples AS (
+                    SELECT team_id, metric_name, series_fingerprint, timestamp, value, count, trace_id, span_id
+                    FROM posthog.metric_samples
+                    WHERE ({metric_name} = '' OR metric_name = {metric_name})
+                      AND timestamp >= {date_from}
+                      AND timestamp < {date_to}
+                      AND ({trace_id} = '' OR trace_id = {trace_id})
+                      AND ({span_id} = '' OR span_id = {span_id})
+                      AND {series_scope}
+                    ORDER BY timestamp DESC
+                    LIMIT {limit}
+                )
                 SELECT
                     s.timestamp,
                     s.metric_name,
@@ -155,18 +170,7 @@ class MetricEventSamplesQueryRunner:
                     hex(tryBase64Decode(s.span_id)) AS span_id,
                     ser.attributes,
                     ser.resource_attributes
-                FROM (
-                    SELECT team_id, metric_name, series_fingerprint, timestamp, value, count, trace_id, span_id
-                    FROM posthog.metric_samples
-                    WHERE ({metric_name} = '' OR metric_name = {metric_name})
-                      AND timestamp >= {date_from}
-                      AND timestamp < {date_to}
-                      AND ({trace_id} = '' OR trace_id = {trace_id})
-                      AND ({span_id} = '' OR span_id = {span_id})
-                      AND {series_scope}
-                    ORDER BY timestamp DESC
-                    LIMIT {limit}
-                ) AS s
+                FROM matched_samples AS s
                 LEFT JOIN (
                     SELECT
                         team_id,
@@ -180,7 +184,9 @@ class MetricEventSamplesQueryRunner:
                         any(attributes) AS attributes,
                         any(resource_attributes) AS resource_attributes
                     FROM posthog.metric_series
-                    WHERE ({metric_name} = '' OR metric_name = {metric_name})
+                    WHERE (metric_name, series_fingerprint) IN (
+                        SELECT metric_name, series_fingerprint FROM matched_samples
+                    )
                     GROUP BY team_id, metric_name, series_fingerprint
                 ) AS ser
                     ON s.team_id = ser.team_id
