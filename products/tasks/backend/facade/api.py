@@ -7653,6 +7653,7 @@ def update_channel(
     team_id: int,
     user_id: int | None,
     *,
+    can_manage_shared_auto_archive: bool,
     name: str | None = None,
     github_integration: Integration | None = None,
     repositories: list[str] | None = None,
@@ -7667,6 +7668,11 @@ def update_channel(
             return "not_found"
         if name is not None:
             return "personal"
+    elif (
+        not isinstance(auto_archive_after_days, _AutoArchiveUnchanged)
+        and not can_manage_shared_auto_archive
+    ):
+        return "auto_archive_forbidden"
     if name is not None and _is_general_channel(channel):
         return "general"
     update_fields: list[str] = []
