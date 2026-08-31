@@ -1,4 +1,6 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}{% block section %}
+{% extends "email/base.html" %}
+
+{% block section %}
 <p>
     Welcome to PostHog! Your account was created{% if partner_name %} via {{ partner_name }}{% endif %}.
 </p>
