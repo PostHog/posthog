@@ -628,9 +628,12 @@ def _update_one(team: Team, kind: str, entity: Any, data: dict[str, Any], user: 
             # re-enabled alert still FIRING with its old failure count, and write no audit row.
             snapshot = entity.to_snapshot()
             if enabled_change is True:
+                # nosemgrep: replay-vision-alert-state-direct-mutation — the transition itself runs
+                # through apply_outcome on the next line; this is the field the outcome is for.
                 entity.enabled = True
                 update_fields.extend(apply_outcome(entity, apply_enable(snapshot), kind=VisionAlertEvent.Kind.ENABLE))
             elif enabled_change is False:
+                # nosemgrep: replay-vision-alert-state-direct-mutation — paired with apply_outcome below.
                 entity.enabled = False
                 update_fields.extend(apply_outcome(entity, apply_disable(snapshot), kind=VisionAlertEvent.Kind.DISABLE))
             elif threshold_changed:
