@@ -43,7 +43,6 @@ Use plain Inversify through `@posthog/di`.
 - Bind services in feature `ContainerModule`s.
 - Load modules in host composition files.
 - Call `setRootContainer(container)` before React service resolution.
-- Use `bindToContainer((container) => ...)` for plain modules that register bindings before root initialization.
 - Do not call `container.get(...)` or `resolveService(...)` inside services or components.
 
 ```ts

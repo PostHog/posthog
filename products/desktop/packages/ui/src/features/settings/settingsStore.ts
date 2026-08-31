@@ -25,7 +25,7 @@ import { persist } from "zustand/middleware";
 
 // ---------- Types ----------
 
-export type DefaultRunMode = "local" | "cloud" | "last_used";
+type DefaultRunMode = "local" | "cloud" | "last_used";
 export type LocalWorkspaceMode = "worktree" | "local";
 
 export const DEFAULT_WORKSPACE_MODE: WorkspaceMode = "cloud";

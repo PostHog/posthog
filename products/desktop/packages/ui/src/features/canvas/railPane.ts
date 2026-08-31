@@ -1,5 +1,3 @@
-import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
-
 /**
  * Which rail destination the app is on, and whether that destination owns the
  * column beside the rail.
@@ -64,11 +62,6 @@ export function railPaneForMatches(
   matches: readonly { fullPath: string }[],
 ): NavRailPane {
   return railPaneForPath(matches[matches.length - 1]?.fullPath ?? "");
-}
-
-/** Read the destination outside React (event handlers, imperative picks). */
-export function getRailPane(): NavRailPane {
-  return railPaneForMatches(getCurrentMatches());
 }
 
 // Home, Inbox, Command Center and Loops are whole-screen destinations: no

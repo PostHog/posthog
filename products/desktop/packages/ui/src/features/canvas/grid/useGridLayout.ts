@@ -1,4 +1,3 @@
-import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { applyLayoutOperations } from "@posthog/core/canvas/gridLayoutOperations";
 import type {
   CanvasLayoutResult,
@@ -130,21 +129,4 @@ export function usePatchLayout(canvasId: string): {
     [mutateAsync, canvasId, queryClient, trpc],
   );
   return { patch, isPatching: isPending };
-}
-
-export function useComponentStore(
-  search: string,
-  options?: { enabled?: boolean },
-): {
-  components: DashboardRecord[];
-  isLoading: boolean;
-} {
-  const trpc = useHostTRPC();
-  const { data, isLoading } = useQuery(
-    trpc.dashboards.listComponents.queryOptions(
-      { search: search || undefined },
-      { staleTime: 30_000, enabled: options?.enabled ?? true },
-    ),
-  );
-  return { components: data ?? [], isLoading };
 }

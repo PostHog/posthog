@@ -26,7 +26,7 @@ const inlineComponents: Components = {
   ),
 };
 
-export const InlineMarkdown = memo(function InlineMarkdown({
+const InlineMarkdown = memo(function InlineMarkdown({
   content,
 }: {
   content: string;
@@ -41,7 +41,7 @@ export const InlineMarkdown = memo(function InlineMarkdown({
   );
 });
 
-export function hasMentionTags(content: string): boolean {
+function hasMentionTags(content: string): boolean {
   return MENTION_TAG_TEST.test(content) || SLASH_COMMAND_START.test(content);
 }
 
@@ -88,7 +88,7 @@ export function MentionChip({
   );
 }
 
-export function parseMentionTags(content: string): ReactNode[] {
+function parseMentionTags(content: string): ReactNode[] {
   const parts: ReactNode[] = [];
   let lastIndex = 0;
 
