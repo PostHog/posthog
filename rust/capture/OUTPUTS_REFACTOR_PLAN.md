@@ -115,6 +115,7 @@ Step 7 absorbs it into the `OutputTable`; the mode-scoped demand is folded in at
   - `OutputTable`: the `(pipeline, lane)` → output handle the state holds; degenerate today (one deployment-wide output; per-lane topics resolve in prep via the `OutputRegistry`).
   - `setup::create_output` builds the policy tree from the same config; **`FallbackSink` is deleted**, its tests re-expressed on `Output` with assertions preserved (+ a new fatal-no-failover case).
   - Call sites are untouched: the table serves them through a transitional `Event` facade (which records `capture_event_batch_size`, where the old sink impls recorded it). Migration is Step 8.
+  - The facade is the only `dyn Event` the production call sites see, so the per-sink `Event` impls on s3, print, and noop are deleted here rather than rewired onto `PublishEvents`. `Event` survives only where callers still need it: the Kafka bridge and `MockSink`, both consumed by tests that Step 8 retypes.
 - **Files.** `rust/capture/src/outputs.rs` (new); `rust/capture/src/setup.rs`; `rust/capture/src/sinks/{mod,s3,print,noop,test_sink}.rs` (mechanism + `PublishEvents` impls); `fallback.rs` deleted.
 - **Parity proof.** Goldens + all integration suites unmodified. Known metrics-only deltas, accepted: the batch-size histogram now records on the fallback-to-S3 path (it silently didn't before), and print/noop single sends record it (they didn't).
 - **Risk / rollback.** Medium. Revert.

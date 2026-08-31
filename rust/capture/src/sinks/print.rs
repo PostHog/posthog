@@ -1,18 +1,16 @@
 use async_trait::async_trait;
 
-use metrics::{counter, histogram};
+use metrics::counter;
 use tracing::log::info;
 
 use crate::api::CaptureError;
 use crate::outputs::PublishEvents;
-use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 
 pub struct PrintSink {}
 
 /// No `capture_event_batch_size` here: the outputs facade records it for
-/// every backend uniformly, where the retiring `Event` impl records it
-/// itself.
+/// every backend uniformly.
 #[async_trait]
 impl PublishEvents for PrintSink {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
@@ -32,17 +30,5 @@ impl PublishEvents for PrintSink {
         }
 
         Ok(())
-    }
-}
-
-#[async_trait]
-impl Event for PrintSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        PublishEvents::publish_one(self, event).await
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        histogram!("capture_event_batch_size").record(events.len() as f64);
-        PublishEvents::publish_batch(self, events).await
     }
 }

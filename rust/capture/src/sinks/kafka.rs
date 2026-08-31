@@ -737,8 +737,8 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
 
 /// The prep → publish → fold dance for the outputs layer. No
 /// `capture_event_batch_size` here: the outputs facade records it for
-/// every backend uniformly, where the retiring `Event` impls record it
-/// themselves.
+/// every backend uniformly, where the retiring `Event` impl below records
+/// it itself.
 #[async_trait]
 impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
