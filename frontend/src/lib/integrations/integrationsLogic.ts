@@ -113,6 +113,7 @@ export interface integrationsLogicValues {
     integrationsLoading: boolean
     linkedGithubInstallation: IntegrationType | null
     linkedGithubInstallationLoading: boolean
+    newIntegrationModalId: string | null
     newIntegrationModalKind: IntegrationKind | null
     pollingSubscribers: number
     requestedAccessKinds: IntegrationKind[]
@@ -503,7 +504,11 @@ export interface integrationsLogicActions {
             kind: string
         }
     }
-    openNewIntegrationModal: (kind: IntegrationKind) => {
+    openNewIntegrationModal: (
+        kind: IntegrationKind,
+        id: string
+    ) => {
+        id: string
         kind:
             | 'apns'
             | 'aws-redshift'
@@ -770,7 +775,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
-        openNewIntegrationModal: (kind: IntegrationKind) => ({ kind }),
+        openNewIntegrationModal: (kind: IntegrationKind, id: string) => ({ kind, id }),
         closeNewIntegrationModal: true,
         openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
         closeSetupModal: true,
@@ -793,6 +798,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
         stopPolling: true,
     }),
     reducers({
+        newIntegrationModalId: [
+            null as string | null,
+            {
+                openNewIntegrationModal: (_, { id }: { id: string }) => id,
+                closeNewIntegrationModal: () => null,
+            },
+        ],
         newIntegrationModalKind: [
             null as IntegrationKind | null,
             {
