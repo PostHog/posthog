@@ -31,18 +31,19 @@ def reverse_accessor_edges() -> list[str]:
         apps,  # noqa: PLC0415 — Django is only importable after setup; hogli loads this module without it
     )
 
-    product_labels = {
-        config.label for config in apps.get_app_configs() if config.module.__name__.startswith("products.")
-    }
-
     def boundary(model) -> str:
-        label = model._meta.app_label
-        return label if label in product_labels else "core"
+        # Ownership comes from the defining module, not _meta.app_label: product models that keep a
+        # legacy label ("ee" on access_control's Role) would otherwise read as core and bypass the
+        # ratchet, and relations between two such models would read as cross-product.
+        module = model.__module__
+        return module.split(".")[1] if module.startswith("products.") else "core"
 
     out = set()
     for model in apps.get_models():
         if model._meta.auto_created:
             continue  # auto-created M2M through models restate the M2M field's own edge
+        if model._meta.proxy:
+            continue  # a proxy shares its parent's fields and creates no accessor of its own
         for field in model._meta.get_fields(include_hidden=False):
             if not (field.is_relation and field.concrete and field.related_model):
                 continue
