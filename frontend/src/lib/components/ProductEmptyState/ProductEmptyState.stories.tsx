@@ -19,6 +19,7 @@ import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptySta
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
+import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
@@ -212,4 +213,10 @@ export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyS
 export const LogsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(logsEmptyState, 'needs-setup', {
     // nosemgrep: no-environments-api-urls-frontend -- api.logs is env-scoped, so the msw mock must match /api/environments to intercept it
     mocks: { get: { '/api/environments/:team_id/logs/has_logs': [200, { hasLogs: false }] } },
+})
+
+// Tracing detection asks the has-spans API on mount - answer "none yet".
+export const TracingNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(tracingEmptyState, 'needs-setup', {
+    // nosemgrep: no-environments-api-urls-frontend -- api.tracing is env-scoped, so the msw mock must match /api/environments to intercept it
+    mocks: { get: { '/api/environments/:team_id/tracing/spans/has_spans': [200, { hasSpans: false }] } },
 })
