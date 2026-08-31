@@ -94,17 +94,27 @@ class TestPushedAuthorizationRequest(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_request")
 
-    def test_authorize_rehydrates_pushed_parameters(self):
+    def test_authorize_expands_pushed_parameters(self):
         # Push a full authorization request, then start the browser flow carrying
-        # only client_id + request_uri. Rehydration must supply redirect_uri, PKCE
-        # and scope so the consent screen renders instead of erroring.
+        # only client_id + request_uri. The authorize endpoint must redirect to
+        # itself with the pushed parameters expanded into the query string (so the
+        # consent SPA can build its approve POST), dropping request_uri.
         request_uri = self.push(self.public_par_body()).json()["request_uri"]
 
         response = self.client.get(
             f"/oauth/authorize/?client_id=test_public_client_id&{urlencode({'request_uri': request_uri})}"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location = response["Location"]
+        self.assertIn("redirect_uri=", location)
+        self.assertIn("code_challenge=", location)
+        self.assertIn("scope=", location)
+        self.assertNotIn("request_uri=", location)
+
+        # Following the expanded URL renders the consent screen.
+        followed = self.client.get(location)
+        self.assertEqual(followed.status_code, status.HTTP_200_OK)
 
     def test_authorize_rejects_request_uri_without_client_id(self):
         # RFC 9126 §4: the authorization request must identify the client the
@@ -116,9 +126,9 @@ class TestPushedAuthorizationRequest(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_push_rejects_oversized_field(self):
+    def test_push_rejects_oversized_request(self):
         body = self.public_par_body()
-        body["scope"] = "openid " + ("a:read " * 2000)  # well over the 4096 cap
+        body["scope"] = "a" * (40 * 1024)  # over PAR_MAX_STORED_BYTES
 
         response = self.push(body)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
