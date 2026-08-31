@@ -2,16 +2,15 @@
 name: creating-online-evaluations
 description: >
   Author continuously-running online evaluations in PostHog AI observability, grounded in real failure
-  modes you've identified. Use when the user wants evaluations that automatically score new generations
-  or whole traces going forward — "create an eval to catch X", "continuously check that responses do Y",
+  modes you've identified. Use when the user wants evaluations that automatically score new generations or
+  whole traces going forward — "create an eval to catch X", "continuously check that responses do Y",
   "turn these failures into evals". Covers letting the explored data decide how many evals to create,
-  proposing that set in plain language and asking the user which ones they want, choosing the target and
-  eval type (hog / llm_judge / sentiment), configuring a provider and model for an llm_judge eval (a
-  provider key gates enabling, not creation), scoping which generations trigger it via
-  conditions, creating disabled, verifying scope,
-  and enabling. Falls back to proposing a sentiment eval when no failure mode is worth catching.
-  Finding and ranking the failure modes worth evaluating is its own job — use exploring-ai-failures first.
-  To debug or manage evaluations that already exist, use exploring-llm-evaluations.
+  proposing that set for the user to pick, choosing the target and eval type (hog / llm_judge /
+  sentiment), configuring a provider and model for an llm_judge eval (a provider key gates enabling, not
+  creation), scoping which generations trigger it via conditions, creating disabled, verifying scope, and
+  enabling. Proposes a sentiment eval when no failure mode is worth catching. Finding and ranking the
+  failure modes worth evaluating is its own job — use exploring-ai-failures first. To debug or manage
+  evaluations that already exist, use exploring-llm-evaluations.
 ---
 
 # Creating online evaluations
@@ -289,7 +288,8 @@ For generation targets, `count()` is the run volume. For trace targets, count di
 `$ai_trace_id` values because matching generations from the same trace schedule only one run.
 
 If volume is high, set `rollout_percentage` below 100 to sample. Spot-check the evaluator with
-`llma-evaluation-test-hog` (hog) or `llma-evaluation-run` against one generation (llm_judge).
+`llma-evaluation-test-hog` (hog) or `llma-evaluation-run` against one generation (llm_judge; skip the
+spot-run for a judge with no usable key, per 2.3).
 Both tools currently use generation samples; for a trace target they can check shared source or prompt behavior,
 but they do not reproduce the complete settled trace. Review the first live trace results before increasing rollout.
 
