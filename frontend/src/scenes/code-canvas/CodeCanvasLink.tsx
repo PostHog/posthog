@@ -39,8 +39,18 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
     const deepLink = channelId && dashboardId ? canvasDeepLink(channelId, dashboardId) : null
 
     useEffect(() => {
-        if (deepLink) {
-            window.location.href = deepLink
+        if (!deepLink) {
+            return
+        }
+
+        const closeTimer = window.setTimeout(() => {
+            window.close()
+        }, 5000)
+
+        window.location.href = deepLink
+
+        return () => {
+            window.clearTimeout(closeTimer)
         }
     }, [deepLink])
 
@@ -50,8 +60,8 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
                 <IconLaptop className="text-5xl shrink-0" />
                 <h2 className="text-xl font-semibold m-0">Opening in PostHog Desktop…</h2>
                 <p className="text-muted mb-0">
-                    Canvases live in the PostHog Desktop app. If it's installed, it should open automatically. If it
-                    didn't, use the button below — or download the app.
+                    Canvases live in the PostHog Desktop app. If it's installed, it should open automatically. This page
+                    will close in 5 seconds. If it didn't, use the button below or download the app.
                 </p>
                 <div className="flex flex-col items-center gap-2">
                     {deepLink && (
