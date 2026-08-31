@@ -367,9 +367,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         availableReviewers: [
             [] as InboxReviewerOption[],
             {
-                loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
+                loadAvailableReviewers: async ({ query }: { query?: string } = {}, breakpoint) => {
                     // The api wrapper already returns the typed `{ user_uuid, name, email }[]` array.
-                    return await api.signalReports.availableReviewers(query)
+                    const reviewers = await api.signalReports.availableReviewers(query)
+                    // Discard this result if a newer search superseded it while the request was in
+                    // flight, so a slower earlier response cannot overwrite the newer rows.
+                    breakpoint()
+                    return reviewers
                 },
             },
         ],
