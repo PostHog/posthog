@@ -24,10 +24,12 @@ def test_raw_trino_queries_accept_single_select(sql: str) -> None:
     assert ensure_read_only_raw_trino_statement(sql) == sql
 
 
-def test_execute_returns_rows_and_types() -> None:
+@pytest.mark.parametrize("sql", ["SELECT id, active FROM users", "SELECT id, active FROM users -- %(unbound)s"])
+def test_execute_returns_rows_and_types(sql: str) -> None:
     adapter = TrinoAdapter()
     request = MagicMock()
-    request.sql = "SELECT id, active FROM users"
+    request.sql = sql
+    request.values = None
     request.team.pk = 1
     request.source.id = "source-id"
     request.settings.max_execution_time = 30
@@ -55,3 +57,33 @@ def test_execute_returns_rows_and_types() -> None:
     assert result.results == [(1, True)]
     assert result.print_columns == ["id", "active"]
     assert result.types == [("id", "Nullable(Int64)"), ("active", "Nullable(Bool)")]
+
+
+def test_execute_converts_compiler_parameters_for_trino_driver() -> None:
+    adapter = TrinoAdapter()
+    request = MagicMock()
+    request.sql = "SELECT %(status)s, %(account)s, %(status)s"
+    request.values = {"account": 42, "status": "paid"}
+    request.team.pk = 1
+    request.source.id = "source-id"
+    request.settings.max_execution_time = 30
+    request.timings.measure.return_value.__enter__.return_value = None
+    request.timings.measure.return_value.__exit__.return_value = None
+    cursor = MagicMock()
+    cursor.fetchmany.return_value = []
+    cursor.description = []
+    connection = MagicMock()
+    connection.cursor.return_value = cursor
+    connection_context = MagicMock()
+    connection_context.__enter__.return_value = connection
+
+    with (
+        patch.object(adapter, "validate_source_config", return_value=(MagicMock(), MagicMock())),
+        patch(
+            "products.warehouse_sources.backend.facade.source_management.connect_trino",
+            return_value=connection_context,
+        ),
+    ):
+        adapter.execute(request)
+
+    cursor.execute.assert_called_once_with("SELECT ?, ?, ?", ["paid", 42, "paid"])

@@ -1,14 +1,22 @@
 # HogQL to Trino compilation
 
-The Trino backend compiles a resolved HogQL query into SQL and bound values. It does not connect to Trino or enable HogQL on an existing Query Editor connection.
+The Trino backend compiles a resolved HogQL query into SQL and bound values. The compiler itself does not connect to Trino. A separate adapter integration enables HogQL on Query Editor connections.
 
 ## Release boundary
 
-Call `prepare_and_print_ast(node, context, "trino")` explicitly to use the backend. Normal query routing and the raw-only Trino adapter remain unchanged. The compiler and lowering modules load only when a caller selects the Trino dialect.
+Call `prepare_and_print_ast(node, context, "trino")` explicitly to use the backend. The compiler-only change leaves normal query routing and the raw-only Trino adapter unchanged. The compiler and lowering modules load only when a caller selects the Trino dialect.
 
 The returned SQL uses named placeholders, with values stored in `context.values`. `convert_pyformat_placeholders` converts these into positional placeholders and values for a Trino client; calling this helper does not execute SQL.
 
-Query Editor capability changes, case-insensitive connection lookup, and parameter submission belong to a separate connection-integration change. They are not prerequisites for compilation.
+Query Editor capability changes, case-insensitive connection lookup, and parameter submission belong to the separate connection integration described below. They are not prerequisites for compilation.
+
+## Query Editor connection integration
+
+The connection integration advertises `TrinoAdapter.dialect = "trino"`. Selecting a Trino connection for a HogQL query uses the shared query executor and Trino compiler. Table and field lookup follow Trino's case-insensitive identifier rules, while printed relations use the connection's catalog, schema, and physical table name.
+
+The adapter converts compiler placeholders into positional driver parameters without interpolating values into SQL. Raw SQL requests without bound values still pass through unchanged. Existing source configuration validation, raw read-only checks, timeouts, and row caps remain in place.
+
+This integration changes connection behavior and can be released separately from the compiler. It does not provision catalogs, alter deployments, or make source-only ClickHouse tables available in Trino.
 
 ## Why some shared integration is necessary
 
