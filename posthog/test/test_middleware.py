@@ -1919,6 +1919,9 @@ class TestCSPMiddleware(APIBaseTest):
     @parameterized.expand(
         [
             ("self_hosted_by_default", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}),
+            # DEBUG puts an install in the local run mode rather than the hobby one, and nothing
+            # stops a self-hoster deploying that way, so it must report nowhere as well.
+            ("self_hosted_with_debug", {"CLOUD_DEPLOYMENT": None, "DEBUG": True}),
             # Cloud would otherwise report, so this case proves the empty value turns it off.
             ("explicitly_disabled", {"CLOUD_DEPLOYMENT": "US", "CSP_REPORT_ENDPOINT": ""}),
         ]

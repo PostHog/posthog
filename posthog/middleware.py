@@ -39,7 +39,7 @@ from statshog.defaults.django import statsd
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
+from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
@@ -1144,10 +1144,11 @@ def csp_report_endpoint(**params: str) -> str:
     """The URL browsers report CSP violations and crashes to, or "" when reporting is turned off."""
     endpoint = settings.CSP_REPORT_ENDPOINT
     if endpoint is None:
-        # Self-hosted installs report nowhere. Violations from a deployment we do not run tell us
-        # nothing we can act on, and reporting sends that instance's document URLs to a destination
-        # its operator never chose.
-        endpoint = "" if is_hobby() else _POSTHOG_CSP_REPORT_ENDPOINT
+        # Only deployments PostHog runs report to PostHog. Violations from an instance we do not
+        # run tell us nothing we can act on, and reporting sends that instance's document URLs to a
+        # destination its operator never chose. The gate is cloud rather than hobby because a
+        # self-hosted install with DEBUG set runs in the local mode, not the hobby one.
+        endpoint = _POSTHOG_CSP_REPORT_ENDPOINT if is_cloud() else ""
     if not endpoint or not params:
         return endpoint
     # The endpoint carries the destination's project token, so it normally already has a query
