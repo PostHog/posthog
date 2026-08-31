@@ -19,6 +19,7 @@ from posthog.hogql import ast
 from products.engineering_analytics.backend.logic.merge_queue import gate_attempt_expr
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    DECISIVE_FAILURE_CONCLUSIONS_SQL,
     date_to_filter_clause,
     run_started_floor_constant,
     window_pair_predicates,
@@ -65,7 +66,7 @@ _MERGE_QUEUE_SELECT = """
                 any(pr.merged_at) AS merged_at,
                 min(r.run_started_at) AS first_gate_started_at,
                 count(DISTINCT __GATE_ATTEMPT__) AS attempts,
-                max(r.status = 'completed' AND r.conclusion IN ('failure', 'timed_out')) AS had_failed_gate
+                max(r.status = 'completed' AND r.conclusion IN (__DECISIVE_FAILURES__)) AS had_failed_gate
             FROM __RUNS_SOURCE__ AS r
             INNER JOIN __PR_SOURCE__ AS pr ON pr.number = r.pr_number
             WHERE r.is_merge_queue
@@ -232,6 +233,7 @@ def query_merge_queue_overview(
         .replace("__PR_SOURCE__", curated.pr_source())
         .replace("__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch"))
         .replace("__DATE_TO_MERGED__", date_to_merged_clause)
+        .replace("__DECISIVE_FAILURES__", DECISIVE_FAILURE_CONCLUSIONS_SQL)
     )
     response = curated.run(sql, query_type="engineering_analytics.merge_queue_overview", placeholders=placeholders)
     if not response.results:

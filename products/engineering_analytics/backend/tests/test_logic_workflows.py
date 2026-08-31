@@ -244,11 +244,18 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80),
-                _run_row(9501, "CI", "sha81", "completed", "success", _ago(3), _ago(3), pr_number=81, run_attempt=2),
+                _run_row(9501, "CI", "sha81", "completed", "success", _ago(2), _ago(2), pr_number=81, run_attempt=2),
                 # A merge-queue batch run: its job funds the queue slice, and only it.
                 _run_row(
                     9502, "CI", "sha82q", "completed", "success", _ago(2), _ago(2), head_branch="trunk-merge/gr-1"
                 ),
+                _run_row(9503, "CI", "failed", "completed", "failure", _ago(2), _ago(2)),
+                _run_row(9504, "CI", "skipped", "completed", "skipped", _ago(2), _ago(2)),
+                _run_row(9505, "CI", "cancelled", "completed", "cancelled", _ago(2), _ago(2)),
+                _run_row(9506, "CI", "action", "completed", "action_required", _ago(2), _ago(2)),
+                _run_row(9507, "CI", "startup", "completed", "startup_failure", _ago(2), _ago(2)),
+                _run_row(9508, "CI", "stale", "completed", "stale", _ago(2), _ago(2)),
+                _run_row(9509, "CI", "neutral", "completed", "neutral", _ago(2), _ago(2)),
             ],
         )
         self._create_table(
@@ -264,7 +271,8 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
         assert overview.merged_pr_count_prev == 0
         assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
-        assert overview.run_count == 3
+        assert overview.run_count == 10
+        assert overview.success_rate == pytest.approx(0.5)  # 3 successes of 6 conclusive runs
         assert overview.rerun_cycles == 1
         assert overview.billable_minutes == pytest.approx(4.0)  # two 120s jobs on a billable tier
         assert overview.estimated_cost_usd == pytest.approx(0.032)  # 4 min x $0.004 x 2 (4-core)
@@ -281,7 +289,10 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
         with_series = api.get_repo_overview(team=self.team)
         assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
-        assert len(with_series.success_rate_series) > 0
+        observed_pass_rates = [
+            bucket.success_rate for bucket in with_series.success_rate_series if bucket.success_rate is not None
+        ]
+        assert observed_pass_rates == [pytest.approx(0.5)]
 
     def test_time_to_green_measures_push_rounds_not_runs(self) -> None:
         # A per-run median would read this fixture as ~5 min. The round definition asks a different
@@ -605,9 +616,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         health = api.list_workflow_health(team=self.team, date_from="-30d")
         ci = next(item for item in health if item.workflow_name == "CI")
 
-        # Counts and rate stay over all/completed runs; only the duration population narrows.
+        # Counts keep every run, while the rate excludes the cancelled runs that reached no verdict.
         assert ci.run_count == 9
-        assert ci.success_rate == pytest.approx(5 / 9)
+        assert ci.success_rate == pytest.approx(5 / 6)
         assert ci.p50_seconds == pytest.approx(100)
         assert ci.p95_seconds == pytest.approx(100)
 
@@ -697,8 +708,8 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert github_hosted.estimated_cost_usd is None  # free tier: minutes/jobs only, no billable cost
 
     def test_workflow_health_daily_failures_exclude_non_failures(self) -> None:
-        # The daily failure count is decisive failures only — skipped / cancelled / action_required
-        # runs are completed but neither successes nor failures, so they must not inflate the trend.
+        # The daily failure count keeps decisive failures while completed non-verdict runs stay out
+        # of the pass-rate denominator.
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
@@ -714,16 +725,20 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
                 _run_row(6004, "CI", "sha-d", "completed", "skipped", _ago(1), _ago(1)),
                 _run_row(6005, "CI", "sha-e", "completed", "cancelled", _ago(1), _ago(1)),
                 _run_row(6006, "CI", "sha-f", "completed", "action_required", _ago(1), _ago(1)),
+                _run_row(6007, "CI", "sha-g", "completed", "startup_failure", _ago(1), _ago(1)),
+                _run_row(6008, "CI", "sha-h", "completed", "stale", _ago(1), _ago(1)),
+                _run_row(6009, "CI", "sha-i", "completed", "neutral", _ago(1), _ago(1)),
             ],
         )
         ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
         bucket = next(entry for entry in ci.buckets if entry.run_count > 0)
-        # 6 completed, 1 success, 2 failures (failure + timed_out) — skipped/cancelled/action_required are neither.
-        assert (bucket.completed, bucket.successes, bucket.failures) == (6, 1, 2)
+        # Non-verdict runs remain in volume but not the pass-rate denominator.
+        assert (bucket.completed, bucket.successes, bucket.failures) == (9, 1, 4)
+        assert ci.success_rate == pytest.approx(1 / 5)
 
-    def test_workflow_health_last_failure_includes_timed_out(self) -> None:
-        # last_failure_at must agree with the failure definition used by the trend: a workflow whose
-        # only decisive failure is a timeout still has a "last failure".
+    @parameterized.expand(["timed_out", "startup_failure", "stale"])
+    def test_workflow_health_last_failure_includes_decisive_conclusion(self, conclusion: str) -> None:
+        # last_failure_at, rate buckets, and the latest-run badge must share one failure definition.
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
@@ -734,15 +749,14 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(6101, "CI", "sha-g", "completed", "success", _ago(2), _ago(2)),
-                _run_row(6102, "CI", "sha-h", "completed", "timed_out", _ago(1), _ago(1)),
+                _run_row(6102, "CI", "sha-h", "completed", conclusion, _ago(1), _ago(1)),
             ],
         )
         ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
         assert ci.last_failure_at is not None
-        # The latest completed run (the timeout) was decisive — drives the RED status badge.
         assert ci.latest_run_failed is True
-        # And its raw conclusion is carried so the UI can distinguish a real pass from a non-failure.
-        assert ci.latest_run_conclusion == "timed_out"
+        # The raw conclusion lets the UI retain the specific failure label while sharing the verdict.
+        assert ci.latest_run_conclusion == conclusion
 
     def test_workflow_run_detail_by_id(self) -> None:
         # The run detail page fetches one run by id; re-runs share the id, so the latest attempt wins.
