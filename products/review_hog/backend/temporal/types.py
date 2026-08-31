@@ -4,8 +4,6 @@ Lives apart from `workflow.py` so the client (and any sync trigger) can build th
 input without importing the workflow code (which pulls in the heavy activity dependencies).
 """
 
-from dataclasses import dataclass
-
 from posthog.dataclasses import frozen
 
 # How a review run was triggered. Gates are trigger-aware: label → `review_labeled_prs`,
@@ -18,7 +16,7 @@ TRIGGER_MANUAL = "manual"
 TRIGGER_UI = "ui"
 
 
-@dataclass
+@frozen
 class ReviewPRWorkflowInputs:
     """Input for one single-turn `ReviewPRWorkflow`.
 

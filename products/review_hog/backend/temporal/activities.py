@@ -153,7 +153,7 @@ class ValidateIntegrationInput:
     team_id: int
 
 
-@dataclass
+@frozen
 class FetchPRDataInput:
     team_id: int
     user_id: int
