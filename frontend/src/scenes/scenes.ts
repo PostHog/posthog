@@ -639,6 +639,9 @@ export const redirects: Record<
     '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
+    // New dashboards open in a modal on the list page. `/dashboard/new` is a guessed URL,
+    // so send it there with the modal open instead of matching `/dashboard/:id`.
+    '/dashboard/new': `${urls.dashboards()}#newDashboard=modal`,
     '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.sources(),
     '/data-management/data-warehouse': urls.sources(),

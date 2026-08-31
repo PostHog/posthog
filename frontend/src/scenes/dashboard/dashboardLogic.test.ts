@@ -312,13 +312,15 @@ describe('dashboardLogic', () => {
         insightsModel.mount()
     })
 
-    describe('key() guard', () => {
+    describe('malformed dashboard id', () => {
         it.each([
             ['NaN', NaN],
             ['undefined', undefined as unknown as number],
             ['Infinity', Infinity],
-        ])('throws when id is %s', (_label, id) => {
-            expect(() => dashboardLogic({ id })).toThrow(/non-finite id/)
+        ])('mounts and reports not found instead of throwing when id is %s', async (_label, id) => {
+            const invalidLogic = dashboardLogic({ id })
+            invalidLogic.mount()
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
         })
 
         it('accepts a finite numeric id', () => {

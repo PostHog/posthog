@@ -100,6 +100,7 @@ function DashboardScene({
         dashboardFailedToLoad,
         accessDeniedToDashboard,
         error404,
+        hasInvalidDashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -130,7 +131,9 @@ function DashboardScene({
                 object="dashboard"
                 caption={
                     <>
-                        It may have been deleted, or the link is out of date.{' '}
+                        {hasInvalidDashboardId
+                            ? 'This dashboard link is not valid.'
+                            : 'It may have been deleted, or the link is out of date.'}{' '}
                         <Link to={urls.dashboards()}>Go to your dashboards</Link>.
                     </>
                 }
