@@ -941,12 +941,13 @@ export interface ScoutConfigChangedProperties {
     | "auto_pause_exempt"
     | "output_destinations";
   /**
-   * The coarse delivery kind ("dm" | "channel" | "off") for
-   * `output_destinations`; the toggled value for every other setting.
+   * The coarse delivery kind for `output_destinations`; the toggled value for
+   * every other setting. The literal union keeps a channel or member ID out of
+   * analytics by construction — never widen it to `string`.
    */
-  new_value: boolean | number | string;
+  new_value: boolean | number | "dm" | "channel" | "off";
   /** Null when the backend predates the setting and never sent a value. */
-  old_value: boolean | number | string | null;
+  old_value: boolean | number | "dm" | "channel" | "off" | null;
   /** False when the server rejected the update and the change rolled back. */
   success: boolean;
 }
