@@ -554,6 +554,9 @@
                     "$ref": "#/definitions/AccountsTableUnassignedFilter"
                 },
                 {
+                    "$ref": "#/definitions/AccountsTableRelationshipFilter"
+                },
+                {
                     "$ref": "#/definitions/AccountsTableAccountIdFilter"
                 },
                 {
@@ -758,6 +761,33 @@
             },
             "required": ["kind", "definitionId"],
             "type": "object"
+        },
+        "AccountsTableRelationshipFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "definitionId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "relationship",
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/AccountsTableRelationshipOperator"
+                },
+                "userIds": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "definitionId", "operator"],
+            "type": "object"
+        },
+        "AccountsTableRelationshipOperator": {
+            "enum": ["exact", "is_not", "is_set", "is_not_set"],
+            "type": "string"
         },
         "AccountsTableRow": {
             "additionalProperties": false,
@@ -39702,6 +39732,7 @@
                 "error_tracking_issue",
                 "revenue_analytics",
                 "account",
+                "account_relationship",
                 "account_custom_property",
                 "flag",
                 "log",
@@ -52927,6 +52958,7 @@
                 "replay_saved_filters",
                 "revenue_analytics_properties",
                 "account_fields",
+                "account_relationships",
                 "account_custom_properties",
                 "resources",
                 "error_tracking_properties",
