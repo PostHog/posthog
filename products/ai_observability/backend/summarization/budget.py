@@ -20,7 +20,7 @@ RESERVED_TOKENS = 20_000
 # Cost-conscious ceiling for unattended batch summarization, in characters.
 # Batch runs on a schedule over every team's traces, so its context size drives a recurring bill,
 # not a single user-triggered call. The model window (~1M tokens for nano) never bounds a typical
-# trace, which let average batch input climb to ~118K tokens. A trace summary does not improve past
+# trace, so unbounded batch inputs make the recurring unit cost spike. A trace summary does not improve past
 # a few tens of thousands of tokens of context, so cap it there. Measured in characters like the
 # rest of this module (~1.6 characters per token), this targets roughly 55K tokens of input.
 BATCH_TEXT_REPR_MAX_CHARS = 90_000

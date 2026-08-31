@@ -125,8 +125,9 @@ def _fetch_and_format_generation(
     # retention window). Heavy columns (`input`, `output`, `output_choices`) live
     # only as native columns on ai_events, so only this path can recover them for
     # recent rows.
-    # `$ai_output` is empty for chat-format SDK calls (most OpenAI/Anthropic);
-    # the result lives in `$ai_output_choices`, so coalesce to it.
+    # Chat-format SDK calls (most OpenAI/Anthropic) record the result in `$ai_output_choices`
+    # and leave `$ai_output` empty. Read choices first, the same precedence the canonical
+    # formatter uses (`format_output_messages`).
     query = parse_select(
         """
         SELECT
@@ -134,8 +135,8 @@ def _fetch_and_format_generation(
             provider,
             input,
             coalesce(
-                nullIf(output, ''),
-                output_choices
+                nullIf(output_choices, ''),
+                output
             ) as output,
             input_tokens,
             output_tokens,
@@ -183,7 +184,7 @@ def _fetch_and_format_generation(
     return FetchResult(text_repr=text_repr, event_count=1)
 
 
-GENERATION_SECTION_TRUNCATION_MARKER = "\n... [truncated]"
+GENERATION_SECTION_TRUNCATION_MARKER = "\n... [truncated] ...\n"
 
 
 def _render_generation_messages(content: object) -> str:
@@ -199,7 +200,11 @@ def _render_generation_messages(content: object) -> str:
 
 
 def _truncate_section(text: str, budget: int) -> str:
-    """Truncate one section's text to at most `budget` characters, marking the cut."""
+    """Truncate one section's text to at most `budget` characters, marking the cut.
+
+    Keeps the head and the tail with the marker between them, because both ends matter:
+    the head carries the system prompt and the tail carries the newest messages.
+    """
     if budget <= 0:
         return ""
     if len(text) <= budget:
@@ -207,7 +212,9 @@ def _truncate_section(text: str, budget: int) -> str:
     keep = budget - len(GENERATION_SECTION_TRUNCATION_MARKER)
     if keep <= 0:
         return text[:budget]
-    return text[:keep] + GENERATION_SECTION_TRUNCATION_MARKER
+    tail = keep // 2
+    head = keep - tail
+    return text[:head] + GENERATION_SECTION_TRUNCATION_MARKER + text[len(text) - tail :]
 
 
 @frozen
