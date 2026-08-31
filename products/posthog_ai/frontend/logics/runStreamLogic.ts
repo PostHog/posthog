@@ -1504,6 +1504,9 @@ export interface runStreamLogicActions {
     markTurnComplete: () => {
         value: true
     }
+    markTurnStarted: () => {
+        value: true
+    }
     mergeResourcesUsed: (
         products: {
             id?: string
@@ -1807,6 +1810,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records the agent's `/clear` capability, read off each `_posthog/run_started` frame. */
         setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: true,
+        /**
+         * Reopens the turn on a user message that reaches the run over the wire instead of from this
+         * composer, such as a follow-up sent from Slack, sent from another tab, or replayed from history.
+         */
+        markTurnStarted: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
         /**
@@ -2102,8 +2110,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // A run emits `_posthog/run_started` once; a follow-up message on the same run starts
                 // a fresh turn with no new run_started frame, so a human message also reopens the
                 // turn — otherwise the thinking indicator would stay off for the whole follow-up.
+                // `pushHumanMessage` covers a send from this composer, `markTurnStarted` a user turn
+                // that reaches the run some other way (Slack, another tab, a replayed history tail).
                 markRunStarted: () => false,
                 pushHumanMessage: () => false,
+                markTurnStarted: () => false,
                 reset: () => false,
             },
         ],
@@ -3251,6 +3262,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // unattached optimistic stream has no task id and records nothing — its send path marks
             // sent keys directly.
             if (isPosthogNotification(notification, '_posthog/user_message')) {
+                actions.markTurnStarted()
                 if (values.bootstrappedTaskId) {
                     const lines = contextBlockLinesFromUserMessage(extractUserMessageText(notification.params?.content))
                     if (lines.length > 0) {
@@ -3294,6 +3306,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // chains persist a turn in both wire forms, and the seen-lines reducer dedupes the overlap.
             // Chunked frames are skipped: a partial text could truncate a block mid-line.
             if (isSessionUpdateUserMessage(update)) {
+                actions.markTurnStarted()
                 if (values.bootstrappedTaskId && update.sessionUpdate === 'user_message') {
                     const lines = contextBlockLinesFromUserMessage(String(update.content?.text ?? update.text ?? ''))
                     if (lines.length > 0) {

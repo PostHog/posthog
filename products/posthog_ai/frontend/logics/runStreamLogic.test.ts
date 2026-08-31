@@ -1624,13 +1624,31 @@ describe('runStreamLogic', () => {
             expect(logic.values.isThinking).toEqual(false)
         })
 
-        it('re-raises on a follow-up turn opened by a human message, with no new run_started', () => {
+        // A follow-up on the same run starts a new turn with no second run_started frame. It reaches
+        // the thread as this composer's optimistic echo, or, when it was sent from Slack or another
+        // tab, as a wire user turn in one of its two forms.
+        it.each([
+            ['this composer', (): void => logic.actions.pushHumanMessage('and the mobile funnel?')],
+            [
+                'a wire _posthog/user_message',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        notification('_posthog/user_message', { content: 'and the mobile funnel?' })
+                    ),
+            ],
+            [
+                'a wire session/update user_message',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({ sessionUpdate: 'user_message', content: { text: 'and the mobile funnel?' } })
+                    ),
+            ],
+        ])('re-raises on a follow-up turn opened by %s, with no new run_started', (_case, sendFollowUp) => {
             logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
             logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
             expect(logic.values.isThinking).toEqual(false)
 
-            // A follow-up on the same run starts a new turn — no second run_started frame arrives.
-            logic.actions.pushHumanMessage('and the mobile funnel?')
+            sendFollowUp()
             expect(logic.values.isThinking).toEqual(true)
         })
 
