@@ -152,11 +152,13 @@ const DEFAULT_SECONDS_BUCKETS: &[f64] = &[
     0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
 ];
 
-/// Bucket ladder for the two ClickHouse-bound chunk scan spans. The top bucket is the default
-/// `SEEDER_CH_MAX_EXECUTION_TIME_SECS` (14400), because a scan cannot outlive the server-side
+/// Bucket ladder for the two ClickHouse-bound chunk scan spans. The top bucket is
+/// `SEEDER_CH_MAX_EXECUTION_TIME_SECS`, because a scan cannot outlive the server-side
 /// execution-time budget: a chunk that reaches the last bucket was killed by ClickHouse. The value
 /// is repeated here rather than read from `Config` so this module stays a leaf that no other seeder
-/// module can pull a dependency through.
+/// module can pull a dependency through; a test binds it back to the config default. That binding
+/// covers the default only, so a deployment that raises the budget by environment leaves this
+/// ladder short and the last bucket stops meaning "killed".
 const SCAN_DURATION_SECONDS_BUCKETS: &[f64] = &[
     1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, 7200.0, 14400.0,
 ];
@@ -229,6 +231,9 @@ pub fn install_recorder() -> Result<PrometheusHandle, BuildError> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use envconfig::Envconfig;
     use metrics::histogram;
 
     use super::*;
@@ -315,6 +320,24 @@ mod tests {
         assert!(
             sub_second >= 3,
             "only {sub_second} sub-second buckets; a fast planning pass has nowhere to land"
+        );
+    }
+
+    /// The scan ladder's top bucket carries a claim — that a chunk reaching it was killed by
+    /// ClickHouse — and that claim holds only while the bucket matches the execution-time budget.
+    /// The ladder repeats the number rather than reading `Config`, so nothing but this ties the two
+    /// together. A test module may import `Config` without the production module depending on it,
+    /// which keeps `metrics` a leaf.
+    #[test]
+    fn the_scan_ladder_tops_out_at_the_clickhouse_execution_budget() {
+        let config = crate::config::Config::init_from_hashmap(&HashMap::new())
+            .expect("every seeder config field carries a default");
+        assert_eq!(
+            *SCAN_DURATION_SECONDS_BUCKETS
+                .last()
+                .expect("the scan ladder is non-empty"),
+            config.seeder_ch_max_execution_time_secs as f64,
+            "the scan ladder no longer tops out at the ClickHouse execution-time budget"
         );
     }
 }

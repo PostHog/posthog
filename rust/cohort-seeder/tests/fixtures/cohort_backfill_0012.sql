@@ -7,7 +7,10 @@
 -- Nothing enforces this snapshot against Django. No test diffs it with `sqlmigrate`, and the
 -- filename appears at one call site, so a later migration that changes these tables and forgets
 -- this file passes CI and diverges from production. Re-derive it by hand when you touch the
--- `cohort_backfill_*` DDL.
+-- `cohort_backfill_*` DDL: `python manage.py sqlmigrate cohorts <number>` prints the statements the
+-- migration emits (CI runs the same command to post migration SQL on a PR). Fold them in, drop the
+-- external Team/Cohort foreign key lines to keep the projection schema-local, and rename this file
+-- and its `include_str!` to the new number.
 
 CREATE TABLE cohort_backfill_runs (
     id uuid PRIMARY KEY,

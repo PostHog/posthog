@@ -825,6 +825,12 @@ async fn the_recovery_path_draws_its_wait_from_the_chunks_attempt_count() -> Res
 /// an expired `produced` lease must reclaim immediately because its tiles are already in Kafka and
 /// the run cannot complete until it reaches `confirmed`. Gating either would stall a run on a
 /// column that describes neither.
+///
+/// The two lease legs are a guard rail, not a live bug. The claim `UPDATE` sets `next_attempt_at`
+/// to NULL in the same statement that writes `scanning`, so no reclaimable row carries a stale
+/// stamp today and the arms would pass with or without their gate. Each leg stamps one by hand, so
+/// a later edit that widens the gate onto a lease arm is caught here instead of stalling a run in
+/// production.
 #[tokio::test]
 async fn the_backoff_gate_applies_only_to_the_failed_claim_arm() -> Result<()> {
     with_db(|pool| async move {
@@ -876,8 +882,27 @@ async fn the_backoff_gate_applies_only_to_the_failed_claim_arm() -> Result<()> {
         .bind(produced_lease.chunk_id())
         .execute(&pool)
         .await?;
-        ensure!(store
+        let produced_reclaim = store
             .claim_next(&run_ids, &Claimant::new("worker-c")?, lease60, attempts5)
+            .await?
+            .context("an expired produced lease was gated by the backoff stamp")?;
+
+        // A scanning chunk whose lease expired reclaims too. It is left `scanning` rather than
+        // marked produced, which is the shape of a worker that died before it reached `fail`, so
+        // nothing sized a wait for it and nothing should hold it back.
+        let scanning_lease = produced_reclaim.chunk.spec().lease;
+        drop(produced_reclaim);
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks
+             SET lease_expires_at = now() - interval '1 second',
+                 next_attempt_at = now() + interval '1 hour'
+             WHERE id = $1",
+        )
+        .bind(scanning_lease.chunk_id())
+        .execute(&pool)
+        .await?;
+        ensure!(store
+            .claim_next(&run_ids, &Claimant::new("worker-d")?, lease60, attempts5)
             .await?
             .is_some());
         Ok(())

@@ -29,9 +29,11 @@ pub use watch::{MarkerWatchTask, PgMarkerFlush, WatchDirectives, MARKER_WATCH_LI
 ///
 /// The store's `fail` takes the delay as an argument, so a test that calls it directly pins nothing
 /// about where the delay comes from. This drives the one production call site instead: the resolver
-/// that reads the chunk's attempt count and asks the policy for a wait. It lives here rather than in
-/// `test_support` because [`execute`]'s recovery types are private to this module, and widening them
-/// for a test would put the whole recovery matrix on the crate's surface.
+/// that reads the chunk's attempt count and asks the policy for a wait.
+///
+/// It lives here rather than in `test_support` because [`execute`]'s recovery types are
+/// `pub(super)`. Reaching them from a crate-root sibling means `pub(crate)`, which would let any
+/// module drive the recovery matrix directly, a wider contract than one test needs.
 #[cfg(feature = "pg-test-support")]
 #[doc(hidden)]
 pub async fn fail_via_recovery(
