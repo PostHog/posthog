@@ -51,6 +51,8 @@ import {
   isMethod,
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
+  type SteerDeclineCause,
+  steerDeclined,
 } from "../../acp-extensions";
 import {
   createEnrichment,
@@ -242,13 +244,13 @@ function confirmConsumedSteers(turn: Turn): void {
 }
 
 /** Report every steer left on a finishing turn as undelivered so callers redeliver it. */
-function declinePendingSteers(turn: Turn): void {
+function declinePendingSteers(turn: Turn, cause: SteerDeclineCause): void {
   if (turn.steerTimer) {
     clearTimeout(turn.steerTimer);
     turn.steerTimer = undefined;
   }
   for (const steer of turn.pendingSteers.values()) {
-    steer.settle(false);
+    steer.settle(false, cause);
   }
   turn.pendingSteers.clear();
 }
@@ -605,15 +607,19 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // Decline before pushing, so the message is redelivered rather than also
       // applied by a later turn.
       if (!owner) {
-        return { stopReason: "end_turn", _meta: { steer: false } };
+        return steerDeclined("no_owner_turn");
       }
       // Only a declined steer is redelivered, so acking on submission loses any
       // steer the SDK never folds in. Wait for the model to act on it instead.
       const ack = new Promise<PromptResponse>((resolve) => {
         owner.pendingSteers.set(promptUuid, {
           consumed: false,
-          settle: (reachedModel) =>
-            resolve({ stopReason: "end_turn", _meta: { steer: reachedModel } }),
+          settle: (reachedModel, cause) =>
+            resolve(
+              reachedModel
+                ? { stopReason: "end_turn", _meta: { steer: true } }
+                : steerDeclined(cause ?? "turn_ended_first"),
+            ),
         });
       });
       this.session.input.push(userMessage);
@@ -621,7 +627,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return ack;
     }
     if (isSteer) {
-      return { stopReason: "end_turn", _meta: { steer: false } };
+      return steerDeclined(
+        this.session.compacting ? "compacting" : "no_in_flight_turn",
+      );
     }
 
     if (!hasInFlightTurns && !isLocalOnlyCommand) {
@@ -875,7 +883,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(
+        turn,
+        session.cancelled ? "cancelled" : "turn_ended_first",
+      );
       if (session.forceCancelTimer) {
         clearTimeout(session.forceCancelTimer);
         session.forceCancelTimer = undefined;
@@ -897,7 +908,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(turn, "turn_failed");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.toolUseStreamCache.clear();
@@ -923,7 +934,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       for (const turn of turns) {
         if (!turn.settled) {
           turn.settled = true;
-          declinePendingSteers(turn);
+          declinePendingSteers(turn, "turn_failed");
           turn.reject(error);
         }
       }
@@ -968,7 +979,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           for (const queued of [...session.turnQueue]) {
             if (!queued.settled) {
               queued.settled = true;
-              declinePendingSteers(queued);
+              declinePendingSteers(
+                queued,
+                session.cancelled ? "cancelled" : "turn_failed",
+              );
               queued.reject(
                 RequestError.internalError(undefined, SESSION_ENDED_MESSAGE),
               );
@@ -1132,7 +1146,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   },
                 });
                 head.settled = true;
-                declinePendingSteers(head);
+                declinePendingSteers(head, "turn_failed");
                 session.turnQueue = session.turnQueue.filter((t) => t !== head);
                 this.dispatchQueuedInput(session);
                 head.resolve({ stopReason: "end_turn" });
@@ -1623,7 +1637,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         continue;
       }
       turn.settled = true;
-      declinePendingSteers(turn);
+      declinePendingSteers(turn, "cancelled");
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       if (!turn.pendingInput) {
         session.pendingOrphanResults += 1;
