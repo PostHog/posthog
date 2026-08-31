@@ -202,11 +202,12 @@ describe('loginLogic', () => {
             await expectLogic(logic).toDispatchActions(['setCodeVerificationRequired', 'submitLoginFailure'])
 
             expect(logic.values.codeVerificationRequired).toBe(true)
-            expect(logic.values.generalError?.code).toBe('code_based_verification_sent')
+            expect(logic.values.codeVerificationEmail).toBe('user@example.com')
+            expect(logic.values.generalError).toBe(null)
 
             logic.actions.exitCodeVerification()
             expect(logic.values.codeVerificationRequired).toBe(false)
-            expect(logic.values.generalError).toBe(null)
+            expect(logic.values.codeVerificationEmail).toBe(null)
         })
     })
 
