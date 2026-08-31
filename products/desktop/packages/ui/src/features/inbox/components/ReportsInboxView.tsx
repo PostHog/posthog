@@ -11,8 +11,8 @@ import {
 import { humanizeIdentifier } from "@posthog/core/inbox/activityLog";
 import {
   filterReportsBySearch,
+  INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
   INBOX_DISMISSED_STATUS_FILTER,
-  REPORTS_INBOX_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
 import { partitionInboxReports } from "@posthog/core/inbox/reportInboxSections";
 import { inboxReviewerScopeValue } from "@posthog/core/inbox/reportMembership";
@@ -57,7 +57,6 @@ import {
 import {
   PageHeader,
   PageHeaderActions,
-  PageHeaderChip,
   PageHeaderDescription,
   PageHeaderHeading,
   PageHeaderTitle,
@@ -93,10 +92,9 @@ const SECTION_PREVIEW_LIMIT = 5;
 const AUTOPAGE_REPORT_LIMIT = 400;
 
 /**
- * The global reports inbox: every report in the project on one page,
- * sectioned by what it asks (a decision, or just watching), quantified by the
- * evidence behind it, and triageable one at a time in focus mode. The
- * per-space sidebar list stays the working set; this is everything else.
+ * The global reports inbox groups actionable reports by whether a PR is ready
+ * to review, with terminal reports available separately. The per-space sidebar
+ * list stays the working set; this is everything else.
  */
 export function ReportsInboxView() {
   const {
@@ -107,13 +105,12 @@ export function ReportsInboxView() {
     isFetchingNextPage,
     fetchNextPage,
     searchQuery,
-    totalCount,
     scope,
     isSuccess,
     sourceProductFilter,
     priorityFilter,
   } = useInboxAllReports({
-    statusFilter: REPORTS_INBOX_STATUS_FILTER,
+    statusFilter: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
     applyPrFilter: true,
   });
   const triageFocusEnabled = useTriageFocusEnabled();
@@ -143,22 +140,22 @@ export function ReportsInboxView() {
   // Search is the one exception: it's a client-side title match, so a
   // searching page counts its matching rows instead.
   const serverCounts = useInboxSectionCounts();
-  const prFilter = useInboxSignalsFilterStore((s) => s.prFilter);
   const hasActiveFilters = useInboxSignalsFilterStore(hasActiveInboxFilters);
   const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
   const searchActive = searchQuery.trim().length > 0;
-  const decisionCount = searchActive
-    ? sections.decision.length
-    : serverCounts.decision;
-  const attentionCount = searchActive
-    ? sections.attention.length
-    : serverCounts.attention;
-  const inProgressCount = searchActive
-    ? sections.inProgress.length
-    : serverCounts.inProgress;
+  const reviewAndMergeCount = searchActive
+    ? sections.reviewAndMerge.length
+    : serverCounts.reviewAndMerge;
+  const needsPrCount = searchActive
+    ? sections.needsPr.length
+    : serverCounts.needsPr;
+  const triageReports = useMemo(
+    () => [...sections.reviewAndMerge, ...sections.needsPr],
+    [sections.reviewAndMerge, sections.needsPr],
+  );
   useTrackReportsInboxViewed({
-    reports: scopedReports,
-    totalCount: searchActive ? scopedReports.length : totalCount,
+    reports: triageReports,
+    totalCount: reviewAndMergeCount + needsPrCount,
     isReady: isSuccess && !serverCounts.isLoading,
     sourceProductFilter,
     priorityFilter,
@@ -194,20 +191,20 @@ export function ReportsInboxView() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === "t" && sections.decision.length > 0) {
+      if (event.key === "t" && triageReports.length > 0) {
         event.preventDefault();
         setFocusMode(true);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [triageFocusEnabled, focusMode, sections.decision.length]);
+  }, [triageFocusEnabled, focusMode, triageReports.length]);
 
   if (triageFocusEnabled && focusMode && !isLoading) {
     return (
       <div className="h-full min-h-0">
         <ReportTriageFocus
-          reports={sections.decision}
+          reports={triageReports}
           allReports={allReports}
           scope={scope}
           hasActiveFilters={hasActiveFilters}
@@ -219,13 +216,10 @@ export function ReportsInboxView() {
   }
 
   const isEmpty = searchActive
-    ? sections.decision.length === 0 &&
-      sections.attention.length === 0 &&
-      sections.inProgress.length === 0
+    ? sections.reviewAndMerge.length === 0 && sections.needsPr.length === 0
     : !serverCounts.isLoading &&
-      serverCounts.decision === 0 &&
-      serverCounts.attention === 0 &&
-      serverCounts.inProgress === 0;
+      serverCounts.reviewAndMerge === 0 &&
+      serverCounts.needsPr === 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-1">
@@ -233,14 +227,6 @@ export function ReportsInboxView() {
         <PageHeaderHeading>
           <PageHeaderTitleRow>
             <PageHeaderTitle>Self-driving</PageHeaderTitle>
-            {serverCounts.decision > 0 && (
-              <PageHeaderChip
-                icon={<EnvelopeSimpleIcon size={12} weight="fill" />}
-              >
-                {serverCounts.decision} need
-                {serverCounts.decision === 1 ? "s" : ""} a decision
-              </PageHeaderChip>
-            )}
             <PageHeaderActions>
               <Button
                 type="button"
@@ -265,7 +251,7 @@ export function ReportsInboxView() {
                     type="button"
                     variant="outline"
                     className="gap-2"
-                    disabled={sections.decision.length === 0}
+                    disabled={triageReports.length === 0}
                     onClick={() => setFocusMode(true)}
                   >
                     <ListChecksIcon size={16} />
@@ -345,27 +331,16 @@ export function ReportsInboxView() {
               ) : (
                 <>
                   <InboxSection
-                    title="Needs a decision"
-                    reports={sections.decision}
-                    count={decisionCount}
-                    caption={
-                      !searchActive &&
-                      prFilter === "all" &&
-                      serverCounts.decisionPr > 0
-                        ? `${serverCounts.decisionPr} with a PR to review`
-                        : undefined
-                    }
-                    emptyNote="Nothing waiting on you."
+                    title="Review and merge"
+                    reports={sections.reviewAndMerge}
+                    count={reviewAndMergeCount}
+                    emptyNote="No pull requests open yet. Start one from a report below."
                   />
                   <InboxSection
-                    title="Needs attention"
-                    reports={sections.attention}
-                    count={attentionCount}
-                  />
-                  <InboxSection
-                    title="In progress"
-                    reports={sections.inProgress}
-                    count={inProgressCount}
+                    title="Needs a PR"
+                    reports={sections.needsPr}
+                    count={needsPrCount}
+                    emptyNote="No reports are waiting for a pull request."
                   />
                   {isFetchingNextPage && (
                     <div className="flex justify-center py-2">
@@ -374,7 +349,12 @@ export function ReportsInboxView() {
                   )}
                 </>
               )}
-              {!isEmpty && <ResolvedSection searchQuery={searchQuery} />}
+              {!isEmpty && (
+                <ResolvedSection
+                  searchQuery={searchQuery}
+                  count={serverCounts.resolved}
+                />
+              )}
             </>
           )}
         </div>
@@ -383,14 +363,12 @@ export function ReportsInboxView() {
   );
 }
 
-// A section header + capped rows. "Needs a decision" renders even when empty
-// (the page's whole question deserves an explicit answer); others only with
-// content.
+// Web keeps both actionable sections visible even when one is empty, which
+// makes the PR/no-PR split legible without requiring reports in both states.
 function InboxSection({
   title,
   reports,
   count,
-  caption,
   emptyNote,
 }: {
   title: string;
@@ -398,14 +376,12 @@ function InboxSection({
   reports: SignalReport[];
   /** The section's true total, from a server-side count query. */
   count: number;
-  /** Secondary breakdown shown after the count (e.g. "37 with a PR to review"). */
-  caption?: string;
   emptyNote?: string;
 }) {
   const [open, setOpen] = useState(true);
-  const [expanded, setExpanded] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(SECTION_PREVIEW_LIMIT);
   if (count === 0 && reports.length === 0 && !emptyNote) return null;
-  const visible = expanded ? reports : reports.slice(0, SECTION_PREVIEW_LIMIT);
+  const visible = reports.slice(0, visibleCount);
   const hidden = reports.length - visible.length;
   return (
     <section className="flex flex-col gap-2">
@@ -419,9 +395,6 @@ function InboxSection({
           {title}
           <span className="tabular-nums">({count})</span>
         </span>
-        {caption && (
-          <span className="text-[12px] text-gray-10">· {caption}</span>
-        )}
         <div className="h-px flex-1 bg-(--gray-5)" />
         <CaretDownIcon
           size={12}
@@ -442,7 +415,11 @@ function InboxSection({
                 variant="link-muted"
                 size="sm"
                 className="self-center text-gray-10"
-                onClick={() => setExpanded(true)}
+                onClick={() =>
+                  setVisibleCount((current) =>
+                    Math.min(current + SECTION_PREVIEW_LIMIT, reports.length),
+                  )
+                }
               >
                 Show more ({hidden})
               </Button>
@@ -603,8 +580,10 @@ function InboxReportRow({ report }: { report: SignalReport }) {
 // section fetches lazily on first expand and stays collapsed by default.
 function ResolvedSection({
   searchQuery,
+  count,
 }: {
   searchQuery: string;
+  count: number;
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const {
@@ -615,7 +594,7 @@ function ResolvedSection({
     isFetchingNextPage,
   } = useInboxReportsInfinite(
     { status: INBOX_DISMISSED_STATUS_FILTER, ordering: "-updated_at" },
-    { enabled: expanded, pageSize: 25 },
+    { enabled: expanded, pageSize: SECTION_PREVIEW_LIMIT },
   );
   const matchingReports = useMemo(
     () => filterReportsBySearch(allReports, searchQuery),
@@ -638,8 +617,8 @@ function ResolvedSection({
         className="flex w-full cursor-pointer items-center gap-2 rounded px-0.5 py-1 text-left"
         aria-expanded={expanded}
       >
-        <span className="font-mono font-semibold text-[11px] text-gray-10 uppercase tracking-widest">
-          Resolved
+        <span className="flex items-center gap-1 font-mono font-semibold text-[11px] text-gray-10 uppercase tracking-widest">
+          Resolved <span className="tabular-nums">({count})</span>
         </span>
         <div className="h-px flex-1 bg-(--gray-5)" />
         <CaretDownIcon
@@ -678,7 +657,9 @@ function ResolvedSection({
                 disabled={isFetchingNextPage}
                 onClick={() => fetchNextPage()}
               >
-                Show more
+                {searchActive
+                  ? "Show more"
+                  : `Show more (${Math.max(0, count - matchingReports.length)})`}
               </Button>
             )}
           </div>

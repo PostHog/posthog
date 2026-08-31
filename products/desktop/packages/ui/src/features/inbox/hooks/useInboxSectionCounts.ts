@@ -1,6 +1,8 @@
 import {
   buildPriorityFilterParam,
   buildSuggestedReviewerFilterParam,
+  INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+  INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
 import {
   INBOX_SCOPE_FOR_YOU,
@@ -12,16 +14,10 @@ import { useInboxReports } from "@posthog/ui/features/inbox/hooks/useInboxReport
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 
-const ATTENTION_STATUS_FILTER = "pending_input,failed";
-const IN_PROGRESS_STATUS_FILTER = "in_progress,candidate";
-
 export interface InboxSectionCounts {
-  /** Ready reports — the "Needs a decision" section's true total. */
-  decision: number;
-  /** The subset of ready reports carrying an implementation PR. */
-  decisionPr: number;
-  attention: number;
-  inProgress: number;
+  reviewAndMerge: number;
+  needsPr: number;
+  resolved: number;
   isLoading: boolean;
 }
 
@@ -32,8 +28,8 @@ export interface InboxSectionCounts {
  * project) any count derived from loaded pages is a count of a window, not of
  * reality — which is where every badge/section mismatch came from. So each
  * number here is a count-only query on the dimensions the API can filter
- * server-side (status, PR presence, reviewer scope, source, priority), and the
- * sections are deliberately defined on those dimensions.
+ * server-side (status, actionability, PR presence, reviewer scope, source,
+ * priority), and the sections are deliberately defined on those dimensions.
  *
  * Scope and the filter bar's source/priority choices are mirrored into every
  * query so the counts move with what the list shows. Search is not — it's a
@@ -61,51 +57,56 @@ export function useInboxSectionCounts(): InboxSectionCounts {
         ? sourceProductFilter.join(",")
         : undefined,
     priority: buildPriorityFilterParam(priorityFilter),
-    // The decision-PR caption query overrides this with `true` via spread.
-    has_implementation_pr:
-      prFilter === "with_pr"
-        ? true
-        : prFilter === "without_pr"
-          ? false
-          : undefined,
     suggested_reviewers: reviewerUuid
       ? buildSuggestedReviewerFilterParam([reviewerUuid])
       : undefined,
     count_only: true,
   };
+  const scopeReady = !isForYou || reviewerUuid != null;
   const options = {
-    // "For you" must carry the user's reviewer filter; hold until it resolves.
-    enabled: !isForYou || reviewerUuid != null,
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   };
 
-  const decisionQuery = useInboxReports(
-    { ...shared, status: "ready" },
-    options,
-  );
-  const decisionPrQuery = useInboxReports(
+  const reviewAndMergeEnabled = scopeReady && prFilter !== "without_pr";
+  const needsPrEnabled = scopeReady && prFilter !== "with_pr";
+  const reviewAndMergeQuery = useInboxReports(
     { ...shared, status: "ready", has_implementation_pr: true },
-    options,
+    { ...options, enabled: reviewAndMergeEnabled },
   );
-  const attentionQuery = useInboxReports(
-    { ...shared, status: ATTENTION_STATUS_FILTER },
-    options,
+  const needsPrQuery = useInboxReports(
+    {
+      ...shared,
+      status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
+      actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+      has_implementation_pr: false,
+    },
+    { ...options, enabled: needsPrEnabled },
   );
-  const inProgressQuery = useInboxReports(
-    { ...shared, status: IN_PROGRESS_STATUS_FILTER },
-    options,
+  const resolvedQuery = useInboxReports(
+    {
+      ...shared,
+      status: "suppressed,resolved",
+      has_implementation_pr:
+        prFilter === "with_pr"
+          ? true
+          : prFilter === "without_pr"
+            ? false
+            : undefined,
+    },
+    { ...options, enabled: scopeReady },
   );
 
   return {
-    decision: decisionQuery.data?.count ?? 0,
-    decisionPr: decisionPrQuery.data?.count ?? 0,
-    attention: attentionQuery.data?.count ?? 0,
-    inProgress: inProgressQuery.data?.count ?? 0,
+    reviewAndMerge: reviewAndMergeEnabled
+      ? (reviewAndMergeQuery.data?.count ?? 0)
+      : 0,
+    needsPr: needsPrEnabled ? (needsPrQuery.data?.count ?? 0) : 0,
+    resolved: resolvedQuery.data?.count ?? 0,
     isLoading:
-      decisionQuery.isLoading ||
-      attentionQuery.isLoading ||
-      inProgressQuery.isLoading ||
+      (reviewAndMergeEnabled && reviewAndMergeQuery.isLoading) ||
+      (needsPrEnabled && needsPrQuery.isLoading) ||
+      resolvedQuery.isLoading ||
       (isForYou && reviewerUuid == null),
   };
 }

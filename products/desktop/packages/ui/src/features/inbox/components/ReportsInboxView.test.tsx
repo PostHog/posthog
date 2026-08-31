@@ -62,11 +62,15 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxSectionCounts", () => ({
   useInboxSectionCounts: () => ({
-    decision: mocks.activeReports.filter((report) => report.status === "ready")
-      .length,
-    decisionPr: 0,
-    attention: 0,
-    inProgress: 0,
+    reviewAndMerge: mocks.activeReports.filter(
+      (report) => report.status === "ready" && !!report.implementation_pr_url,
+    ).length,
+    needsPr: mocks.activeReports.filter(
+      (report) =>
+        (report.status === "ready" || report.status === "pending_input") &&
+        !report.implementation_pr_url,
+    ).length,
+    resolved: mocks.archivedReports.length,
     isLoading: false,
   }),
 }));
@@ -147,6 +151,7 @@ function archivedReport(id: string, title: string): SignalReport {
     updated_at: "2026-01-01T00:00:00Z",
     artefact_count: 0,
     implementation_pr_url: null,
+    actionability: "immediately_actionable",
   };
 }
 
@@ -212,6 +217,56 @@ describe("ReportsInboxView", () => {
     expect(mocks.navigateToInboxReportDetail).toHaveBeenCalledWith(
       "first-report",
     );
+  });
+
+  it("shows five more reports at a time", async () => {
+    mocks.activeReports = Array.from({ length: 11 }, (_, index) =>
+      activeReport(`report-${index + 1}`, `Report ${index + 1}`),
+    );
+    mocks.searchQuery = "";
+
+    render(<ReportsInboxView />);
+
+    expect(screen.getByText("Report 5")).toBeInTheDocument();
+    expect(screen.queryByText("Report 6")).toBeNull();
+
+    await userEvent.click(screen.getByText("Show more (6)"));
+
+    expect(screen.getByText("Report 10")).toBeInTheDocument();
+    expect(screen.queryByText("Report 11")).toBeNull();
+
+    await userEvent.click(screen.getByText("Show more (1)"));
+
+    expect(screen.getByText("Report 11")).toBeInTheDocument();
+  });
+
+  it("groups actionable reports by PR state and omits pipeline sections", () => {
+    mocks.activeReports = [
+      {
+        ...activeReport("with-pr", "Report with PR"),
+        implementation_pr_url: "https://github.com/PostHog/posthog/pull/1",
+      },
+      activeReport("without-pr", "Report without PR"),
+      {
+        ...activeReport("pipeline", "Pipeline report"),
+        status: "in_progress",
+      },
+    ];
+    mocks.searchQuery = "";
+
+    render(<ReportsInboxView />);
+
+    const reviewSection = screen
+      .getByText("Review and merge")
+      .closest("section");
+    const needsPrSection = screen.getByText("Needs a PR").closest("section");
+
+    expect(reviewSection).toHaveTextContent("Report with PR");
+    expect(reviewSection).not.toHaveTextContent("Report without PR");
+    expect(needsPrSection).toHaveTextContent("Report without PR");
+    expect(needsPrSection).not.toHaveTextContent("Pipeline report");
+    expect(screen.queryByText("In progress")).toBeNull();
+    expect(screen.queryByText(/need a decision/)).toBeNull();
   });
 
   it("returns to the same report in triage mode", () => {
