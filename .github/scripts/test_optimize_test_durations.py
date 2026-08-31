@@ -535,7 +535,9 @@ def test_fail_on_drift_refuses_an_incomplete_junit_set(tmp_path: Path, monkeypat
     assert not out.exists()
 
 
-def test_fail_on_drift_accepts_a_shard_whose_junit_ran_no_tests(tmp_path: Path, monkeypatch) -> None:
+def test_fail_on_drift_accepts_a_shard_whose_junit_ran_no_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # A product with no tests yet uploads a valid JUnit declaring tests="0". Reading that
     # as a missing clock made the strict run exit, and the workflow then kept the previous
     # products slice — freezing the timings of every product in the run, not just the empty
