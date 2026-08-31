@@ -438,6 +438,20 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.serverError).toBeNull()
     })
 
+    it('reloads check types when the picked subject changes', async () => {
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSubject({ subjectType: 'table', subjectId: 'table-9' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSubject({ subjectType: 'view', subjectId: 'view-7' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseTablesChecksCheckTypesList).toHaveBeenCalledWith('1', 'table-9')
+        expect(warehouseSavedQueriesChecksCheckTypesList).toHaveBeenCalledWith('1', 'view-7')
+    })
+
     it('does not create a check until a subject is picked', async () => {
         await mountLogic({ surface: 'overview' })
         logic.actions.openEditor(null, null)
@@ -527,5 +541,17 @@ describe('dataQualityCheckEditorLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(1)
+    })
+
+    it('refreshes the warehouse catalog when opening another unscoped draft', async () => {
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.closeEditor()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(2)
     })
 })

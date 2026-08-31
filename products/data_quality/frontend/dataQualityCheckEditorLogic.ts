@@ -449,11 +449,18 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 openEditor: (_, { columns }) => columns,
             },
         ],
-        // One request per editor instance: a type switch back to relationships must not refetch.
+        // One request per open editor: a type switch back to relationships must not refetch.
         warehouseCatalogRequested: [
             false,
             {
+                openEditor: () => false,
                 loadWarehouseCatalog: () => true,
+            },
+        ],
+        checkTypes: [
+            [] as DataQualityCheckTypeApi[],
+            {
+                setSubject: () => [],
             },
         ],
         serverError: [
@@ -471,6 +478,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 loadCheckTypesSuccess: () => false,
                 loadCheckTypesFailure: () => true,
                 openEditor: () => false,
+                setSubject: () => false,
             },
         ],
     }),
@@ -637,9 +645,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 ensureWarehouseCatalog()
             },
             setSubject: () => {
-                if (!values.checkTypes.length) {
-                    actions.loadCheckTypes()
-                }
+                actions.loadCheckTypes()
                 if (values.checkForm.columnName) {
                     actions.setCheckFormValues({ columnName: '' })
                 }
