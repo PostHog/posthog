@@ -154,6 +154,193 @@ const genericWithoutLink = makeSignal({
     extra: {},
 })
 
+const scoutFinding = makeSignal({
+    source_product: 'signals_scout',
+    source_type: 'cross_source_issue',
+    source_id: 'finding-1',
+    content: 'Upload failures rose after the 2.4.0 release.',
+    extra: {
+        scout_run_id: 'run-1a2b3c4d5e6f',
+        task_run_id: 'taskrun-9f8e7d6c5b',
+        task_id: 'task-1',
+        finding_id: 'finding-1a2b3c4d',
+        skill_name: 'upload-health',
+        skill_version: 3,
+        confidence: 0.85,
+        severity: 'P1',
+        hypothesis: 'The 2.4.0 release raised the client-side chunk size above the 413 limit on the upload endpoint.',
+        evidence: [
+            { source_product: 'error_tracking', entity_id: 'issue-1', summary: '413 errors up 6x since the release.' },
+            { source_product: 'session_replay', entity_id: 'sess-1', summary: 'Users retry the upload and leave.' },
+        ],
+        tags: ['uploads', 'regression'],
+        time_range: { date_from: '2026-06-09T00:00:00Z', date_to: '2026-06-10T00:00:00Z' },
+    },
+})
+
+const errorTrackingIssue = makeSignal({
+    source_product: 'error_tracking',
+    source_type: 'issue_spiking',
+    source_id: 'issue-2',
+    content: 'RequestEntityTooLarge: upload chunk exceeds 10 MB.',
+    extra: { fingerprint: 'fp-upload-413' },
+})
+
+const healthCheck = makeSignal({
+    source_product: 'health_checks',
+    source_type: 'health_issue',
+    source_id: 'hc-1',
+    content: 'The web SDK is three minor versions behind.',
+    extra: {
+        kind: 'sdk_outdated',
+        severity: 'warning',
+        issue_id: 'hc-1',
+        title: 'Outdated SDK',
+        summary: 'The web SDK is three minor versions behind.',
+        link: '/settings/project#sdk',
+        url: '/settings/project#sdk',
+        payload: { current_version: '1.240.0', latest_version: '1.243.1' },
+    },
+})
+
+const githubIssue = makeSignal({
+    source_product: 'github',
+    source_type: 'issue',
+    source_id: 'gh-512',
+    content: 'Large uploads fail with 413 after upgrading to 2.4.0.',
+    extra: {
+        html_url: 'https://github.com/example/app/issues/512',
+        number: 512,
+        labels: ['bug', 'uploads'],
+        created_at: BASE_DATE,
+        updated_at: BASE_DATE,
+        locked: false,
+        state: 'open',
+    },
+})
+
+const linearIssue = makeSignal({
+    source_product: 'linear',
+    source_type: 'issue',
+    source_id: 'lin-1',
+    content: 'Raise the upload chunk limit on the API.',
+    extra: {
+        url: 'https://linear.app/example/issue/APP-88',
+        identifier: 'APP-88',
+        number: 88,
+        priority: 2,
+        priority_label: 'High',
+        labels: ['backend'],
+        state_name: 'In progress',
+        state_type: 'started',
+        team_name: 'Platform',
+        created_at: BASE_DATE,
+        updated_at: BASE_DATE,
+    },
+})
+
+const zendeskTicket = makeSignal({
+    source_product: 'zendesk',
+    source_type: 'ticket',
+    source_id: 'zd-7',
+    content: 'My 40 MB PDF will not upload.',
+    extra: {
+        url: 'https://example.zendesk.com/agent/tickets/7',
+        type: 'problem',
+        tags: ['uploads', 'enterprise'],
+        created_at: BASE_DATE,
+        priority: 'high',
+        status: 'open',
+    },
+})
+
+const pgAnalyzeIssue = makeSignal({
+    source_product: 'pganalyze',
+    source_type: 'issue',
+    source_id: 'pg-1',
+    content: 'Sequential scan on `uploads` for the folder listing query.',
+    extra: {
+        severity: 'high',
+        references: [{ kind: 'table', name: 'uploads', url: null, queryText: null }],
+        database_id: 'db-1',
+        server_human_id: 'primary',
+        server_name: 'app-primary',
+        synced_at: BASE_DATE,
+    },
+})
+
+const logsAlert = makeSignal({
+    source_product: 'logs',
+    source_type: 'alert_state_change',
+    source_id: 'alert-1',
+    content:
+        'Logs alert "Upload 413s" is firing: log count went above the threshold of 50 over a 15m window (observed 312). Services: upload-api. Severities: error.',
+    extra: {
+        alert_id: 'alert-1',
+        alert_name: 'Upload 413s',
+        action: 'firing',
+        threshold_count: 50,
+        threshold_operator: 'above',
+        window_minutes: 15,
+        result_count: 312,
+        consecutive_failures: 0,
+        filters: { serviceNames: ['upload-api'], severityLevels: ['error'] },
+        url: '/logs/alerts/alert-1',
+    },
+})
+
+const endpointFailure = makeSignal({
+    source_product: 'endpoints',
+    source_type: 'endpoint_execution_failed',
+    source_id: 'ep-1',
+    content: 'The folder listing endpoint timed out.',
+    extra: {
+        endpoint_name: 'folder_listing',
+        endpoint_version: 4,
+        materialized: true,
+        saved_query_id: null,
+        error_class: 'QueryTimeout',
+        error_message: 'Query exceeded the 60s limit.',
+    },
+})
+
+const ciFlakyCheck = makeSignal({
+    source_product: 'engineering_analytics',
+    source_type: 'ci_flaky_check',
+    source_id: 'ci-1',
+    content: 'The upload integration test flips between pass and fail on retry.',
+    extra: {
+        repo_owner: 'example',
+        repo_name: 'app',
+        workflow_name: 'CI',
+        job_name: 'integration-tests',
+        run_id: 1,
+        head_sha: 'abc123',
+        failed_attempt: 1,
+        passed_attempt: 2,
+        flaky_count: 6,
+        window_days: 7,
+    },
+})
+
+const anomalyInvestigation = makeSignal({
+    source_product: 'analytics',
+    source_type: 'anomaly_investigation',
+    source_id: 'anomaly-1',
+    content: 'Upload completions dropped 40% day over day.',
+    extra: {
+        alert_id: 'alert-2',
+        alert_name: 'Upload completions',
+        alert_check_id: 'check-1',
+        insight_id: 'insight-1',
+        detector_type: 'z_score',
+        verdict: 'true_positive',
+        url: '/alerts/alert-2',
+        insight_name: 'Upload completions',
+        insight_short_id: 'abc123',
+    },
+})
+
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Signal cards',
     parameters: {
@@ -209,4 +396,28 @@ export const TicketAttachments: Story = {
 
 export const GenericFallbacks: Story = {
     render: () => <Rail signals={[genericWithEntityLink, genericWithExternalLink, genericWithoutLink]} />,
+}
+
+/** One card per source with a dedicated renderer, so a layout change to any of them shows up here. */
+export const AllSources: Story = {
+    render: () => (
+        <Rail
+            signals={[
+                scoutFinding,
+                scannerFinding,
+                sessionProblem,
+                errorTrackingIssue,
+                healthCheck,
+                conversationsTicket,
+                githubIssue,
+                linearIssue,
+                zendeskTicket,
+                pgAnalyzeIssue,
+                logsAlert,
+                endpointFailure,
+                ciFlakyCheck,
+                anomalyInvestigation,
+            ]}
+        />
+    ),
 }

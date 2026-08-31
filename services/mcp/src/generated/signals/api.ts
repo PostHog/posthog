@@ -436,6 +436,13 @@ export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
 
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemMax = 255
+
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemRegExp = new RegExp(
+    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
+)
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
+
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
@@ -515,7 +522,24 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                                         .max(signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax)
                                         .nullish()
                                         .describe(
-                                            "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                            "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set."
+                                        ),
+                                    users: zod
+                                        .array(
+                                            zod
+                                                .string()
+                                                .max(
+                                                    signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemMax
+                                                )
+                                                .regex(
+                                                    signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemRegExp
+                                                )
+                                        )
+                                        .min(1)
+                                        .max(signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax)
+                                        .nullish()
+                                        .describe(
+                                            'Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.'
                                         ),
                                     thread_reports: zod
                                         .boolean()
@@ -645,6 +669,13 @@ export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemMax = 255
+
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemRegExp = new RegExp(
+    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
+)
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax = 5
+
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
@@ -687,7 +718,20 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                                 .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax)
                                 .nullish()
                                 .describe(
-                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set."
+                                ),
+                            users: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemMax)
+                                        .regex(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemRegExp)
+                                )
+                                .min(1)
+                                .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax)
+                                .nullish()
+                                .describe(
+                                    'Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.'
                                 ),
                             thread_reports: zod
                                 .boolean()
@@ -798,6 +842,13 @@ export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemMax = 255
+
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemRegExp = new RegExp(
+    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
+)
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
+
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
@@ -848,7 +899,20 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                                 .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax)
                                 .nullish()
                                 .describe(
-                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set."
+                                ),
+                            users: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemMax)
+                                        .regex(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemRegExp)
+                                )
+                                .min(1)
+                                .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax)
+                                .nullish()
+                                .describe(
+                                    'Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.'
                                 ),
                             thread_reports: zod
                                 .boolean()
@@ -953,7 +1017,7 @@ export const SignalsScoutConfigRunParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
  * @summary Sync scout configs
  */
 export const SignalsScoutConfigSyncParams = /* @__PURE__ */ zod.object({
@@ -1866,7 +1930,7 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe(
-                "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier."
+                "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost."
             ),
     })
     .describe('Request body for `remember`.')

@@ -161,6 +161,34 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub seeder_max_chunk_attempts: u32,
 
+    /// The first retry's wait ceiling after a chunk fails; it doubles per attempt up to
+    /// [`Config::seeder_retry_backoff_cap_secs`]. Without a wait, the poll loop re-claims a chunk
+    /// that failed for a durable reason within seconds and spends its whole attempt budget on the
+    /// same failure, which fails the run.
+    #[envconfig(default = "30")]
+    pub seeder_retry_backoff_base_secs: u64,
+
+    /// The longest a failed chunk waits before it is claimable again.
+    ///
+    /// This bounds how long a durably-failing chunk holds its run open, and the bound is a sum over
+    /// attempts rather than the cap alone: the ceilings double from
+    /// [`Config::seeder_retry_backoff_base_secs`] until they reach the cap, and the jitter draws
+    /// uniformly from `[0, ceiling]`, so the expected drain is half the worst case. At the defaults
+    /// (base 30s, cap 1800s) the doubling reaches the cap on the 7th attempt, so the sum is about
+    /// 15 minutes at 5 attempts and 3.5 hours at 12 — the cap times the attempt count is a real
+    /// upper bound but a loose one, and reading it as the answer overstates a small budget by an
+    /// order of magnitude.
+    ///
+    /// A run cannot complete until every chunk is `confirmed`, so that whole window is time the run
+    /// holds its cohort's uniqueness slot against every future backfill for that cohort.
+    /// `charts/apps/cohort-seeder/values.prod-us.yaml` is where the deployed
+    /// `SEEDER_MAX_CHUNK_ATTEMPTS` lives; the two must be sized together.
+    ///
+    /// The chunk lease budget is not the comparison to make. A `failed` chunk holds no lease and
+    /// cannot heartbeat, so the two quantities never meet in any predicate.
+    #[envconfig(default = "1800")]
+    pub seeder_retry_backoff_cap_secs: u64,
+
     #[envconfig(default = "3000")]
     pub seeder_tiles_per_sec: u32,
 
