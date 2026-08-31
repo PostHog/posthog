@@ -358,9 +358,13 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     // `scoutCreateModalLogicKey`). Scope the key to the user and project so a draft from one project
     // cannot restore in another and submit that project's server or integration ids to the wrong one.
     // The default and handlers already come from the form above; this only attaches the persistence
-    // option to that same reducer.
+    // option to those same reducers. Persist the changed flag alongside the draft, and with the same
+    // scope, so a restored draft keeps the unsaved-input guard. kea-forms resets the flag to false on
+    // a fresh mount, so without this a restored draft would open unguarded and one backdrop click
+    // would discard it.
     reducers(() => ({
         scoutCreateForm: [DEFAULT_SCOUT_CREATE_FORM_VALUES, buildUserScopedPersistenceConfig(), {}],
+        scoutCreateFormChanged: [false, buildUserScopedPersistenceConfig(), {}],
     })),
     // The team's servers load asynchronously, so the default is applied once they arrive
     // rather than in the form defaults. Applying it once keeps a later reload from

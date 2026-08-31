@@ -409,12 +409,16 @@ describe('scoutCreateModalLogic', () => {
         logic.mount()
         logic.actions.setScoutCreateFormValue('body', 'Watch checkout latency and report spikes.')
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.scoutCreateFormChanged).toBe(true)
         logic.unmount()
 
         // A fresh instance under the same key is what a remount after navigating away looks like.
         const reopened = scoutCreateModalLogic({ logicKey: scoutCreateModalLogicKey(undefined), onClose })
         reopened.mount()
         expect(reopened.values.scoutCreateForm.body).toBe('Watch checkout latency and report spikes.')
+        // The changed flag must restore with the draft, or the modal's unsaved-input guard would be
+        // off and one backdrop click would silently discard the restored draft.
+        expect(reopened.values.scoutCreateFormChanged).toBe(true)
         reopened.unmount()
     })
 
