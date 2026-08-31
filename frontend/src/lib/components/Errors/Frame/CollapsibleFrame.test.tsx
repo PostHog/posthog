@@ -67,7 +67,7 @@ describe('CollapsibleFrame', () => {
         await userEvent.click(trigger!)
 
         expect(screen.getByText(/source map was not uploaded/i)).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: /upload source maps/i })).toHaveAttribute(
+        expect(screen.getByText('Learn how to upload source maps')).toHaveAttribute(
             'href',
             'https://posthog.com/docs/error-tracking/upload-source-maps'
         )
