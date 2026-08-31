@@ -1,18 +1,18 @@
 {% extends "email/base.html" %}
-
 {% block heading %}{{ invitee_first_name }}{% if invitee_last_name %} {{ invitee_last_name }}{% endif %} accepted their PostHog invitation{% endblock %}
 {% block section %}
-<!-- prettier-ignore -->
-<p>
-    {{ invitee_first_name }}{% if invitee_last_name %} {{ invitee_last_name }}{% endif %} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{ organization_name }}.
-</p>
-<div class="mb mt text-center">
-    <a class="button" href="{% absolute_uri %}">View PostHog insights</a>
-</div>
-<div class="mt">
+    <!-- prettier-ignore -->
     <p>
-        If the button above doesn't work, paste this link into your browser:<br />
-        <a href="{% absolute_uri %}">{% absolute_uri %}</a>
+        {{ invitee_first_name }}{% if invitee_last_name %} {{ invitee_last_name }}{% endif %} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{ organization_name }}.
     </p>
-</div>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri %}">View PostHog insights</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{% absolute_uri %}">{% absolute_uri %}</a>
+        </p>
+    </div>
 {% endblock %}
