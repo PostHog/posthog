@@ -1341,9 +1341,6 @@ class WidgetUserBurstThrottle(SimpleRateThrottle):
 
 
 class _WidgetTeamTokenThrottle(SimpleRateThrottle):
-    """Team-token keying for widget throttles. Poll and write subclasses use distinct
-    scopes so idle GET polling cannot exhaust the POST send budget."""
-
     rate = "3600/hour"
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
@@ -1358,11 +1355,20 @@ class _WidgetTeamTokenThrottle(SimpleRateThrottle):
 
 
 class WidgetTeamPollThrottle(_WidgetTeamTokenThrottle):
+    """Do not assign this to POST views. A shared bucket lets background list
+    polling 429 ticket creates."""
+
     scope = "widget_team_poll"
 
 
 class WidgetTeamWriteThrottle(_WidgetTeamTokenThrottle):
+    """Keep this off GET poll views so list and message polling cannot exhaust it."""
+
     scope = "widget_team_write"
+
+
+WIDGET_POLL_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamPollThrottle)
+WIDGET_WRITE_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamWriteThrottle)
 
 
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
