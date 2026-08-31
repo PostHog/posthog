@@ -730,8 +730,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             )}
 
                                             {isBooleanOutput && (
-                                                <LemonField
-                                                    name="true_is_pass"
+                                                <LemonField.Pure
                                                     label={
                                                         <div className="flex items-center gap-1">
                                                             <span>Report a true result as a pass</span>
@@ -752,7 +751,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                 : 'Reports count a true result as a fail (detector-style)'}
                                                         </span>
                                                     </div>
-                                                </LemonField>
+                                                </LemonField.Pure>
                                             )}
                                         </div>
                                     </div>

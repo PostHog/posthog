@@ -702,7 +702,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         hogTestResults: {
             clearHogTestResults: () => null,
             setAllowsNA: () => null,
-            setTrueIsPass: () => null,
             setEvaluationTarget: () => null,
             setEvaluationType: () => null,
             setHogSource: () => null,

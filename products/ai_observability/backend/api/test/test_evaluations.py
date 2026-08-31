@@ -149,7 +149,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation_config.evaluation_type, "llm_judge")
         self.assertEqual(evaluation_config.evaluation_config, {"prompt": "Test prompt"})
         self.assertEqual(evaluation_config.output_type, "boolean")
-        self.assertEqual(evaluation_config.output_config, {"allows_na": False})
+        self.assertEqual(evaluation_config.output_config, {"allows_na": False, "true_is_pass": True})
         self.assertEqual(len(evaluation_config.conditions), 1)
         self.assertEqual(evaluation_config.conditions[0]["id"], "test-condition")
         self.assertEqual(evaluation_config.team, self.team)

@@ -175,7 +175,7 @@ _TARGET_LOOKUP_TS_END_SENTINEL = "2099-01-01T00:00:00+00:00"
 
 
 def _resolve_output_type(
-    output_type: str | None, true_is_pass: bool = True
+    output_type: str | None, *, true_is_pass: bool = True
 ) -> tuple[str, EvaluationReportOutcomeDefinition]:
     normalized_output_type = output_type or "boolean"
     return normalized_output_type, get_outcome_definition(normalized_output_type, true_is_pass=true_is_pass)
@@ -430,7 +430,9 @@ def get_summary_metrics(
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
     ts_prev_start = _ch_ts(state["previous_period_start"])
-    output_type, definition = _resolve_output_type(state.get("output_type"), state.get("true_is_pass", True))
+    output_type, definition = _resolve_output_type(
+        state.get("output_type"), true_is_pass=state.get("true_is_pass", True)
+    )
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     result_counts, total = _fetch_period_summary(
@@ -466,7 +468,9 @@ def get_result_distribution_over_time(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"), state.get("true_is_pass", True))
+    output_type, definition = _resolve_output_type(
+        state.get("output_type"), true_is_pass=state.get("true_is_pass", True)
+    )
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     # Whitelisted truncation function — `bucket` is an LLM-controlled arg, so pick
@@ -527,7 +531,9 @@ def list_all_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"), state.get("true_is_pass", True))
+    output_type, definition = _resolve_output_type(
+        state.get("output_type"), true_is_pass=state.get("true_is_pass", True)
+    )
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     shared_placeholders = {
@@ -624,7 +630,9 @@ def sample_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"), state.get("true_is_pass", True))
+    output_type, definition = _resolve_output_type(
+        state.get("output_type"), true_is_pass=state.get("true_is_pass", True)
+    )
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
     if order_by == "score" and output_type != "sentiment":
         return json.dumps({"error": "Score ordering is only available for sentiment results"})
@@ -1431,7 +1439,9 @@ def get_top_outcome_reasons(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"), state.get("true_is_pass", True))
+    output_type, definition = _resolve_output_type(
+        state.get("output_type"), true_is_pass=state.get("true_is_pass", True)
+    )
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
     selected_outcome = outcome or ("negative" if output_type == "sentiment" else "fail")
     outcome_predicate = definition.outcome_predicates.get(selected_outcome)
