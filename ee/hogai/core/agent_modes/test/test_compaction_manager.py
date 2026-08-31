@@ -144,6 +144,22 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             result = await self.window_manager.should_compact_conversation(mock_model, messages)
             self.assertEqual(result, should_compact)
 
+    @parameterized.expand([[None], [{}], ["not a number"]])
+    async def test_calculate_token_count_falls_back_when_api_returns_non_int(self, api_result):
+        """The token counting API can 200 without a usable count; fall back to the estimate."""
+        messages: list[BaseMessage] = [
+            LangchainHumanMessage(content="A" * 400),  # ~100 tokens
+            LangchainAIMessage(content="B" * 400),
+            LangchainHumanMessage(content="C" * 400),
+        ]
+
+        mock_model = MagicMock()
+        with patch.object(self.window_manager, "_get_token_count", new_callable=AsyncMock, return_value=api_result):
+            result = await self.window_manager.calculate_token_count(mock_model, messages)
+
+        expected = self.window_manager._estimate_token_count(messages)
+        self.assertEqual(result, expected)
+
     async def test_should_compact_conversation_with_tools_under_limit(self):
         """Test that tools are accounted for when estimating tokens with 2 or fewer human messages"""
         from langchain_core.tools import tool

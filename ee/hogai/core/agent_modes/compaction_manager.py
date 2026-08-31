@@ -119,9 +119,20 @@ class ConversationCompactionManager(ABC):
                 if not (isinstance(tool, dict) and tool.get("type", "").startswith("web_search_"))
             ]
         if len(human_messages) <= 2:
-            tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
-            return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
-        return await self._get_token_count(model, messages, tools, **kwargs)
+            return self._estimate_token_count(messages, tools)
+        token_count = await self._get_token_count(model, messages, tools, **kwargs)
+        # The token counting API can return a 200 without a usable count, which yields a
+        # non-int. Fall back to the character estimate so the turn continues instead of crashing.
+        if not isinstance(token_count, int):
+            return self._estimate_token_count(messages, tools)
+        return token_count
+
+    def _estimate_token_count(self, messages: list[BaseMessage], tools: LangchainTools | None = None) -> int:
+        """
+        Estimate the token count locally with the character/4 heuristic.
+        """
+        tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
+        return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
 
     def update_window(
         self,
