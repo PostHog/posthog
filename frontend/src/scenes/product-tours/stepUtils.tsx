@@ -255,6 +255,14 @@ export function normalizeStepOrderHistory(history: StepOrderVersion[] | undefine
     return history.filter((version) => Array.isArray(version.steps))
 }
 
+/** Steps snapshot for a version, falling back to the current steps when the version has no valid snapshot. */
+export function getStepsForVersion(allSteps: ProductTourStep[], version: StepOrderVersion | null): ProductTourStep[] {
+    if (!version || !Array.isArray(version.steps)) {
+        return allSteps
+    }
+    return version.steps
+}
+
 export function getUpdatedStepOrderHistory(
     currentSteps: ProductTourStep[],
     existingHistory: StepOrderVersion[] | undefined

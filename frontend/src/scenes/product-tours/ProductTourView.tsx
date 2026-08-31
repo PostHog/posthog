@@ -39,18 +39,17 @@ import {
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
     ProductTour,
-    ProductTourStep,
     ProgressStatus,
     PropertyFilterType,
     PropertyOperator,
     StepOrderValue,
-    StepOrderVersion,
     SurveyMatchType,
 } from '~/types'
 
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
 import { LaunchValidationIssue, LaunchValidationIssueType, productTourLogic } from './productTourLogic'
 import { getProductTourStatus, isAnnouncement, isProductTourRunning, productToursLogic } from './productToursLogic'
+import { getStepsForVersion } from './stepUtils'
 
 const ISSUE_CONFIG: Record<
     LaunchValidationIssueType,
@@ -408,14 +407,6 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
             />
         </SceneContent>
     )
-}
-
-/** Get the steps snapshot from a specific version */
-function getStepsForVersion(allSteps: ProductTourStep[], version: StepOrderVersion | null): ProductTourStep[] {
-    if (!version) {
-        return allSteps
-    }
-    return version.steps
 }
 
 /** Format version date for display */
