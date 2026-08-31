@@ -8,7 +8,7 @@ import (
 
 func TestProcessLine(t *testing.T) {
 	tests := map[string]string{
-		`{"empty":"","null":null,"object":{"nested":null},"array":[null,"",{},[]]}`:                                            `null`,
+		`{"empty":"","null":null,"object":{"nested":null},"array":[null,"",{},[]]}`:                                            `{}`,
 		`{"keep":0,"false":false,"text":" ","nested":{"drop":null,"keep":"x"},"array":[null,"",{},[],{"drop":null,"keep":1}]}`: `{"keep":0,"false":false,"text":" ","nested":{"keep":"x"},"array":[{"keep":1}]}`,
 		`{"a":1,"a":null,"a":2}`:      `{"a":1,"a":2}`,
 		`[null,"",[],{},0,false,"x"]`: `[0,false,"x"]`,
@@ -31,7 +31,7 @@ func TestRunMultipleChunks(t *testing.T) {
 	if err := run(strings.NewReader("{\"a\":null}\n{\"a\":1}\n"), &output); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := output.String(), "null\n{\"a\":1}\n"; got != want {
+	if got, want := output.String(), "{}\n{\"a\":1}\n"; got != want {
 		t.Fatalf("run output = %q, want %q", got, want)
 	}
 }
@@ -42,7 +42,7 @@ func TestRunChunked(t *testing.T) {
 	if err := runChunked(strings.NewReader(input), &output); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := output.String(), "null\n{\"a\":1}\n[2]\n"; got != want {
+	if got, want := output.String(), "{}\n{\"a\":1}\n[2]\n"; got != want {
 		t.Fatalf("runChunked output = %q, want %q", got, want)
 	}
 }

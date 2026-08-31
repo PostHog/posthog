@@ -120,7 +120,7 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 	buf.Grow(len(rawLine))
 	output, keep := appendCleanJSON(buf.AvailableBuffer(), value)
 	if !keep {
-		output = append(output, "null"...)
+		output = append(output, "{}"...)
 	}
 	_, _ = buf.Write(output)
 	return nil
