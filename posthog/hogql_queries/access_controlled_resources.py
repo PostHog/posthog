@@ -85,10 +85,10 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             ]
         except BaseHogQLError:
             return None
-        scopes: set[str] = set()
+        account_query_scopes: set[str] = set()
         if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
-            scopes.add("ticket")
-        return _with_fallback_parents(scopes)
+            account_query_scopes.add("ticket")
+        return _with_fallback_parents(account_query_scopes)
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":

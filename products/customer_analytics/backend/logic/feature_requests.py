@@ -606,7 +606,7 @@ def list_feature_requests(
         account_filter_ids = tuple(
             Account.objects.for_team(team_id).filter(id__in=filters.account_ids).values_list("id", flat=True)
         )
-    account_ids = Account.objects.for_team(team_id).values("id")
+    account_ids = Account.objects.for_team(team_id)
     queryset = _apply_filters(
         _feature_request_queryset(team_id, user_access_control, include_evidence=False),
         filters,
