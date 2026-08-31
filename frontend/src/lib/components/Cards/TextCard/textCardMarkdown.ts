@@ -1,6 +1,6 @@
 import { JSONContent } from '@tiptap/core'
 import { Image } from '@tiptap/extension-image'
-import { isAllowedUri, LinkOptions } from '@tiptap/extension-link'
+import { isAllowedUri } from '@tiptap/extension-link'
 
 import {
     MARKDOWN_BASE_EDITABLE_EXTENSIONS,
@@ -75,24 +75,22 @@ export const TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS = [
 // `[label](url)` visible instead of making it clickable. These helpers promote such a code span into
 // a text node that carries both a `code` and a `link` mark, the same shape the parser already
 // produces for `[`label`](url)`, so authors get a link whichever way they nest the backticks.
-const CODE_SPAN_LINK_RE = /^\[([^\]]+)\]\((<[^>]+>|[^)\s]+)\)$/
+const CODE_SPAN_LINK_RE = /^\[([^\]]+)\]\((<[^>\s]+>|[^)\s]+)\)$/
 const BARE_URL_RE = /^https?:\/\/\S+$/
 
 // Markdown lets a link destination sit in angle brackets, as in `[label](<url>)`. The brackets are
-// syntax, not part of the address, so drop them before they reach the href.
+// syntax, not part of the address, so drop them before they reach the href. Neither form of
+// destination holds whitespace, which is why both arms of the pattern above exclude it.
 function unwrapDestination(destination: string): string {
     return destination.startsWith('<') && destination.endsWith('>') ? destination.slice(1, -1) : destination
 }
 
-// Promotion writes the matched destination straight onto the href, so it has to apply the protocol
-// allowlist itself. Reuse the link mark's own check, reading the protocols off the configured
-// extension, so the promotion gate and the render gate cannot drift apart.
-const linkOptions = MARKDOWN_BASE_EDITABLE_EXTENSIONS.find((extension) => extension.name === 'link')?.options as
-    | Pick<LinkOptions, 'protocols'>
-    | undefined
-
-function hasRenderableScheme(href: string): boolean {
-    return !!isAllowedUri(href, linkOptions?.protocols)
+function codeSpanLink(text: string): { label: string; href: string } | null {
+    const match = CODE_SPAN_LINK_RE.exec(text)
+    if (match) {
+        return { label: match[1], href: unwrapDestination(match[2]) }
+    }
+    return BARE_URL_RE.test(text) ? { label: text, href: text } : null
 }
 
 function isCodeMarked(node: JSONContent): boolean {
@@ -103,49 +101,40 @@ function hasLinkMark(node: JSONContent): boolean {
     return !!node.marks?.some((mark) => mark.type === 'link')
 }
 
-// Ask the parser for the exact `link` mark it emits for a given href, so we match its attrs.
-function linkMarkForHref(converter: TiptapMarkdownConverter, href: string): Mark | null {
-    const doc = converter.markdownToDoc(`[link](${href})`)
-    const textNode = doc.content?.[0]?.content?.[0]
-    return textNode?.marks?.find((mark) => mark.type === 'link') ?? null
-}
+const baseTextCardConverter = createTiptapMarkdownConverter(TEXT_CARD_MARKDOWN_EXTENSIONS)
 
-function promoteCodeSpanLinks(converter: TiptapMarkdownConverter, doc: JSONContent): JSONContent {
+// Sample the `link` mark the parser emits, so a promoted node carries the attrs the parser would
+// have given it. Only `href` varies with the destination, and promotion sets that itself, so one
+// sample serves every link.
+const parsedLinkMark: Mark | undefined = baseTextCardConverter
+    .markdownToDoc('[link](https://example.com)')
+    .content?.[0]?.content?.[0]?.marks?.find((mark) => mark.type === 'link')
+
+function promoteCodeSpanLinks(doc: JSONContent): JSONContent {
     const visit = (node: JSONContent): JSONContent => {
-        // Skip a code span the parser already linked (the `[`label`](url)` case). Promoting it again
-        // appends a second link mark, and when the label is itself a URL the serializer then writes
-        // the label URL back as the href, silently replacing the author's target.
-        if (isCodeMarked(node) && !hasLinkMark(node) && node.text) {
-            const match = CODE_SPAN_LINK_RE.exec(node.text)
-            const [label, href] = match
-                ? [match[1], unwrapDestination(match[2])]
-                : BARE_URL_RE.test(node.text)
-                  ? [node.text, node.text]
-                  : []
-            if (href && hasRenderableScheme(href)) {
-                const linkMark = linkMarkForHref(converter, href)
-                if (linkMark) {
-                    // Keep the href we matched, not the parser's round-tripped copy. A bare URL that
-                    // ends in an unbalanced `)` loses that character in the round trip, so the link
-                    // would point one step short of the URL the card shows.
-                    const mark = { ...linkMark, attrs: { ...linkMark.attrs, href } }
-                    return { ...node, text: label, marks: [...(node.marks ?? []), mark] }
-                }
-            }
-        }
         if (node.content) {
             return { ...node, content: node.content.map(visit) }
         }
-        return node
+        // Skip a code span the parser already linked (the `[`label`](url)` case). Promoting it again
+        // appends a second link mark, and when the label is itself a URL the serializer then writes
+        // the label URL back as the href, silently replacing the author's target.
+        if (!parsedLinkMark || !isCodeMarked(node) || hasLinkMark(node) || !node.text) {
+            return node
+        }
+        const link = codeSpanLink(node.text)
+        // Promotion writes the destination straight onto the href, so it applies the link mark's own
+        // protocol allowlist here. Reusing that check keeps promotion and rendering in agreement.
+        if (!link || !isAllowedUri(link.href)) {
+            return node
+        }
+        const mark = { ...parsedLinkMark, attrs: { ...parsedLinkMark.attrs, href: link.href } }
+        return { ...node, text: link.label, marks: [...(node.marks ?? []), mark] }
     }
 
     return visit(doc)
 }
 
-const baseTextCardConverter = createTiptapMarkdownConverter(TEXT_CARD_MARKDOWN_EXTENSIONS)
-
 export const textCardConverter: TiptapMarkdownConverter = {
     ...baseTextCardConverter,
-    markdownToDoc: (markdown) =>
-        promoteCodeSpanLinks(baseTextCardConverter, baseTextCardConverter.markdownToDoc(markdown)),
+    markdownToDoc: (markdown) => promoteCodeSpanLinks(baseTextCardConverter.markdownToDoc(markdown)),
 }

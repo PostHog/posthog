@@ -7,6 +7,11 @@ import {
 } from './textCardMarkdown'
 
 describe('textCardMarkdown', () => {
+    const codeSpanTextNode = (markdown: string): JSONContent | undefined =>
+        textCardConverter.markdownToDoc(markdown).content?.[0]?.content?.[0]
+    const linkHref = (node: JSONContent | undefined): unknown =>
+        node?.marks?.find((mark) => mark.type === 'link')?.attrs?.href
+
     it.each([undefined, null, '', '   \n\t '])('returns an empty doc for blank markdown: %p', (markdown) => {
         expect(textCardConverter.markdownToDoc(markdown)).toEqual({
             type: 'doc',
@@ -194,37 +199,33 @@ describe('textCardMarkdown', () => {
         expect(textCardConverter.isRoundTripSafe(markdown)).toBe(true)
     })
 
-    // A destination in angle brackets is markdown syntax. The brackets must not reach the href, or
-    // the link points at a path that contains a literal `<` and `>`.
+    // A destination in angle brackets is markdown syntax, so the brackets must not reach the href.
+    // The trailing-parenthesis row pins a bare URL ending in an unbalanced `)`, which is dropped if
+    // the href is taken from a markdown round trip rather than from the matched text.
     it.each([
-        ['a plain destination', '`[table_name](https://us.posthog.com/x)`'],
-        ['a destination in angle brackets', '`[table_name](<https://us.posthog.com/x>)`'],
-    ])('makes a markdown link written inside a code span clickable: %s', (_, markdown) => {
-        const doc = textCardConverter.markdownToDoc(markdown)
-        const textNode = doc.content?.[0]?.content?.[0]
+        ['a plain destination', '`[table_name](https://us.posthog.com/x)`', 'table_name', 'https://us.posthog.com/x'],
+        [
+            'a destination in angle brackets',
+            '`[table_name](<https://us.posthog.com/x>)`',
+            'table_name',
+            'https://us.posthog.com/x',
+        ],
+        ['a bare URL', '`https://us.posthog.com/x`', 'https://us.posthog.com/x', 'https://us.posthog.com/x'],
+        [
+            'a bare URL ending in an unbalanced parenthesis',
+            '`https://example.com/a)`',
+            'https://example.com/a)',
+            'https://example.com/a)',
+        ],
+        ['a relative path', '`[insights](/project/2/insights)`', 'insights', '/project/2/insights'],
+        ['mailto', '`[email us](mailto:hey@example.com)`', 'email us', 'mailto:hey@example.com'],
+        ['tel', '`[call us](tel:+15551234567)`', 'call us', 'tel:+15551234567'],
+    ])('promotes a code span containing %s to a link', (_, markdown, expectedText, expectedHref) => {
+        const textNode = codeSpanTextNode(markdown)
 
-        expect(textNode).toMatchObject({ type: 'text', text: 'table_name' })
+        expect(textNode).toMatchObject({ type: 'text', text: expectedText })
         expect(textNode?.marks?.map((m) => m.type).sort()).toEqual(['code', 'link'])
-        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('https://us.posthog.com/x')
-    })
-
-    it('makes a bare URL inside a code span clickable', () => {
-        const doc = textCardConverter.markdownToDoc('`https://us.posthog.com/x`')
-        const textNode = doc.content?.[0]?.content?.[0]
-
-        expect(textNode).toMatchObject({ type: 'text', text: 'https://us.posthog.com/x' })
-        expect(textNode?.marks?.map((m) => m.type).sort()).toEqual(['code', 'link'])
-        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('https://us.posthog.com/x')
-    })
-
-    it('keeps a trailing parenthesis on a bare URL inside a code span', () => {
-        // The href used to be round-tripped through markdown, so an unbalanced trailing `)` was
-        // dropped and the link pointed one character short of the URL the card shows.
-        const doc = textCardConverter.markdownToDoc('`https://example.com/a)`')
-        const textNode = doc.content?.[0]?.content?.[0]
-
-        expect(textNode).toMatchObject({ type: 'text', text: 'https://example.com/a)' })
-        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('https://example.com/a)')
+        expect(linkHref(textNode)).toBe(expectedHref)
     })
 
     it('round-trips a link written inside a code span to canonical markdown', () => {
@@ -249,35 +250,18 @@ describe('textCardMarkdown', () => {
 
     // Promotion writes the matched destination onto the href itself, so it applies the link mark's
     // own protocol allowlist. A scheme the mark would refuse stays plain text with only a `code`
-    // mark; anything the mark renders is promoted. A second, narrower list here would silently
-    // refuse destinations the editor accepts everywhere else.
+    // mark. A second, narrower list here would silently refuse destinations the editor accepts
+    // everywhere else.
     it.each([
-        ['javascript', "`[click me](javascript:document.location='https://evil.example')`"],
-        ['data', '`[click me](data:text/html,hi)`'],
-        ['vbscript', '`[click me](vbscript:msgbox)`'],
-    ])('does not promote a code span link with a %s scheme', (_, markdown) => {
-        const doc = textCardConverter.markdownToDoc(markdown)
-        const textNode = doc.content?.[0]?.content?.[0]
+        ['a javascript scheme', "`[click me](javascript:document.location='https://evil.example')`"],
+        ['a data scheme', '`[click me](data:text/html,hi)`'],
+        ['a vbscript scheme', '`[click me](vbscript:msgbox)`'],
+        ['no link syntax at all', '`SELECT * FROM events`'],
+    ])('leaves a code span with %s as plain code', (_, markdown) => {
+        const textNode = codeSpanTextNode(markdown)
 
-        expect(textNode?.marks?.map((m) => m.type)).toEqual(['code'])
-    })
-
-    it.each([
-        ['a relative path', '`[insights](/project/2/insights)`', '/project/2/insights'],
-        ['mailto', '`[email us](mailto:hey@example.com)`', 'mailto:hey@example.com'],
-        ['tel', '`[call us](tel:+15551234567)`', 'tel:+15551234567'],
-    ])('promotes a code span link with %s', (_, markdown, expectedHref) => {
-        const doc = textCardConverter.markdownToDoc(markdown)
-        const textNode = doc.content?.[0]?.content?.[0]
-
-        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe(expectedHref)
-    })
-
-    it('leaves an ordinary code span untouched', () => {
-        const doc = textCardConverter.markdownToDoc('`SELECT * FROM events`')
-        const textNode = doc.content?.[0]?.content?.[0]
-
-        expect(textNode).toMatchObject({ type: 'text', text: 'SELECT * FROM events' })
+        // The text keeps the backticked content verbatim, so nothing was rewritten to a link label.
+        expect(textNode).toMatchObject({ type: 'text', text: markdown.slice(1, -1) })
         expect(textNode?.marks?.map((m) => m.type)).toEqual(['code'])
     })
 
