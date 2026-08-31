@@ -575,7 +575,6 @@ async fn create_sink(
     Ok(Box::new(OutputTable::new(output)))
 }
 
-/// Build the deployment's output policy tree from config.
 async fn create_output(
     config: &Config,
     sink_handle: Option<lifecycle::Handle>,

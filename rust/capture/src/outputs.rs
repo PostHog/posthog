@@ -5,11 +5,6 @@
 //! failover (health-gated Kafka primary with an S3 secondary). Policies
 //! operate on *events*, before any payload prep, so each target resolves
 //! topics and serializes for itself.
-//!
-//! [`OutputTable`] is the (pipeline, lane) → output table the deployment
-//! state holds. It is degenerate today: one deployment-wide output serves
-//! every address, and per-lane topics resolve during prep via the
-//! `OutputRegistry`.
 
 use async_trait::async_trait;
 use metrics::{counter, gauge, histogram};
@@ -29,15 +24,11 @@ pub(crate) trait PublishEvents: Send + Sync {
 
     async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
 
-    /// Flush any buffered/pending data before shutdown.
     fn flush(&self) -> Result<(), anyhow::Error> {
         Ok(())
     }
 }
 
-/// A destination events are published to: a single backend, or a policy
-/// over two child outputs. Targets are outputs themselves, so policies
-/// nest.
 pub struct Output {
     inner: Inner,
 }
@@ -105,7 +96,6 @@ impl PublishEvents for Output {
     }
 }
 
-/// The failover policy node; [`Output::failover`] documents the semantics.
 struct Failover {
     primary: Box<Output>,
     fallback: Box<Output>,
@@ -181,8 +171,6 @@ impl OutputTable {
 }
 
 /// Transitional facade serving the `Event` call sites from the table.
-/// Records `capture_event_batch_size` because the sink impls that used to
-/// record it no longer sit on this path.
 #[async_trait]
 impl Event for OutputTable {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
