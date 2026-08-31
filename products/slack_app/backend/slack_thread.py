@@ -176,29 +176,32 @@ class SlackThreadHandler:
         return bool(self._footer_flag)
 
     def viewer_can_open_code_links(self) -> bool:
-        """Whether this reply's reader can open a PostHog Code link. Memoized: the cards
-        ask for their buttons and the footer asks again for its own links."""
+        """Whether this reply's reader passes the PostHog Desktop access check. Memoized:
+        the cards ask for their buttons and the footer asks again for its desktop link."""
         if self._code_access is None:
             self._code_access = viewer_has_code_access(self._get_integration(), self.actor_slack_user_id)
         return bool(self._code_access)
 
     def reader_footer(self) -> RunFooter:
-        """`run_footer` as this reply's reader may see it, links withheld where they can't
-        open them.
+        """`run_footer` with the desktop link withheld where this reply's reader can't
+        open it.
 
-        The one place that answers this, so a card's buttons and the footer's links can't
-        disagree about the same reader. A footer carrying no links asks nothing, which
-        keeps a plain answer off the identity lookup behind the access check.
+        The web task link is never withheld: the task page enforces access itself, so at
+        worst it asks the reader to sign in. The one place that answers this, so a card's
+        buttons and the footer's links can't disagree about the same reader. A footer
+        carrying no desktop link asks nothing, which keeps a plain answer off the
+        identity lookup behind the access check.
         """
-        if not (self.run_footer.task_url or self.run_footer.desktop_url):
+        if not self.run_footer.desktop_url:
             return self.run_footer
         if self.viewer_can_open_code_links():
             return self.run_footer
-        return replace(self.run_footer, task_url=None, desktop_url=None)
+        return replace(self.run_footer, desktop_url=None)
 
     def reader_task_url(self) -> str | None:
-        """The task page this reply's reader may open, or `None` where they may not."""
-        return self.reader_footer().task_url
+        """The task page behind this reply, or `None` when the run has no task. Shown to
+        every reader; the page enforces access itself."""
+        return self.run_footer.task_url
 
     def _footer_block(self, include_task_url: bool = True) -> dict[str, Any] | None:
         """This handler's footer, or `None` when the workspace isn't in the rollout.

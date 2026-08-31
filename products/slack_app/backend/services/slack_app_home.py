@@ -276,10 +276,11 @@ class TaskItem:
     """One row on the Tasks card."""
 
     title: str
-    # Both task links are `None` for a viewer without PostHog Code access, matching the
-    # reply footer: a task page they can't open is as much a dead end as the desktop app.
-    # Stated at every construction rather than defaulted, so a row can't lose its links
-    # by omission and render as plain text.
+    # The desktop link is `None` for a viewer without PostHog Desktop access, matching
+    # the reply footer. The web link is always present: the task page enforces access
+    # itself, so at worst it asks the viewer to sign in. Stated at every construction
+    # rather than defaulted, so a row can't lose its links by omission and render as
+    # plain text.
     posthog_url: str | None
     desktop_url: str | None
     status: str | None  # TaskRun.Status value or None when there's no run yet
@@ -2008,10 +2009,11 @@ def _resolve_tasks_state(
     mapping_by_task = {str(m["task_id"]): m for m in mappings}
 
     site_url = (settings.SITE_URL or "").rstrip("/")
-    # Both task links answer to the reader, the same check the reply footer's links use.
-    # The desktop one goes through the `/code/task` web bridge, which opens the app when
-    # installed and offers a download when not, so it rides alongside the web one.
-    can_open_code_links = viewer_has_code_access(integration, slack_user_id)
+    # Only the desktop link answers to the viewer, the same check the reply footer's
+    # desktop link uses. It goes through the `/code/task` web bridge, which opens the app
+    # when installed and offers a download when not. The web link is always shown — the
+    # task page enforces access itself.
+    can_open_desktop_links = viewer_has_code_access(integration, slack_user_id)
     now = django_timezone.now()
     all_items: list[TaskItem] = []
     repos_seen: list[str] = []
@@ -2022,10 +2024,8 @@ def _resolve_tasks_state(
             continue
         run = runs_by_task.get(str(t.id))
         mapping: Mapping[str, Any] = mapping_by_task.get(str(t.id), {})
-        posthog_url = desktop_url = None
-        if can_open_code_links:
-            posthog_url = f"{site_url}/project/{t.team_id}/tasks/{t.id}"
-            desktop_url = f"{site_url}/code/task/{t.id}"
+        posthog_url = f"{site_url}/project/{t.team_id}/tasks/{t.id}"
+        desktop_url = f"{site_url}/code/task/{t.id}" if can_open_desktop_links else None
         all_items.append(
             TaskItem(
                 title=t.title,
