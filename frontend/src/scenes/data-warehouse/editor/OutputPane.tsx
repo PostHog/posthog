@@ -1177,7 +1177,9 @@ const Content = ({
             return 0
         })
     }, [rows, sortColumns])
-    const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
+    // A user cancel resolves as success with responseError null; gate the error state on a real error,
+    // not the cancel flag, so the preserved rows keep rendering. queryCancelled only picks the title text.
+    const hasError = !!responseError || !!(response && 'error' in response && !!response.error)
 
     if (hasError) {
         return (
