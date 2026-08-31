@@ -36,7 +36,9 @@ describe('variableDataLogic', () => {
         jest.mocked(api.insightVariables.list).mockRejectedValue(new ApiError('Server error', 500))
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadVariablesFailure']).toNotHaveDispatchedActions(['loadVariablesSuccess'])
+        await expectLogic(logic)
+            .toDispatchActions(['loadVariablesFailure'])
+            .toNotHaveDispatchedActions(['loadVariablesSuccess'])
         expect(logic.values.variables).toEqual([])
     })
 })
