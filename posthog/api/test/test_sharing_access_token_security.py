@@ -16,7 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class SharingAccessTokenSecurityTest(APIBaseTest):
@@ -248,7 +248,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         Test that variables_override parameter is ignored when using sharing access tokens.
         Variables only work in HogQL queries, not TrendsQuery.
         """
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.facade.models import InsightVariable
 
         # Create an insight variable first
         variable = InsightVariable.objects.create(

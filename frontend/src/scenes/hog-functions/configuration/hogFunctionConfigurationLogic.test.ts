@@ -6,9 +6,9 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
-import { HogFunctionTemplateType, HogFunctionType } from '~/types'
+import { CyclotronJobFiltersType, HogFunctionTemplateType, HogFunctionType } from '~/types'
 
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic, sanitizeInputs } from './hogFunctionConfigurationLogic'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -187,6 +187,20 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
+    describe('sanitizeInputs', () => {
+        it('does not send a placeholder value for an untouched secret', () => {
+            // A value here can be encrypted over the stored secret, so an untouched secret must
+            // carry only { secret: true }.
+            const result = sanitizeInputs({
+                inputs_schema: [{ key: 'api_key', label: 'API key', type: 'string', secret: true }],
+                inputs: { api_key: { value: '********', secret: true } },
+            })
+
+            expect(result.api_key.value).toBeUndefined()
+            expect(result.api_key.secret).toBe(true)
+        })
+    })
+
     describe('log transformation', () => {
         const LOG_TEMPLATE: HogFunctionTemplateType = {
             free: true,
@@ -234,6 +248,49 @@ describe('hogFunctionConfigurationLogic', () => {
             }).toDispatchActions(['upsertHogFunctionFailure'])
 
             expect(toastSpy).toHaveBeenCalledWith(detail)
+        })
+    })
+
+    describe('resetting to template', () => {
+        const USER_FILTERS: CyclotronJobFiltersType = {
+            events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+            filter_test_accounts: false,
+        }
+        const TEMPLATE_DEFAULT_FILTERS: CyclotronJobFiltersType = {
+            events: [],
+            actions: [],
+            filter_test_accounts: true,
+        }
+        const TEMPLATE_WITH_DEFAULT_FILTERS: HogFunctionTemplateType = {
+            ...HOG_TEMPLATE,
+            code: `${HOG_TEMPLATE.code}\n// updated`,
+            filters: TEMPLATE_DEFAULT_FILTERS,
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            mockApi.getTemplate.mockResolvedValue(TEMPLATE_WITH_DEFAULT_FILTERS)
+        })
+
+        it.each([
+            ['keeps the configured filters over the template defaults', USER_FILTERS, USER_FILTERS],
+            ['falls back to the template defaults when none are configured', null, TEMPLATE_DEFAULT_FILTERS],
+        ])('%s', async (_name, functionFilters, expectedFilters) => {
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                filters: functionFilters,
+                template: TEMPLATE_WITH_DEFAULT_FILTERS,
+            })
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.resetToTemplate()
+            }).toDispatchActions(['setConfigurationValues'])
+
+            expect(logic.values.configuration.filters).toEqual(expectedFilters)
+            expect(logic.values.configuration.hog).toEqual(TEMPLATE_WITH_DEFAULT_FILTERS.code)
         })
     })
 

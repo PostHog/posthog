@@ -42,12 +42,15 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.rate_limit import MaterializationRateThrottle, PersonalApiKeyOrUserRateThrottle, RunSavedQueryRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.query_access import assert_user_can_read_query
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
-from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
+from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS, get_incremental_config
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -466,6 +469,10 @@ class DataWarehouseSavedQuerySerializerMixin:
         return resolve_sync_frequency(self.root, schema)  # type: ignore[attr-defined]
 
     @extend_schema_field(serializers.BooleanField())
+    def get_is_incremental(self, view: DataWarehouseSavedQuery) -> bool:
+        return get_incremental_config(view) is not None
+
+    @extend_schema_field(serializers.BooleanField())
     def get_sync_frequency_managed_by_dag(self, view: DataWarehouseSavedQuery) -> bool:
         return bool(self.context.get("sync_frequency_managed_by_dag", False))  # type: ignore[attr-defined]
 
@@ -538,6 +545,11 @@ class DataWarehouseSavedQueryMinimalSerializer(
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     folder_id = serializers.UUIDField(source="folder.id", read_only=True, allow_null=True)
     folder_name = serializers.CharField(source="folder.name", read_only=True, allow_null=True)
+    is_incremental = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Whether this view is set up to update incrementally. A run can still rebuild the "
+        "whole table, for example on the first run or after the query changes.",
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -558,6 +570,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "folder_name",
             "latest_error",
             "is_materialized",
+            "is_incremental",
             "origin",
             "is_test",
             "expires_at",
@@ -1276,7 +1289,7 @@ class DataWarehouseSavedQuerySerializer(
         # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
         # Otherwise a user with denied table could create another one with colliding name.
         if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
-            raise serializers.ValidationError("A table with this name already exists.")
+            raise serializers.ValidationError("A table or view with this name already exists. Choose a different name.")
 
         return name
 

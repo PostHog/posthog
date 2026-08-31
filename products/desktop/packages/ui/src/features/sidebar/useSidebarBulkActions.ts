@@ -19,7 +19,7 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
-import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { useLiveTaskIds } from "@posthog/ui/features/tasks/useLiveTaskIds";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
@@ -93,14 +93,7 @@ export function useSidebarBulkActions(
   const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
   const { fileTask } = useChannelTaskMutations();
 
-  // The command centre's own task list, so a cell counts as free here exactly
-  // when the grid draws it empty. Same query key the grid uses, so this is a
-  // cache read rather than a second poll.
-  const { data: liveTasks } = useTasks();
-  const liveTaskIds = useMemo(
-    () => (liveTasks ? new Set(liveTasks.map((t) => t.id)) : null),
-    [liveTasks],
-  );
+  const liveTaskIds = useLiveTaskIds();
 
   const [isArchiving, setIsArchiving] = useState(false);
   const [isFiling, setIsFiling] = useState(false);
@@ -132,9 +125,7 @@ export function useSidebarBulkActions(
   );
 
   // Full success clears the selection; a partial one narrows it to exactly the
-  // failures so the user can retry those. Setting the ids outright rather than
-  // subtracting the successes matters because the routed task is folded into
-  // the batch without ever being in the store — subtracting would empty it.
+  // failures so the user can retry those.
   const reconcileSelection = useCallback(
     (failedIds: string[]) => {
       if (failedIds.length === 0) clearSelection();
@@ -147,7 +138,6 @@ export function useSidebarBulkActions(
     if (selectedCount === 0 || isArchiving) return;
     setIsArchiving(true);
     const store = useArchivingTasksStore.getState();
-    // Spinner the rows for the whole sequential batch, not just the current one.
     for (const id of taskIds) store.startArchiving(id);
     try {
       const { archived, failed } = await archiveTasksImperative(

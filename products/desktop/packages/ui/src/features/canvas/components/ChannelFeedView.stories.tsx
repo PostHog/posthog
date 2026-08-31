@@ -187,6 +187,14 @@ export const PendingKickoff: Story = {
   },
 };
 
+export const Loading: Story = {
+  args: {
+    tasks: [],
+    isLoading: true,
+    composer: <MockComposer />,
+  },
+};
+
 export const EmptyChannel: Story = {
   args: {
     tasks: [],

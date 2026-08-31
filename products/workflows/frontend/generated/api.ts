@@ -28,6 +28,7 @@ import type {
     HogFlowTemplatesLogsRetrieveParams,
     HogFlowsAssetContentRetrieveParams,
     HogFlowsAssetsRetrieveParams,
+    HogFlowsInvocationResultsCountRetrieveParams,
     HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
     HogFlowsLogsRetrieveParams,
@@ -42,6 +43,7 @@ import type {
     HogInvocationRerunResponseApi,
     HogInvocationResultApi,
     HogInvocationResultDetailApi,
+    HogInvocationResultsCountApi,
     MessageAssetApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
@@ -550,6 +552,45 @@ export const hogFlowsInvocationResultRetrieve = async (
 ): Promise<HogInvocationResultDetailApi> => {
     return apiMutator<HogInvocationResultDetailApi>(
         getHogFlowsInvocationResultRetrieveUrl(projectId, id, invocationId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getHogFlowsInvocationResultsCountRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsInvocationResultsCountRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/invocation_results_count/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/invocation_results_count/`
+}
+
+/**
+ * Count invocations matching the same filters as the list endpoint,
+ * without its 500-row cap.
+ */
+export const hogFlowsInvocationResultsCountRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsInvocationResultsCountRetrieveParams,
+    options?: RequestInit
+): Promise<HogInvocationResultsCountApi> => {
+    return apiMutator<HogInvocationResultsCountApi>(
+        getHogFlowsInvocationResultsCountRetrieveUrl(projectId, id, params),
         {
             ...options,
             method: 'GET',

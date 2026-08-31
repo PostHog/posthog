@@ -122,8 +122,19 @@ def resolve_hosts_ips(hosts: Iterable[str]) -> dict[str, ResolvedIPs]:
     return resolved
 
 
+# Carrier-grade NAT space (RFC 6598). ipaddress classifies it as neither private nor
+# global, so none of the attribute flags in _is_internal_ip catch it, yet it is routable
+# inside VPCs and overlay networks (e.g. Kubernetes pod ranges, Tailscale). It is
+# special-use per RFC 6890, which the CIMD spec requires blocking, so block it explicitly.
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
 def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """Check if an IP address is internal/private and should be blocked."""
+    # An IPv4-mapped IPv6 address (::ffff:a.b.c.d) reaches the IPv4 host it embeds, and
+    # network membership does not cross IP versions, so judge the embedded address.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
     return any(
         [
             ip.is_private,
@@ -132,6 +143,7 @@ def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
             ip.is_multicast,
             ip.is_reserved,
             ip.is_unspecified,
+            ip in _CGNAT_NETWORK,
         ]
     )
 

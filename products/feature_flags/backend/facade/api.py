@@ -30,8 +30,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.utils import ServiceRequest
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
@@ -287,3 +287,33 @@ def serialize_flags(flags: Any, *, context: dict) -> Any:
     access-control-derived fields, so it can only be built for a real request.
     """
     return FeatureFlagSerializer(flags, many=True, context=context).data
+
+
+def add_group_to_flag_targeting(*, team: Team, key: str, group_key: str) -> bool:
+    """Add one group key to a flag's group-targeting condition, for a product rolling itself out.
+
+    A product that migrates its own data organization by organization needs to widen the flag as
+    each one lands, and it should not have to know how release conditions are stored to do it.
+    Returns False when no such flag exists on the team, or when its conditions carry no
+    `$group_key` filter to widen — both mean the caller's rollout assumption no longer holds, so
+    they are reported rather than silently repaired.
+    """
+    flag = FeatureFlag.objects.filter(team=team, key=key, deleted=False).first()
+    if flag is None:
+        return False
+    conditions = [
+        prop
+        for group in (flag.filters or {}).get("groups") or []
+        for prop in group.get("properties", [])
+        if prop.get("key") == "$group_key"
+    ]
+    if not conditions:
+        return False
+    condition = conditions[0]
+    values = condition.get("value")
+    if not isinstance(values, list):
+        return False
+    if group_key not in values:
+        values.append(group_key)
+        flag.save(update_fields=["filters"])
+    return True

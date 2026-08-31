@@ -53,12 +53,6 @@ from products.signals.backend.temporal.reingestion import (
     restore_grouping_pause_activity,
     soft_delete_report_signals_activity,
 )
-from products.signals.backend.temporal.report_canvas import (
-    SignalReportCanvasWorkflow,
-    fail_report_canvas_generation_activity,
-    poll_report_canvas_generation_activity,
-    start_report_canvas_generation_activity,
-)
 from products.signals.backend.temporal.report_safety_judge import report_safety_judge_activity
 from products.signals.backend.temporal.safety_filter import safety_filter_activity
 from products.signals.backend.temporal.signal_queries import (
@@ -96,7 +90,6 @@ WORKFLOWS = [
     RunSignalsScoutWorkflow,
     SignalsScoutCoordinatorWorkflow,
     SignalReportInboxNotificationWorkflow,
-    SignalReportCanvasWorkflow,
 ]
 
 ACTIVITIES = [
@@ -127,9 +120,6 @@ ACTIVITIES = [
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,
-    fail_report_canvas_generation_activity,
-    start_report_canvas_generation_activity,
-    poll_report_canvas_generation_activity,
     publish_report_completed_activity,
     report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,

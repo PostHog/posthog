@@ -7,10 +7,8 @@ import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin,
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
@@ -25,6 +23,7 @@ import { FillInHint } from 'scenes/max/components/FillInHint'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
+import { HOMEPAGE_CAPABILITIES } from 'scenes/max/maxCapabilities'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
@@ -301,17 +300,12 @@ function getStoredSkeletonCounts(): Record<string, number> | null {
 function IdleGrid(): JSX.Element {
     const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
         useValues(aiFirstHomepageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     // [col, row] position of the highlighted item, null = nothing highlighted
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
     const gridRef = useRef<HTMLDivElement>(null)
 
     const [skeletonCounts, setSkeletonCounts] = useState(getStoredSkeletonCounts)
-
-    const hasExtraMarginTop =
-        !!featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES] ||
-        featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES] === 'control'
 
     const columns = useMemo(() => {
         return GRID_COLUMNS.map((col) => ({
@@ -459,12 +453,8 @@ function IdleGrid(): JSX.Element {
             ref={gridRef}
             role="grid"
             data-attr="homepage-grid"
-            // Fills the fixed-height swap container (see HomepageInput) so the recents grid and the
-            // capability cards are always the same height. Only shown at @xl+ where columns sit in a row.
-            className={cn(
-                'flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none h-full',
-                hasExtraMarginTop && 'mt-8'
-            )}
+            // Only shown at @xl+ where the homepage columns sit in a row.
+            className="flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none mt-8"
             tabIndex={-1}
             onFocus={(e) => {
                 // Only auto-highlight when focused via keyboard (ArrowDown from input)
@@ -542,11 +532,12 @@ function IdleGrid(): JSX.Element {
 }
 
 export function HomepageInput(): JSX.Element {
-    const { mode, query, capabilities, selectedCapability } = useValues(aiFirstHomepageLogic)
+    const { mode, query, selectedCapability } = useValues(aiFirstHomepageLogic)
     const { setQuery, submitQuery, setSelectedCapability, setFillInHint } = useActions(aiFirstHomepageLogic)
     const { user } = useValues(userLogic)
 
-    const selectedCapabilityData = capabilities.find((capability) => capability.key === selectedCapability) ?? null
+    const selectedCapabilityData =
+        HOMEPAGE_CAPABILITIES.find((capability) => capability.key === selectedCapability) ?? null
 
     return (
         <div className="w-full max-w-180 mx-auto py-2 ">
@@ -569,15 +560,17 @@ export function HomepageInput(): JSX.Element {
                         <div className="overflow-hidden flex flex-col items-center gap-6">
                             <CapabilityBadges
                                 className="shrink-0"
-                                capabilities={capabilities}
+                                capabilities={HOMEPAGE_CAPABILITIES}
                                 selectedKey={selectedCapability}
                                 onSelect={setSelectedCapability}
                             />
-                            {/* Single fixed-height swap area — the cards and the recents grid both fill
-                                it (h-full), so switching never changes height. */}
+                            {/* Capability suggestions need a fixed basis; the idle grid uses its intrinsic height. */}
                             <div
                                 className="w-full shrink-0 overflow-hidden"
-                                style={{ height: CAPABILITY_CARDS_HEIGHT_PX }}
+                                style={{
+                                    height: selectedCapabilityData ? CAPABILITY_CARDS_HEIGHT_PX : 'auto',
+                                    minHeight: CAPABILITY_CARDS_HEIGHT_PX,
+                                }}
                             >
                                 {selectedCapabilityData ? (
                                     <CapabilitySuggestions

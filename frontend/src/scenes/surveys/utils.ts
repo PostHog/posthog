@@ -1241,15 +1241,29 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
 }
 
 /**
- * With partial responses off, posthog-js has no partial submission to distinguish a complete one
- * from, so it never sets `$survey_completed` and requiring `= true` matches nothing. Accept the
- * property being absent as completed too, the same way the response summary counts them
+ * True when posthog-js emits an intermediate `survey sent` event per answered question, sharing one
+ * `$survey_submission_id`, with only the last carrying `$survey_completed: true`. Requiring the
+ * property to be `true` is what keeps a notification from firing once per question, so it is only
+ * worth requiring here.
+ *
+ * An API survey has no posthog-js rendering it. The integrator sends one event per submission from
+ * their own code and marks a partial one with an explicit `$survey_completed: false`, the way
+ * posthog-js does, so absent means completed there whatever `enable_partial_responses` says.
+ */
+export function surveyEmitsPartialSentEvents(survey: Pick<Survey, 'type' | 'enable_partial_responses'>): boolean {
+    return (survey.enable_partial_responses ?? false) && survey.type !== SurveyType.API
+}
+
+/**
+ * Without intermediate partial events, posthog-js has no partial submission to distinguish a
+ * complete one from, so it never sets `$survey_completed` and requiring `= true` matches nothing.
+ * Accept the property being absent as completed too, the same way the response summary counts them
  * (`enable_partial_responses` branch in `ee/surveys/summaries/headline_summary.py`). An explicit
  * `false` stays excluded: a survey switched from partial to non-partial keeps its old partials.
  */
 export function getSurveyNotificationFilters(
     surveyId: string,
-    enablePartialResponses: boolean,
+    emitsPartialSentEvents: boolean,
     extraSentEventProperties: EventPropertyFilter[] = []
 ): CyclotronJobFiltersType {
     const surveyIdProperty: EventPropertyFilter = {
@@ -1288,7 +1302,7 @@ export function getSurveyNotificationFilters(
                 type: 'events',
                 properties: sentEventProperties,
             },
-            ...(enablePartialResponses
+            ...(emitsPartialSentEvents
                 ? []
                 : [
                       {

@@ -224,6 +224,12 @@ class ClientConfig(TypedDict, total=False):
     # source pointed at a customer-controlled host that stalls holds an import worker forever.
     # A single float applies to both connect and read; a tuple sets them separately.
     request_timeout: Optional[float | tuple[float, float]]
+    # When False, this client's default tracked session is built with HTTP sample capture
+    # disabled — for endpoints whose bodies carry sensitive PII the name-based sample scrubbers
+    # aren't guaranteed to catch (e.g. student/HR records). Requests are still metered and
+    # logged. Left unset, capture follows the operator-configured sample rules as normal. No
+    # effect when a pre-built `session` is supplied instead.
+    capture: bool
 
 
 class IncrementalArgs(TypedDict, total=False):

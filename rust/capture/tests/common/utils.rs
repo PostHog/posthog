@@ -47,6 +47,18 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     global_rate_limit_token_distinctid_threshold: 10_000,
     global_rate_limit_token_distinctid_overrides_csv: None,
     global_rate_limit_token_distinctid_local_cache_max_entries: 300_000,
+    // Integration tests assert on exact limiter behavior at a threshold of
+    // 10_000, so every key syncs and every tick drains fully.
+    global_rate_limit_min_sync_floor: 0,
+    global_rate_limit_max_sync_keys_per_tick: 20_000,
+    global_rate_limit_max_keys_per_command: 2_000,
+    global_rate_limit_max_concurrent_commands: 4,
+    global_rate_limit_max_write_batch_entries: 200_000,
+    global_rate_limit_max_pending_sync_entries: 200_000,
+    global_rate_limit_local_cache_ttl_secs: 600,
+    global_rate_limit_local_cache_idle_timeout_secs: 300,
+    global_rate_limit_read_timeout_ms: 250,
+    global_rate_limit_write_timeout_ms: 250,
     global_rate_limit_token_threshold: 300_000,
     global_rate_limit_token_overrides_csv: None,
     global_rate_limit_token_local_cache_max_entries: 300_000,
@@ -148,16 +160,12 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
+    ai_max_event_bytes: 8_388_608,         // 8MiB default
     ai_gateway_signing_secret: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
-    continuous_profiling: ContinuousProfilingConfig {
-        continuous_profiling_enabled: false,
-        pyroscope_server_address: String::new(),
-        pyroscope_application_name: String::new(),
-        pyroscope_sample_rate: 100,
-    },
+    continuous_profiling: ContinuousProfilingConfig::default(),
     capture_v1_sinks: String::new(),
     capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
     capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
@@ -168,6 +176,10 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_ingestion_warnings_kafka_topic: String::new(),
     capture_ingestion_warnings_kafka_hosts: String::new(),
     capture_ingestion_warnings_kafka_tls: false,
+    ai_byte_limit_per_second: 0,
+    ai_byte_limit_overrides_csv: None,
+    ai_byte_limit_dry_run: false,
+    ai_byte_limit_local_cache_max_entries: 300_000,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every
@@ -297,7 +309,7 @@ impl ServerHandle {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
         config.ai_gateway_signing_secret = Some(secret.to_string());
-        // The gateway tests send `$ai_*` events, which route to the AI topic;
+        // The gateway tests send AI events, which route to the AI topic;
         // point it at the same ephemeral topic so the consumer sees them.
         config.kafka.capture_analytics_ai_events_topic = topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());

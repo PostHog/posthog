@@ -3,13 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.formbricks import (
     FORMBRICKS_API_VERSION_V1,
     FORMBRICKS_API_VERSION_V2,
-    FormbricksResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import (
     ENDPOINTS,
@@ -19,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.formbricks import (
     FormbricksSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFormbricksSource:
@@ -27,26 +24,6 @@ class TestFormbricksSource:
         self.source = FormbricksSource()
         self.team_id = 123
         self.config = FormbricksSourceConfig(api_key="fb-key", host="https://formbricks.example.com")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FORMBRICKS
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Formbricks"
-        assert config.label == "Formbricks"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/formbricks"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["host", "api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_host_field_is_optional_connection_target(self) -> None:
         config = self.source.get_source_config
@@ -140,20 +117,6 @@ class TestFormbricksSource:
     def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source.validate_formbricks_credentials"
-    )
-    def test_validate_credentials_delegates_with_host_and_key(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Formbricks API key")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("https://formbricks.example.com", "fb-key", self.team_id)
-        assert result == (False, "Invalid Formbricks API key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FormbricksResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source.formbricks_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

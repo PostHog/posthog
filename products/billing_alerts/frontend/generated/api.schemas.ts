@@ -95,8 +95,8 @@ export interface BillingAlertDestinationCreateDataApi {
 
 export interface BillingAlertDestinationChangesApi {
     /**
-     * @items.minItems 4
-     * @items.maxItems 4
+     * @items.minItems 1
+     * @items.maxItems 100
      */
     delete?: string[][]
     create?: BillingAlertDestinationCreateDataApi[]
@@ -522,8 +522,8 @@ export interface BillingAlertDestinationResponseApi {
 export interface BillingAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
-     * @minItems 4
-     * @maxItems 4
+     * @minItems 1
+     * @maxItems 100
      */
     hog_function_ids: string[]
 }

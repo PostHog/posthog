@@ -38,7 +38,6 @@ class TestBingAdsHelperFunctions:
     """Test helper functions in bing_ads.py and utils.py."""
 
     def test_parse_csv_to_dicts_valid_data(self):
-        """Test parsing valid CSV report data."""
         csv_data = """TimePeriod,CampaignId,CampaignName,Impressions,Clicks
 2024-01-01,123,Test Campaign,1000,50
 2024-01-02,123,Test Campaign,1200,60"""
@@ -52,7 +51,6 @@ class TestBingAdsHelperFunctions:
         assert result[1]["TimePeriod"] == "2024-01-02"
 
     def test_parse_csv_to_dicts_with_null_values(self):
-        """Test parsing CSV with null values (--) and empty strings."""
         csv_data = """TimePeriod,CampaignId,CampaignName,Impressions,Clicks
 2024-01-01,123,Test Campaign,--,
 2024-01-02,456,--,1000,50"""
@@ -65,7 +63,6 @@ class TestBingAdsHelperFunctions:
         assert result[1]["CampaignName"] is None
 
     def test_fetch_data_in_yearly_chunks_single_chunk(self):
-        """Test fetching data within a single year."""
         mock_client = Mock()
         mock_client.get_data_by_resource.return_value = iter([[{"CampaignId": "123", "Clicks": "100"}]])
 
@@ -92,7 +89,6 @@ class TestBingAdsHelperFunctions:
         )
 
     def test_fetch_data_in_yearly_chunks_multiple_chunks(self):
-        """Test fetching data across multiple years."""
         mock_client = Mock()
         mock_client.get_data_by_resource.side_effect = [
             iter([[{"year": "2023"}]]),
@@ -330,7 +326,6 @@ class TestBingAdsSource:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_campaigns(self, mock_integrations, mock_client_class):
-        """Test source function for campaigns (non-report endpoint)."""
         mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
 
         mock_client = Mock()
@@ -362,7 +357,6 @@ class TestBingAdsSource:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_report_full_refresh(self, mock_integrations, mock_client_class, mock_fetch_chunks):
-        """Test source function for report endpoint with full refresh."""
         mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
 
         mock_client = Mock()
@@ -407,7 +401,6 @@ class TestBingAdsSource:
     def test_bing_ads_source_report_incremental(
         self, _name, last_value, mock_integrations, mock_client_class, mock_fetch_chunks
     ):
-        """Test source function for report endpoint with incremental sync."""
         mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
 
         mock_client = Mock()
@@ -472,7 +465,6 @@ class TestBingAdsSource:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_missing_developer_token(self, mock_integrations):
-        """Test source function raises error when developer token is missing."""
         mock_integrations.BING_ADS_DEVELOPER_TOKEN = None
 
         result = bing_ads_source(
@@ -548,7 +540,6 @@ class TestBingAdsSource:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_incremental_missing_field(self, mock_integrations, mock_client_class):
-        """Test source function raises error when incremental field is missing."""
         mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
 
         result = bing_ads_source(

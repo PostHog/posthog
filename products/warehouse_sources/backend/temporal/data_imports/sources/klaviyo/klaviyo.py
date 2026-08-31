@@ -282,7 +282,10 @@ def _iter_resource_ids(
     page_size: int,
 ) -> Iterator[str]:
     """Page through a Klaviyo collection and yield each row's id, following the cursor links."""
-    url = _build_url(f"{KLAVIYO_BASE_URL}{path}", {"page[size]": page_size})
+    # Some collections (e.g. /object-types) reject page[size]; page_size <= 0 means "omit it and
+    # page by cursor links alone", mirroring _build_initial_params for top-level endpoints.
+    params = {"page[size]": page_size} if page_size > 0 else {}
+    url = _build_url(f"{KLAVIYO_BASE_URL}{path}", params)
     while True:
         data = _fetch_page(session, url, headers, logger)
         for item in data.get("data", []):
@@ -456,6 +459,25 @@ def _resolve_conversion_metric_id(
     return first_metric_id
 
 
+def _series_rows(
+    results: list[dict[str, Any]], date_times: list[Any], common: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    """Expand a series report's per-bucket arrays into one flat row per (grouping, time bucket).
+
+    A series result holds each statistic as an array aligned by index to the report's top-level
+    date_times list. Keeping the arrays nested would leave the table unqueryable and break the
+    date_time primary key, so each bucket becomes its own row tagged with its date_time.
+    """
+    for result in results:
+        groupings = result.get("groupings", {})
+        statistics = result.get("statistics", {})
+        for index, date_time in enumerate(date_times):
+            row = {**groupings, "date_time": date_time, **common}
+            for statistic, values in statistics.items():
+                row[statistic] = values[index] if isinstance(values, list) and index < len(values) else None
+            yield row
+
+
 def _get_values_report_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -464,50 +486,63 @@ def _get_values_report_rows(
     config: KlaviyoEndpointConfig,
     conversion_metric_id: str | None,
 ) -> Iterator[Any]:
-    """Post a Klaviyo values report and flatten each grouping's statistics into one row.
+    """Post a Klaviyo reporting query and flatten each grouping's statistics into rows.
 
-    The report is an aggregate over a rolling window rather than a resource collection, so there is
-    no cursor to advance — the table is replaced in full on every sync.
+    The report is an aggregate over a rolling window rather than a resource collection, so every
+    request asks for the whole window and there is no cursor to send. A values report yields one
+    scalar row per grouping; a series report yields one row per grouping per time bucket.
+
+    A series table still syncs incrementally, because date_time identifies the bucket a row belongs
+    to. The write merges on the primary key, so re-posting the window corrects the buckets Klaviyo
+    still returns and leaves the ones it has dropped in place.
     """
     report = config.values_report
     assert report is not None
 
-    metric_id = conversion_metric_id or _resolve_conversion_metric_id(session, headers, logger)
-    if not metric_id:
-        logger.warning(
-            f"Klaviyo: no conversion metric found for {config.name}; set a conversion metric ID on the source"
-        )
-        return
+    metric_id: str | None = None
+    if report.requires_conversion_metric:
+        metric_id = conversion_metric_id or _resolve_conversion_metric_id(session, headers, logger)
+        if not metric_id:
+            logger.warning(
+                f"Klaviyo: no conversion metric found for {config.name}; set a conversion metric ID on the source"
+            )
+            return
 
-    body = {
-        "data": {
-            "type": report.report_type,
-            "attributes": {
-                "statistics": report.statistics,
-                "timeframe": {"key": report.timeframe_key},
-                "conversion_metric_id": metric_id,
-                "group_by": report.group_by,
-            },
-        }
+    attributes: dict[str, Any] = {
+        "statistics": report.statistics,
+        "timeframe": {"key": report.timeframe_key},
     }
+    if report.group_by:
+        attributes["group_by"] = report.group_by
+    if metric_id:
+        attributes["conversion_metric_id"] = metric_id
+    if report.interval:
+        attributes["interval"] = report.interval
+
+    body = {"data": {"type": report.report_type, "attributes": attributes}}
     # Klaviyo rejects a reporting POST that isn't sent as JSON:API.
     post_headers = {**headers, "Content-Type": "application/vnd.api+json"}
     url = f"{KLAVIYO_BASE_URL}{config.path}"
 
+    # Tagged onto every row so each row records the window (and conversion metric)
+    # it was computed over.
+    common: dict[str, Any] = {"timeframe_key": report.timeframe_key}
+    if metric_id:
+        common["conversion_metric_id"] = metric_id
+
     try:
         while True:
             data = _fetch_page(session, url, post_headers, logger, json_body=body)
-            attributes = data.get("data", {}).get("attributes", {})
+            attributes_resp = data.get("data", {}).get("attributes", {})
+            results = attributes_resp.get("results", [])
 
-            for result in attributes.get("results", []):
-                batcher.batch(
-                    {
-                        **result.get("groupings", {}),
-                        **result.get("statistics", {}),
-                        "timeframe_key": report.timeframe_key,
-                        "conversion_metric_id": metric_id,
-                    }
-                )
+            if report.interval:
+                rows = _series_rows(results, attributes_resp.get("date_times", []), common)
+            else:
+                rows = ({**r.get("groupings", {}), **r.get("statistics", {}), **common} for r in results)
+
+            for row in rows:
+                batcher.batch(row)
                 if batcher.should_yield():
                     yield batcher.get_table()
 

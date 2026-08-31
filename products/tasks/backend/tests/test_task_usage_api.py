@@ -18,11 +18,12 @@ class TestInternalTaskUsageViewSet(SimpleTestCase):
         "products.tasks.backend.presentation.views.task_usage_api.get_local_task_token_cost",
         return_value=Decimal("1.25"),
     )
-    def test_create_returns_token_cost(self, _get_token_cost) -> None:
+    def test_create_returns_token_cost(self, get_token_cost) -> None:
         request = Request(
             APIRequestFactory().post(
                 "/",
                 {
+                    "team_id": 42,
                     "task_id": str(UUID("00000000-0000-0000-0000-000000000001")),
                     "task_created_at": datetime(2026, 8, 1, tzinfo=UTC).isoformat(),
                 },
@@ -35,3 +36,8 @@ class TestInternalTaskUsageViewSet(SimpleTestCase):
 
         assert response.status_code == 200
         assert response.data == {"token_cost_usd": 1.25}
+        get_token_cost.assert_called_once_with(
+            team_id=42,
+            task_id=UUID("00000000-0000-0000-0000-000000000001"),
+            task_created_at=datetime(2026, 8, 1, tzinfo=UTC),
+        )

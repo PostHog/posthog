@@ -126,7 +126,7 @@ export function PlanUsageContent({
       {billingEnabled && (
         <SettingsSubsection
           title="Organization usage"
-          description="Combined token and cloud-compute spend counts toward your organization's shared allowance and limit."
+          description="Combined token and cloud-compute spend counts toward your organization's shared allowance and limit"
           actions={
             <Button
               size="1"
@@ -178,7 +178,7 @@ export function PlanUsageContent({
               align="center"
               justify="center"
               p="4"
-              className="rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)"
+              className="rounded-(--radius-3) border border-border bg-card"
             >
               <Spinner size="2" />
             </Flex>
@@ -209,7 +209,7 @@ export function PlanUsageContent({
               justify="between"
               gap="4"
               p="4"
-              className="rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)"
+              className="rounded-(--radius-3) border border-border bg-card"
             >
               <Text color="gray" className="text-[13px]">
                 {usage
@@ -234,7 +234,7 @@ export function PlanUsageContent({
               {cloudComputeEnabled && hasUsageMix && (
                 <UsageMix components={components} />
               )}
-              <Text className="text-[12px] text-gray-10">
+              <Text className="text-[12px] text-muted-foreground">
                 Usage reporting may be delayed by 15–20 minutes.
               </Text>
             </Flex>
@@ -275,9 +275,9 @@ function UsageMix({
       direction="column"
       gap="3"
       p="4"
-      className="rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)"
+      className="rounded-(--radius-3) border border-border bg-card"
     >
-      <Text className="font-medium text-[13px] text-gray-12">Usage mix</Text>
+      <Text className="font-medium text-[13px] text-foreground">Usage mix</Text>
       <div
         role="img"
         aria-label={`${roundedTokenPercent}% tokens and ${totalUsd > 0 ? 100 - roundedTokenPercent : 0}% cloud compute`}
@@ -307,7 +307,7 @@ function UsageMix({
           value={formatUsdAmount(computeUsd)}
         />
       </Flex>
-      <Text className="text-[12px] text-gray-10">
+      <Text className="text-[12px] text-muted-foreground">
         Compute resources: {computeDetails}
       </Text>
     </Flex>
@@ -321,7 +321,7 @@ function PersonalSpendDisclosure({ children }: { children: ReactNode }) {
   return (
     <SettingsSubsection
       title="Your spend"
-      description="Near-real-time analysis of your activity, separate from organization billing."
+      description="Near-real-time analysis of your activity, separate from organization billing"
       actions={
         <Button
           size="1"
@@ -355,7 +355,7 @@ function MixLegend({
       <span className={`size-2 rounded-full ${color}`} />
       <Text className="text-[13px]">
         <strong>{percent}%</strong> {label}
-        <span className="text-gray-10"> · {value}</span>
+        <span className="text-muted-foreground"> · {value}</span>
       </Text>
     </Flex>
   );

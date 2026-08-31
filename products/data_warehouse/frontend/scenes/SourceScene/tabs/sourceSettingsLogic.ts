@@ -18,7 +18,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -313,6 +313,31 @@ export async function runBulkSchemaAction(
 // Only schemas that are enabled with a configured sync method can be synced on demand.
 export function schemasEligibleForSync(schemas: ExternalDataSourceSchema[]): ExternalDataSourceSchema[] {
     return schemas.filter((schema) => !!schema.sync_type && schema.should_sync)
+}
+
+const SYNC_LOOKBACK_FIELD = 'sync_lookback_days'
+
+// Mirrors the backend's Meta Ads normalization (`meta_ads.py`): a missing, blank, or sub-1 value
+// falls back to the default window, and any value is capped at the max the source will request.
+const DEFAULT_SYNC_LOOKBACK_DAYS = 90
+const META_ADS_MAX_HISTORY_DAYS = 3 * 365
+
+// The effective lookback the backend would use for `value`. Comparing raw form values instead
+// would offer a destructive resync when narrowing a blank (effective-90) window, and skip the
+// resync prompt when widening from an absent value.
+export function effectiveLookbackDays(value: unknown): number {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return DEFAULT_SYNC_LOOKBACK_DAYS
+    }
+    return Math.min(parsed, META_ADS_MAX_HISTORY_DAYS)
+}
+
+// A raised history window (e.g. Meta Ads `sync_lookback_days`) only pulls in older data on a full
+// resync. An enabled incremental table that already imported keeps its start date until then, so
+// these are the tables a raise would otherwise silently skip.
+export function schemasNeedingLookbackResync(source: ExternalDataSource | null): ExternalDataSourceSchema[] {
+    return source?.schemas.filter((schema) => schema.should_sync && schema.incremental) ?? []
 }
 
 // Bulk-enable payloads: already-enabled schemas are skipped; schemas without a sync method ask
@@ -1055,6 +1080,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     ...sanitizedPayload,
                 }
 
+                // Read before the update, while `values.source` still holds the old config, so we can
+                // offer a resync when the user widens the history window (otherwise it's silently ignored).
+                const previousLookbackDays = effectiveLookbackDays(values.source?.job_inputs?.[SYNC_LOOKBACK_FIELD])
+                const nextLookbackDays = effectiveLookbackDays(sanitizedPayload[SYNC_LOOKBACK_FIELD])
+                const schemasToResync = schemasNeedingLookbackResync(values.source)
+
                 // Handle file uploads
                 const sourceFieldConfig = values.sourceFieldConfig
                 if (sourceFieldConfig?.fields) {
@@ -1102,6 +1133,19 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     })
                     actions.loadSource()
                     lemonToast.success('Source updated')
+
+                    if (nextLookbackDays > previousLookbackDays && schemasToResync.length > 0) {
+                        LemonDialog.open({
+                            title: 'Import the older data?',
+                            description: `A wider history window applies to tables you already synced only after a full resync. Resync ${pluralize(schemasToResync.length, 'table', 'tables')} now to import the older data?`,
+                            primaryButton: {
+                                children: 'Resync now',
+                                onClick: () => actions.bulkResync(schemasToResync),
+                            },
+                            secondaryButton: { children: 'Not now' },
+                        })
+                    }
+
                     tryShowMCPHint('data_warehouse_sources.update', {
                         derivedPrompt: values.source?.source_type
                             ? `Update the configuration on my ${values.source.source_type} source`

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react'
 import type { MutableRefObject } from 'react'
-import { cloneLayoutItem, verticalCompactor } from 'react-grid-layout'
+import { cloneLayoutItem } from 'react-grid-layout'
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 
 import {
@@ -12,10 +12,13 @@ import type { ResizeNeighbors } from 'scenes/dashboard/dashboardResizeCompactor'
 
 import type { DashboardLayoutSize } from '~/types'
 
+import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
+
 type InteractionKind = 'drag' | 'resize'
 
 interface UseDashboardLayoutInteractionProps {
     layoutEditMode: boolean
+    layoutCompaction?: DashboardGridCompaction
     updateLayouts: (layouts: Partial<Record<DashboardLayoutSize, Layout>>) => void
 }
 
@@ -29,6 +32,7 @@ interface DashboardLayoutInteraction {
 
 export function useDashboardLayoutInteraction({
     layoutEditMode,
+    layoutCompaction,
     updateLayouts,
 }: UseDashboardLayoutInteractionProps): DashboardLayoutInteraction {
     const interactionInProgress = useRef(false)
@@ -39,26 +43,27 @@ export function useDashboardLayoutInteraction({
     const activeItemId = useRef<string | null>(null)
     const interactionKind = useRef<InteractionKind | null>(null)
 
-    const gridCompactor = useMemo<Compactor>(
-        () => ({
-            ...verticalCompactor,
+    const gridCompactor = useMemo<Compactor>(() => {
+        const compactor = getDashboardGridCompactor(layoutCompaction ?? DashboardGridCompaction.Vertical)
+
+        return {
+            ...compactor,
             compact: (layout: Layout, cols: number): Layout => {
                 const baseline = baselineLayout.current
                 const activeTileId = activeItemId.current
                 if (!baseline || !activeTileId) {
-                    return verticalCompactor.compact(layout, cols)
+                    return compactor.compact(layout, cols)
                 }
 
                 const restoredLayout = restoreUnmovedItemPositions(layout, baseline, activeTileId, baselineById.current)
-                const layoutForCompaction =
+                const resizedLayout =
                     interactionKind.current === 'resize'
                         ? resizeNeighborToFitRow(restoredLayout, baseline, activeTileId, resizeNeighbors.current)
                         : restoredLayout
-                return verticalCompactor.compact(layoutForCompaction, cols)
+                return compactor.compactInteraction(cols, activeTileId, restoredLayout, resizedLayout)
             },
-        }),
-        []
-    )
+        }
+    }, [layoutCompaction])
 
     const handleLayoutChange = useCallback(
         (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {

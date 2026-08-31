@@ -18,12 +18,12 @@ from pydantic import BaseModel, Field
 from posthog.schema import DateRange
 
 from posthog.models.team.team import Team
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, sanitize_user_text
 from posthog.sync import database_sync_to_async
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     explain_conversion_goal,
     list_conversion_goals,

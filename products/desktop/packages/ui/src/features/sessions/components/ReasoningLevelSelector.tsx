@@ -2,11 +2,7 @@ import type {
   SessionConfigOption,
   SessionConfigSelectGroup,
 } from "@agentclientprotocol/sdk";
-import {
-  ArrowCounterClockwise,
-  Lightning,
-  Spinner,
-} from "@phosphor-icons/react";
+import { ArrowCounterClockwise, Lightning } from "@phosphor-icons/react";
 import {
   getCapabilityLadder,
   getReasoningEffortOptions,
@@ -40,9 +36,11 @@ import {
   type AgentHarness,
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
+import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { AnimatePresence, motion } from "framer-motion";
 import { Fragment, useRef, useState } from "react";
 import { flattenSelectOptions } from "../sessionStore";
@@ -162,7 +160,7 @@ export function ReasoningLevelSelector({
           <DropdownMenuTrigger
             render={
               <Button type="button" variant="default" size="sm">
-                <Spinner size={12} className="animate-spin" />
+                <Spinner size={12} />
                 Loading...
               </Button>
             }
@@ -182,7 +180,7 @@ export function ReasoningLevelSelector({
               />
             )}
             <DropdownMenuItem disabled>
-              <Spinner size={12} className="animate-spin" />
+              <Spinner size={12} />
               Loading models...
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -489,6 +487,7 @@ export function ReasoningLevelSelector({
                                 />
                               ))}
                       </DropdownMenuRadioGroup>
+                      <ModelCostFooter />
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                 )}

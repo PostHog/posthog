@@ -2,17 +2,20 @@ import { Meta } from '@storybook/react'
 
 import type { Mocks } from '~/mocks/utils'
 
+import { actionsEmptyState } from 'products/actions/frontend/emptyState/actionsEmptyState'
 import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
+import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
+import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 
@@ -141,4 +144,53 @@ export const WebScriptsNeedsSetup: ProductEmptyStateStory = productEmptyStateSto
 export const AIObservabilityNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
     aiObservabilityEmptyState,
     'needs-setup'
+)
+
+// Replay vision detection is binary too (a scanner is the unit of setup); its
+// detection logic polls the scanner stats endpoint, so answer it with zeros.
+export const ReplayVisionNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    replayVisionEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/vision/scanners/stats/': {
+                    total: 0,
+                    enabled: 0,
+                    by_type: {
+                        monitor: { enabled: 0, total: 0 },
+                        classifier: { enabled: 0, total: 0 },
+                        scorer: { enabled: 0, total: 0 },
+                        summarizer: { enabled: 0, total: 0 },
+                    },
+                },
+            },
+        },
+    }
+)
+
+// Actions detection lists actions on mount - answer "none yet".
+const actionsMocks = {
+    get: { '/api/projects/:team_id/actions/': [200, { count: 0, results: [] }] },
+} as const
+
+export const ActionsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(actionsEmptyState, 'needs-setup', {
+    mocks: actionsMocks,
+})
+
+// Error tracking detection asks the issues-exists API on mount - answer "none yet".
+const errorTrackingMocks = {
+    get: { '/api/projects/:team_id/error_tracking/issues/exists/': [200, { exists: false }] },
+} as const
+
+export const ErrorTrackingNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    errorTrackingEmptyState,
+    'needs-setup',
+    { mocks: errorTrackingMocks }
+)
+
+export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    errorTrackingEmptyState,
+    'waiting-for-data',
+    { mocks: errorTrackingMocks }
 )

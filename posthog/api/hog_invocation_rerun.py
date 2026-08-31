@@ -40,6 +40,15 @@ class HogInvocationRerunFilterSerializer(serializers.Serializer):
         required=False,
         help_text="Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout').",
     )
+    error_message_contains = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Restrict to invocations whose error_message contains this substring (case-insensitive). "
+            "Use to isolate one failure mode when error_kind is too coarse (most app-level errors "
+            "share the 'hog_error' kind)."
+        ),
+    )
     max_attempts = serializers.IntegerField(
         required=False,
         min_value=1,

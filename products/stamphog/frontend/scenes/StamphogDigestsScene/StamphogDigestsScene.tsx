@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -11,7 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { StamphogTabs } from '../../components/StamphogTabs'
 import { DigestRunApi } from '../../generated/api.schemas'
-import { digestChannelLabel, digestStatusDisplay } from './digestDisplay'
+import { digestDestinationLabel, digestStatusDisplay } from './digestDisplay'
 import { DIGESTS_PAGE_SIZE, stamphogDigestsSceneLogic } from './stamphogDigestsSceneLogic'
 
 export const scene: SceneExport = {
@@ -19,27 +19,8 @@ export const scene: SceneExport = {
     logic: stamphogDigestsSceneLogic,
 }
 
-function DigestFilters(): JSX.Element {
-    const { digestChannel, channelOptions, digestChannelsLoading } = useValues(stamphogDigestsSceneLogic)
-    const { setDigestChannel } = useActions(stamphogDigestsSceneLogic)
-
-    return (
-        <div className="flex gap-2 flex-wrap items-center">
-            <LemonSelect
-                value={digestChannel}
-                onChange={setDigestChannel}
-                loading={digestChannelsLoading}
-                placeholder="All channels"
-                className="min-w-60"
-                options={[{ value: null, label: 'All channels' }, ...channelOptions]}
-                data-attr="stamphog-digests-channel-filter"
-            />
-        </div>
-    )
-}
-
 function DigestsTable(): JSX.Element {
-    const { digestRuns, digestRunsCount, digestRunsResponseLoading, digestRunsFailed, page, channelsById } =
+    const { digestRuns, digestRunsCount, digestRunsResponseLoading, digestRunsFailed, page } =
         useValues(stamphogDigestsSceneLogic)
     const { setPage, loadDigestRuns } = useActions(stamphogDigestsSceneLogic)
 
@@ -51,18 +32,13 @@ function DigestsTable(): JSX.Element {
         },
         {
             title: 'Channel',
-            key: 'digest_channel',
-            render: (_, run) => {
-                const channel = channelsById[run.digest_channel]
-                return <span className="font-mono text-xs">{channel ? digestChannelLabel(channel) : '—'}</span>
-            },
+            key: 'slack_channel_id',
+            render: (_, run) => <span className="font-mono text-xs">{digestDestinationLabel(run)}</span>,
         },
         {
             title: 'Audience',
-            key: 'audience_key',
-            render: (_, run) => (
-                <span className="font-mono text-xs">{channelsById[run.digest_channel]?.audience_key ?? '—'}</span>
-            ),
+            dataIndex: 'audience_key',
+            render: (audience_key) => <span className="font-mono text-xs">{audience_key as string}</span>,
         },
         {
             title: 'Status',
@@ -114,7 +90,8 @@ function DigestsTable(): JSX.Element {
                 onForward: () => setPage(page + 1),
                 onBackward: () => setPage(page - 1),
             }}
-            emptyState="No digests yet. Stamphog posts one per channel on its digest schedule."
+            emptyState="No digests yet. Stamphog posts one per audience on its digest schedule."
+            data-attr="stamphog-digests-table"
         />
     )
 }
@@ -139,7 +116,6 @@ export function StamphogDigestsScene(): JSX.Element {
                 resourceType={{ type: 'stamphog' }}
             />
             <StamphogTabs activeKey="digests" />
-            <DigestFilters />
             <DigestsTable />
         </SceneContent>
     )

@@ -96,6 +96,7 @@ def mint_service_credential(
     *,
     principal: str,
     ttl_seconds: int = DEFAULT_CREDENTIAL_TTL_SECONDS,
+    timeout_seconds: int | None = None,
 ) -> ServiceCredential:
     """Mint a new org-scoped service credential for a short-lived job.
 
@@ -116,17 +117,23 @@ def mint_service_credential(
 
     ttl_seconds = max(MIN_CREDENTIAL_TTL_SECONDS, min(ttl_seconds, MAX_CREDENTIAL_TTL_SECONDS))
 
+    request_kwargs: dict[str, Any] = {
+        "json_body": {
+            "principal": principal,
+            "ttl_seconds": ttl_seconds,
+        },
+        "require_enabled": False,
+    }
+    if timeout_seconds is not None:
+        request_kwargs["timeout"] = timeout_seconds
+
     response = _request(
         "POST",
         organization_id,
         "/service-credentials",
-        json_body={
-            "principal": principal,
-            "ttl_seconds": ttl_seconds,
-        },
         # Backend caller: never gate on the user-facing data-warehouse feature
         # flag (a dagster worker may not have the flag definition loaded).
-        require_enabled=False,
+        **request_kwargs,
     )
     if not status.is_success(response.status_code):
         raise ServiceCredentialUnavailable(

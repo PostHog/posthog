@@ -1,6 +1,25 @@
 import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
-import { SignalReportStatus } from '../../types'
+import { SignalReportActionability, SignalReportStatus } from '../../types'
+
+/**
+ * Whether the status chip should be hidden because the actionability chip already tells the same
+ * story: "ready" is the default terminal state (the actionability verdict is the more specific
+ * fact), and "pending_input" next to a requires_human_input verdict would render two identical
+ * "Needs input" chips.
+ */
+export function isStatusRedundantWithActionability(
+    status: SignalReportStatus,
+    actionability: SignalReportActionability | null | undefined
+): boolean {
+    if (!actionability) {
+        return false
+    }
+    return (
+        status === SignalReportStatus.READY ||
+        (status === SignalReportStatus.PENDING_INPUT && actionability === 'requires_human_input')
+    )
+}
 
 export const STATUS_TOOLTIPS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.READY]: 'Research is complete. You can create a task from this report.',

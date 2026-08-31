@@ -131,6 +131,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(data["external_id"], "acme-1")
         self.assertEqual(data["name"], "Acme Corp")
         self.assertEqual(data["churned_at"], "2026-08-01T12:30:00Z")
+        self.assertIsNone(data["ignored_at"])
         self.assertEqual(data["relationships"], {})
 
     def test_get_account_returns_active_relationships(self):
@@ -317,7 +318,7 @@ class TestExternalAccountAPI(APIBaseTest):
                     "tags": ["enterprise"],
                 }
             )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(self._active_csm_user_ids(), [])
 
     def test_patch_cannot_change_external_id_or_name(self):

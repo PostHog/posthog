@@ -21,7 +21,7 @@ import type {
     CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { propertyTypeForDisplayType } from './accountsCustomPropertyFilters'
+import { ACCOUNT_FIELD_TAXONOMIC_OPTIONS, propertyTypeForDisplayType } from './accountsPropertyFilters'
 
 // Mandatory — the backend emits it as `tuple(name, external_id, id)` so the
 // row identity (id) and copy-able external_id ride along with the display name.
@@ -826,6 +826,14 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
+        updatePropertyDefinitions(
+            Object.fromEntries(
+                ACCOUNT_FIELD_TAXONOMIC_OPTIONS.map((option) => [
+                    `${PropertyDefinitionType.Account}/${option.id}`,
+                    { id: option.id, name: option.id, property_type: option.property_type },
+                ])
+            )
+        )
         // Lazily fetch the database schema only if it isn't already in flight / loaded.
         // databaseTableListLogic dedupes concurrent calls internally.
         if (!values.allTablesMap || Object.keys(values.allTablesMap).length === 0) {

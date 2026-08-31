@@ -41,14 +41,15 @@ BLOCKED_IP_RANGES = [
 NO_ACTIVE_SESSION_ERROR = "No active session for this run"
 CONTENT_BLOCK_STREAM_ERROR = "API Error: Content block not found"
 CONTENT_BLOCK_STREAM_USER_ERROR = "The model response could not be completed. Please retry the task."
+TURN_ENDED_WITHOUT_RESPONSE_ERROR = "[ede_diagnostic] result_type=user"
 
 
 def is_retryable_agent_rpc_error(error: str) -> bool:
-    return CONTENT_BLOCK_STREAM_ERROR in error
+    return CONTENT_BLOCK_STREAM_ERROR in error or TURN_ENDED_WITHOUT_RESPONSE_ERROR in error
 
 
 def user_facing_agent_error(error: str | None) -> str:
-    if error and is_retryable_agent_rpc_error(error):
+    if error and CONTENT_BLOCK_STREAM_ERROR in error:
         return CONTENT_BLOCK_STREAM_USER_ERROR
     return error or "Failed to send message to sandbox"
 
@@ -103,15 +104,85 @@ def _get_sandbox_url_and_token(task_run: Any) -> tuple[str | None, str | None]:
     return state.get("sandbox_url"), state.get("sandbox_connect_token")
 
 
+def _is_loopback_host(hostname: str | None) -> bool:
+    """Whether ``hostname`` is a loopback address (``localhost``/``127.0.0.1``/``::1``)."""
+    if not hostname:
+        return False
+    if hostname == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_hogland_sandbox_url(sandbox_url: str | None) -> bool:
+    """Whether ``sandbox_url`` points at the configured hogland control plane.
+
+    The hogland bearer is an account-wide credential, so it must only ever be
+    attached to a request bound for the real hogland host. Gating on the URL host
+    (not the mutable ``sandbox_backend`` state flag) means a forged run state
+    cannot redirect the credential to an attacker-controlled server, even on the
+    ``send_agent_command`` path whose SSRF check permits arbitrary public hosts.
+    """
+    hogland_api_url = getattr(settings, "HOGLAND_API_URL", None)
+    if not sandbox_url or not hogland_api_url:
+        return False
+    try:
+        target = urlparse(sandbox_url)
+        expected = urlparse(hogland_api_url)
+    except Exception:
+        return False
+    # A scheme-less HOGLAND_API_URL parses to hostname=None; refusing that stops a
+    # None==None match from attaching the bearer to a scheme-less or mismatched-port URL.
+    if not target.hostname or not expected.hostname:
+        return False
+    # Require an https origin matching the configured host AND port. The one exception is
+    # local dev (SANDBOX_PROVIDER=hogland, DEBUG), which talks to a loopback host over
+    # http; allow http only when both hosts are loopback. Every real remote origin must
+    # still be https to receive the account-wide bearer.
+    loopback_dev = settings.DEBUG and _is_loopback_host(target.hostname) and _is_loopback_host(expected.hostname)
+    if not loopback_dev and (target.scheme != "https" or expected.scheme != "https"):
+        return False
+    return (target.hostname, target.port) == (expected.hostname, expected.port)
+
+
+def sandbox_transport_token(state: dict[str, Any] | None, sandbox_url: str | None = None) -> tuple[str | None, str]:
+    """(token, query_param_name) for the sandbox tunnel/proxy layer.
+
+    Modal mints a per-sandbox connect token that is persisted in ``TaskRun.state``.
+    Hogland has no per-sandbox token: its proxy authenticates with the backend's
+    bearer — a rotating projected ServiceAccount JWT read fresh per request (the
+    static token is the local-dev fallback) — attached here at request time so it
+    never touches persisted state or Temporal payloads.
+
+    The hogland bearer is only returned when ``sandbox_url`` is the configured
+    hogland host. That host check, not the ``sandbox_backend`` state flag, is what
+    authorizes attaching an account-wide credential — ``sandbox_backend`` /
+    ``sandbox_url`` are also protected run-state keys, so this is defense in depth.
+    """
+    if (state or {}).get("sandbox_backend") == "hogland" and _is_hogland_sandbox_url(sandbox_url):
+        # Deferred: hogland_sandbox pulls in the hogland SDK + httpx, which every
+        # non-hogland caller of this module would otherwise pay for.
+        from products.tasks.backend.logic.services.hogland_sandbox import get_hogland_api_token  # noqa: PLC0415
+
+        return get_hogland_api_token(), "token"
+    return (state or {}).get("sandbox_connect_token"), "_modal_connect_token"
+
+
 def _build_request_args(
     connect_token: str | None,
     auth_token: str | None,
+    token_param: str = "_modal_connect_token",
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Build request headers and query params with appropriate auth scheme.
 
-    When auth_token is provided (external callers going through Modal tunnel):
-    JWT goes as Authorization header, Modal connect token as query param.
-    Otherwise (internal callers on same network): connect_token as Authorization header.
+    When auth_token is provided (callers going through the provider tunnel/proxy):
+    JWT goes as Authorization header, the transport token as the provider's query
+    param. Otherwise (internal callers on same network): a Modal connect token goes
+    in the Authorization header, while hogland's bearer stays a query param — its
+    proxy strips an Authorization header it consumed, and only header-free requests
+    reach the agent-server unauthenticated the way Modal's do.
 
     Returns:
         Tuple of (headers, query_params).
@@ -121,9 +192,12 @@ def _build_request_args(
     if auth_token:
         headers["Authorization"] = f"Bearer {auth_token}"
         if connect_token:
-            query_params["_modal_connect_token"] = connect_token
+            query_params[token_param] = connect_token
     elif connect_token:
-        headers["Authorization"] = f"Bearer {connect_token}"
+        if token_param == "_modal_connect_token":
+            headers["Authorization"] = f"Bearer {connect_token}"
+        else:
+            query_params[token_param] = connect_token
     return headers, query_params
 
 
@@ -144,7 +218,8 @@ def send_agent_command(
             as ``_modal_connect_token`` query param for Modal tunnel auth.
             When omitted, connect_token is used directly as Authorization.
     """
-    sandbox_url, connect_token = _get_sandbox_url_and_token(task_run)
+    sandbox_url, _ = _get_sandbox_url_and_token(task_run)
+    connect_token, token_param = sandbox_transport_token(task_run.state, sandbox_url)
     if not sandbox_url:
         return CommandResult(
             success=False,
@@ -168,7 +243,7 @@ def send_agent_command(
             retryable=False,
         )
 
-    headers, query_params = _build_request_args(connect_token, auth_token)
+    headers, query_params = _build_request_args(connect_token, auth_token, token_param)
     command_url = f"{sandbox_url.rstrip('/')}/command"
 
     payload: dict[str, Any] = {
@@ -305,6 +380,30 @@ def send_user_message(
         task_run,
         method="user_message",
         params=params,
+        auth_token=auth_token,
+        timeout=timeout,
+    )
+
+
+def send_set_config_option(
+    task_run: Any,
+    config_id: str,
+    value: str,
+    auth_token: str | None = None,
+    timeout: int = COMMAND_TIMEOUT_SECONDS,
+) -> CommandResult:
+    """Change one option on the agent-server's live session (`model`, `effort`, `mode`).
+
+    The agent applies the change to the session it is already holding, so the run keeps
+    its conversation history and the new setting takes effect from the next turn. Only
+    options the session currently offers are accepted — a model belonging to a runtime
+    this sandbox isn't running comes back as an RPC error, since the harness is the
+    process the sandbox was started with.
+    """
+    return send_agent_command(
+        task_run,
+        method="set_config_option",
+        params={"configId": config_id, "value": value},
         auth_token=auth_token,
         timeout=timeout,
     )

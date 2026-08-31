@@ -1,4 +1,4 @@
-import re
+import string
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -50,6 +50,7 @@ from posthog.hogql.resolver_utils import (
     lookup_field_by_name,
     lookup_table_by_name,
     suggest_field_names,
+    suggested_field_fix,
 )
 from posthog.hogql.type_system import (
     infer_array_access_constant_type,
@@ -73,10 +74,6 @@ USE_GLOBAL_JOINS = False
 
 _SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-# ClickHouse's canonical UUID text form; it rejects anything else when parsing a compared literal.
-# Checked with fullmatch — a `$` anchor would let a trailing newline through.
-_UUID_LITERAL_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-
 _UUID_GUARDED_COMPARE_OPS = (
     ast.CompareOperationOp.Eq,
     ast.CompareOperationOp.NotEq,
@@ -85,6 +82,19 @@ _UUID_GUARDED_COMPARE_OPS = (
     ast.CompareOperationOp.GlobalIn,
     ast.CompareOperationOp.GlobalNotIn,
 )
+
+
+def _canonical_uuid(value: str) -> str | None:
+    """The canonical dashed-hex form ClickHouse can parse, or None if the value isn't a UUID at all.
+
+    Python's parser is deliberately more forgiving than ClickHouse's — surrounding whitespace,
+    braces, a `urn:uuid:` prefix and the undashed 32-hex form all describe the same UUID, so they
+    get normalized rather than rejected.
+    """
+    try:
+        return str(UUID(value.strip()))
+    except ValueError:
+        return None
 
 
 def _string_constants(node: ast.Expr) -> list[ast.Constant]:
@@ -2303,6 +2313,9 @@ class Resolver(CloningVisitor):
 
             suggestions = suggest_field_names(scope, name, self.context)
             suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+            # The message lists every close match, but a quick fix can only substitute one, so it
+            # offers the best of them. `get_close_matches` returns them in descending similarity.
+            fix = suggested_field_fix(node, suggestions[0]) if suggestions else None
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #
@@ -2312,13 +2325,14 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}")
+                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}", node=node, fix=fix)
             else:
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
                     start=node.start,
                     end=node.end,
                     message=f"Unable to resolve field: {name}{suggestion_suffix}",
+                    fix=fix,
                 )
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
@@ -2575,9 +2589,10 @@ class Resolver(CloningVisitor):
     def _raise_on_invalid_uuid_literal(self, node: ast.CompareOperation) -> None:
         """A malformed string literal compared against a UUID column (events.uuid, person ids,
         warehouse UUID columns) would fail the whole query at execution time with ClickHouse's
-        CANNOT_PARSE_UUID — reject it here instead, naming the bad value. Only ClickHouse-bound
-        queries are guarded: other target dialects (postgres, snowflake, ...) accept UUID text
-        forms ClickHouse doesn't, so rejecting the canonical-form mismatch there would be wrong."""
+        CANNOT_PARSE_UUID. Rewrite the ones that are recognizably a UUID into the canonical form
+        ClickHouse accepts, and reject only what can't be a UUID at all. Only ClickHouse-bound
+        queries are touched: other target dialects (postgres, snowflake, ...) accept UUID text
+        forms ClickHouse doesn't, so normalizing or rejecting there would be wrong."""
         if self.dialect not in ("clickhouse", "hogql"):
             return
         if node.op not in _UUID_GUARDED_COMPARE_OPS:
@@ -2586,13 +2601,26 @@ class Resolver(CloningVisitor):
             if not self._resolves_to_uuid(uuid_side):
                 continue
             for constant in _string_constants(literal_side):
-                if not _UUID_LITERAL_RE.fullmatch(constant.value):
-                    field_name = getattr(uuid_side.type, "name", None) or getattr(uuid_side.type, "alias", None)
-                    subject = f"'{field_name}'" if isinstance(field_name, str) else "a UUID column"
-                    raise QueryError(
-                        f"'{constant.value}' is not a valid UUID, so it can never match {subject}. "
-                        f"Use the full UUID, for example '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b'."
-                    )
+                canonical = _canonical_uuid(constant.value)
+                if canonical is not None:
+                    constant.value = canonical
+                    continue
+                field_name = getattr(uuid_side.type, "name", None) or getattr(uuid_side.type, "alias", None)
+                subject = f"'{field_name}'" if isinstance(field_name, str) else "a UUID column"
+                stripped = constant.value.strip()
+                # The digit count only helps a near miss like a truncated id; on text that was never
+                # a UUID attempt it reads as noise, so save it for the values it explains.
+                near_miss = bool(stripped) and all(char in string.hexdigits or char == "-" for char in stripped)
+                detail = (
+                    f" A UUID has 32 hexadecimal digits and this one has "
+                    f"{sum(1 for char in stripped if char in string.hexdigits)}."
+                    if near_miss
+                    else ""
+                )
+                raise QueryError(
+                    f"{constant.value!r} can never match {subject}, which holds UUIDs.{detail} "
+                    f"Enter a full UUID, like '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b'."
+                )
 
     def _resolves_to_uuid(self, node: ast.Expr) -> bool:
         if node.type is None or isinstance(node, ast.Constant):

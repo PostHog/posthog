@@ -35,6 +35,12 @@ const meta: Meta<StoryProps> = {
                 },
                 '/api/billing/': { products: [] },
                 '/api/projects/:id/integrations': { results: [] },
+                // The GitHub section fetches both on mount; unmocked, their error toasts land in the snapshot.
+                '/api/projects/:id/integrations/github/available_installations/': {
+                    installations: [],
+                    personal_github_connected: false,
+                },
+                '/api/users/@me/integrations/github/install_requests/': { results: [], install_url: null },
                 '/api/projects/:id/core_memory': { results: [] },
                 '/api/projects/:id/hog_functions': { results: [] },
                 '/api/projects/:id/pipeline_destination_configs': { results: [] },

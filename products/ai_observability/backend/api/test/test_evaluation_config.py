@@ -4,9 +4,12 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import Organization, Project, Team, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
+from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 
@@ -206,3 +209,53 @@ class TestEvaluationConfigViewSet(APIBaseTest):
         self.assertEqual(active_key["provider"], "openai")
         self.assertEqual(active_key["state"], "ok")
         self.assertIn("api_key_masked", active_key)
+
+    def test_evaluation_restrictions_only_allow_read_only_shared_model_config(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        limited_user = User.objects.create_and_join(self.organization, "limited-config@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=limited_user, organization=self.organization)
+        visible_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Visible Evaluation",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+        )
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Team Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            access_level="none",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=str(visible_evaluation.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.client.force_login(limited_user)
+
+        get_response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
+
+        set_active_key_response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/set_active_key/",
+            {"key_id": str(key.id)},
+            format="json",
+        )
+
+        assert get_response.status_code == status.HTTP_200_OK
+        assert set_active_key_response.status_code == status.HTTP_403_FORBIDDEN
+        assert not EvaluationConfig.objects.filter(team=self.team, active_provider_key=key).exists()

@@ -1,6 +1,7 @@
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import {
+  getPostHogObjectArtifactMetadata,
   groupRunArtifactVersions,
   OUTPUT_ARTIFACT_TYPES,
   parseRunArtifacts,
@@ -24,6 +25,7 @@ import {
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
+import { PostHogObjectPage } from "@posthog/ui/features/posthog-objects/PostHogObjectPage";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import {
@@ -48,11 +50,24 @@ import { useCompletedArtifactUploads } from "./countArtifactUploads";
 import { useArtifactEditing } from "./useArtifactEditing";
 import {
   editorFilePath,
+  type PostHogObjectPreview,
+  type PreviewData,
   useArtifactPreviewData,
 } from "./useArtifactPreviewData";
 import { useCommentsQuery, useCreateComment } from "./useComments";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
+
+function isPostHogObjectPreview(
+  previewData: PreviewData | undefined,
+): previewData is PostHogObjectPreview {
+  return (
+    !!previewData &&
+    typeof previewData === "object" &&
+    !(previewData instanceof Blob) &&
+    previewData.kind === "posthog-object"
+  );
+}
 
 type ArtifactVersion = TaskRunArtifact & { runId: string };
 
@@ -61,19 +76,19 @@ function artifactVersionsFromRuns(
   name: string,
 ): ArtifactVersion[] {
   const files = runs.flatMap((run) =>
-    parseRunArtifacts(run.artifacts, OUTPUT_ARTIFACT_TYPES).flatMap((file) =>
-      file.name === name && file.id
-        ? [
-            {
-              ...file,
-              id: file.id,
-              name: file.name,
-              type: file.type as TaskRunArtifact["type"],
-              runId: run.id,
-            },
-          ]
-        : [],
-    ),
+    parseRunArtifacts(run.artifacts, OUTPUT_ARTIFACT_TYPES).flatMap((file) => {
+      if (file.name !== name || !file.id) return [];
+      const { metadata: _metadata, ...fileFields } = file;
+      return [
+        {
+          ...fileFields,
+          id: file.id,
+          name: file.name,
+          type: file.type as TaskRunArtifact["type"],
+          runId: run.id,
+        },
+      ];
+    }),
   );
   return (
     groupRunArtifactVersions(files).find((candidate) => candidate.name === name)
@@ -104,6 +119,16 @@ export function ArtifactPreview({
   // right away.
   const events = useSessionSelector(taskId, (session) => session?.events);
   const completedUploads = useCompletedArtifactUploads(events ?? []);
+  // The preview query caches forever under a stable artifact id, but a
+  // reference entry updates in place as later turns cite it again; the store's
+  // cloudArtifacts refresh on every successful registration, so its copy of
+  // the metadata is the live one.
+  const liveReferenceMetadata = useSessionSelector(taskId, (session) => {
+    const entry = session?.cloudArtifacts?.find(
+      (artifact) => artifact.id === artifactId,
+    );
+    return entry ? getPostHogObjectArtifactMetadata(entry) : null;
+  });
   const {
     runs,
     isLoading: runsLoading,
@@ -147,6 +172,9 @@ export function ArtifactPreview({
     artifactId: activeArtifactId,
     name,
   });
+  // An object reference renders its own page below and uses none of the
+  // file-only comment data, so its tab shouldn't run the comments poll.
+  const isObjectPreview = isPostHogObjectPreview(previewData);
   const displayedArtifactId = artifactResult?.artifact.id ?? activeArtifactId;
   const versionIndex = versions.findIndex(
     (version) => version.id === displayedArtifactId,
@@ -157,7 +185,9 @@ export function ArtifactPreview({
     () => ({ scope: "task_artifact", itemId: displayedArtifactId }),
     [displayedArtifactId],
   );
-  const commentsQuery = useCommentsQuery(commentTarget, taskId);
+  const commentsQuery = useCommentsQuery(commentTarget, taskId, {
+    enabled: !isObjectPreview,
+  });
   const { members } = useOrgMembers();
   const createComment = useCreateComment(commentTarget, taskId);
   const requestCommentFocus = useCommentNavigationStore(
@@ -310,6 +340,15 @@ export function ArtifactPreview({
     );
   }
   if (isError || imageError) return <ArtifactPreviewError />;
+
+  if (isPostHogObjectPreview(previewData)) {
+    return (
+      <PostHogObjectPage
+        metadata={liveReferenceMetadata ?? previewData.metadata}
+        fallbackName={name}
+      />
+    );
+  }
 
   if (
     editing.isEditing &&

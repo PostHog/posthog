@@ -101,6 +101,7 @@ export function createIncrementalConversationBuilder() {
           isClearing: builder.isClearing,
           completedToolCallCount: builder.completedToolCallCount,
           lastActivityAt: builder.lastActivityAt,
+          isBackgroundTurnActive: builder.isBackgroundTurnActive,
         };
         // A finalized builder can't be safely continued; the next streaming
         // call rebuilds fresh.
@@ -183,6 +184,7 @@ export function createIncrementalConversationBuilder() {
       isClearing: builder.isClearing,
       completedToolCallCount: builder.completedToolCallCount,
       lastActivityAt: builder.lastActivityAt,
+      isBackgroundTurnActive: builder.isBackgroundTurnActive,
     };
   }
 

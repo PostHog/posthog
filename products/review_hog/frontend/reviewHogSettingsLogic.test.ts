@@ -11,7 +11,14 @@ import {
     ReviewTriggerRequestRunModeEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { MAX_REVIEWS_LIMIT, REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+import {
+    MAX_REVIEWS_LIMIT,
+    REVIEW_SKILL_PREFIX_BY_KIND,
+    REVIEWS_PAGE_SIZE,
+    defaultAdoptSlug,
+    reviewHogSettingsLogic,
+    validateAdoptSlug,
+} from './reviewHogSettingsLogic'
 
 /** A minimal review detail: only the fields the drawer selectors read. */
 function reviewDetail(id: string, runUrgencyThreshold: string | null): Record<string, any> {
@@ -208,7 +215,7 @@ describe('reviewHogSettingsLogic', () => {
             post: {
                 '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
                     403,
-                    { error: "ReviewHog reviews can't be started from this project yet" },
+                    { error: "PostHog Review can't start reviews from this project yet" },
                 ],
             },
         })
@@ -508,5 +515,230 @@ describe('reviewHogSettingsLogic', () => {
         await expectLogic(logic, () => {
             document.dispatchEvent(new Event('visibilitychange'))
         }).toDispatchActions(['loadRecentReviews'])
+    })
+
+    test.each([
+        // Cross-kind adoption must strip the source's own prefix, or the copy gets a double-prefixed name.
+        ['review-hog-validation-strict', 'resolution' as const, 'strict'],
+        ['api-design-guidelines', 'perspective' as const, 'api-design-guidelines'],
+        // Truncation to the 64-char cap must not leave a trailing hyphen, which the server rejects.
+        ['a'.repeat(40) + '-' + 'b'.repeat(23), 'perspective' as const, 'a'.repeat(40)],
+    ])('prefills the adopt slug from %s for kind %s', (sourceName, kind, expected) => {
+        expect(defaultAdoptSlug(sourceName, kind)).toBe(expected)
+    })
+
+    test.each([
+        ['', 'Enter a name for the copy'],
+        ['Has-Uppercase', 'Use lowercase letters, numbers, and single hyphens between words'],
+        ['double--hyphen', 'Use lowercase letters, numbers, and single hyphens between words'],
+        ['trailing-', 'Use lowercase letters, numbers, and single hyphens between words'],
+        ['a'.repeat(60), 'The full name must be 64 characters or fewer'],
+        ['taken', 'A skill with this name already exists'],
+        ['fine-name', null],
+    ])('validates the adopt slug %s', (slug, expectedError) => {
+        const taken = new Set(['review-hog-perspective-taken'])
+        expect(validateAdoptSlug(slug, 'perspective', taken)).toBe(expectedError)
+    })
+
+    it('groups adoptable skills into teammates-of-the-kind and the rest of the store', async () => {
+        // Guards the picker's filters: the user's own cards must not reappear as adoptable, a
+        // teammate's same-kind custom must surface (it is invisible in the cards by design), and
+        // other-kind review skills stay offered as plain store skills.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/perspectives/': () => [
+                    200,
+                    [
+                        {
+                            skill_name: 'review-hog-perspective-logic-correctness',
+                            enabled: true,
+                            description: '',
+                            body: '',
+                        },
+                    ],
+                ],
+                '/api/projects/:team_id/llm_skills/': () => [
+                    200,
+                    {
+                        count: 4,
+                        results: [
+                            { name: 'review-hog-perspective-security-focus', description: 'A teammate lens' },
+                            { name: 'review-hog-perspective-logic-correctness', description: 'Already a card' },
+                            { name: 'review-hog-validation-strict', description: 'Another kind' },
+                            { name: 'api-design-guidelines', description: 'Plain store skill' },
+                        ],
+                    },
+                ],
+            },
+        })
+        logic.mount()
+        // Sequenced (perspectives settle before the modal opens) because the history pointer only
+        // moves forward: racing the two fetches makes their success order nondeterministic.
+        await expectLogic(logic).toDispatchActions(['loadPerspectivesSuccess'])
+        logic.actions.openAdoptSkillModal('perspective')
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+
+        expect(logic.values.adoptSkillGroups).toEqual([
+            {
+                key: 'teammates',
+                label: 'Perspectives from your teammates',
+                skills: [{ name: 'review-hog-perspective-security-focus', description: 'A teammate lens' }],
+            },
+            {
+                key: 'store',
+                label: 'All team skills',
+                skills: [
+                    { name: 'review-hog-validation-strict', description: 'Another kind' },
+                    { name: 'api-design-guidelines', description: 'Plain store skill' },
+                ],
+            },
+        ])
+    })
+
+    test.each([
+        ['perspective' as const, '/review_hog/perspectives/', { enabled: true }],
+        ['validator' as const, '/review_hog/validators/', { active: true }],
+    ])('adopting a skill as %s copies it under the prefix and switches it on', async (kind, patchPath, patchBody) => {
+        // Guards the kind→endpoint mapping end to end: the duplicate must target the picked source
+        // with the prefixed name, and the follow-up activation must hit the right kind's endpoint
+        // with its cardinality's body (multi-toggle enabled vs single-active active).
+        const duplicated: { source: string; body: Record<string, unknown> }[] = []
+        const patched: { url: string; body: Record<string, unknown> }[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/llm_skills/': () => [
+                    200,
+                    { count: 1, results: [{ name: 'api-design-guidelines', description: '' }] },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/llm_skills/name/:skill_name/duplicate/': async ({ request, params }) => {
+                    duplicated.push({
+                        source: String(params.skill_name),
+                        body: (await request.json()) as Record<string, unknown>,
+                    })
+                    return [201, { name: 'created' }]
+                },
+            },
+            patch: {
+                '/api/projects/:team_id/review_hog/perspectives/:skill_name/': async ({ request }) => {
+                    patched.push({ url: request.url, body: (await request.json()) as Record<string, unknown> })
+                    return [200, {}]
+                },
+                '/api/projects/:team_id/review_hog/validators/:skill_name/': async ({ request }) => {
+                    patched.push({ url: request.url, body: (await request.json()) as Record<string, unknown> })
+                    return [200, {}]
+                },
+            },
+        })
+        logic.mount()
+        logic.actions.openAdoptSkillModal(kind)
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+        logic.actions.chooseAdoptSource({ name: 'api-design-guidelines', description: '' })
+
+        const expectedName = `${REVIEW_SKILL_PREFIX_BY_KIND[kind]}api-design-guidelines`
+        await expectLogic(logic, () => logic.actions.submitAdoptSkill())
+            .toDispatchActions(['submitAdoptSkillStarted', 'submitAdoptSkillFinished', 'closeAdoptSkillModal'])
+            .toMatchValues({ adoptingSkill: false, adoptSkillKind: null })
+        expect(duplicated).toEqual([{ source: 'api-design-guidelines', body: { new_name: expectedName } }])
+        expect(patched).toHaveLength(1)
+        expect(patched[0].url).toContain(`${patchPath}${expectedName}/`)
+        expect(patched[0].body).toEqual(patchBody)
+    })
+
+    it('a failed copy keeps the adopt modal open for a fix', async () => {
+        // A name conflict must be correctable in place — closing the modal would throw away the
+        // picked source, and firing the activation PATCH would target a skill that never got created.
+        let patchCalls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/llm_skills/': () => [
+                    200,
+                    { count: 1, results: [{ name: 'api-design-guidelines', description: '' }] },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/llm_skills/name/:skill_name/duplicate/': () => [
+                    400,
+                    { attr: 'new_name', detail: 'A skill with this name already exists.' },
+                ],
+            },
+            patch: {
+                '/api/projects/:team_id/review_hog/perspectives/:skill_name/': () => {
+                    patchCalls++
+                    return [200, {}]
+                },
+            },
+        })
+        logic.mount()
+        logic.actions.openAdoptSkillModal('perspective')
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+        logic.actions.chooseAdoptSource({ name: 'api-design-guidelines', description: '' })
+
+        await expectLogic(logic, () => logic.actions.submitAdoptSkill())
+            .toDispatchActions(['submitAdoptSkillStarted', 'submitAdoptSkillFinished'])
+            .toNotHaveDispatchedActions(['closeAdoptSkillModal'])
+            .toMatchValues({ adoptingSkill: false, adoptSkillKind: 'perspective' })
+        expect(logic.values.adoptSource).toEqual({ name: 'api-design-guidelines', description: '' })
+        expect(patchCalls).toBe(0)
+    })
+
+    it('a copy that cannot be switched on still surfaces its card', async () => {
+        // The copy exists on the server even when activation fails, so the flow must reload the
+        // kind's list (the card appears, off) and close, not strand the modal as if nothing happened.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/llm_skills/': () => [
+                    200,
+                    { count: 1, results: [{ name: 'api-design-guidelines', description: '' }] },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/llm_skills/name/:skill_name/duplicate/': () => [201, { name: 'created' }],
+            },
+            patch: {
+                '/api/projects/:team_id/review_hog/perspectives/:skill_name/': () => [500, {}],
+            },
+        })
+        logic.mount()
+        logic.actions.openAdoptSkillModal('perspective')
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+        logic.actions.chooseAdoptSource({ name: 'api-design-guidelines', description: '' })
+
+        await expectLogic(logic, () => logic.actions.submitAdoptSkill()).toDispatchActions([
+            'submitAdoptSkillStarted',
+            'loadPerspectives',
+            'submitAdoptSkillFinished',
+            'closeAdoptSkillModal',
+        ])
+    })
+
+    it('loads every skills page so skills beyond the first stay adoptable', async () => {
+        // The picker's search, grouping, and name-collision checks assume the complete store — a
+        // loader that stops at one page would silently hide older skills and miss name conflicts.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/llm_skills/': ({ request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    const pages: Record<number, { name: string; description: string }[]> = {
+                        0: [{ name: 'newest-skill', description: '' }],
+                        1: [{ name: 'older-skill', description: '' }],
+                    }
+                    return [
+                        200,
+                        {
+                            count: 2,
+                            results: pages[offset] ?? [],
+                            next: offset === 0 ? '/api/projects/997/llm_skills/?offset=1' : null,
+                        },
+                    ]
+                },
+            },
+        })
+        logic.mount()
+        logic.actions.openAdoptSkillModal('perspective')
+
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+        expect(logic.values.adoptableSkills?.map((skill) => skill.name)).toEqual(['newest-skill', 'older-skill'])
     })
 })

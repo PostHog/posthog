@@ -21,6 +21,8 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.queries import (
+    DISABLED_ESTIMATE_STALE_AFTER,
+    ESTIMATE_STALE_AFTER,
     ScannerVolumeEstimate,
     project_monthly_observations,
     refresh_scanner_estimate,
@@ -45,6 +47,9 @@ from products.replay_vision.backend.temporal.estimates_types import (
     RefreshScannerEstimatesInputs,
     RefreshScannerEstimatesResult,
 )
+
+_STALE_HOURS = int(ESTIMATE_STALE_AFTER.total_seconds() // 3600) + 1
+_DISABLED_STALE_HOURS = int(DISABLED_ESTIMATE_STALE_AFTER.total_seconds() // 3600) + 1
 
 _ACTIVITY_HELPER = (
     "products.replay_vision.backend.temporal.activities.refresh_scanner_estimate.refresh_scanner_estimate"
@@ -289,9 +294,9 @@ class TestRefreshScannerEstimateActivity:
         "enabled, estimated_hours_ago, expect_refresh",
         [
             (True, None, True),  # never computed → refresh
-            (True, 25, True),  # stale → refresh
+            (True, _STALE_HOURS, True),  # stale → refresh
             (True, 1, False),  # fresh → no-op
-            (False, 25, True),  # disabled scanners refresh too, so re-enabling uses an accurate number
+            (False, _STALE_HOURS, True),  # disabled scanners refresh too, so re-enabling uses an accurate number
             (False, 1, False),  # fresh → no-op regardless of enabled
         ],
     )
@@ -330,13 +335,16 @@ class TestListStaleScannerEstimatesActivity:
     def test_returns_stale_scanners_enabled_first_then_oldest(self) -> None:
         never = _make_scanner(name="never-estimated")
         stale = _make_scanner(name="stale")
-        _set_estimate(stale, 10, hours_ago=48)
+        _set_estimate(stale, 10, hours_ago=_STALE_HOURS)
         very_stale = _make_scanner(name="very-stale")
-        _set_estimate(very_stale, 10, hours_ago=72)
+        _set_estimate(very_stale, 10, hours_ago=_STALE_HOURS + 24)
         fresh = _make_scanner(name="fresh")
         _set_estimate(fresh, 10, hours_ago=1)
         disabled = _make_scanner(name="disabled", enabled=False)
-        _set_estimate(disabled, 10, hours_ago=96)
+        _set_estimate(disabled, 10, hours_ago=_DISABLED_STALE_HOURS)
+        # Disabled scanners run on the slower clock: stale for an enabled scanner, not for a disabled one.
+        disabled_recent = _make_scanner(name="disabled-recent", enabled=False)
+        _set_estimate(disabled_recent, 10, hours_ago=_STALE_HOURS + 24)
 
         entries = list_stale_scanner_estimates_activity()
 

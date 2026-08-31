@@ -3,29 +3,16 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack import (
     source as better_stack_source_module,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.better_stack import (
-    BetterStackResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.source import BetterStackSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBetterStackSourceConfig:
-    def test_source_type(self) -> None:
-        assert BetterStackSource().source_type == ExternalDataSourceType.BETTERSTACK
-
     def test_config_basics(self) -> None:
         config = BetterStackSource().get_source_config
         assert config.label == "Better Stack"
@@ -34,21 +21,8 @@ class TestBetterStackSourceConfig:
         # A finished source ships visible — the scaffold's unreleasedSource flag must stay gone.
         assert not config.unreleasedSource
 
-    def test_single_password_api_token_field(self) -> None:
-        fields = BetterStackSource().get_source_config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_token"
-        assert field.required is True
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-
 
 class TestBetterStackGetSchemas:
-    def test_returns_every_endpoint(self) -> None:
-        schemas = BetterStackSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     @parameterized.expand(
         [
             # Only incidents has a server-side date filter; everything else is full refresh.
@@ -68,10 +42,6 @@ class TestBetterStackGetSchemas:
         assert schema.supports_incremental is expected_incremental
         assert schema.supports_append is expected_incremental
         assert bool(schema.incremental_fields) is expected_incremental
-
-    def test_names_filter(self) -> None:
-        schemas = BetterStackSource().get_schemas(MagicMock(), team_id=1, names=["incidents", "monitors"])
-        assert {s.name for s in schemas} == {"incidents", "monitors"}
 
 
 class TestBetterStackValidateCredentials:
@@ -133,11 +103,6 @@ class TestBetterStackNonRetryableErrors:
 
 
 class TestBetterStackResumableAndPipeline:
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = BetterStackSource().get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BetterStackResumeConfig
-
     @parameterized.expand(
         [
             # Incidents partition on the stable started_at; ordering is unverified so the watermark

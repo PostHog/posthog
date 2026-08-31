@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils import timezone
 
@@ -105,15 +105,6 @@ class TestRouteThreadMessage(TestCase):
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
 
-        # All routing tests assume the per-org feature flag is on. The
-        # dedicated ``test_feature_flag_off_dropped`` test stops the patcher
-        # to exercise the off path.
-        self._ff_patcher = patch(
-            "products.slack_app.backend.api.is_slack_app_untagged_thread_followups_enabled", return_value=True
-        )
-        self._ff_patcher.start()
-        self.addCleanup(self._ff_patcher.stop)
-
     # --- Helpers -----------------------------------------------------------
 
     def _make_event(self, **overrides) -> dict:
@@ -128,11 +119,11 @@ class TestRouteThreadMessage(TestCase):
         defaults.update(overrides)
         return defaults
 
-    def _route(self, event: dict) -> str:
+    def _route(self, event: dict, slack_team_id: str = "T_SLACK") -> str:
         from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
 
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        return route_posthog_code_event_to_relevant_region(request, event, "T_SLACK")
+        return route_posthog_code_event_to_relevant_region(request, event, slack_team_id)
 
     # --- Cheap pre-DB gates ------------------------------------------------
 
@@ -179,6 +170,105 @@ class TestRouteThreadMessage(TestCase):
         assert result == ROUTE_HANDLED_LOCALLY
         mock_start.assert_not_called()
 
+    # --- Workflow trigger region hand-off ----------------------------------
+
+    @parameterized.expand(
+        [
+            # The claims probe runs inside the queued task, so the webhook queues a mirror for
+            # every locally-owned top-level post and the task decides whether it leaves the region.
+            ("owned here", "T_SLACK", None, False, True),
+            ("owned by the other region", "T_OTHER_REGION", None, True, False),
+            # Nothing to trigger on, so no reason to queue a task looking for a region that wants it.
+            ("an edit, owned by the other region", "T_OTHER_REGION", "message_changed", False, False),
+            ("an edit, owned here", "T_SLACK", "message_changed", False, False),
+        ]
+    )
+    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
+    def test_top_level_post_reaches_every_region_holding_the_workspace(
+        self, _name, slack_team_id, subtype, expect_full_proxy, expect_mirror_dispatch
+    ):
+        from products.slack_app.backend.api import (
+            EMIT_ONLY_MIRROR_HEADER,
+            REGION_PROXY_HEADER,
+            ROUTE_HANDLED_LOCALLY,
+            ROUTE_PROXIED,
+        )
+
+        # thread_ts == ts, so a top-level post
+        event = self._make_event(thread_ts="1001.0000")
+        if isinstance(subtype, str):
+            event["subtype"] = subtype
+        with (
+            patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=True),
+            patch("products.slack_app.backend.api._proxy_event_to_region") as mock_proxy,
+            patch("products.slack_app.backend.tasks.mirror_slack_message_event.delay") as mock_delay,
+            patch("products.slack_app.backend.slack_workflow_events.produce_internal_event"),
+        ):
+            result = self._route(event, slack_team_id=slack_team_id)
+
+        assert result == (ROUTE_PROXIED if expect_full_proxy else ROUTE_HANDLED_LOCALLY)
+        assert mock_proxy.called is expect_full_proxy
+        assert mock_delay.called is expect_mirror_dispatch
+        if expect_mirror_dispatch:
+            kwargs = mock_delay.call_args.kwargs
+            assert kwargs["headers"][EMIT_ONLY_MIRROR_HEADER] == "1"
+            # Without the proxy marker the receiver would treat the mirror as a fresh Slack
+            # delivery and hop it back, so its absence is a routing-loop regression.
+            assert kwargs["headers"][REGION_PROXY_HEADER] == "1"
+            assert "eu.posthog.com" in kwargs["target_url"]
+
+    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
+    def test_emit_only_mirror_emits_for_local_projects_and_nothing_else(self):
+        from products.slack_app.backend.api import (
+            EMIT_ONLY_MIRROR_HEADER,
+            REGION_PROXY_HEADER,
+            ROUTE_HANDLED_LOCALLY,
+            route_posthog_code_event_to_relevant_region,
+        )
+
+        event = self._make_event(thread_ts="1001.0000")
+        request = self.factory.post(
+            "/slack/event-callback/",
+            HTTP_HOST="us.posthog.com",
+            headers={REGION_PROXY_HEADER: "1", EMIT_ONLY_MIRROR_HEADER: "1"},
+        )
+        with (
+            patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=True),
+            patch("products.slack_app.backend.api._proxy_event_to_region") as mock_proxy,
+            patch("products.slack_app.backend.slack_workflow_events.produce_internal_event") as mock_produce,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            result = route_posthog_code_event_to_relevant_region(request, event, "T_SLACK")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_produce.assert_called_once()
+        assert mock_produce.call_args.args[0] == self.team.id
+        mock_proxy.assert_not_called()
+        mock_start.assert_not_called()
+
+    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
+    def test_thread_reply_crosses_once_via_region_gate_not_mirror(self):
+        # A thread reply on a workspace held in both regions must cross exactly once. The follow-up
+        # pipeline's region gate already forwards it to the region that also claims the workspace, so
+        # adding an emit-only mirror would make that region emit the reply twice and trigger a
+        # workflow twice. Deliver to EU (can defer) with the other region claiming the workspace.
+        from products.slack_app.backend.api import ROUTE_PROXIED, route_posthog_code_event_to_relevant_region
+
+        event = self._make_event()  # thread_ts != ts, a reply
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        with (
+            patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=True),
+            patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=True),
+            patch("products.slack_app.backend.api._proxy_event_to_region") as mock_proxy,
+            patch("products.slack_app.backend.tasks.mirror_slack_message_event.delay") as mock_delay,
+            patch("products.slack_app.backend.slack_workflow_events.produce_internal_event"),
+        ):
+            result = route_posthog_code_event_to_relevant_region(request, event, "T_SLACK")
+
+        assert result == ROUTE_PROXIED
+        mock_proxy.assert_called_once()
+        mock_delay.assert_not_called()
+
     # --- Mapping + FF gate -------------------------------------------------
 
     def test_thread_without_mapping_dropped(self):
@@ -190,22 +280,6 @@ class TestRouteThreadMessage(TestCase):
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
         ):
             result = self._route(self._make_event())
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_resolve.assert_not_called()
-        mock_start.assert_not_called()
-
-    def test_feature_flag_off_dropped(self):
-        """Off-by-default workspaces pay one DB query and nothing else."""
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
-
-        self._ff_patcher.stop()
-        with (
-            patch("products.slack_app.backend.api.is_slack_app_untagged_thread_followups_enabled", return_value=False),
-            patch("products.slack_app.backend.api.resolve_user_for_workspace") as mock_resolve,
-            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
-        ):
-            result = self._route(self._make_event())
-        self._ff_patcher.start()
         assert result == ROUTE_HANDLED_LOCALLY
         mock_resolve.assert_not_called()
         mock_start.assert_not_called()
@@ -428,3 +502,73 @@ class TestRouteThreadMessage(TestCase):
         assert first.kwargs["posthog_user"].id == self.user.id
         assert second.kwargs["untagged_followup"] is True
         assert second.kwargs["posthog_user"].id == self.user.id
+
+    @parameterized.expand(
+        [
+            ("bot_id_resolved", "U0BOT", "<@U0BOT> another one using opus 5", False),
+            ("bot_id_unresolvable", None, "<@U0BOT> another one using opus 5", True),
+            ("path_mention", "U0BOT", "<@U0BOT>/posthog-js still fails", True),
+        ]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_tagged_reply_skips_untagged_followup_path(self, _name, bot_user_id, text, expect_workflow):
+        """Slack delivers a tagged thread reply as both ``app_mention`` and
+        ``message``, under different event ids. The ``message`` copy must not
+        enter the untagged-followup pipeline — otherwise the classifier and the
+        ``ask`` prompt run on a message that explicitly addressed the app. If
+        the bot user id can't be resolved the gate fails open and the reply
+        dispatches as before. A mention glued to a ``/`` is a package path, not
+        a tag — its ``app_mention`` copy is dropped as ``path_mention``, so the
+        ``message`` copy must keep flowing or the reply reaches nothing."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        event = self._make_event(text=text)
+        with (
+            patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value=bot_user_id),
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as mock_start,
+        ):
+            result = self._route(event)
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_start.called is expect_workflow
+        if expect_workflow:
+            assert mock_start.call_args.kwargs["untagged_followup"] is True
+
+
+class TestMirrorSlackMessageEventTask(SimpleTestCase):
+    """The queued mirror task owns the claims probe, so the webhook-side tests above cannot
+    cover it: only the task decides whether a mirror actually leaves the region."""
+
+    @parameterized.expand(
+        [
+            ("other region claims the workspace", True, True),
+            ("other region does not claim it", False, False),
+            # An unknown answer must not turn into cross-region traffic for every message.
+            ("claims probe failed", None, False),
+        ]
+    )
+    def test_sends_only_when_the_other_region_claims_the_workspace(self, _name, claimed, expect_sent):
+        from products.slack_app.backend.tasks import mirror_slack_message_event
+
+        with (
+            patch(
+                "products.slack_app.backend.tasks.does_other_region_claim_workspace",
+                return_value=claimed,
+            ),
+            patch("products.slack_app.backend.tasks.send_region_proxy_request") as mock_send,
+        ):
+            mirror_slack_message_event(
+                slack_team_id="T_SLACK",
+                incoming_host="eu.posthog.com",
+                target_url="https://us.posthog.com/slack/event-callback/",
+                headers={"X-PostHog-Region-Proxied": "1", "X-PostHog-Slack-Emit-Only": "1"},
+                body='{"type": "event_callback"}',
+            )
+
+        assert mock_send.called is expect_sent
+        if expect_sent:
+            kwargs = mock_send.call_args.kwargs
+            assert kwargs["target_url"] == "https://us.posthog.com/slack/event-callback/"
+            assert kwargs["headers"]["X-PostHog-Slack-Emit-Only"] == "1"
+            assert kwargs["body"] == b'{"type": "event_callback"}'

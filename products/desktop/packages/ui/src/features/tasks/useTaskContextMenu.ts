@@ -50,7 +50,9 @@ export function useTaskContextMenu() {
         isInCommandCenter?: boolean;
         hasEmptyCommandCenterCell?: boolean;
         showArchivePrior?: boolean;
+        canHandoff?: boolean;
         onTogglePin?: () => void;
+        onHandoff?: () => void;
         onStop?: (taskId: string, taskTitle: string, runId?: string) => void;
         onArchive?: (taskId: string) => void;
         onArchivePrior?: (taskId: string) => void;
@@ -70,7 +72,9 @@ export function useTaskContextMenu() {
         isInCommandCenter,
         hasEmptyCommandCenterCell,
         showArchivePrior,
+        canHandoff,
         onTogglePin,
+        onHandoff,
         onStop,
         onArchive,
         onArchivePrior,
@@ -88,6 +92,7 @@ export function useTaskContextMenu() {
           isInCommandCenter,
           hasEmptyCommandCenterCell,
           showArchivePrior,
+          canHandoff,
           channels: channels.map(({ id, name, channelType, starred }) => ({
             id,
             name,
@@ -138,6 +143,10 @@ export function useTaskContextMenu() {
             break;
           case "add-to-command-center":
             onAddToCommandCenter?.();
+            break;
+          case "handoff":
+            // The dialog lives with the caller; the hook can't own a modal.
+            onHandoff?.();
             break;
           case "file-to-channel":
             try {

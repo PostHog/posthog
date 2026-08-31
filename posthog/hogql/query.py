@@ -41,6 +41,7 @@ from posthog.hogql.direct_connection import (
     raw_query_denied_by_table_access,
 )
 from posthog.hogql.direct_sql import (
+    DirectQueryPrincipal,
     DirectQueryRequest,
     DirectSQLAdapter,
     ensure_single_direct_statement,
@@ -71,9 +72,9 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 tracer = trace.get_tracer(__name__)
@@ -190,6 +191,7 @@ class HogQLQueryExecutor:
                         modifiers=self.query_modifiers,
                         timings=self.timings,
                         bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+                        trigger="executor",
                     )
                 self.select_query = replace_filters(
                     self.select_query, self.filters, self.team, database=self.context.database
@@ -254,6 +256,7 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 connection_id=self.connection_id,
                 bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+                trigger="executor",
             )
 
         # Reset between executions: the resolver/printer append per query, and dataclasses.replace
@@ -494,6 +497,11 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 query_type=self.query_type,
                 debug=bool(self.debug),
+                principal=(
+                    DirectQueryPrincipal(value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}")
+                    if isinstance(self.user, User) and self.user.pk is not None
+                    else None
+                ),
                 cancellation_token=cancellation_token,
             )
         )

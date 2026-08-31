@@ -9,11 +9,12 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import connection, models, transaction
-from django.db.models import Q
+from django.db.models import Exists, Q
 from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
+from oauth2_provider.generators import generate_client_id
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractApplication,
@@ -25,6 +26,7 @@ from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.validators import AllowedURIValidator
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.user import User
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
@@ -32,7 +34,7 @@ if TYPE_CHECKING:
 
     # This model loads at django.setup() in every process; the pydantic schema is
     # runtime-imported in the accessors that materialize it.
-    from posthog.models.oauth_provisioning import ProvisioningConfig
+    from posthog.models.oauth_provisioning import PartnerTier, ProvisioningConfig
 
 
 class OAuthApplicationAccessLevel(enum.Enum):
@@ -78,6 +80,13 @@ def is_loopback_host(hostname: str | None) -> bool:
 
 class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    # Overrides the abstract base's max_length=100 so the column can hold a CIMD
+    # metadata-document URL as the client's identifier. Non-CIMD clients keep the
+    # generated opaque value.
+    client_id: models.CharField = models.CharField(
+        max_length=2048, unique=True, default=generate_client_id, db_index=True
+    )
 
     # NOTE: By default an application should be linked to the organization that created it.
     # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
@@ -182,13 +191,6 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         verbose_name="Is CIMD client",
         help_text="True if this client was registered via Client ID Metadata Document (CIMD)",
     )
-    cimd_metadata_url: models.URLField = models.URLField(
-        max_length=2048,
-        null=True,
-        blank=True,
-        unique=True,
-        help_text="The URL used as client_id for CIMD clients. Must match the client_id in the metadata document.",
-    )
     cimd_metadata_last_fetched: models.DateTimeField = models.DateTimeField(
         null=True, blank=True, help_text="When the CIMD metadata was last successfully fetched"
     )
@@ -259,16 +261,30 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
             self.save(update_fields=["_provisioning_config"])
         return self.provisioning
 
-    def update_provisioning_rate_limits(self, **changes: object) -> "ProvisioningConfig":
-        """Apply a partial change to the nested rate limits and persist it.
+    def update_provisioning_rate_limits(self, **changes: int | None) -> "ProvisioningConfig":
+        """Apply a partial change to the per-endpoint rate limit overrides and persist it.
 
-        Nested under the same lock as any other partial change, so the read of the current
-        limits can't be stale by the time it is written back.
+        A value of None removes the endpoint's override (back to the tier-derived
+        budget). Nested under the same lock as any other partial change, so the read
+        of the current limits can't be stale by the time it is written back.
         """
         with transaction.atomic():
             current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
             self._provisioning_config = current._provisioning_config
-            return self.update_provisioning(rate_limits=self.provisioning.rate_limits.model_copy(update=changes))
+            merged = {**self.provisioning.rate_limits, **changes}
+            return self.update_provisioning(rate_limits={k: v for k, v in merged.items() if v is not None})
+
+    @property
+    def partner_tier(self) -> "PartnerTier":
+        """See :class:`~posthog.models.oauth_provisioning.PartnerTier`. The attested
+        signal is the CIMD verification-token binding (``organization_id``), the same
+        one CIMD registration reads."""
+        from posthog.models.oauth_provisioning import PartnerTier  # noqa: PLC0415
+
+        attested = self.organization_id is not None
+        if self.requires_client_authentication:
+            return PartnerTier.JWKS_ATTESTED if attested else PartnerTier.JWKS
+        return PartnerTier.PUBLIC_ATTESTED if attested else PartnerTier.PUBLIC
 
     @property
     def carries_provisioning_config(self) -> bool:
@@ -291,21 +307,6 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     # Client authentication is registration state on purpose. A client_id is public, so
     # inferring the method from what a request happens to present would let anyone act as a
     # confidential client by presenting nothing at all.
-
-    @property
-    def effective_client_id(self) -> str:
-        """The identifier this client uses for itself on the wire.
-
-        For a CIMD client that is its metadata URL, which is what the client sends and what it
-        names itself by in a signed assertion; the ``client_id`` column holds an opaque value
-        generated at registration. For every other client the two are the same.
-
-        Gated on ``is_cimd_client`` so a stray ``cimd_metadata_url`` on a non-CIMD app cannot
-        change which identifier an assertion's ``iss``/``sub`` are checked against.
-        """
-        if self.is_cimd_client and self.cimd_metadata_url:
-            return self.cimd_metadata_url
-        return self.client_id
 
     @property
     def requires_client_authentication(self) -> bool:
@@ -489,28 +490,39 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return list(schemes) if schemes else ["https"]
 
 
+def oauth_scope_tokens_expression() -> models.Func:
+    return models.Func(
+        models.F("scope"),
+        models.Value(" "),
+        function="string_to_array",
+        output_field=ArrayField(models.TextField()),
+    )
+
+
 class OAuthAccessToken(AbstractAccessToken):
     class Meta(AbstractAccessToken.Meta):
         verbose_name = "OAuth Access Token"
         verbose_name_plural = "OAuth Access Tokens"
         swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
         indexes = [
-            # The gateway credential cache scans for tokens holding a given scope via a
-            # whitespace-bounded regex on the space-separated `scope` text. A trigram GIN
-            # index lets that parameterized `~*` use an index scan; partial on
-            # application_id IS NOT NULL (which every such scan already filters on) keeps
-            # it to app tokens. See posthog/storage/gateway_credential_cache.py.
+            # Direct updates avoid pending-list merges that make one token write absorb batched GIN maintenance.
             GinIndex(
-                fields=["scope"],
-                name="oauthaccesstoken_scope_trgm",
-                opclasses=["gin_trgm_ops"],
+                oauth_scope_tokens_expression(),
+                name="oauthaccesstoken_scopes_gin",
                 condition=Q(application__isnull=False),
+                fastupdate=False,
             ),
             # B-tree on the plaintext `token` so equality lookups by token value resolve
             # via an index scan instead of a sequential scan. These lookups account for a
             # large share of the server's CPU time; the index removes that hot-path scan.
             models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
         ]
+
+    @classmethod
+    def with_scope(cls, scope: str) -> models.QuerySet["OAuthAccessToken"]:
+        return cls.objects.alias(scope_tokens=oauth_scope_tokens_expression()).filter(
+            scope_tokens__contains=[scope], application_id__isnull=False
+        )
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
@@ -571,6 +583,11 @@ class OAuthRefreshToken(AbstractRefreshToken):
         verbose_name = "OAuth Refresh Token"
         verbose_name_plural = "OAuth Refresh Tokens"
         swappable = "OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL"
+        indexes = [
+            # revoke_oauth_token_family sweeps by token_family on the /oauth/token path;
+            # without this index the sweep scans the whole refresh token table.
+            models.Index(fields=["token_family"], name="oauthrefreshtoken_family_idx"),
+        ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
@@ -679,12 +696,18 @@ def has_live_third_party_oauth_access(user: "User") -> bool:
 
     First-party applications are excluded because they are PostHog's own surfaces, so a token from
     one is not the third-party access this answers about.
+
+    The check starts from the user's tokens, not from the application table. An `id IN (...)`
+    filter on applications makes Postgres scan every application row even when the user has no
+    tokens at all, and this runs on every load of the current user.
+
+    Both lookups go in one query as `EXISTS(...) OR EXISTS(...)` on the user row. Postgres runs
+    the second subplan only when the first finds nothing, so refresh tokens go first: a partner
+    holds one for the life of the connection, while its access token is usually expired.
     """
-    return OAuthApplication.objects.filter(
-        Q(id__in=live_oauth_access_tokens(user).values("application_id"))
-        | Q(id__in=live_oauth_refresh_tokens(user).values("application_id")),
-        is_first_party=False,
-    ).exists()
+    has_refresh_token = Exists(live_oauth_refresh_tokens(user).filter(application__is_first_party=False))
+    has_access_token = Exists(live_oauth_access_tokens(user).filter(application__is_first_party=False))
+    return User.objects.filter(pk=user.pk).filter(has_refresh_token | has_access_token).exists()
 
 
 def lock_oauth_connection(*, user_id: int, application_id: uuid.UUID) -> None:
@@ -760,6 +783,35 @@ def revoke_oauth_session(
 
             # Delete all access tokens for this user+application
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
+
+
+def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
+    """Revoke every live member of a refresh token's family in a constant number of
+    queries, and delete the access tokens still linked to them.
+
+    Use this when refresh-token reuse protection fires and the whole family is suspect:
+    DOT's per-row `RefreshToken.revoke()` loop costs a `SELECT ... FOR UPDATE` per family
+    member, even already-revoked ones.
+
+    This reproduces the effects of upstream's `AbstractRefreshToken.revoke` (stamp
+    `revoked`, delete the linked access token) in bulk, so any new effect upstream adds to
+    `revoke()` must be mirrored here. `posthog/api/oauth/test_oauth_validator_fork.py`
+    pins that upstream source and fails when it changes."""
+    # Rows without a family (pre-rotation-refresh tokens, non-rotating clients) are their
+    # own lineage: sweeping them by token_family=None would revoke unrelated tokens.
+    if refresh_token.token_family is None:
+        return
+    now = timezone.now()
+    with transaction.atomic():
+        # Revoke refresh tokens before deleting access tokens, in one transaction, so a
+        # mid-way failure can't leave one of them live after its access token is gone
+        # (same ordering as revoke_oauth_session above). The delete joins through the
+        # subquery instead of listing ids in Python: reuse protection fires rarely, but
+        # a compromised family can hold tens of thousands of historical rows.
+        OAuthRefreshToken.objects.filter(token_family=refresh_token.token_family, revoked__isnull=True).update(
+            revoked=now
+        )
+        OAuthAccessToken.objects.filter(refresh_token__token_family=refresh_token.token_family).delete()
 
 
 def _refresh_token_may_have_untracked_access_tokens(refresh_token: OAuthRefreshToken) -> bool:
@@ -867,7 +919,7 @@ def generate_random_token_cimd_verification() -> str:
 # unparseable-input branch. Issuance validates and normalizes before storing (see
 # `CIMDVerificationTokenCreateSerializer` in posthog/api/cimd_verification_token.py), so no
 # stored `CIMDVerificationToken.cimd_url` can ever equal this — it exists only to give the
-# refresh path (which normalizes `OAuthApplication.cimd_metadata_url` read straight from the
+# refresh path (which normalizes `OAuthApplication.client_id` read straight from the
 # database, unrevalidated) a value to compare against instead of raising.
 UNNORMALIZABLE_CIMD_URL = "\x00unnormalizable"
 
@@ -1055,11 +1107,11 @@ def _block_cimd_url_on_application_delete(sender, instance: OAuthApplication, **
     # Auto-blocklist a CIMD URL when its app is deleted, so a metadata refresh
     # can't immediately recreate the same partner. Admin can explicitly
     # unblock via unblock_cimd_url if they want to allow re-registration.
-    if not (instance.is_cimd_client and instance.cimd_metadata_url):
+    if not instance.is_cimd_client:
         return
     from posthog.api.oauth.cimd import block_cimd_url
 
     block_cimd_url(
-        instance.cimd_metadata_url,
+        instance.client_id,
         reason=f"Auto-blocked on deletion of OAuthApplication {instance.pk}",
     )
