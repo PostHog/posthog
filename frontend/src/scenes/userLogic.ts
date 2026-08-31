@@ -11,6 +11,7 @@ import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/s
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { clearPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -610,6 +611,8 @@ export const userLogic = kea<userLogicType>([
             }
             cache.loggingOut = true
             posthog.reset()
+            // Drop the address a signup or login attempt stored for the verify page
+            clearPendingVerificationEmail()
 
             // OAuth mode: there's no local Django session to end — just drop the stored cloud
             // token and return to the local login. (A cross-origin /logout POST would do nothing.)

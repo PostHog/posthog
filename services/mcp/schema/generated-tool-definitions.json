@@ -3547,6 +3547,20 @@
             "readOnlyHint": false
         }
     },
+    "error-tracking-issues-assign-partial-update": {
+        "description": "Assign an error tracking issue to an organization member or role. Provide the issue ID as `id` and set `assignee` to a user with a numeric ID or a role with a UUID. Set `assignee` to null to remove the current assignment.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Assign error tracking issue",
+        "title": "Assign error tracking issue",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-merge-create": {
         "description": "Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and the issues to merge into it as `ids`.",
         "category": "Error tracking",
@@ -3562,7 +3576,7 @@
         }
     },
     "error-tracking-issues-partial-update": {
-        "description": "Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or update description.",
+        "description": "Update an error tracking issue's status, severity, name, or description. Use `error-tracking-issues-assign-partial-update` to change its assignee.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Update error tracking issue",
@@ -11871,7 +11885,7 @@
         }
     },
     "workflow-health": {
-        "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. p50/p95 are over successful runs only, so superseded cancels and failed runs never bias the duration percentile. For PR-branch CI health, pass run_scope=pull_request (same-repo PRs only — fork PRs carry no PR attribution). To get a trend, call this over two adjacent windows and compare.",
+        "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so superseded cancels and failed runs never bias the duration percentile. For PR-branch CI health, pass run_scope=pull_request (same-repo PRs only — fork PRs carry no PR attribution). To get a trend, call this over two adjacent windows and compare.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Per-workflow CI health",

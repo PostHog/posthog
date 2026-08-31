@@ -217,6 +217,7 @@ export const FEATURE_FLAGS = {
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
     HEATMAPS_CREATION_FLOW: 'heatmaps-creation-flow', // owner: #team-web-analytics, gates the guided heatmap creation wizard at /heatmaps/new
+    HEATMAPS_EVENT_FILTER: 'heatmaps-event-filter', // owner: #team-web-analytics
     HEATMAPS_RECORDING_CLICKMAP: 'heatmaps-recording-clickmap', // owner: #team-web-analytics
     HEATMAPS_SCREENSHOT_PREWARM: 'heatmaps-screenshot-prewarm', // owner: #team-web-analytics, pre-renders the screenshot while entering a URL in the wizard
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: #team-web-analytics
@@ -239,8 +240,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
-    SLACK_APP_ASSISTANT: 'slack-app-assistant', // owner: @VojtechBartos #team-platform-features
-    SLACK_APP_OAUTH: 'slack-app-oauth', // owner: @VojtechBartos #team-platform-features
     SLOPE_GRAPH_INSIGHT: 'slope-graph-insight', // owner: @pauldambra #team-product-analytics
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
@@ -267,6 +266,7 @@ export const FEATURE_FLAGS = {
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     ANOMALY_ALERT_GUIDANCE_EXPERIMENT: 'anomaly-alert-guidance',
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
+    AUTORESEARCH: 'autoresearch', // owner: @andrewm4894 #team-platform-features
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
     BILLING_ALERTS: 'billing-alerts', // owner: #team-billing, gates the Billing > Alerts tab
@@ -346,6 +346,7 @@ export const FEATURE_FLAGS = {
     FIELD_NOTES: 'field-notes', // owner: @adamleith
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
+    GITHUB_WORKFLOW_TRIGGERS: 'github-workflow-triggers', // owner: #team-workflows-cdp
     GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
@@ -372,7 +373,6 @@ export const FEATURE_FLAGS = {
     LOGS: 'logs', // owner: #team-logs
     LOGS_ANOMALIES: 'logs-anomalies', // owner: @jonmcwest #team-logs
     LOGS_IN_ERROR_TRACKING: 'logs-in-error-tracking', // owner: @jonmcwest #team-logs
-    LOGS_METRIC_RULES: 'logs-metric-rules', // owner: #team-logs
     LOGS_SERVICES_VIEW: 'logs-services-view', // owner: #team-logs
     LOGS_SERVICES_VIEW_V2: 'logs-services-view-v2', // owner: #team-logs
     LOGS_SETTINGS_JSON: 'logs-settings-json', // owner: #team-logs
@@ -535,7 +535,6 @@ export const FEATURE_FLAGS = {
     VISION_ENTRYPOINT_EXPERIMENTS: 'vision-entrypoint-experiments', // owner: #team-replay, cross-sell entry points from experiments
     VISION_GOAL_BASED_CREATION_FLOW: 'vision-goal-based-creation-flow', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
-    WAREHOUSE_ACCOUNT_PROPERTIES_S3_SYNC: 'warehouse-account-properties-s3-sync', // owner: @arthurdedeus #team-customer-analytics, gates staged account-property sync and its run history
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_AGENT_ANALYTICS: 'web-analytics-agent-analytics', // owner: @jordanm-posthog #team-web-analytics
@@ -569,7 +568,6 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_DELAY_UNTIL_DATE: 'workflows-delay-until-date', // owner: @dmarchuk #team-workflows
     WORKFLOWS_EMAIL_REPUTATION: 'workflows-email-reputation', // owner: #team-workflows
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
-    WORKFLOWS_INCIDENT_REPLAY: 'workflows-incident-replay', // owner: #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features

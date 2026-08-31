@@ -41,7 +41,11 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
+    _compute_row_hash,
+    discover_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
@@ -1344,16 +1348,24 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScratchpad.objects.filter(team=self.team).exists()
 
-    def test_remember_rejects_expires_at_in_the_past(self) -> None:
-        # A memory that's already lapsed on write is invisible the moment it lands, so it's a
-        # mistake worth a 400 rather than a silently useless row.
+    @parameterized.expand(
+        [
+            ("past", "2020-01-01T00:00:00Z"),
+            ("malformed", "in thirty days"),
+        ]
+    )
+    def test_remember_drops_invalid_expires_at_without_losing_the_write(self, _name: str, expires_at: str) -> None:
+        # The agent computes `expires_at` itself and a share of writes carry a past or unparseable
+        # value. The content is the memory worth keeping, so an invalid expiry is dropped (the entry
+        # lands durable) rather than rejecting the whole write. Wiring guard for the best-effort field.
         response = self.client.post(
             self._list_url(),
-            data={"key": "k1", "content": "v", "expires_at": "2020-01-01T00:00:00Z"},
+            data={"key": "k1", "content": "v", "expires_at": expires_at},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+        assert response.status_code == status.HTTP_200_OK
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert row.expires_at is None
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -2683,6 +2695,36 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert "signals-scout-error-tracking" not in {c["skill_name"] for c in response.json()}
         # Storage is untouched — the row is hidden from the response, not deleted.
         assert SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-error-tracking").exists()
+
+    def test_sync_tombstones_a_retired_canonical_scout(self) -> None:
+        # A scout removed from `products/signals/skills/` leaves a live row on every team the
+        # harness seeded it into, and the roster keeps listing a scout that can never run again.
+        # The sync reaps it, on the same terms as the coordinator tick.
+        retired = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-retired",
+            description="retired scout",
+            body="# retired scout",
+            metadata={"seeded_by": HARNESS_SEEDED_BY, "source": "products/signals/skills"},
+            category="scout",
+            version=1,
+            is_latest=True,
+        )
+        retired.metadata["canonical_hash"] = _compute_row_hash(retired, [])
+        retired.save(update_fields=["metadata"])
+        hand_authored = self._make_skill("signals-scout-mine")
+
+        response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        retired.refresh_from_db()
+        assert retired.deleted is True
+        assert retired.is_latest is False
+        assert "signals-scout-retired" not in {c["skill_name"] for c in response.json()}
+        # A team's own scout carrying the same prefix is never the harness's to reap.
+        hand_authored.refresh_from_db()
+        assert hand_authored.deleted is False
+        assert "signals-scout-mine" in {c["skill_name"] for c in response.json()}
 
     def test_sync_rejects_read_only_scope(self) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey

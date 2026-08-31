@@ -15062,7 +15062,7 @@ export namespace Schemas {
       runs: number;
       /** Latest runs that completed with conclusion 'success'. */
       passing: number;
-      /** Latest runs that completed with conclusion 'failure' or 'timed_out'. */
+      /** Latest runs that ended in failure, timeout, startup failure, or staleness. */
       failing: number;
       /** Latest runs not yet completed (queued or in progress). */
       pending: number;
@@ -31191,9 +31191,26 @@ export namespace Schemas {
       sessions?: number;
     }
 
+    export interface ErrorTrackingIssueAssignResponse {
+      /** Whether the assignment update completed successfully. */
+      success: boolean;
+    }
+
+    export type ErrorTrackingIssueAssigneeId = number | string;
+
     export interface ErrorTrackingIssueAssigneeRead {
       readonly id: number | string | null;
       type: string;
+    }
+
+    export interface ErrorTrackingIssueAssigneeWrite {
+      /** User ID or role UUID to assign the issue to. */
+      id: ErrorTrackingIssueAssigneeId;
+      /** Assignment target type: user or role.
+       *
+       * * `user` - user
+       * * `role` - role */
+      type: AssigneeTypeEnum;
     }
 
     export interface ErrorTrackingIssueCohortRead {
@@ -41715,7 +41732,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message|github-event, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. github-event runs once per matching GitHub delivery, and takes only filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility). repository and event_type are required, each with an exact-match filter; without them the trigger runs on every delivery from every connected repository. Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -41774,7 +41791,7 @@ export namespace Schemas {
        * * `random_cohort_branch` - random_cohort_branch
        * * `exit` - exit */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message|github-event, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. github-event runs once per matching GitHub delivery, and takes only filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility). repository and event_type are required, each with an exact-match filter; without them the trigger runs on every delivery from every connected repository. Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -59374,7 +59391,7 @@ export namespace Schemas {
       /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;
       /**
-         * Fraction (0-1) of completed runs started in this bucket that succeeded. Null when the bucket had no completed run (a gap, not a 0% pass rate).
+         * Fraction (0-1) of conclusive runs started in this bucket that succeeded. Skipped, cancelled, neutral, and action_required runs are excluded. Null when the bucket had no conclusive run (a gap, not a 0% pass rate).
          * @nullable
          */
       success_rate: number | null;
@@ -61203,23 +61220,9 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
     }
 
-    /**
-     * Read-only serializer for issue contract types returned by the facade.
-     */
-    export interface PatchedErrorTrackingIssueRead {
-      id?: string;
-      status?: string;
-      /** Issue severity, or null when no severity is assigned. */
-      severity?: ErrorTrackingIssueSeverity | null;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      description?: string | null;
-      /** @nullable */
-      first_seen?: string | null;
-      assignee?: ErrorTrackingIssueAssigneeRead | null;
-      external_issues?: ErrorTrackingExternalReferenceResult[];
-      cohort?: ErrorTrackingIssueCohortRead | null;
+    export interface PatchedErrorTrackingIssueAssignRequest {
+      /** Assignment target. Set to null or omit to remove the current assignment. */
+      assignee?: ErrorTrackingIssueAssigneeWrite | null;
     }
 
     export interface PatchedErrorTrackingIssueWrite {
@@ -70237,7 +70240,7 @@ export namespace Schemas {
          * @nullable
          */
       wall_seconds: number | null;
-      /** True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'. */
+      /** True when any latest-per-workflow run on this push ended in a decisive failure. */
       failed: boolean;
       /** True when any latest-per-workflow run on this push hasn't completed yet. */
       pending: boolean;
@@ -73572,7 +73575,7 @@ export namespace Schemas {
          */
       run_id?: string | null;
       /**
-         * Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier.
+         * Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost.
          * @nullable
          */
       expires_at?: string | null;
@@ -73644,7 +73647,7 @@ export namespace Schemas {
       cost_series: CostPerMergeBucket[];
       /** Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       time_to_green_series: TimeToGreenBucket[];
-      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
+      /** CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, neutral, and action_required runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false. */
       success_rate_series: PassRateBucket[];
       /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
@@ -73655,12 +73658,12 @@ export namespace Schemas {
       /** Same count over the equal-length window immediately before date_from — the delta baseline. */
       run_count_prev: number;
       /**
-         * Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.
+         * Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.
          * @nullable
          */
       success_rate: number | null;
       /**
-         * Success rate over the previous window. Null if none completed.
+         * Conclusive-run success rate over the previous window. Null if no run reached a verdict.
          * @nullable
          */
       success_rate_prev: number | null;
@@ -86358,7 +86361,7 @@ export namespace Schemas {
       completed: number;
       /** Completed runs with conclusion 'success' in this bucket. */
       successes: number;
-      /** Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+      /** Completed runs with conclusion 'failure', 'timed_out', 'startup_failure', or 'stale'. Skipped, cancelled, neutral, and action_required runs are excluded. */
       failures: number;
     }
 
@@ -86371,10 +86374,12 @@ export namespace Schemas {
       workflow_name: string;
       /** Total runs started in the window. */
       run_count: number;
+      /** Completed runs with conclusion 'success'. */
       successful_run_count: number;
+      /** Completed runs that succeeded or ended in failure, timeout, startup failure, or staleness. This is the success_rate denominator. */
       conclusive_run_count: number;
       /**
-         * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
+         * Fraction of conclusive runs that succeeded (0-1). Failures include failure, timed_out, startup_failure, and stale. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.
          * @nullable
          */
       success_rate: number | null;
@@ -86389,12 +86394,12 @@ export namespace Schemas {
          */
       p95_seconds: number | null;
       /**
-         * When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.
+         * When the most recent decisive failure started, or null.
          * @nullable
          */
       last_failure_at: string | null;
       /**
-         * Whether the most recent completed run was a decisive failure (conclusion 'failure' or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.
+         * Whether the most recent completed run ended in failure, timeout, startup failure, or staleness. Null when no run has completed in the window. Powers the OK/RED status badge.
          * @nullable
          */
       latest_run_failed: boolean | null;
@@ -86422,10 +86427,11 @@ export namespace Schemas {
       /** Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy. */
       rerun_cycles?: number;
       /**
-         * Success rate over the equal-length window before date_from - the delta baseline. Null when that window had no completed runs.
+         * Conclusive-run success rate over the equal-length window before date_from - the delta baseline. Null when that window had no conclusive runs.
          * @nullable
          */
       success_rate_prev?: number | null;
+      /** Successful runs that did real CI work. This is the p50/p95 sample count. */
       percentile_run_count?: number;
     }
 
@@ -93557,6 +93563,11 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null;
+    /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
      */
@@ -93634,6 +93645,11 @@ export namespace Schemas {
      * @minLength 1
      */
     date_to?: string;
+    /**
+     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null;
     /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
@@ -93760,6 +93776,14 @@ export namespace Schemas {
      * * `archived` - Archived
      */
     status?: HogFlowsListStatus;
+    /**
+     * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
+     */
+    trigger?: string;
+    /**
+     * Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.
+     */
+    type?: HogFlowsListType;
     updated_at?: string;
     };
 
@@ -93770,6 +93794,14 @@ export namespace Schemas {
       Active: 'active',
       Archived: 'archived',
       Draft: 'draft',
+    } as const;
+
+    export type HogFlowsListType = typeof HogFlowsListType[keyof typeof HogFlowsListType];
+
+
+    export const HogFlowsListType = {
+      Automation: 'automation',
+      Messaging: 'messaging',
     } as const;
 
     export type HogFlowsAssetsRetrieveParams = {
