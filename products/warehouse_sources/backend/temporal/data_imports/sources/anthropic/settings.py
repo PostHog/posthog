@@ -205,6 +205,10 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
 
 ENDPOINTS = tuple(ANTHROPIC_ENDPOINTS.keys())
 
+# Raised when a schema row names an endpoint the catalog no longer has, and matched by
+# `get_non_retryable_errors` so the sync retires the row rather than retrying.
+ENDPOINT_RETIRED_ERROR = "Table no longer available from Anthropic"
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in ANTHROPIC_ENDPOINTS.items()
 }

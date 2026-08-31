@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     USAGE_REPORT_PAGE_BUCKETS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -512,13 +513,13 @@ class TestWorkspaceMembersFanOut:
             [
                 _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
                 _response({"error": "not_found"}, status=404),
-                _entity_page([{"id": "sa_2", "workspace_id": "wrkspc_2"}], has_more=False, last_id="sa_2"),
+                _entity_page([{"user_id": "u2", "workspace_id": "wrkspc_2"}], has_more=False, last_id="u2"),
             ],
         )
 
-        rows = _rows(_source("service_accounts", _make_manager()))
+        rows = _rows(_source("workspace_members", _make_manager()))
 
-        assert [(r["workspace_id"], r["id"]) for r in rows] == [("wrkspc_2", "sa_2")]
+        assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_2", "u2")]
 
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
@@ -924,3 +925,13 @@ class TestClaudeCodeDayFanOut:
         assert len(rows) == 1
         assert params[0]["params"]["page"] == "P2"
         assert params[0]["params"]["starting_at"] == today.isoformat()
+
+
+class TestRetiredEndpoint:
+    def test_a_dropped_endpoint_fails_non_retryably(self) -> None:
+        # A schema row discovered before an endpoint was dropped still names it, and its schedule
+        # keeps firing. The run must fail with a message the source classifies as non-retryable, so
+        # it disables the schema and pauses the schedule instead of retrying a KeyError forever.
+        with pytest.raises(ValueError) as exc:
+            _source("service_accounts", _make_manager())
+        assert error_message_matches(str(exc.value), AnthropicSource().get_non_retryable_errors().keys())
