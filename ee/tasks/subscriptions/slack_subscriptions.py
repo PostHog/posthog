@@ -153,23 +153,16 @@ def _claim_slack_gallery_delivery(delivery_id: uuid.UUID) -> bool:
 
 
 def _slack_gallery_feature_enabled(subscription: Subscription) -> bool:
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY,
-            f"team_{subscription.team_id}",
-            groups={"organization": str(subscription.team.organization_id)},
-            group_properties={
-                "organization": {"id": str(subscription.team.organization_id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.exception(
-            "deliver_slack_gallery.feature_flag_evaluation_failed",
-            subscription_id=subscription.id,
-        )
-        raise
+    enabled = posthoganalytics.feature_enabled(
+        SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY,
+        f"team_{subscription.team_id}",
+        groups={"organization": str(subscription.team.organization_id)},
+        group_properties={
+            "organization": {"id": str(subscription.team.organization_id)},
+        },
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
     if enabled is None:
         raise RuntimeError("Slack gallery feature flag evaluation returned no decision")
     return enabled

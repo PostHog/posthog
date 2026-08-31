@@ -25,6 +25,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 from ee.tasks.subscriptions import SLACK_GALLERY_CONFIG_ERRORS, SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
+    SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON,
     SLACK_FILE_UPLOAD_UNAVAILABLE_DISABLE_REASON,
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
     DisableReason,
@@ -87,6 +88,14 @@ def load_persisted_recipient_results(delivery_id: uuid.UUID, subscription_id: in
             )
         )
     return results
+
+
+def _is_gallery_delivery(delivery_id: uuid.UUID, subscription_id: int) -> bool:
+    return SubscriptionDelivery.objects.filter(
+        id=delivery_id,
+        subscription_id=subscription_id,
+        slack_delivery_mode=SubscriptionDelivery.SlackDeliveryMode.GALLERY,
+    ).exists()
 
 
 def strip_null_bytes(value: Any) -> Any:
@@ -265,6 +274,15 @@ async def deliver_slack(
             delivery_id,
         )
 
+    gallery_delivery = False
+    if delivery_id is not None:
+        # Resolve this before the first Slack side effect. If the database read fails,
+        # Temporal can retry safely without crossing the gallery claim boundary.
+        gallery_delivery = await database_sync_to_async(
+            _is_gallery_delivery,
+            thread_sensitive=False,
+        )(delivery_id, subscription.id)
+
     LOGGER.info("deliver_subscription.sending_slack_message", subscription_id=subscription.id)
     try:
         result = await send(integration)
@@ -282,6 +300,21 @@ async def deliver_slack(
             exc_info=True,
         )
         capture_exception(exc)
+        needed_scopes = (
+            {scope.strip() for scope in str(exc.response.get("needed") or "").split(",") if scope.strip()}
+            if isinstance(exc, SlackApiError)
+            else set()
+        )
+        file_upload_permission_missing = slack_error_code in {"missing_scope", "not_allowed_token_type"} and (
+            "files:write" in needed_scopes if needed_scopes else gallery_delivery
+        )
+        if file_upload_permission_missing:
+            return await auto_disable_and_return(
+                subscription,
+                SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON,
+                recipient_results,
+                delivery_id,
+            )
         if slack_error_code in SLACK_USER_CONFIG_ERRORS:
             # Won't self-heal without user action — auto-disable so it stops re-firing.
             return await auto_disable_and_return(

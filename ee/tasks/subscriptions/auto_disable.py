@@ -45,6 +45,14 @@ SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
     description="PostHog can no longer post to this Slack channel",
     user_message="Cannot re-enable {target_type} subscription: PostHog can't post to this Slack channel. Reconnect Slack or re-add the bot to the channel, then try again.",
 )
+SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
+    key="slack_file_upload_permission_revoked",
+    description="PostHog can no longer upload files to Slack",
+    user_message=(
+        "Cannot re-enable {target_type} subscription: the Slack app needs the files:write permission. "
+        "Reconnect PostHog's Slack app, or add files:write to your custom app and reconnect it, then try again."
+    ),
+)
 SLACK_FILE_UPLOAD_UNAVAILABLE_DISABLE_REASON = DisableReason(
     key="slack_file_upload_unavailable",
     description="Slack file uploads are unavailable for this workspace",

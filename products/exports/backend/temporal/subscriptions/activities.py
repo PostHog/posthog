@@ -596,9 +596,19 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
             gallery_requested = subscription.resource_type != Subscription.ResourceType.AI_PROMPT and bool(
                 subscription.delivery_config.get("post_all_insights_in_main_message")
             )
+            gallery_enabled = False
+            if gallery_requested:
+                try:
+                    gallery_enabled = _slack_gallery_feature_enabled(subscription)
+                except Exception:
+                    LOGGER.exception(
+                        "create_delivery_record.slack_gallery_feature_flag_fallback",
+                        subscription_id=subscription.id,
+                        team_id=subscription.team_id,
+                    )
             slack_delivery_mode = (
                 SubscriptionDelivery.SlackDeliveryMode.GALLERY
-                if gallery_requested and _slack_gallery_feature_enabled(subscription)
+                if gallery_enabled
                 else SubscriptionDelivery.SlackDeliveryMode.LEGACY
             )
 
