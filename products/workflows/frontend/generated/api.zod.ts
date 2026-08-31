@@ -2391,6 +2391,25 @@ export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+ *
+ * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
+ * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
+ * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
+ * the scheduler itself applies in `internal_process_due_schedules`.
+ *
+ * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
+ * after a timed-out request): a repeat with the same key returns the first call's result
+ * instead of firing a second AI task. Without the header, every call fires a new run.
+ */
+export const HogFlowsRunCreateBody = /* @__PURE__ */ zod.object({
+    variables: zod
+        .record(zod.string(), zod.unknown().describe('Override value for one workflow variable.'))
+        .optional()
+        .describe("Variable value overrides, merged with the workflow's own variable defaults for this run only."),
+})
+
 export const hogFlowsSchedulesCreateBodyTimezoneMax = 64
 
 export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
