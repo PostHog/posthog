@@ -157,7 +157,11 @@ export function ScoutConfigForm({
           />
         </div>
       ) : null}
+      {/* Key on the scout: the detail route reuses this mount when only the
+          skill param changes (e.g. a deep link mid-edit), so remount to reset
+          the picker's pending-mode view state onto the new scout. */}
       <ScoutSlackDestinationSettings
+        key={config.id}
         destination={config.output_destinations?.slack}
         onChange={onSlackChange}
       />
