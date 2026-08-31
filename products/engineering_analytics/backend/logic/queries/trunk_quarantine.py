@@ -42,6 +42,7 @@ def query_trunk_quarantine_debt(
     curated: CuratedGitHubSource,
     ttl_days: int,
     now: datetime,
+    ownership: RepoOwnership | None = None,
 ) -> TrunkQuarantineDebt:
     """Every currently quarantined test with its owning team and age, plus the per-team rollup;
     the unavailable shape when no TrunkIo QuarantinedTests table is synced."""
@@ -64,11 +65,11 @@ def query_trunk_quarantine_debt(
             available=True, ttl_days=ttl_days, repository=curated.repository, trunk_url=trunk_url, teams=[], tests=[]
         )
 
-    placements = RepoOwnership(curated.repository).for_tests(
+    placements = (ownership or RepoOwnership(curated.repository)).for_tests(
         [QuarantinedTestFile(runner=runner, file=file, parent=parent) for runner, _nodeid, file, parent, *_rest in rows]
     )
     tests: list[TrunkQuarantinedTest] = []
-    for (runner, nodeid, file, _parent, status, quarantine_setting, test_case_id, quarantined_at), owned in zip(
+    for (runner, nodeid, _file, _parent, status, quarantine_setting, test_case_id, quarantined_at), owned in zip(
         rows, placements
     ):
         if quarantined_at.tzinfo is None:
@@ -78,7 +79,7 @@ def query_trunk_quarantine_debt(
             TrunkQuarantinedTest(
                 runner=runner,
                 nodeid=nodeid,
-                file=owned.path or file,
+                file=owned.path or "",
                 owner_team=owned.owner_team or UNOWNED_TEAM,
                 status=status,
                 quarantine_setting=quarantine_setting,

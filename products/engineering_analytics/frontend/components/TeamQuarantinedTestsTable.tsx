@@ -25,9 +25,9 @@ export function TeamQuarantinedTestsTable({
             // nodeid truncates instead of pushing the table wider than the scene.
             className: 'w-full max-w-0',
             render: (_, row) => {
-                // A test the repository could not place carries no file path to link to.
-                const url =
-                    row.trunkUrl ?? (row.file ? `https://github.com/${repository}/blob/master/${row.file}` : null)
+                // A test the repository could not place carries no file path to link to. HEAD, because
+                // the path was resolved against the default branch.
+                const url = row.trunkUrl ?? (row.file ? `https://github.com/${repository}/blob/HEAD/${row.file}` : null)
                 if (!url) {
                     return (
                         <Tooltip title={row.nodeid}>

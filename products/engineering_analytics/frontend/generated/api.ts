@@ -846,7 +846,7 @@ export const getEngineeringAnalyticsTrunkQuarantineUrl = (
 }
 
 /**
- * The standing Trunk quarantine debt: every test Trunk currently quarantines (failures suppressed in CI), attributed to its owning team from the per-test CI spans, aged against a TTL, and rolled up per team with the most indebted first. A quarantine only masks a test; it never fixes it, so this is the work queue of tests someone still has to repair or delete. `available` is false when no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error.
+ * The standing Trunk quarantine debt: every test Trunk currently quarantines (failures suppressed in CI), attributed to the team that owns its file in the repository, aged against a TTL, and rolled up per team with the most indebted first. A quarantine only masks a test; it never fixes it, so this is the work queue of tests someone still has to repair or delete. `available` is false when no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error.
  * @summary Trunk quarantine debt by owning team
  */
 export const engineeringAnalyticsTrunkQuarantine = async (

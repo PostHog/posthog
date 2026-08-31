@@ -5,6 +5,8 @@ the capture-time span stamp the flaky rollups keep (SPEC). The web container has
 files are fetched and cached.
 """
 
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
 from django.core.cache import cache
@@ -15,17 +17,24 @@ from posthog_owners import OwnersResolver
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import github_request
+from posthog.models.integration.github import _is_safe_github_repo_path
 
 logger = structlog.get_logger(__name__)
 
 # The raw host serves a public repo's files off a CDN, so these reads draw on no API rate limit, and
-# the HEAD ref follows the default branch.
+# the HEAD ref follows the default branch. A private repo answers 404 to all of it: see the root-file
+# guard in RepoOwnership.
 _RAW_HOST = "https://raw.githubusercontent.com"
 _REF = "HEAD"
 _EGRESS_SOURCE = "engineering_analytics_ownership"
+# Constant: the egress metrics are labeled by endpoint, and a raw file path per label is unbounded.
+_EGRESS_ENDPOINT = "/{owner}/{repo}/{ref}/{path}"
 _TIMEOUT_SECONDS = 5.0
+_WARM_WORKERS = 16
 
-_CACHE_TTL_SECONDS = 60 * 60
+# Ownership files change at review speed, so a stale answer stays right; the window is long because
+# only the request that finds the cache cold pays for the fetches.
+_CACHE_TTL_SECONDS = 6 * 60 * 60
 _CACHE_PREFIX = "eng_analytics:repo_file"
 # Absence needs a cache value of its own. No file holds this one.
 _ABSENT = "\x00absent"
@@ -33,10 +42,14 @@ _ABSENT = "\x00absent"
 _HTTP_OK = 200
 _HTTP_NOT_FOUND = 404
 
+_ROOT_OWNERS_FILE = "owners.yaml"
+
 # Directories a suite can run from, so its tests arrive named relative to one of these. Tried after
-# the path as reported, so placement follows what the repo holds; a root missing here leaves a test
-# unplaced, never attributed to the team that happens to own the same path elsewhere.
+# the path as reported, and the repository decides which one holds the file.
 _SUITE_ROOTS = ("nodejs/", "frontend/", "services/mcp/")
+# Cargo names a crate, nextest reports that name, and the directory holding it need not match:
+# `common-kafka` lives at rust/common/kafka.
+_CRATE_ROOTS = ("rust/{crate}/", "rust/common/{crate_tail}/", "{crate}/")
 
 
 class OwnershipUnavailable(Exception):
@@ -79,11 +92,15 @@ class GitHubRepoFiles:
         return f"{_CACHE_PREFIX}:{kind}:{self.repository}:{_REF}:{path}"
 
     def _request(self, method: str, path: str) -> requests.Response:
-        """Reads the file, or raises. Anything but 200 or 404 raises rather than reading as absent:
-        a missing ownership file silently reattributes everything under it to an ancestor."""
+        """The file, or raises. Anything but 200 or 404 raises rather than reading as absent: a
+        missing ownership file silently reattributes everything under it to an ancestor."""
+        if not _is_safe_github_repo_path(self.repository):
+            raise OwnershipUnavailable(f"unsafe repository path: {self.repository!r}")
         url = f"{_RAW_HOST}/{self.repository}/{_REF}/{path}"
         try:
-            response = github_request(method, url, source=_EGRESS_SOURCE, timeout=_TIMEOUT_SECONDS)
+            response = github_request(
+                method, url, source=_EGRESS_SOURCE, endpoint=_EGRESS_ENDPOINT, timeout=_TIMEOUT_SECONDS
+            )
         except Exception as e:
             raise OwnershipUnavailable(f"could not read {path} from {self.repository}: {e}") from e
         if response.status_code not in (_HTTP_OK, _HTTP_NOT_FOUND):
@@ -102,7 +119,7 @@ class QuarantinedTestFile:
 
 @frozen
 class TestOwnership:
-    """Where a test lives in the repository, and which team owns it there. Either can be unknown."""
+    """The test's file in the repository, and the team that owns it. Either can be unknown."""
 
     path: str | None
     owner_team: str | None
@@ -126,29 +143,54 @@ class RepoOwnership:
         suspect too, and a part-attributed board reads as a healthy one.
         """
         try:
-            return [self._for_test(test) for test in tests]
+            return self._resolve(tests)
         except OwnershipUnavailable:
             logger.exception("repo_ownership_unavailable", repository=self._repository)
             return [UNPLACED] * len(tests)
 
-    def _for_test(self, test: QuarantinedTestFile) -> TestOwnership:
-        for candidate in _candidate_paths(test):
-            if not self._files.exists(candidate):
-                continue
-            owners = self._resolver.resolve(candidate).owners
-            return TestOwnership(path=candidate, owner_team=owners[0] if owners else None)
-        return UNPLACED
+    def _resolve(self, tests: list[QuarantinedTestFile]) -> list[TestOwnership]:
+        if self._files.read(_ROOT_OWNERS_FILE) is None:
+            # Every repo this runs against declares one, so its absence proves the reader is blind
+            # (a private or renamed repo answers 404 to everything), not that nobody owns anything.
+            raise OwnershipUnavailable(f"{self._repository} has no root {_ROOT_OWNERS_FILE}")
+        candidates = [_candidate_paths(test) for test in tests]
+        _warm(self._files.exists, [path for group in candidates for path in group])
+        placed = [next((path for path in group if self._files.exists(path)), None) for group in candidates]
+        _warm(self._files.read, [f for path in placed if path for f in self._resolver.ownership_file_paths(path)])
+        return [self._own(test, path) for test, path in zip(tests, placed)]
+
+    def _own(self, test: QuarantinedTestFile, path: str | None) -> TestOwnership:
+        if path is None:
+            return UNPLACED
+        owners = self._resolver.resolve(path).owners or []
+        # An '@handle' owner is a person, and every surface downstream keys on a team slug.
+        team = next((owner for owner in owners if not owner.startswith("@")), None)
+        # A Rust crate is placed by its manifest, which is not the test's file.
+        return TestOwnership(path=None if test.runner == "rust" else path, owner_team=team)
+
+
+def _warm(fetch: Callable[[str], object], paths: Iterable[str]) -> None:
+    """Fill the cache concurrently, so the resolution that follows reads it rather than the network."""
+    todo = list(dict.fromkeys(paths))
+    if not todo:
+        return
+    with ThreadPoolExecutor(max_workers=min(_WARM_WORKERS, len(todo))) as pool:
+        for _ in pool.map(fetch, todo):
+            pass
 
 
 def _candidate_paths(test: QuarantinedTestFile) -> list[str]:
-    """Repo-relative paths a test could live at, most specific first.
+    """Paths that could decide the test's ownership, most specific first.
 
-    Nextest names a Rust test ``crate::target`` with no file at all, so it places to the crate's
+    Nextest names a Rust test ``crate::target`` with no file at all, so it places by the crate's
     manifest; every other runner reports a path.
     """
     if test.runner == "rust":
         crate = test.parent.split("::")[0]
-        return [f"rust/{crate}/Cargo.toml"] if crate else []
+        if not crate:
+            return []
+        tail = crate.removeprefix("common-")
+        return [f"{root.format(crate=crate, crate_tail=tail)}Cargo.toml" for root in _CRATE_ROOTS]
     reported = _strip_relative_prefix(test.file or test.parent)
     if "/" not in reported:
         return []  # a suite name ('pytest', a jest project), not a file

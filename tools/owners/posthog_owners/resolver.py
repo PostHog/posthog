@@ -147,7 +147,7 @@ class OwnershipSource(Protocol):
     """An ownership file's text by repo-relative path, or None when absent.
 
     A worktree is one source; a caller that can fetch the files but not clone the repo supplies
-    another. Only ``resolve`` reads through this — lint and format still walk a real worktree.
+    another. Only ``resolve`` reads through this; lint and format still walk a real worktree.
     """
 
     def read(self, path: str) -> str | None: ...
@@ -267,6 +267,15 @@ class OwnersResolver:
         if not isinstance(matched.inherit, _Unset):
             contrib.inherit = matched.inherit
         return contrib
+
+    def ownership_file_paths(self, path: str) -> list[str]:
+        """Every ownership file that could decide ``path``, outermost first. For a caller that fetches
+        files (rather than opening them) and wants them in hand before ``resolve`` asks."""
+        return [
+            f"{directory}/{name}" if directory else name
+            for directory in self._ancestor_dirs(normalize_path(path))
+            for name in (OWNERS_FILENAME, PRODUCT_FILENAME)
+        ]
 
     def resolve(self, path: str) -> Resolution:
         norm = normalize_path(path)

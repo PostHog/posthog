@@ -780,10 +780,58 @@ def _selector(module_dir: str, test_class: str, test_name: str) -> str:
     return f"{module_dir}/{test_name}.py::{test_class}::{test_name}"
 
 
+# (file, name, classname, parent, age_days). `parent` is what the uploader reports: 'pytest', the
+# test file for jest, the crate for Rust.
+_QUARANTINED_TESTS: list[tuple[str, str, str, str, int]] = [
+    (
+        "products/replay_vision/backend/tests/test_api.py",
+        "test_tag_listing_pagination",
+        "products.replay_vision.backend.tests.test_api.TestReplayVisionAPI",
+        "pytest",
+        41,
+    ),
+    (
+        "products/batch_exports/backend/tests/test_service.py",
+        "test_backfill_window_overlap",
+        "products.batch_exports.backend.tests.test_service.TestBatchExportService",
+        "pytest",
+        30,
+    ),
+    (
+        "posthog/api/test/test_person.py",
+        "test_person_merge_ordering",
+        "posthog.api.test.test_person.TestPerson",
+        "pytest",
+        23,
+    ),
+    (
+        "posthog/hogql/test/test_query.py",
+        "test_property_type_coercion",
+        "posthog.hogql.test.test_query.TestQuery",
+        "pytest",
+        16,
+    ),
+    # Reported relative to the directory its suite ran from, which is how Trunk records them.
+    ("tests/utils.test.ts", "parses a malformed header", "", "tests/utils.test.ts", 9),
+    (
+        "src/scenes/experiments/utils.test.ts",
+        "rounds a bayesian interval",
+        "",
+        "src/scenes/experiments/utils.test.ts",
+        5,
+    ),
+    ("", "remote_resolution_hardening", "", "cymbal::remote_resolution_hardening", 19),
+    ("", "flag evaluation stays stable", "", "feature-flags", 2),
+]
+
+
 def _trunk_quarantined_rows() -> list[dict[str, Any]]:
-    """Trunk-quarantined rows for the debt scoreboard, reusing the span roster so owner attribution
-    resolves through the seeded spans. Ages are staggered on both sides of the TTL, and two rows
-    (one of them jest) name tests outside the roster so the 'unowned' bucket renders."""
+    """Trunk-quarantined rows for the debt scoreboard.
+
+    The board resolves owners from the real repository, so these name real test files, one per team,
+    and two of them arrive relative to their suite's directory (as Trunk reports them) to exercise
+    placement. Ages straddle the TTL, and the last row names no file so the 'unowned' bucket renders.
+    """
     anchor = timezone.now().replace(microsecond=0)
     rows: list[dict[str, Any]] = []
 
@@ -806,34 +854,8 @@ def _trunk_quarantined_rows() -> list[dict[str, Any]]:
             }
         )
 
-    age = 2
-    for _owner_team, module_dir, tests in _SPAN_TEAMS:
-        # Quarantine the first two roster tests per team; module = test_name (the span seed's rule).
-        for test_class, test_name, _prior, _current in tests[:2]:
-            module_path = f"{module_dir}/{test_name}.py"
-            add(
-                file=module_path,
-                name=test_name,
-                classname=f"{module_path[:-3].replace('/', '.')}.{test_class}",
-                parent="pytest",
-                age_days=age,
-            )
-            # Walks 2..44 in 7-day steps across the roster, landing rows on both sides of the TTL.
-            age = (age + 7) % 45
-    add(
-        file="posthog/api/test/test_signup.py",
-        name="test_social_signup_ratelimit",
-        classname="posthog.api.test.test_signup.TestSignup",
-        parent="pytest",
-        age_days=41,
-    )
-    add(
-        file="frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx",
-        name="the activity log logic humanizes flag changes",
-        classname="",
-        parent="frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx",
-        age_days=9,
-    )
+    for file, name, classname, parent, age_days in _QUARANTINED_TESTS:
+        add(file=file, name=name, classname=classname, parent=parent, age_days=age_days)
     return rows
 
 

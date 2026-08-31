@@ -20,6 +20,7 @@ _OWNERS = {
     "nodejs/src/owners.yaml": "version: 1\nowners: [team-ingestion]\n",
     "frontend/src/scenes/owners.yaml": "version: 1\nowners: [team-product-analytics]\n",
     "rust/owners.yaml": "version: 1\nowners: [team-rust]\n",
+    "rust/common/kafka/owners.yaml": "version: 1\nowners: ['@someone', team-streams]\n",
 }
 
 _TRACKED = {
@@ -28,6 +29,7 @@ _TRACKED = {
     "frontend/src/scenes/insights/SQLBoxPlot.stories.tsx",
     "products/product_analytics/backend/tests/test_insight.py",
     "rust/personhog-coordination/Cargo.toml",
+    "rust/common/kafka/Cargo.toml",
 }
 
 
@@ -52,13 +54,10 @@ class TestRepoOwnership(SimpleTestCase):
                 "frontend/src/scenes/insights/SQLBoxPlot.stories.tsx",
                 "team-product-analytics",
             ),
-            (
-                "rust",
-                "",
-                "personhog-coordination::k3s_integration",
-                "rust/personhog-coordination/Cargo.toml",
-                "team-rust",
-            ),
+            # A crate is placed by its manifest, which is not the test's file, so nothing to link to.
+            ("rust", "", "personhog-coordination::k3s_integration", None, "team-rust"),
+            # Cargo's crate name is not its directory, and '@handle' owners are people, not teams.
+            ("rust", "", "common-kafka::batch_consumer", None, "team-streams"),
             (
                 "pytest",
                 "products/product_analytics/backend/tests/test_insight.py",
@@ -78,17 +77,30 @@ class TestRepoOwnership(SimpleTestCase):
         assert placed.path == path
         assert placed.owner_team == owner
 
-    def test_an_unreadable_repository_leaves_the_whole_batch_unowned(self) -> None:
+    def test_a_failed_read_leaves_the_whole_batch_unowned(self) -> None:
         class _Failing(_FakeRepoFiles):
-            def exists(self, path: str) -> bool:
+            def read(self, path: str) -> str | None:
                 raise OwnershipUnavailable("boom")
 
-        ownership = RepoOwnership("PostHog/posthog", files=_Failing())
-        tests = [
+        assert _placements(_Failing()) == [UNPLACED, UNPLACED]
+
+    def test_a_repository_missing_its_root_file_attributes_nothing(self) -> None:
+        # A private or renamed repo answers 404 to every path. Without the root-file guard the
+        # nested files this fake still serves would attribute part of the board.
+        class _NoRoot(_FakeRepoFiles):
+            def read(self, path: str) -> str | None:
+                return None if path == "owners.yaml" else super().read(path)
+
+        assert _placements(_NoRoot()) == [UNPLACED, UNPLACED]
+
+
+def _placements(files: _FakeRepoFiles) -> list:
+    return RepoOwnership("PostHog/posthog", files=files).for_tests(
+        [
             QuarantinedTestFile(runner="jest", file="src/cdp/cdp-e2e.serial.test.ts", parent=""),
             QuarantinedTestFile(runner="rust", file="", parent="personhog-coordination::k3s_integration"),
         ]
-        assert ownership.for_tests(tests) == [UNPLACED, UNPLACED]
+    )
 
 
 class TestGitHubRepoFiles(SimpleTestCase):
