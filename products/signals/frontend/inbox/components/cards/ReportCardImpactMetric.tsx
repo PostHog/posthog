@@ -43,7 +43,7 @@ export function ReportCardImpactMetric({ metrics }: { metrics?: ReportMetricApi[
         <Tooltip
             title={
                 <span>
-                    Measured <TZLabel time={metric.value_at} />
+                    Measured <TZLabel time={metric.value_at} showPopover={false} timestampStyle="absolute" />
                 </span>
             }
         >
