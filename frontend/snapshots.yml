@@ -1764,6 +1764,10 @@ snapshots:
         hash: v1.k794b7964.375eb5c484baae36185d43a8b1ae04a6ec0915405be7f4f4a05887816dfde456.L2szPOMNE0IT-m3Dxbt1SKmvgfc9bT1pvlF13-L4doI
     components-product-empty-state--annotations-needs-setup--light:
         hash: v1.k794b7964.56dbdea2b6fb8aaf02bf4ff304ba2d4bff2df277d11255585ceb5c58453a9ceb.jmML3vhPE30ZAvN7k5Fr8gC0RDKY3GusMz-_osZ5o-I
+    components-product-empty-state--cohorts-needs-setup--dark:
+        hash: v1.k794b7964.83b26d21c2c1d191e3c7f6aa34bd3d8d24e9d6002d3e1369bf5b6a049f757758.PhaOyvOdwWsqT3HArkFs-5X-Bcgx3hwAnlhBFYnJUQo
+    components-product-empty-state--cohorts-needs-setup--light:
+        hash: v1.k794b7964.b827ea6e4b03f02c32a32b12c618f75a69ad0b2b58f913fe7d5c334c0ae5cac9.fKm3ytRKGmpO82oUS7SSw9GbRTxgdtlygk9c3Cmcd60
     components-product-empty-state--early-access-features-needs-setup--dark:
         hash: v1.k794b7964.ce612c03290780c1098886d9e2e0f9d920bfa899c591fadfecabf969b1897fe6.RlwNrGim39bhZH0hO39-bt6bWPUPJU-5XgIq2smDxSk
     components-product-empty-state--early-access-features-needs-setup--light:
@@ -7701,17 +7705,17 @@ snapshots:
     scenes-app-people-cohorts--cohort-new--light:
         hash: v1.k794b7964.b7e34e37161bbc571400f8c8e4cf210f1e8e08a901f0194b25700de2447b6544.if6FtZPEEaSX6nWtoSmOeZM_PNYQz7bFqj7123_mQjM
     scenes-app-people-cohorts--cohorts-empty--dark:
-        hash: v1.k794b7964.036e2f8323a54221ffdfb2807d0c9df42ae3d0969d15912c7fa7c6f6b51691c0.A0HlqNJEUOMVyy81_QznYrkUeMiQ8Ch6HmU0HgIUA8M
+        hash: v1.k794b7964.514e17ab808f6e16f3e02f3a43e622fcbddccab6436a83c7a5cd84904e8d7634.mgeo8euI4thoX2hQRiO0CVQxVeS-zu7nCIhOz7gXYQM
     scenes-app-people-cohorts--cohorts-empty--light:
-        hash: v1.k794b7964.7ad619bc602fecc63ead6f2e4505a946465498be7a16a71a654cc83422702d56.WiiVT6wAKFR5wFjvoBJeGrhaiBRCuJN3pp1OcGhVRp8
+        hash: v1.k794b7964.8eabf59d8c6277d154b3192cc00d3f66e4af8382722dd7e3599972194cef9735.7ajvmO2OIckY7mCNXG_HE0k0N8XpFPwDSTiNYgNajUU
     scenes-app-people-cohorts--cohorts-list--dark:
-        hash: v1.k794b7964.4bf4d602ecb2b9abfe394cd2357fcf2a6557937e1dd61051e98b48614e042427.7g4R6X-7BEQ_1gGgU1JBBG63qvVuBJFMzuhSvMLTvYI
+        hash: v1.k794b7964.ba60739cb1a38c0bc4328ce9581ebcd3206a94d4fc25399910115b6a7b34f720.fihj0nFQRie7dWF5Wzp8rz8m0JFBCFa6N6VXaa7zDLQ
     scenes-app-people-cohorts--cohorts-list--light:
-        hash: v1.k794b7964.2c22176eac83d12fb0dbb49eccb5d9d8779bf32c77931028762f668e3f69c6d1.-GFZw_WpanZIuZg8uyHjVtC-GEm-HNWOTFmq9r6WUSg
+        hash: v1.k794b7964.1bf47ee3ad41d21ae2a41cdc8c58027779cb67cf72dc21ea40186cde5b2fbe8e.-t4sba4fJW6mLrsTN6fWVPvb8SEwuwbvA01eDMRsmwU
     scenes-app-people-cohorts--cohorts-with-data--dark:
-        hash: v1.k794b7964.841ea8d2acd8199e49e1992a0ae49ff5abc7a5557b37266602e64c1664375fd4.0_5BgsAoEGSsc18skGpq2-bdE0JmKABz-54yOHzjUrI
+        hash: v1.k794b7964.e9b06da7fe302cf5d9f9b89a946bcad3b218de80b09f6d79825dc047e2c47144.XhK5xNwino53Y_bl2MrzUq8l2Z2ecyjSXkuKy4TixjI
     scenes-app-people-cohorts--cohorts-with-data--light:
-        hash: v1.k794b7964.61876acfe92bf3199b7013410bd77431df6a3cafde3d36132772c7a98363e603.JZ-JRLjr69YrfVQUlogXpBbcmcQmNua41Bj01clldhE
+        hash: v1.k794b7964.78ccc4aa71cdfa0f7f6992c2f5db9948739489adb7ab3814f097fa6391f66942.5fFxaSpqMWp0-CEO48c4gR5lrxyMVcy6Cp4rgPi3V3Y
     scenes-app-people-cohorts-add-person-to-cohort-modal--modal-empty--dark:
         hash: v1.k794b7964.4d6a9ffec03501c8b5d18e07127691b585f229dd60847a3cafb1e7c4d470e5f7.u2PV_7TIzIOqQLmFFxHpFecnxYbFLybvgVHz2ij4jCs
     scenes-app-people-cohorts-add-person-to-cohort-modal--modal-empty--light:
