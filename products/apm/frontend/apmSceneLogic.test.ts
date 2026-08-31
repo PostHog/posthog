@@ -53,15 +53,29 @@ describe('apmSceneLogic', () => {
         expect(router.values.searchParams.tab).toBeUndefined()
     })
 
-    it('keeps the shared date range when switching facet', async () => {
-        // The shared range is what makes the three facets read as one product: narrow the window
-        // on logs, switch to traces, and you are still looking at the same window.
+    it('keeps the shared scope when switching facet', async () => {
+        // The shared scope is what makes the three facets read as one product: narrow to a
+        // service and a window on logs, switch to traces, and you are still looking at the same
+        // service over the same window.
         await expectLogic(logic, () => {
             logic.actions.setDateRange({ date_from: '-24h', date_to: null })
+            logic.actions.setServiceNames(['checkout-api'])
             logic.actions.setActiveTab('traces')
         }).toFinishAllListeners()
 
         expect(logic.values.activeTab).toEqual('traces')
         expect(logic.values.dateRange).toEqual({ date_from: '-24h', date_to: null })
+        expect(logic.values.serviceNames).toEqual(['checkout-api'])
+    })
+
+    it.each([
+        ['JSON array', '["checkout-api","payments-worker"]', ['checkout-api', 'payments-worker']],
+        ['comma separated', 'checkout-api,payments-worker', ['checkout-api', 'payments-worker']],
+    ])('reads the service scope from a %s param', async (_name, param, expected) => {
+        await expectLogic(logic, () => {
+            router.actions.push('/apm', { serviceNames: param })
+        }).toFinishAllListeners()
+
+        expect(logic.values.serviceNames).toEqual(expected)
     })
 })
