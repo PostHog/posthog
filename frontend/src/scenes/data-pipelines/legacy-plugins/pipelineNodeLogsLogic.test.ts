@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -30,7 +31,7 @@ describe('pipelineNodeLogsLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('surfaces a toast when the initial log fetch fails', async () => {
+    it('surfaces a toast when a status-less network failure would otherwise go unreported', async () => {
         jest.spyOn(api.batchExports, 'logs').mockRejectedValue(new Error('Non-OK response'))
         await expectLogic(teamLogic).toFinishAllListeners()
 
@@ -39,6 +40,19 @@ describe('pipelineNodeLogsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadLogs', 'loadLogsFailure'])
 
         expect(lemonToast.error).toHaveBeenCalledWith('Failed to load logs: Non-OK response')
+        expect(logic.values.logs).toEqual([])
+    })
+
+    it('stays silent on an HTTP failure so the loaders onFailure toast is not duplicated', async () => {
+        jest.spyOn(api.batchExports, 'logs').mockRejectedValue(new ApiError('Server error', 500))
+        await expectLogic(teamLogic).toFinishAllListeners()
+
+        logic = pipelineNodeLogsLogic({ id: BATCH_EXPORT_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadLogs', 'loadLogsFailure'])
+
+        // A failure with an HTTP status is toasted by initKea's onFailure, so this viewer adds none.
+        expect(lemonToast.error).not.toHaveBeenCalled()
         expect(logic.values.logs).toEqual([])
     })
 

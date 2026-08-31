@@ -212,7 +212,13 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                             results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
                         }
                     } catch (e: any) {
-                        lemonToast.error(`Failed to load logs: ${e.message}`)
+                        // initKea's loaders onFailure already toasts failures that carry an HTTP
+                        // status and suppresses the 401/403/409 cases handled elsewhere. Only a
+                        // status-less failure (a network error that never reached the server) goes
+                        // unreported there, so surface just that here to avoid a duplicate toast.
+                        if (e?.status === undefined && e?.name !== 'AbortError') {
+                            lemonToast.error(`Failed to load logs: ${e.message}`)
+                        }
                         throw e
                     }
 
@@ -240,7 +246,13 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                             results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
                         }
                     } catch (e: any) {
-                        lemonToast.error(`Failed to load logs: ${e.message}`)
+                        // initKea's loaders onFailure already toasts failures that carry an HTTP
+                        // status and suppresses the 401/403/409 cases handled elsewhere. Only a
+                        // status-less failure (a network error that never reached the server) goes
+                        // unreported there, so surface just that here to avoid a duplicate toast.
+                        if (e?.status === undefined && e?.name !== 'AbortError') {
+                            lemonToast.error(`Failed to load logs: ${e.message}`)
+                        }
                         throw e
                     }
 
