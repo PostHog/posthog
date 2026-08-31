@@ -330,7 +330,7 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
             "slack_notification_min_priority": {
                 "help_text": (
                     "Minimum report priority that triggers a Slack notification. P0 is highest. "
-                    "Null means notify on every priority. Reports without a priority judgment never notify."
+                    "Null means notify on every priority. When set, reports without a priority judgment do not notify."
                 )
             },
         }
@@ -358,7 +358,7 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "P0 is highest. Null = notify for every priority. Reports without a priority judgment never notify."
+            "P0 is highest. Null = notify for every priority. When set, reports without a priority judgment do not notify."
         ),
     )
 
