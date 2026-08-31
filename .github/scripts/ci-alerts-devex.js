@@ -344,15 +344,18 @@ function defaultSlackClient(token, fetchImpl) {
 }
 
 // Only an incident's first tick calls this, so a start lost here is never retried by a later tick.
-async function startDiagnosisAgent({ url, token, fetchImpl, sleep, core }, payload) {
+async function startDiagnosisAgent({ url, fetchImpl, sleep, core }, payload) {
     if (!url) {return false}
+    // The url is the only thing guarding the endpoint, and a variable is not masked in this public
+    // repo's logs, so register it before any code path can print it.
+    core.setSecret(url)
     const doFetch = fetchImpl || fetch
     let lastError = 'unknown'
     for (let attempt = 1; attempt <= WEBHOOK_ATTEMPTS; attempt++) {
         try {
             const res = await doFetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: token } : {}) },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
                 signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
             })
@@ -632,13 +635,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
                 text: buildThreadReply({ created: workflows, commitStarted: commitActive }),
             })
             await startDiagnosisAgent(
-                {
-                    url: process.env.DIAGNOSIS_WEBHOOK_URL,
-                    token: process.env.DIAGNOSIS_WEBHOOK_TOKEN,
-                    fetchImpl: _fetch,
-                    sleep,
-                    core,
-                },
+                { url: process.env.DIAGNOSIS_WEBHOOK_URL, fetchImpl: _fetch, sleep, core },
                 {
                     event: INCIDENT_OPENED_EVENT,
                     distinct_id: 'ci-alerts-devex',

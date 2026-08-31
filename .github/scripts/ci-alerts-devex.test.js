@@ -150,6 +150,7 @@ function run(github, { history = [], now = minutes(0), env = {}, fetch: fetchImp
         info: () => {},
         warning: () => {},
         setFailed: (m) => failures.push(m),
+        setSecret: () => {},
     }
     const slack = makeSlack(history)
     Object.assign(process.env, {
@@ -164,7 +165,6 @@ function run(github, { history = [], now = minutes(0), env = {}, fetch: fetchImp
         ACTIVITY_WINDOW_MINUTES: '120',
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
         DIAGNOSIS_WEBHOOK_URL: '',
-        DIAGNOSIS_WEBHOOK_TOKEN: '',
         ...env,
     })
     return ciAlertsDevex(
@@ -219,7 +219,7 @@ describe('ci-alerts-devex', () => {
     }
 
     describe('diagnosis agent start', () => {
-        const webhookEnv = { DIAGNOSIS_WEBHOOK_URL: 'https://webhooks.test/start', DIAGNOSIS_WEBHOOK_TOKEN: 'Bearer t' }
+        const webhookEnv = { DIAGNOSIS_WEBHOOK_URL: 'https://webhooks.test/start' }
         const fiveFailures = () =>
             createGithubMock({
                 'ci-backend.yml': runs('Backend CI', Array(5).fill('failure')),
@@ -236,7 +236,6 @@ describe('ci-alerts-devex', () => {
 
             const [url, init] = fetch.calls[0]
             assert.equal(url, 'https://webhooks.test/start')
-            assert.equal(init.headers.Authorization, 'Bearer t')
             const body = JSON.parse(init.body)
             assert.equal(body.event, 'master_ci_incident_opened')
             assert.equal(body.properties.channel, 'C0AS64N6DJL')
