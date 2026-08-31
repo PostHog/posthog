@@ -81,6 +81,35 @@ class TestCanvasCloudBuilder(SimpleTestCase):
             "canvasSdkVersion": "0.1.0",
         }
 
+    def _notebook_project(self, source: str) -> dict[str, Any]:
+        project = self._project(source)
+        project["capabilities"] = {
+            "posthog": {
+                "insights": [],
+                "inlineQueries": False,
+                "captureEvents": [],
+                "state": ["user"],
+                "notebookFrames": True,
+            },
+            "network": {"origins": []},
+        }
+        return project
+
+    def test_notebook_runtime_is_isolated_from_generated_source(self) -> None:
+        result = run_cloud_builder(self._notebook_project("void ph.readFrame"))
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        generated = "\n".join(
+            file["content"]
+            for file in result["files"]
+            if file["path"].endswith(".js") and file["path"] != "assets/canvas-runtime.js"
+        )
+        self.assertIn('type:"notebook-connect"', runtime)
+        self.assertIn("__posthog_notebook_frame__:", runtime)
+        self.assertIn("blockNavigation", runtime)
+        self.assertNotIn("notebook-connect", generated)
+
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
         result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
 
