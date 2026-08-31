@@ -48,16 +48,20 @@ export function TestAccountFilterSwitch({
     const settingsUrl = urls.settings('environment-customization', 'internal-user-filtering')
 
     // With no filters configured the toggle does nothing, so a disabled switch just invites
-    // clicks that never register. Send people to set the filters up instead.
+    // clicks that never register. Send people to set the filters up instead. When the caller marks
+    // the surface unusable (a data warehouse insight, a form mid-save), setup cannot help, so honor
+    // that reason and keep the control disabled rather than promise a trip that changes nothing.
     if (!hasFilters) {
         return (
             <LemonButton
                 type="secondary"
                 size={props.size}
                 data-attr={props['data-attr']}
+                fullWidth={props.fullWidth}
                 icon={<IconGear />}
                 to={settingsUrl}
                 targetBlank
+                disabledReason={props.disabledReason}
                 tooltip="Choose which users count as internal or test, then come back to filter them out. Opens in a new tab."
             >
                 Set up internal and test user filtering

@@ -33,6 +33,22 @@ describe('TestAccountFilterSwitch', () => {
             expect(link.getAttribute('href')).toMatch(/\/settings\/environment-customization#internal-user-filtering$/)
         })
 
+        it('keeps the setup control disabled, not a live link, when the caller passes a disabledReason', () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, test_account_filters: [] })
+            render(
+                <TestAccountFilterSwitch
+                    checked={false}
+                    onChange={jest.fn()}
+                    disabledReason="Filter groups cannot be added to insights with a data warehouse series."
+                />
+            )
+
+            // A disabled control renders as a non-navigable button, so the misleading "go set it up"
+            // link is gone and the button reports itself disabled.
+            expect(screen.queryByRole('link')).not.toBeInTheDocument()
+            expect(screen.getByRole('button')).toHaveAttribute('aria-disabled', 'true')
+        })
+
         it('shows a switch reflecting the real checked value when filters exist', () => {
             teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
             render(<TestAccountFilterSwitch checked={true} onChange={jest.fn()} />)
