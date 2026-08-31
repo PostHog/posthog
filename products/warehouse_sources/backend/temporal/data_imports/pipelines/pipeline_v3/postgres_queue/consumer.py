@@ -23,6 +23,7 @@ from asgiref.sync import sync_to_async
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.db_errors import is_transient_db_error
 
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
@@ -83,9 +84,11 @@ STRANDED_RUN_ERROR = (
     "The next scheduled sync retries automatically. No action is needed."
 )
 
-# Errors that fail identically on every attempt. Substring-matched because they
-# surface as generic exceptions; keep entries specific so transients can't match.
-NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
+
+# Permanent failures the customer can fix. These stop the schedule as well as the run: the loader
+# fails outside the workflow, so the finalization activity that would otherwise disable the schema
+# never runs, and every later run replays the same failure.
+DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
     # delta-rs decimal precision overflow — the batch's data cannot fit the column
     "is too large to store in a Decimal128",
     # schema configured as incremental without a primary key — config error
@@ -93,6 +96,14 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # incoming values no longer fit the stored Delta column type
     # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
     "Source column type changed",
+)
+
+# Errors that fail identically on every attempt. Substring-matched because they
+# surface as generic exceptions; keep entries specific so transients can't match.
+# The disable set above, plus the permanent failures that must not stop the schedule: a deleted row
+# has nothing left to disable, and a full object store is an infrastructure fix, not a sync setting.
+NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
+    *DISABLE_SCHEMA_ERROR_PATTERNS,
     # the schema or job row was deleted mid-sync — no retry can bring it back
     "ExternalDataSchema matching query does not exist",
     "ExternalDataJob matching query does not exist",
@@ -113,16 +124,6 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # was still in flight — an upstream/customer action, not a pipeline bug
     "ExternalDataSchema matching query does not exist",
     "ExternalDataJob matching query does not exist",
-)
-
-# The subset of NON_RETRYABLE_ERROR_PATTERNS the customer can fix. These stop the schedule too:
-# the loader fails outside the workflow, so the finalization activity that would otherwise disable
-# the schema never runs, and every later run replays the same failure. Narrower than the full set
-# on purpose. A deleted schema has nothing to disable, and a full object store is our outage.
-DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
-    "is too large to store in a Decimal128",
-    "Primary key required for incremental syncs",
-    "Source column type changed",
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
@@ -769,8 +770,6 @@ def _disable_schema_after_permanent_failure(*, schema_id: str, team_id: int, rea
     schedule once instead of per batch, and so a schema deleted mid-run is skipped rather than
     raising out of ``update_should_sync``'s ``get``.
     """
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
-
     close_old_connections()
 
     schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).only("id", "should_sync").first()
