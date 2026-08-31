@@ -409,19 +409,22 @@ describe('CDP Internal Events Consumer', () => {
         it.each([
             ['own_app is stamped true', true, 0],
             ['own_app is stamped false', false, 1],
-        ])('starts a github workflow only when the delivery is not our own write: %s', async (_name, ownApp, expected) => {
-            // A workflow that comments back on an issue sees its own comment arrive on this topic.
-            // The guard is part of eligibility, not the trigger's stored filters, so a workflow
-            // created through the API or MCP still has it.
-            await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'github-event' }))
+        ])(
+            'starts a github workflow only when the delivery is not our own write: %s',
+            async (_name, ownApp, expected) => {
+                // A workflow that comments back on an issue sees its own comment arrive on this topic.
+                // The guard is part of eligibility, not the trigger's stored filters, so a workflow
+                // created through the API or MCP still has it.
+                await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'github-event' }))
 
-            const globals = await processor._parseKafkaBatch([
-                createKafkaMessage(githubEvent(team.id, { own_app: ownApp })),
-            ])
-            const { invocations } = await processor.processBatch(globals)
+                const globals = await processor._parseKafkaBatch([
+                    createKafkaMessage(githubEvent(team.id, { own_app: ownApp })),
+                ])
+                const { invocations } = await processor.processBatch(globals)
 
-            expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(expected)
-        })
+                expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(expected)
+            }
+        )
 
         it('should parse a message for a team that has a hog flow but no hog functions', async () => {
             // The parse step used to drop any team with no internal_destination functions, which
