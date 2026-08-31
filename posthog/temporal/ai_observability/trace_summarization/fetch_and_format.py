@@ -122,15 +122,21 @@ def _fetch_and_format_generation(
 
     # Query the dedicated table first; the resolver rewrites + re-runs against the
     # shared `events` table when ai_events returns zero rows (data beyond the
-    # retention window). Heavy columns (`input`, `output`) live only as native
-    # columns on ai_events, so only this path can recover them for recent rows.
+    # retention window). Heavy columns (`input`, `output`, `output_choices`) live
+    # only as native columns on ai_events, so only this path can recover them for
+    # recent rows.
+    # `$ai_output` is empty for chat-format SDK calls (most OpenAI/Anthropic);
+    # the result lives in `$ai_output_choices`, so coalesce to it.
     query = parse_select(
         """
         SELECT
             model,
             provider,
             input,
-            output,
+            coalesce(
+                nullIf(output, ''),
+                output_choices
+            ) as output,
             input_tokens,
             output_tokens,
             latency
