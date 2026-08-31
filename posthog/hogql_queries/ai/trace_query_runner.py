@@ -24,7 +24,12 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_generation_sentiment_evaluations_for_traces,
 )
-from posthog.hogql_queries.ai.utils import filled_property_filters, merge_heavy_properties, parse_ai_property_value
+from posthog.hogql_queries.ai.utils import (
+    filled_property_filters,
+    merge_heavy_properties,
+    parse_ai_properties,
+    parse_ai_property_value,
+)
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -49,11 +54,14 @@ TRACE_FIELDS_MAPPING: dict[str, str] = {
 
 class TraceQueryDateRange(QueryDateRange):
     """
-    Provides a bounded capture range for the shared-events fallback.
+    Provides a bounded capture range for both read paths.
 
-    The dedicated table is ordered by `(team_id, trace_id, timestamp)`, so an exact trace lookup
-    does not need timestamp bounds. Shared events is ordered by day and event, so its fallback
-    stays time-bounded.
+    A trace ID is not guaranteed unique over time: a caller can reuse the same ID for a new
+    trace instance days or months later. Without timestamp bounds the query groups every event
+    that ever carried the ID into one trace, so the response mixes separate instances and returns
+    events outside the requested window. Both read paths therefore stay time-bounded to the
+    requested window plus these capture buffers, which keeps a single instance intact while
+    dropping the others.
     """
 
     # Backward buffer: clock skew / the small negative anchor the frontend applies to date_from.
@@ -85,11 +93,10 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     def _calculate(self):
         query_result = query_ai_events(
             query=self._build_query(),
-            placeholders={"filter_conditions": self._get_where_clause(include_timestamp_bounds=False)},
+            placeholders={"filter_conditions": self._get_where_clause()},
             team=self.team,
             query_type=NodeKind.TRACE_QUERY,
             fall_back_to_events=True,
-            fallback_placeholders={"filter_conditions": self._get_where_clause()},
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -98,14 +105,20 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         columns: list[str] = query_result.columns or []
         sentiment_lookup = EMPTY_SENTIMENT_EVALUATION_LOOKUP
         if self.query.includeSentiment and query_result.results:
-            sentiment_lookup = load_generation_sentiment_evaluations_for_traces(
-                team=self.team,
-                trace_ids=[self.query.traceId],
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-                query_type="TraceQuerySentimentEvaluations",
-            )
+            # The event query is bounded to the requested window, but a reused trace ID can carry
+            # sentiment evaluations from other instances too. Constrain the lookup to the target
+            # ids of the events this trace actually returns so the aggregate stays in-instance.
+            target_event_ids = self._collect_sentiment_target_ids(columns, query_result.results)
+            if target_event_ids:
+                sentiment_lookup = load_generation_sentiment_evaluations_for_traces(
+                    team=self.team,
+                    trace_ids=[self.query.traceId],
+                    generation_ids=target_event_ids,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                    query_type="TraceQuerySentimentEvaluations",
+                )
 
         results = self._map_results(columns, query_result.results, sentiment_lookup)
 
@@ -238,23 +251,19 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
 
         return last_refresh + timedelta(minutes=1)
 
-    def _get_where_clause(self, *, include_timestamp_bounds: bool = True) -> ast.Expr:
-        where_exprs: list[ast.Expr] = []
-        if include_timestamp_bounds:
-            where_exprs.extend(
-                [
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["ai_events", "timestamp"]),
-                        right=self._date_range.date_from_as_hogql(),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.LtEq,
-                        left=ast.Field(chain=["ai_events", "timestamp"]),
-                        right=self._date_range.date_to_as_hogql(),
-                    ),
-                ]
-            )
+    def _get_where_clause(self) -> ast.Expr:
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["ai_events", "timestamp"]),
+                right=self._date_range.date_from_as_hogql(),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["ai_events", "timestamp"]),
+                right=self._date_range.date_to_as_hogql(),
+            ),
+        ]
 
         where_exprs.append(
             ast.CompareOperation(
@@ -271,6 +280,19 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                     where_exprs.append(property_to_expr(prop, self.team))
 
         return ast.And(exprs=where_exprs)
+
+    def _collect_sentiment_target_ids(self, columns: list[str], query_results: list) -> list[str]:
+        # A sentiment evaluation links to its target event through $ai_target_event_id, which is the
+        # target event's uuid (or, for a generation, its $ai_generation_id). Gather those ids for the
+        # events this trace returns so the sentiment lookup matches only this instance's evaluations.
+        target_ids: list[str] = []
+        for value in query_results:
+            result = dict(zip(columns, value))
+            for event_tuple in result.get("events") or []:
+                event_uuid, event_name = event_tuple[0], event_tuple[1]
+                properties = parse_ai_properties(event_tuple[3])
+                target_ids.extend(get_generation_sentiment_lookup_ids(str(event_uuid), event_name, properties))
+        return target_ids
 
     def _map_event(self, event_tuple: tuple, sentiment_lookup: SentimentEvaluationLookup) -> LLMTraceEvent:
         event_uuid, event_name, event_timestamp, event_properties, *heavy = event_tuple
